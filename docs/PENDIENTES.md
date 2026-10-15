@@ -32,6 +32,7 @@ Estas opciones convierten las preguntas de prioridad 1 en decisiones concretas p
 
 | Tema | Opción mínima sugerida | Confirmación necesaria |
 | --- | --- | --- |
+| Plantilla aplicable | El `ADMIN` asigna una plantilla vigente a cada empleado, con fecha de inicio. Un cambio conserva la plantilla anterior para interpretar las marcas históricas. | ¿Hay empleados que alternan plantillas dentro de una misma semana? Si los hay, definir una excepción puntual por fecha sin crear un cronograma semanal. |
 | Falta de ingreso | En la primera versión, mostrar las marcas existentes sin generar una alerta automática por ausencia. Si Mateo necesita esa alerta, definir días habituales por plantilla y excepciones para feriados, licencias y cambios de turno. | ¿Mateo confirma que la primera versión no detectará ausencias automáticamente? Si luego se incorpora, la recurrencia por días no debe convertirse en planificación semanal. |
 | Horario nocturno y cortado | Asociar la jornada a la fecha local en que comienza el primer bloque esperado; los dos bloques de un horario cortado pertenecen a esa misma jornada. | ¿Cuántas pausas se permiten por jornada y cómo se corrige un bloque que no se trabajó? |
 | Desvío con motivo | Registrar primero la hora del intento recibido por el servidor y pedir después el motivo y la categoría, sin perder la marca si el empleado tarda en escribir. | ¿Qué estado y aviso corresponden si el motivo queda sin completar? |
