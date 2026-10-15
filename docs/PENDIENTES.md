@@ -16,7 +16,7 @@ Este archivo organiza preguntas para Mateo. **No cambia el estado de ninguna dec
 
 | Prioridad | Pregunta a resolver | Por qué importa |
 | --- | --- | --- |
-| 1 | ¿Qué días se espera que trabaje cada empleado y cómo se manejan feriados, licencias y cambios de horario, sin crear un cronograma semanal? | Sin esa regla, «sin ingreso» puede producir falsas ausencias. |
+| 1 | ¿Cómo se asigna a cada empleado una plantilla para las jornadas trabajadas y cómo se registra un cambio de horario? | Permite comparar cada marca con el horario correcto sin crear un cronograma semanal. Los días habituales, feriados y licencias solo hacen falta si luego se decide detectar ausencias. |
 | 1 | ¿Qué pasa con una marca olvidada, repetida, simultánea o hecha sin conexión? ¿Quién puede corregirla y qué historial se conserva? | Afecta la integridad del registro y la confianza en su hora. |
 | 1 | ¿En qué momento queda registrada la hora si una marca genera un desvío y el empleado aún no completó el motivo? | El tiempo de escritura no debería alterar el hecho que se quiere registrar. |
 | 1 | ¿Cómo se aplican las plantillas a horarios nocturnos y cortados? ¿Puede haber más de un ingreso o pausa por jornada? | Define a qué jornada pertenece cada marca y qué secuencias son válidas. |
@@ -26,9 +26,23 @@ Este archivo organiza preguntas para Mateo. **No cambia el estado de ninguna dec
 
 La máquina de estados, la detección automática de marcas faltantes, la corrección con auditoría, el radio de sedes y el método de inicio de sesión descritos en el relevamiento son **propuestas de especificación** hasta que se cierre su comportamiento. Las estimaciones de horas y hosting del artefacto de Claude tampoco son un compromiso aprobado.
 
+## Propuesta de resolución de la jornada (sin adoptar)
+
+Estas opciones convierten las preguntas de prioridad 1 en decisiones concretas para Mateo. Se eligió para la primera versión consultar los registros sin alerta automática de ausencia; Mateo debe confirmar esa regla antes de adoptarla. Ninguna modifica [DECISIONES.md](DECISIONES.md).
+
+| Tema | Opción mínima sugerida | Confirmación necesaria |
+| --- | --- | --- |
+| Falta de ingreso | En la primera versión, mostrar las marcas existentes sin generar una alerta automática por ausencia. Si Mateo necesita esa alerta, definir días habituales por plantilla y excepciones para feriados, licencias y cambios de turno. | ¿Mateo confirma que la primera versión no detectará ausencias automáticamente? Si luego se incorpora, la recurrencia por días no debe convertirse en planificación semanal. |
+| Horario nocturno y cortado | Asociar la jornada a la fecha local en que comienza el primer bloque esperado; los dos bloques de un horario cortado pertenecen a esa misma jornada. | ¿Cuántas pausas se permiten por jornada y cómo se corrige un bloque que no se trabajó? |
+| Desvío con motivo | Registrar primero la hora del intento recibido por el servidor y pedir después el motivo y la categoría, sin perder la marca si el empleado tarda en escribir. | ¿Qué estado y aviso corresponden si el motivo queda sin completar? |
+| Falta de conexión o marca olvidada | Mostrar claramente que la marca no se registró y pedir reintento cuando vuelva la conexión. No atribuir al servidor una hora que nunca recibió. | ¿Quién puede corregir una marca y qué datos originales se conservan para auditarla? |
+| Toques repetidos | Dos envíos de la misma acción deben producir una sola marca y una respuesta clara al empleado. | ¿Se permite repetir ingreso o egreso dentro de una misma jornada? |
+
+
+
 ## Orden sugerido para cerrar el relevamiento
 
-1. Resolver los días esperados, la jornada nocturna o cortada y los casos de marcas fallidas.
+1. Resolver la asignación de plantillas, la jornada nocturna o cortada y los casos de marcas fallidas.
 2. Definir el flujo de justificación y decidir D-20261014-08 y D-20261014-12.
 3. Decidir D-20261014-13 a D-20261014-15 y probar los avisos en el dispositivo real del `ADMIN` si se adopta push.
 4. Convertir las respuestas en criterios de aceptación concretos dentro de [ESPECIFICACION.md](ESPECIFICACION.md).
