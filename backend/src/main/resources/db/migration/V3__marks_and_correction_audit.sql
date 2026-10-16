@@ -1,0 +1,52 @@
+CREATE TABLE mark_events (
+    id CHAR(36) NOT NULL,
+    company_id CHAR(36) NOT NULL,
+    jornada_id CHAR(36) NOT NULL,
+    sequence_number BIGINT UNSIGNED NOT NULL,
+    action VARCHAR(32) NOT NULL,
+    original_action VARCHAR(32) NOT NULL,
+    occurred_at DATETIME(6) NOT NULL,
+    original_occurred_at DATETIME(6) NOT NULL,
+    accepted_at DATETIME(6) NOT NULL,
+    recorded_at DATETIME(6) NOT NULL,
+    origin VARCHAR(16) NOT NULL,
+    created_by CHAR(36) NOT NULL,
+    location_status VARCHAR(20) NOT NULL,
+    latitude DECIMAL(10, 7) NULL,
+    longitude DECIMAL(10, 7) NULL,
+    accuracy_meters DECIMAL(9, 2) NULL,
+    location_received_at DATETIME(6) NULL,
+    location_expires_at DATETIME(6) NULL,
+    location_purged_at DATETIME(6) NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_mark_jornada_sequence (jornada_id, sequence_number),
+    UNIQUE KEY uq_mark_id_company (id, company_id),
+    KEY ix_mark_jornada_order (company_id, jornada_id, sequence_number),
+    KEY ix_mark_location_expiry (location_status, location_expires_at),
+    CONSTRAINT chk_mark_action CHECK (action IN ('INGRESO', 'EGRESO', 'SALIDA_DESAYUNO', 'VUELTA_DESAYUNO', 'SALIDA_ALMUERZO', 'VUELTA_ALMUERZO')),
+    CONSTRAINT chk_mark_original_action CHECK (original_action IN ('INGRESO', 'EGRESO', 'SALIDA_DESAYUNO', 'VUELTA_DESAYUNO', 'SALIDA_ALMUERZO', 'VUELTA_ALMUERZO')),
+    CONSTRAINT chk_mark_origin CHECK (origin IN ('EMPLEADO', 'ADMIN')),
+    CONSTRAINT chk_mark_location_status CHECK (location_status IN ('PENDIENTE', 'RECIBIDA', 'SIN_UBICACION', 'NO_APLICA', 'PURGADA')),
+    CONSTRAINT chk_mark_coordinates CHECK ((latitude IS NULL AND longitude IS NULL) OR (latitude IS NOT NULL AND longitude IS NOT NULL)),
+    CONSTRAINT fk_mark_jornada FOREIGN KEY (jornada_id, company_id)
+        REFERENCES jornadas (id, company_id),
+    CONSTRAINT fk_mark_creator FOREIGN KEY (created_by) REFERENCES accounts (id)
+) ENGINE=InnoDB;
+
+CREATE TABLE mark_correction_audits (
+    id CHAR(36) NOT NULL,
+    company_id CHAR(36) NOT NULL,
+    mark_id CHAR(36) NOT NULL,
+    before_action VARCHAR(32) NOT NULL,
+    after_action VARCHAR(32) NOT NULL,
+    before_occurred_at DATETIME(6) NOT NULL,
+    after_occurred_at DATETIME(6) NOT NULL,
+    actor_account_id CHAR(36) NOT NULL,
+    audit_reason VARCHAR(2000) NOT NULL,
+    corrected_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (id),
+    KEY ix_mark_correction_history (mark_id, corrected_at),
+    CONSTRAINT fk_mark_correction_mark FOREIGN KEY (mark_id, company_id)
+        REFERENCES mark_events (id, company_id),
+    CONSTRAINT fk_mark_correction_actor FOREIGN KEY (actor_account_id) REFERENCES accounts (id)
+) ENGINE=InnoDB;
