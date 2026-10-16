@@ -1,28 +1,22 @@
 # Pendientes de definición — Fichaje Braja
 
-Este archivo organiza las preguntas que siguen abiertas. **No cambia el estado de ninguna decisión.** Solo [DECISIONES.md](DECISIONES.md) registra una propuesta como adoptada por el dueño.
+Este archivo reúne asuntos que requieren una decisión adicional o una validación externa. No reemplaza a [DECISIONES.md](DECISIONES.md), que es la fuente de verdad de lo adoptado por Mateo.
 
-## Propuestas registradas
+## Estado de decisiones
 
-| ID | Decisión que Mateo debe adoptar, ajustar o rechazar | Impacto |
+Las 22 decisiones base están adoptadas, incluidas D-20261014-12 a D-20261014-15 el 2026-10-16. Mateo también adoptó cuatro aclaraciones técnicas de acceso, jornadas, egresos y privacidad de salud, registradas como D-20261016-01 a -04. El registro suma 26 filas adoptadas y 0 propuestas funcionales pendientes.
+
+## Validaciones y definiciones pendientes
+
+| Prioridad | Pendiente | Motivo |
 | --- | --- | --- |
-| D-20261014-12 | Fichaje con la ubicación del celular para todos, sin QR ni hardware; aceptación del riesgo de GPS falso. | Flujo de marca, sedes y tratamiento de ubicación. |
-| D-20261014-13 | PWA con React y Vite; Capacitor como alternativa si fallan las notificaciones en iPhone. | Aplicación móvil y prueba en dispositivos reales. |
-| D-20261014-14 | Java 21, Spring Boot MVC, MySQL 8 y Flyway, sin Redis, colas ni microservicios. | Arquitectura técnica. |
-| D-20261014-15 | Notificaciones emergentes al `ADMIN` solo por desvíos, agrupadas en una ventana configurable. | Canal y reglas de avisos. |
+| 1 | Validar con asesoría competente el aviso, propósito, base legal y derechos aplicables al tratamiento de ubicación y motivos de salud. | Las reglas técnicas de acceso y purga no sustituyen la revisión legal. |
+| 1 | Definir la retención de motivos que no sean de salud y la política de eliminación efectiva en copias de respaldo. | La decisión adoptada fija 90 días para coordenadas y texto de salud, pero no para los demás motivos ni copias. |
+| 2 | Elegir proveedor de hosting y dominio HTTPS para la prueba real de Web Push en el iPhone del ADMIN. | D-20261014-16 excluye el dominio actual de Braja; la prueba de push necesita un origen HTTPS. |
+| 2 | Ejecutar la prueba de Web Push en el iPhone real del ADMIN y, si falla, decidir la activación del plan B Capacitor. | La compatibilidad no se certifica solo con pruebas automatizadas. |
+| 1 | Definir el proceso seguro para incorporar nuevas empresas y sus primeros ADMIN después del bootstrap inicial. | El bootstrap crea la primera empresa, sede y cuenta ADMIN una sola vez en una base vacía; no hay una pantalla ni endpoint para dar de alta otros tenants. |
+| 2 | Definir un canal seguro de recuperación de contraseña. | No existe un mecanismo aprobado para restablecer credenciales sin intervención manual del operador. |
 
-## Reglas de negocio que siguen abiertas
+## Criterio de implementación
 
-| Prioridad | Pregunta a resolver | Por qué importa |
-| --- | --- | --- |
-| 1 | Si se adopta la ubicación: ¿qué ocurre sin permiso, sin señal o fuera de una sede? ¿Quién ve la ubicación y cuánto tiempo se conserva? | Evita que el fichaje dependa de una medición imprecisa y acota el acceso a los datos. |
-| 1 | ¿Quién consulta los motivos y por cuánto tiempo se conservan, en especial los ingresados bajo «salud»? | El texto libre puede contener información personal que no hace falta difundir. |
-| 2 | ¿Qué desvíos generan un aviso dentro de la app y cuáles, si se adopta D-15, generan una notificación emergente? | Permite informar anomalías sin saturar al `ADMIN`. |
-
-Las reglas de `SIN_INGRESO` y su reemplazo por `LLEGADA_TARDE` (D-20261015-01), la asignación de plantillas y jornadas (D-20261015-02), el registro en servidor, los reintentos duplicados y la corrección auditada (D-20261015-03), los motivos pendientes (D-20261015-04), las marcas olvidadas (D-20261015-05), las acciones simultáneas (D-20261015-06) y la decisión del ADMIN sobre la justificación (D-20261014-08) quedaron adoptados en [DECISIONES.md](DECISIONES.md). D-20261015-05 y D-20261015-06 resuelven el alta auditada de marcas olvidadas y el orden de acciones distintas simultáneas. D-20261014-12 a D-20261014-15 siguen como propuestas. El resto de la máquina de estados, el radio de sedes y el método de inicio de sesión descritos en el relevamiento siguen pendientes de especificación. Las estimaciones de horas y hosting del artefacto de Claude tampoco son un compromiso aprobado.
-
-## Orden sugerido para cerrar el relevamiento
-
-1. Definir qué ocurre con la ubicación sin permiso o señal, quién la consulta y cuánto se conserva; hacer lo mismo con los motivos de categoría «salud».
-2. Decidir D-20261014-12 a D-20261014-15; si se adopta push, probarlo en el dispositivo real del `ADMIN`.
-3. Revisar que las decisiones adoptadas y las propuestas que Mateo apruebe estén reflejadas en los criterios de aceptación de [ESPECIFICACION.md](ESPECIFICACION.md).
+Los pendientes de validación legal, hosting y dispositivo no cambian los comportamientos adoptados. No se deben agregar geocercas que bloqueen marcas ni enviar avisos por canales externos. Las dudas técnicas de despliegue deben documentarse sin cambiar decisiones de producto.
