@@ -1,0 +1,10 @@
+spring:
+  config:
+    import: optional:file:../.env[.properties]
+server:
+  servlet:
+    session:
+      cookie:
+        secure: ${BRAJA_SESSION_COOKIE_SECURE:false}
+braja:
+  session-cookie-secure: ${BRAJA_SESSION_COOKIE_SECURE:false}

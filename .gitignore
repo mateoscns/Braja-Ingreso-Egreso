@@ -1,0 +1,15 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+
+# Build outputs
+**/target/
+**/node_modules/
+**/dist/
+**/coverage/
+*.tsbuildinfo
+
+# Local indexes and task artifacts
+.codegraph/
+.superpowers/

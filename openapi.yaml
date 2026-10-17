@@ -1,0 +1,982 @@
+openapi: 3.1.0
+info:
+  title: Fichaje Braja API
+  version: 1.0.0
+  description: >-
+    API v1 for the first-party Braja time-marking application. The active company,
+    actor, role, site access, and employee scope are derived from the authenticated
+    server session. Client-supplied identifiers are selectors only and never grant access.
+servers:
+  - url: /api/v1
+security:
+  - sessionCookie: []
+tags:
+  - name: Session
+  - name: Company
+  - name: Sites
+  - name: Employees
+  - name: Templates
+  - name: Jornadas
+  - name: Marks
+  - name: Deviations
+  - name: Inbox
+  - name: Push
+paths:
+  /public-config:
+    get:
+      tags: [Session]
+      summary: Return non-secret client configuration
+      description: The response may expose the public VAPID key; it never includes private keys or credentials.
+      security: []
+      responses:
+        '200':
+          description: Public configuration used by the PWA
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicConfig' }
+  /csrf:
+    get:
+      tags: [Session]
+      summary: Issue an anonymous CSRF token for login and session bootstrap
+      security: []
+      responses:
+        '200':
+          description: Token to retain in memory and send as X-CSRF-TOKEN on unsafe requests
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+              description: Non-HttpOnly CSRF cookie bound to the browser session.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token]
+                properties:
+                  token: { type: string, minLength: 16, maxLength: 256 }
+  /session:
+    get:
+      tags: [Session]
+      summary: Return the current account and validated company memberships
+      responses:
+        '200':
+          description: Current authenticated session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Session]
+      summary: Sign in with DNI and password
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dni, password]
+              properties:
+                dni: { type: string, minLength: 7, maxLength: 12 }
+                password: { type: string, minLength: 1, maxLength: 256, writeOnly: true }
+      responses:
+        '200':
+          description: Authenticated; the server sets a Secure, HttpOnly session cookie
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+              description: Session cookie; SameSite and Secure attributes are required in production.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+    delete:
+      tags: [Session]
+      summary: End the current session
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '204': { description: Session ended }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /session/password:
+    put:
+      tags: [Session]
+      summary: Change the current account password
+      description: Required after the first ADMIN provisions an employee with a temporary password.
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: { type: string, minLength: 1, maxLength: 256, writeOnly: true }
+                newPassword: { type: string, minLength: 12, maxLength: 256, writeOnly: true }
+      responses:
+        '204': { description: Password changed; temporary-password requirement cleared }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /companies:
+    get:
+      tags: [Company]
+      summary: List companies to which the account belongs
+      responses:
+        '200':
+          description: Authorized memberships only
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Membership' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /companies/active:
+    put:
+      tags: [Company]
+      summary: Select an already-authorized company membership
+      description: The server verifies membership before changing session context. This ID is not an authorization claim.
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [companyId]
+              properties:
+                companyId: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Active company changed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /sites:
+    get:
+      tags: [Sites]
+      summary: List sites visible in the active company
+      responses:
+        '200':
+          description: Sites in the active company only
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Site' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Sites]
+      summary: Create a site in the active company
+      description: ADMIN only. The server derives the company from the session.
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, timeZone]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 120 }
+                timeZone: { type: string, description: IANA time zone, example: America/Argentina/Buenos_Aires }
+      responses:
+        '201':
+          description: Site created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Site' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /employees:
+    get:
+      tags: [Employees]
+      summary: List employees in the active company
+      description: ADMIN only. The response never includes password hashes or credentials.
+      responses:
+        '200':
+          description: Employees in the active company only
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Employee' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Employees]
+      summary: Create or add a global DNI account as an employee of the active company
+      description: >-
+        ADMIN only. The account may already exist in another company. A temporary
+        password is required only for a new global DNI account; an existing account
+        keeps its current credential. The server requires a password change at the
+        next login. Password values must be redacted from application logs and telemetry.
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dni, displayName, siteIds, toleranceMinutes]
+              properties:
+                dni: { type: string, minLength: 7, maxLength: 12 }
+                displayName: { type: string, minLength: 1, maxLength: 160 }
+                siteIds:
+                  type: array
+                  minItems: 1
+                  uniqueItems: true
+                  items: { $ref: '#/components/schemas/Id' }
+                toleranceMinutes: { type: integer, minimum: 0, maximum: 240 }
+                temporaryPassword: { type: string, minLength: 12, maxLength: 256, writeOnly: true }
+      responses:
+        '201':
+          description: Employee membership created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Employee' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /employees/{employeeId}:
+    patch:
+      tags: [Employees]
+      summary: Update employee profile, site membership, or future tolerance
+      description: ADMIN only. Existing jornadas keep their captured tolerance and site.
+      parameters:
+        - $ref: '#/components/parameters/EmployeeId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                displayName: { type: string, minLength: 1, maxLength: 160 }
+                siteIds:
+                  type: array
+                  uniqueItems: true
+                  items: { $ref: '#/components/schemas/Id' }
+                toleranceMinutes: { type: integer, minimum: 0, maximum: 240 }
+                active: { type: boolean }
+      responses:
+        '200':
+          description: Employee updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Employee' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /templates:
+    get:
+      tags: [Templates]
+      summary: List schedule templates, optionally filtered by site
+      parameters:
+        - name: siteId
+          in: query
+          schema: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Templates accessible to the session in the active company
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Template' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Templates]
+      summary: Create a schedule template for a site
+      description: ADMIN only. Blocks use local time and explicit day offsets for overnight schedules.
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TemplateInput' }
+      responses:
+        '201':
+          description: Template created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Template' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /templates/{templateId}:
+    patch:
+      tags: [Templates]
+      summary: Update a reusable template
+      description: ADMIN only. Already-declared jornadas are immutable snapshots and are not changed.
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/Id' }
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TemplateInput' }
+      responses:
+        '200':
+          description: Template updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Template' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /jornadas:
+    get:
+      tags: [Jornadas]
+      summary: List jornadas in a local date range
+      description: Employees may query only their own jornadas; ADMIN may query employees in the active company.
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: employeeId
+          in: query
+          description: Accepted only for ADMIN; ignored only if omitted, never used to widen employee access.
+          schema: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Jornadas within the authorized scope
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/JornadaSummary' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    post:
+      tags: [Jornadas]
+      summary: Declare a jornada for an employee, site, and local date
+      description: ADMIN only. Unique by employee, site, and local date. The server snapshots the template and employee tolerance.
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employeeId, siteId, localDate, templateId]
+              properties:
+                employeeId: { $ref: '#/components/schemas/Id' }
+                siteId: { $ref: '#/components/schemas/Id' }
+                localDate: { type: string, format: date }
+                templateId: { $ref: '#/components/schemas/Id' }
+      responses:
+        '201':
+          description: Jornada declared
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Jornada' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /jornadas/mine:
+    get:
+      tags: [Jornadas]
+      summary: List the current account's jornadas for one local date
+      parameters:
+        - name: localDate
+          in: query
+          required: true
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Own jornadas in the active company and date
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Jornada' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /jornadas/{jornadaId}:
+    get:
+      tags: [Jornadas]
+      summary: Read current status and the schedule snapshot of one authorized jornada
+      parameters:
+        - $ref: '#/components/parameters/JornadaId'
+      responses:
+        '200':
+          description: Jornada and current server-derived state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Jornada' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /jornadas/{jornadaId}/marks:
+    post:
+      tags: [Marks]
+      summary: Record one employee mark immediately
+      description: >-
+        The server captures receivedAt before lock acquisition, then locks the jornada,
+        validates the latest state, assigns a monotonic sequence, and persists the mark.
+        GPS capture runs in parallel and never delays this response. Retrying an identical
+        Idempotency-Key and payload returns the original mark. Reusing the key with a
+        different payload returns 409. INGRESO is accepted from 30 minutes before the
+        scheduled start; late ingress remains accepted. Other actions are not accepted
+        before the scheduled start. No offline action is accepted.
+      parameters:
+        - $ref: '#/components/parameters/JornadaId'
+        - $ref: '#/components/parameters/CsrfToken'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Client-generated UUID retained by the client for retries of this exact action.
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { $ref: '#/components/schemas/MarkAction' }
+      responses:
+        '201':
+          description: New mark persisted; its acceptance timestamp is authoritative
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Mark' }
+        '200':
+          description: Exact idempotent retry; returns the previously persisted mark
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Mark' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /marks/{markId}:
+    get:
+      tags: [Marks]
+      summary: Read a mark in the caller's authorized scope
+      parameters:
+        - $ref: '#/components/parameters/MarkId'
+      responses:
+        '200':
+          description: Mark details; exact coordinates are returned only to an authorized ADMIN
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Mark' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /marks/{markId}/location:
+    post:
+      tags: [Marks]
+      summary: Attach location received after the mark was persisted
+      description: >-
+        The server uses its receipt time to enforce the 30-second window. A late,
+        duplicate, or unauthorized attachment cannot change the mark timestamp.
+        The response never echoes coordinates to an employee client.
+      parameters:
+        - $ref: '#/components/parameters/MarkId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [latitude, longitude, accuracyMeters]
+              properties:
+                latitude: { type: number, minimum: -90, maximum: 90 }
+                longitude: { type: number, minimum: -180, maximum: 180 }
+                accuracyMeters: { type: number, minimum: 0, maximum: 100000 }
+      responses:
+        '202':
+          description: Location associated; status remains private
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [markId, locationStatus]
+                properties:
+                  markId: { $ref: '#/components/schemas/Id' }
+                  locationStatus: { type: string, const: RECIBIDA }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/jornadas/{jornadaId}/forgotten-marks:
+    post:
+      tags: [Marks]
+      summary: Add a forgotten mark with separate event and entry times
+      description: ADMIN only. The server records the stated event time, the current server entry time, author, and audit reason separately.
+      parameters:
+        - $ref: '#/components/parameters/JornadaId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action, occurredAt, auditReason]
+              properties:
+                action: { $ref: '#/components/schemas/MarkAction' }
+                occurredAt: { type: string, format: date-time }
+                auditReason: { type: string, minLength: 1, maxLength: 2000 }
+      responses:
+        '201':
+          description: Forgotten mark added and audited
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Mark' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/marks/{markId}/correction:
+    post:
+      tags: [Marks]
+      summary: Correct a mark without overwriting its original value
+      description: ADMIN only. The original value, corrected value, actor, server correction time, and audit reason remain available to authorized reviewers.
+      parameters:
+        - $ref: '#/components/parameters/MarkId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [correctedAction, correctedOccurredAt, auditReason]
+              properties:
+                correctedAction: { $ref: '#/components/schemas/MarkAction' }
+                correctedOccurredAt: { type: string, format: date-time }
+                auditReason: { type: string, minLength: 1, maxLength: 2000 }
+      responses:
+        '200':
+          description: Correction audited
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Mark' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /deviations:
+    get:
+      tags: [Deviations]
+      summary: List deviations in the caller's authorized scope
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [MOTIVO_PENDIENTE, PENDIENTE_REVISION, JUSTIFICADO, NO_JUSTIFICADO]
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - name: siteId
+          in: query
+          schema: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Deviation summaries. Health text is omitted unless caller is its author or the company's ADMIN.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Deviation' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /deviations/{deviationId}/motive:
+    put:
+      tags: [Deviations]
+      summary: Submit or complete the employee's reason for a deviation
+      description: Only the employee who owns the deviation may submit their reason. Health text is encrypted and omitted from logs and push payloads.
+      parameters:
+        - $ref: '#/components/parameters/DeviationId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category, text]
+              properties:
+                category: { $ref: '#/components/schemas/MotiveCategory' }
+                text: { type: string, minLength: 1, maxLength: 4000, writeOnly: true }
+      responses:
+        '200':
+          description: Motive saved; no push is generated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Deviation' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/deviations/{deviationId}/classification:
+    put:
+      tags: [Deviations]
+      summary: Decide or correct whether a deviation is justified
+      description: Only an ADMIN in the deviation's company may classify it. The server audits the previous value, new value, actor, time, and correction reason.
+      parameters:
+        - $ref: '#/components/parameters/DeviationId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [classification]
+              properties:
+                classification: { type: string, enum: [JUSTIFICADO, NO_JUSTIFICADO] }
+                correctionReason: { type: string, maxLength: 2000 }
+      responses:
+        '200':
+          description: Classification saved and audited
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Deviation' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /inbox:
+    get:
+      tags: [Inbox]
+      summary: List in-app deviations and their review state
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string, maxLength: 256 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        '200':
+          description: Feed in the current account's authorized scope
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Deviation' }
+                  nextCursor: { type: [string, 'null'] }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /push/subscriptions:
+    put:
+      tags: [Push]
+      summary: Register or update this ADMIN account's browser push subscription
+      description: ADMIN only. The subscription is scoped to the active company and user. Push content contains no reason, coordinates, or health category.
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [endpoint, keys]
+              properties:
+                endpoint: { type: string, format: uri, maxLength: 2048, writeOnly: true }
+                keys:
+                  type: object
+                  required: [p256dh, auth]
+                  properties:
+                    p256dh: { type: string, maxLength: 256, writeOnly: true }
+                    auth: { type: string, maxLength: 128, writeOnly: true }
+      responses:
+        '200':
+          description: Subscription registered or updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id: { $ref: '#/components/schemas/Id' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /push/subscriptions/{subscriptionId}:
+    delete:
+      tags: [Push]
+      summary: Remove the current ADMIN browser push subscription
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+        - name: subscriptionId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/Id' }
+      responses:
+        '204': { description: Subscription removed if owned by this account }
+        '403': { $ref: '#/components/responses/Forbidden' }
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: BRAJA_SESSION
+      description: Server-side session; cookie is Secure, HttpOnly, and SameSite in production.
+  parameters:
+    CsrfToken:
+      name: X-CSRF-TOKEN
+      in: header
+      required: true
+      description: CSRF token bound to the authenticated session for unsafe requests.
+      schema: { type: string, minLength: 16, maxLength: 256 }
+    EmployeeId:
+      name: employeeId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    JornadaId:
+      name: jornadaId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    MarkId:
+      name: markId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    DeviationId:
+      name: deviationId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+  schemas:
+    Id: { type: string, format: uuid }
+    PublicConfig:
+      type: object
+      required: [pushEnabled, vapidPublicKey]
+      properties:
+        pushEnabled: { type: boolean }
+        vapidPublicKey: { oneOf: [{ type: string }, { type: 'null' }] }
+    Session:
+      type: object
+      required: [accountId, memberships, activeCompanyId, mustChangePassword]
+      properties:
+        accountId: { $ref: '#/components/schemas/Id' }
+        dni: { type: string }
+        memberships:
+          type: array
+          items: { $ref: '#/components/schemas/Membership' }
+        activeCompanyId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        mustChangePassword: { type: boolean }
+    Membership:
+      type: object
+      required: [companyId, companyName, role]
+      properties:
+        companyId: { $ref: '#/components/schemas/Id' }
+        companyName: { type: string }
+        role: { type: string, enum: [ADMIN, EMPLOYEE] }
+    Site:
+      type: object
+      required: [id, name, timeZone]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        name: { type: string }
+        timeZone: { type: string, description: IANA time zone }
+    Employee:
+      type: object
+      required: [id, displayName, siteIds, toleranceMinutes, active]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        displayName: { type: string }
+        dni: { type: string }
+        siteIds:
+          type: array
+          items: { $ref: '#/components/schemas/Id' }
+        toleranceMinutes: { type: integer, minimum: 0 }
+        active: { type: boolean }
+        mustChangePassword: { type: boolean }
+    TemplateInput:
+      type: object
+      required: [siteId, name, blocks, breakfastLimitMinutes, lunchLimitMinutes]
+      properties:
+        siteId: { $ref: '#/components/schemas/Id' }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        blocks:
+          type: array
+          minItems: 1
+          maxItems: 4
+          items:
+            type: object
+            required: [startDayOffset, start, end, endDayOffset]
+            properties:
+              startDayOffset: { type: integer, enum: [0, 1], description: The first block must start on day offset 0. }
+              start: { type: string, format: time }
+              end: { type: string, format: time }
+              endDayOffset: { type: integer, enum: [0, 1] }
+          description: Local-time work blocks; the last block end is the scheduled jornada end.
+        breakfastLimitMinutes: { type: integer, minimum: 0, maximum: 240 }
+        lunchLimitMinutes: { type: integer, minimum: 0, maximum: 240 }
+    Template:
+      allOf:
+        - $ref: '#/components/schemas/TemplateInput'
+        - type: object
+          required: [id, active]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            active: { type: boolean }
+    JornadaSummary:
+      type: object
+      required: [id, employeeId, siteId, localDate, state]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        employeeId: { $ref: '#/components/schemas/Id' }
+        siteId: { $ref: '#/components/schemas/Id' }
+        localDate: { type: string, format: date }
+        state: { type: string, enum: [NO_INGRESO, EN_CURSO, PAUSA_ABIERTA, EGRESADA] }
+    Jornada:
+      allOf:
+        - $ref: '#/components/schemas/JornadaSummary'
+        - type: object
+          required: [scheduleSnapshot, toleranceMinutes, sequence, marks]
+          properties:
+            scheduleSnapshot: { $ref: '#/components/schemas/TemplateInput' }
+            toleranceMinutes: { type: integer, minimum: 0 }
+            sequence: { type: integer, minimum: 0 }
+            marks:
+              type: array
+              items: { $ref: '#/components/schemas/Mark' }
+    MarkAction:
+      type: string
+      enum: [INGRESO, EGRESO, SALIDA_DESAYUNO, VUELTA_DESAYUNO, SALIDA_ALMUERZO, VUELTA_ALMUERZO]
+    Mark:
+      type: object
+      required: [id, jornadaId, action, sequence, acceptedAt, locationStatus]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        jornadaId: { $ref: '#/components/schemas/Id' }
+        action: { $ref: '#/components/schemas/MarkAction' }
+        sequence: { type: integer, minimum: 1 }
+        acceptedAt: { type: string, format: date-time, description: Authoritative server timestamp for employee-submitted marks. }
+        occurredAt: { type: [string, 'null'], format: date-time, description: Declared event time for ADMIN-added or corrected marks. }
+        recordedAt: { type: [string, 'null'], format: date-time, description: Server time when ADMIN entered or corrected the mark. }
+        locationStatus: { type: string, enum: [PENDIENTE, RECIBIDA, SIN_UBICACION, PURGADA, NO_APLICA] }
+        latitude: { type: [number, 'null'], minimum: -90, maximum: 90, description: Only returned to an authorized ADMIN and only before 90-day purge. }
+        longitude: { type: [number, 'null'], minimum: -180, maximum: 180, description: Only returned to an authorized ADMIN and only before 90-day purge. }
+        deviations:
+          type: array
+          items: { $ref: '#/components/schemas/Deviation' }
+    MotiveCategory:
+      type: string
+      enum: [SALUD, TRANSPORTE, EMERGENCIA, OTRA]
+    Deviation:
+      type: object
+      required: [id, jornadaId, type, status, createdAt, pushEligible]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        jornadaId: { $ref: '#/components/schemas/Id' }
+        siteId: { $ref: '#/components/schemas/Id' }
+        employeeId: { $ref: '#/components/schemas/Id' }
+        employeeDisplayName: { type: string, description: Display name exposed only within the caller's authorized company and employee scope. }
+        type:
+          type: string
+          enum: [SIN_INGRESO, LLEGADA_TARDE, EGRESO_TEMPRANO, EGRESO_TARDIO, EXCESO_DESAYUNO, EXCESO_ALMUERZO]
+        status: { type: string, enum: [MOTIVO_PENDIENTE, PENDIENTE_REVISION, JUSTIFICADO, NO_JUSTIFICADO] }
+        category: { oneOf: [{ $ref: '#/components/schemas/MotiveCategory' }, { type: 'null' }] }
+        motiveText:
+          type: [string, 'null']
+          description: Omitted unless the caller is the author or ADMIN of the deviation's company; SALUD values are encrypted at rest.
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        pushEligible: { type: boolean, description: True only for SIN_INGRESO and LLEGADA_TARDE in v1. }
+    SafePushPayload:
+      type: object
+      description: >-
+        Internal Web Push payload. It contains only generic notification copy and aggregate counts; it must never
+        include motive text, coordinates, or a health category. The PWA validates aggregate counts and ignores
+        payload text and navigation fields.
+      required: [tag, title, body, navigation, totalCount, siteCounts]
+      properties:
+        tag: { type: string, description: Stable company/window key used to update the same visible notification. }
+        title: { type: string, description: Generic fixed title with no personal or sensitive data. }
+        body: { type: string, description: Generic fixed body with no personal or sensitive data. }
+        navigation: { type: string, description: Generic application route; clients must not navigate to payload-provided URLs. }
+        totalCount: { type: integer, minimum: 0, description: Number of eligible deviations in this company window. }
+        siteCounts:
+          type: array
+          items:
+            type: object
+            required: [siteId, siteName, count]
+            properties:
+              siteId: { $ref: '#/components/schemas/Id' }
+              siteName: { type: string, description: Site display name within the ADMIN's company. }
+              count: { type: integer, minimum: 0, description: Number of eligible deviations at this site. }
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, format: uri-reference }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        code: { type: string }
+        traceId: { type: string, description: Opaque correlation ID; never contains personal data. }
+  responses:
+    Unauthorized:
+      description: Missing, expired, or invalid session
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: Authenticated but not authorized for the requested resource or action
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Resource is absent or outside the caller's visible scope
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    BadRequest:
+      description: Malformed request
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: Idempotency conflict, duplicate jornada, expired location window, or invalid state transition
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ValidationError:
+      description: Request is syntactically valid but violates a field or domain constraint
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    TooManyRequests:
+      description: Authentication throttling limit reached
+      headers:
+        Retry-After:
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }

@@ -1,0 +1,86 @@
+import { useEffect, useState } from 'react'
+import { api } from '../../shared/api/client'
+import type { PublicConfig } from '../../shared/api/types'
+import { PageMessage } from '../../app/ui'
+
+type SubscriptionRecord = { id: string }
+type BrowserSubscription = PushSubscription
+
+function decodeVapidKey(value: string): Uint8Array {
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/')
+  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')
+  return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0))
+}
+
+export function AdminPushControl() {
+  const [config, setConfig] = useState<PublicConfig | null>(null)
+  const [subscriptionId, setSubscriptionId] = useState<string>('')
+  const [enabled, setEnabled] = useState(false)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [supported, setSupported] = useState(false)
+
+  async function registerWithServer(subscription: BrowserSubscription) {
+    const json = subscription.toJSON()
+    if (!json.endpoint || !json.keys?.p256dh || !json.keys.auth) throw new Error('La suscripción del navegador está incompleta.')
+    const saved = await api.put<SubscriptionRecord>('/push/subscriptions', {
+      endpoint: json.endpoint,
+      keys: { p256dh: json.keys.p256dh, auth: json.keys.auth }
+    })
+    setSubscriptionId(saved.id)
+    setEnabled(true)
+    setMessage('Avisos activados en este dispositivo.')
+  }
+
+  useEffect(() => {
+    let active = true
+    setSupported('serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window)
+    void api.publicConfig<PublicConfig>().then(async (publicConfig) => {
+      if (!active) return
+      setConfig(publicConfig)
+      if (!publicConfig.pushEnabled || !publicConfig.vapidPublicKey || !('serviceWorker' in navigator) || !('PushManager' in window)) return
+      const registration = await navigator.serviceWorker.ready
+      const existing = await registration.pushManager.getSubscription()
+      if (active && existing) {
+        try { await registerWithServer(existing) }
+        catch (reason) { if (active) setError(reason instanceof Error ? reason.message : 'No se pudo sincronizar el aviso.') }
+      }
+    }).catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : 'No se pudo consultar la configuración de avisos.') })
+    return () => { active = false }
+  }, [])
+
+  async function activate() {
+    if (!config?.vapidPublicKey || !config.pushEnabled) return
+    setBusy(true); setError(''); setMessage('')
+    try {
+      const permission = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission
+      if (permission !== 'granted') { setMessage('Los avisos quedaron desactivados en el navegador. Podés habilitarlos desde sus permisos.'); return }
+      const registration = await navigator.serviceWorker.ready
+      const existing = await registration.pushManager.getSubscription()
+      const subscription = existing ?? await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeVapidKey(config.vapidPublicKey) as BufferSource })
+      await registerWithServer(subscription)
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'No se pudieron activar los avisos.') }
+    finally { setBusy(false) }
+  }
+
+  async function deactivate() {
+    setBusy(true); setError(''); setMessage('')
+    try {
+      if (subscriptionId) await api.delete(`/push/subscriptions/${encodeURIComponent(subscriptionId)}`)
+      const registration = await navigator.serviceWorker.ready
+      const subscription = await registration.pushManager.getSubscription()
+      if (subscription) await subscription.unsubscribe()
+      setSubscriptionId(''); setEnabled(false); setMessage('Avisos desactivados en este dispositivo.')
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'No se pudieron desactivar los avisos.') }
+    finally { setBusy(false) }
+  }
+
+  if (!supported || (config && (!config.pushEnabled || !config.vapidPublicKey))) return null
+  return <aside className="push-control" aria-label="Avisos de la aplicación">
+    {error && <PageMessage kind="error">{error}</PageMessage>}{message && <PageMessage kind="success">{message}</PageMessage>}
+    <div className="push-copy"><strong>Alertas en este dispositivo</strong><span>Solo avisan sobre ingresos pendientes o llegadas tarde.</span></div>
+    {enabled ? <button className="button button-small button-quiet" onClick={() => void deactivate()} disabled={busy}>{busy ? 'Actualizando…' : 'Desactivar'}</button>
+      : <button className="button button-small button-outline" onClick={() => void activate()} disabled={busy || !config}>{busy ? 'Activando…' : 'Activar avisos'}</button>}
+  </aside>
+}
