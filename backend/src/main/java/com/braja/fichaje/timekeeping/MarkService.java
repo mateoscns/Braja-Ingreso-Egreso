@@ -8,6 +8,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,17 +21,24 @@ import java.util.*;
 
 @Service
 public class MarkService {
+    private static final Duration EARLY_INGRESS_WINDOW = Duration.ofMinutes(30);
+
     private final JdbcTemplate jdbc;
     private final ScopeService scopes;
     private final ObjectMapper objectMapper;
     private final DeviationService deviations;
+    private final TransactionTemplate isolatedTransaction;
     private final MarkTransitionPolicy transitions = new MarkTransitionPolicy();
 
-    public MarkService(JdbcTemplate jdbc, ScopeService scopes, ObjectMapper objectMapper, DeviationService deviations) {
+    public MarkService(JdbcTemplate jdbc, ScopeService scopes, ObjectMapper objectMapper, DeviationService deviations,
+                       PlatformTransactionManager transactionManager) {
         this.jdbc = jdbc;
         this.scopes = scopes;
         this.objectMapper = objectMapper;
         this.deviations = deviations;
+        this.isolatedTransaction = new TransactionTemplate(transactionManager);
+        this.isolatedTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.isolatedTransaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
     }
 
     @Transactional
@@ -45,6 +55,8 @@ public class MarkService {
 
         Optional<MarkResult> previous = findIdempotent(scope.accountId(), idempotencyKey, fingerprint);
         if (previous.isPresent()) return previous.get().asReplay();
+
+        validateMarkTime(jornada, action, receivedAt);
 
         List<HistoryRow> history = loadHistory(scope.companyId(), jornadaId);
         validateAppend(history, action);
@@ -95,6 +107,9 @@ public class MarkService {
         if ("EMPLOYEE".equals(scope.role()) == false) throw ApiException.forbidden();
         if (!Double.isFinite(latitude) || latitude < -90 || latitude > 90 || !Double.isFinite(longitude) || longitude < -180 || longitude > 180
                 || !Double.isFinite(accuracyMeters) || accuracyMeters < 0 || accuracyMeters > 100000) throw ApiException.invalid("Location coordinates or accuracy are outside valid bounds");
+        UUID jornadaId = jornadaIdForMark(scope.companyId(), markId);
+        if (jornadaId == null) throw ApiException.notFound();
+        lockJornada(scope.companyId(), jornadaId);
         MarkRow mark = jdbc.query("SELECT m.id,m.jornada_id,m.action,m.sequence_number,m.accepted_at,m.occurred_at,m.recorded_at,m.location_status,m.latitude,m.longitude,j.employee_id " +
                         "FROM mark_events m JOIN jornadas j ON j.id=m.jornada_id AND j.company_id=m.company_id WHERE m.id=? AND m.company_id=? FOR UPDATE",
                 rs -> rs.next() ? new MarkRow(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("jornada_id")), UUID.fromString(rs.getString("employee_id")),
@@ -133,13 +148,15 @@ public class MarkService {
 
     @Transactional
     public JornadaController.MarkView correctMark(ScopeService.Scope scope, UUID markId, MarkAction newAction, Instant newOccurredAt, String reason) {
+        UUID jornadaId = jornadaIdForMark(scope.companyId(), markId);
+        if (jornadaId == null) throw ApiException.notFound();
+        JornadaLock jornada = lockJornada(scope.companyId(), jornadaId);
         MarkRow mark = jdbc.query("SELECT m.id,m.jornada_id,m.action,m.occurred_at,m.original_action,m.original_occurred_at,j.employee_id,j.company_id " +
                         "FROM mark_events m JOIN jornadas j ON j.id=m.jornada_id AND j.company_id=m.company_id WHERE m.id=? AND m.company_id=? FOR UPDATE",
                 rs -> rs.next() ? new MarkRow(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("jornada_id")), UUID.fromString(rs.getString("employee_id")),
                         MarkAction.valueOf(rs.getString("action")), 0, null, rs.getTimestamp("occurred_at").toInstant(), null, null, null, null) : null,
                 markId.toString(), scope.companyId().toString());
         if (mark == null) throw ApiException.notFound();
-        JornadaLock jornada = lockJornada(scope.companyId(), mark.jornadaId());
         List<HistoryRow> history = loadHistory(scope.companyId(), mark.jornadaId());
         List<HistoryRow> corrected = retroactiveTimeline(history, history.stream()
                 .filter(row -> row.id().equals(markId))
@@ -158,12 +175,19 @@ public class MarkService {
         return getMark(scope, markId);
     }
 
-    @Transactional
     public void createDueAbsences(Instant now, int batchSize) {
-        List<Candidate> candidates = jdbc.query("SELECT j.id,j.company_id FROM jornadas j WHERE j.state='NO_INGRESO' AND DATE_ADD(j.scheduled_start_at, INTERVAL j.tolerance_minutes MINUTE) < ? " +
-                        "AND NOT EXISTS (SELECT 1 FROM mark_events m WHERE m.jornada_id=j.id AND m.action='INGRESO') ORDER BY j.scheduled_start_at LIMIT ?",
-                (rs, row) -> new Candidate(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("company_id"))), timestamp(now), batchSize);
-        for (Candidate candidate : candidates) createAbsenceIfStillDue(candidate.companyId(), candidate.jornadaId(), now);
+        if (batchSize < 1) return;
+        List<Candidate> candidates = isolatedTransaction.execute(status -> jdbc.query("SELECT j.id,j.company_id FROM jornadas j " +
+                        "JOIN employees e ON e.id=j.employee_id AND e.company_id=j.company_id AND e.active=TRUE " +
+                        "JOIN company_memberships cm ON cm.company_id=e.company_id AND cm.account_id=e.account_id AND cm.active=TRUE " +
+                        "WHERE j.state='NO_INGRESO' AND DATE_ADD(j.scheduled_start_at, INTERVAL j.tolerance_minutes MINUTE) < ? " +
+                        "AND NOT EXISTS (SELECT 1 FROM mark_events m WHERE m.jornada_id=j.id AND m.action='INGRESO') " +
+                        "AND NOT EXISTS (SELECT 1 FROM deviations d WHERE d.jornada_id=j.id AND d.type='SIN_INGRESO' AND d.active=TRUE) " +
+                        "ORDER BY j.scheduled_start_at,j.id LIMIT ?",
+                (rs, row) -> new Candidate(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("company_id"))), timestamp(now), batchSize));
+        for (Candidate candidate : candidates) {
+            isolatedTransaction.executeWithoutResult(status -> createAbsenceIfStillDue(candidate.companyId(), candidate.jornadaId(), now));
+        }
     }
 
     @Transactional
@@ -173,9 +197,27 @@ public class MarkService {
     }
 
     private void createAbsenceIfStillDue(UUID companyId, UUID jornadaId, Instant now) {
+        UUID accountId = jdbc.query("SELECT e.account_id FROM jornadas j JOIN employees e ON e.id=j.employee_id AND e.company_id=j.company_id WHERE j.id=? AND j.company_id=?",
+                rs -> rs.next() ? UUID.fromString(rs.getString("account_id")) : null, jornadaId.toString(), companyId.toString());
+        if (accountId == null) return;
+        Boolean activeAccount = jdbc.query("SELECT active FROM accounts WHERE id=? FOR UPDATE",
+                rs -> rs.next() ? rs.getBoolean("active") : null, accountId.toString());
+        if (!Boolean.TRUE.equals(activeAccount)) return;
+        String activeRole = jdbc.query("SELECT role FROM company_memberships WHERE company_id=? AND account_id=? AND active=TRUE FOR UPDATE",
+                rs -> rs.next() ? rs.getString("role") : null, companyId.toString(), accountId.toString());
+        if (!"EMPLOYEE".equals(activeRole)) return;
+        String activeEmployee = jdbc.query("SELECT id FROM employees WHERE id=(SELECT employee_id FROM jornadas WHERE id=? AND company_id=?) " +
+                        "AND company_id=? AND account_id=? AND active=TRUE FOR UPDATE",
+                rs -> rs.next() ? rs.getString("id") : null, jornadaId.toString(), companyId.toString(), companyId.toString(), accountId.toString());
+        if (activeEmployee == null) return;
         JornadaLock jornada = lockJornada(companyId, jornadaId);
         List<HistoryRow> history = loadHistory(companyId, jornadaId);
         reconcile(companyId, jornada, history, now);
+    }
+
+    private UUID jornadaIdForMark(UUID companyId, UUID markId) {
+        return jdbc.query("SELECT jornada_id FROM mark_events WHERE id=? AND company_id=?",
+                rs -> rs.next() ? UUID.fromString(rs.getString("jornada_id")) : null, markId.toString(), companyId.toString());
     }
 
     private void reconcile(UUID companyId, JornadaLock jornada, List<HistoryRow> history, Instant now) {
@@ -204,6 +246,14 @@ public class MarkService {
                         rs.getTimestamp("scheduled_end_at").toInstant(), rs.getLong("next_sequence")) : null, jornadaId.toString(), companyId.toString());
         if (row == null) throw ApiException.notFound();
         return row;
+    }
+
+    private void validateMarkTime(JornadaLock jornada, MarkAction action, Instant receivedAt) {
+        Instant earliestIngress = jornada.scheduledStart().minus(EARLY_INGRESS_WINDOW);
+        if (receivedAt.isBefore(earliestIngress)
+                || (action != MarkAction.INGRESO && receivedAt.isBefore(jornada.scheduledStart()))) {
+            throw ApiException.conflict("MARK_TOO_EARLY", "The mark is earlier than the allowed window for this jornada");
+        }
     }
 
     private List<HistoryRow> loadHistory(UUID companyId, UUID jornadaId) {

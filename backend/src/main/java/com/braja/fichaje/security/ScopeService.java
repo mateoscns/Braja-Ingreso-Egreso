@@ -23,7 +23,8 @@ public class ScopeService {
         UUID accountId = actor.accountId(authentication);
         UUID companyId = actor.activeCompany(session);
         Scope scope = jdbc.query("SELECT m.role, a.must_change_password FROM company_memberships m JOIN accounts a ON a.id=m.account_id " +
-                        "WHERE m.account_id=? AND m.company_id=? AND m.active=TRUE AND a.active=TRUE",
+                        "WHERE m.account_id=? AND m.company_id=? AND m.active=TRUE AND a.active=TRUE " +
+                        "AND (m.role<>'EMPLOYEE' OR EXISTS (SELECT 1 FROM employees e WHERE e.company_id=m.company_id AND e.account_id=m.account_id AND e.active=TRUE))",
                 rs -> rs.next() ? new Scope(accountId, companyId, rs.getString("role"), rs.getBoolean("must_change_password")) : null,
                 accountId.toString(), companyId.toString());
         if (scope == null) throw ApiException.forbidden();

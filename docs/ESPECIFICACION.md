@@ -34,6 +34,7 @@ Las acciones admitidas por jornada son `INGRESO`, `EGRESO`, `SALIDA_DESAYUNO`, `
 3. Cada intento usa una clave de idempotencia. Repetir clave y contenido devuelve la marca ya creada. Reutilizar la clave con contenido diferente da conflicto. No se deduplican acciones distintas mediante una ventana temporal.
 4. La app indica éxito solo después de recibir confirmación del servidor y muestra la hora de servidor. Si no hay conexión o el servidor no confirma, la acción no se informa como registrada y no se encola para envío posterior.
 5. El `ADMIN` puede corregir una marca o agregar una marca olvidada. El historial conserva el valor original y el corregido, la hora declarada del hecho cuando corresponda, la hora de carga, quién lo hizo, cuándo y el motivo.
+6. El empleado puede registrar `INGRESO` desde 30 minutos antes del inicio previsto del primer bloque. Antes de esa ventana el servidor rechaza la marca; los ingresos tardíos no tienen un límite adicional por esta regla. Las demás acciones no se aceptan antes de la hora prevista de inicio.
 
 La definición de transiciones y errores está en el contrato [openapi.yaml](../openapi.yaml). La UI carga el estado actual desde el servidor antes de mostrar la acción siguiente.
 

@@ -60,14 +60,18 @@ public class AccountService {
             throttle.failed(dni);
             throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Invalid DNI or password");
         }
+        UUID accountId = ((BrajaUserDetails) authentication.getPrincipal()).accountId();
+        List<MembershipView> activeMemberships = memberships(accountId);
+        if (activeMemberships.isEmpty()) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Invalid DNI or password");
+        }
         throttle.succeeded(dni);
         sessionStrategy.onAuthentication(authentication, request, response);
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(authentication);
         SecurityContextHolder.setContext(context);
         contextRepository.saveContext(context, request, response);
-        UUID accountId = ((BrajaUserDetails) authentication.getPrincipal()).accountId();
-        UUID activeCompany = memberships(accountId).stream().findFirst().map(MembershipView::companyId).orElse(null);
+        UUID activeCompany = activeMemberships.getFirst().companyId();
         if (activeCompany != null) request.getSession(true).setAttribute(CurrentActor.ACTIVE_COMPANY_SESSION_KEY, activeCompany);
         return session(accountId, request);
     }
@@ -90,7 +94,10 @@ public class AccountService {
     }
 
     public List<MembershipView> memberships(UUID accountId) {
-        return jdbc.query("SELECT m.company_id, c.name, m.role FROM company_memberships m JOIN companies c ON c.id=m.company_id WHERE m.account_id=? AND m.active=TRUE ORDER BY c.name, m.company_id",
+        return jdbc.query("SELECT m.company_id, c.name, m.role FROM company_memberships m JOIN companies c ON c.id=m.company_id " +
+                        "WHERE m.account_id=? AND m.active=TRUE AND (m.role<>'EMPLOYEE' OR EXISTS " +
+                        "(SELECT 1 FROM employees e WHERE e.company_id=m.company_id AND e.account_id=m.account_id AND e.active=TRUE)) " +
+                        "ORDER BY c.name, m.company_id",
                 (rs, row) -> new MembershipView(UUID.fromString(rs.getString("company_id")), rs.getString("name"), rs.getString("role")), accountId.toString());
     }
 

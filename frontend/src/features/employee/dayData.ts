@@ -20,6 +20,16 @@ export function dateForSite(timeZone: string, selectedDate: string, instant = ne
   return selectedDate || localCalendarDate(timeZone, instant)
 }
 
+function previousDate(localDate: string): string {
+  const date = new Date(`${localDate}T00:00:00Z`)
+  date.setUTCDate(date.getUTCDate() - 1)
+  return date.toISOString().slice(0, 10)
+}
+
+function isOpenOvernight(jornada: Jornada): boolean {
+  return jornada.state !== 'EGRESADA' && jornada.scheduleSnapshot.blocks.some((block) => block.endDayOffset === 1)
+}
+
 export async function loadEmployeeDayData(
   apiClient: Pick<ApiClient, 'get'>,
   sites: Site[],
@@ -27,7 +37,8 @@ export async function loadEmployeeDayData(
   instant = new Date()
 ): Promise<EmployeeDayData> {
   const siteDates = new Map(sites.map((site) => [site.id, dateForSite(site.timeZone, selectedDate, instant)]))
-  const distinctDates = [...new Set(siteDates.values())]
+  const previousDates = new Map([...siteDates].map(([siteId, localDate]) => [siteId, previousDate(localDate)]))
+  const distinctDates = [...new Set([...siteDates.values(), ...(selectedDate ? [] : previousDates.values())])]
   const [journeyPages, deviationPages] = await Promise.all([
     Promise.all(distinctDates.map((localDate) => apiClient.get<Jornada[]>(`/jornadas/mine${queryString({ localDate })}`))),
     Promise.all(sites.map((site) => {
@@ -38,7 +49,10 @@ export async function loadEmployeeDayData(
 
   const jornadas = new Map<string, Jornada>()
   for (const jornada of journeyPages.flat()) {
-    if (siteDates.get(jornada.siteId) === jornada.localDate) jornadas.set(jornada.id, jornada)
+    const currentDate = siteDates.get(jornada.siteId)
+    const isCurrentDay = currentDate === jornada.localDate
+    const isContinuingOvernight = !selectedDate && previousDates.get(jornada.siteId) === jornada.localDate && isOpenOvernight(jornada)
+    if (isCurrentDay || isContinuingOvernight) jornadas.set(jornada.id, jornada)
   }
   const deviations = new Map<string, Deviation>()
   for (const item of deviationPages.flat()) deviations.set(item.id, item)

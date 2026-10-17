@@ -181,6 +181,44 @@ class BackendMySqlIntegrationTest {
     }
 
     @Test
+    void employeeCannotMarkMoreThanThirtyMinutesBeforeJornadaStart() {
+        Instant now = Instant.now();
+        Instant futureStart = now.plusSeconds(3600);
+        jdbc.update("UPDATE jornadas SET scheduled_start_at=?,scheduled_end_at=? WHERE id=?",
+                java.sql.Timestamp.from(futureStart), java.sql.Timestamp.from(futureStart.plusSeconds(8 * 3600)), jornadaId.toString());
+
+        ApiException error = assertThrows(ApiException.class,
+                () -> marks.recordEmployeeMark(employeeScope, jornadaId, MarkAction.INGRESO, UUID.randomUUID(), now));
+
+        assertEquals("MARK_TOO_EARLY", error.code());
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM mark_events WHERE jornada_id=?", Integer.class, jornadaId.toString()));
+    }
+
+    @Test
+    void employeeMayMarkAtThirtyMinuteBoundary() {
+        Instant now = Instant.now();
+        Instant futureStart = now.plusSeconds(600);
+        jdbc.update("UPDATE jornadas SET scheduled_start_at=?,scheduled_end_at=? WHERE id=?",
+                java.sql.Timestamp.from(futureStart), java.sql.Timestamp.from(futureStart.plusSeconds(8 * 3600)), jornadaId.toString());
+
+        var early = marks.recordEmployeeMark(employeeScope, jornadaId, MarkAction.INGRESO, UUID.randomUUID(), futureStart.minusSeconds(1800));
+        assertEquals(futureStart.minusSeconds(1800), early.mark().acceptedAt());
+    }
+
+    @Test
+    void lateIngressRemainsAccepted() {
+        Instant now = Instant.now();
+        Instant lateStart = now.minusSeconds(1200);
+        jdbc.update("UPDATE jornadas SET scheduled_start_at=?,scheduled_end_at=? WHERE id=?",
+                java.sql.Timestamp.from(lateStart), java.sql.Timestamp.from(lateStart.plusSeconds(8 * 3600)), jornadaId.toString());
+
+        var late = marks.recordEmployeeMark(employeeScope, jornadaId, MarkAction.INGRESO, UUID.randomUUID(), now);
+
+        assertEquals(now, late.mark().acceptedAt());
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='LLEGADA_TARDE' AND active=TRUE", Integer.class, jornadaId.toString()));
+    }
+
+    @Test
     void idempotencyReplayCannotReturnAnotherCompanyReceiptAfterCompanySwitch() {
         Instant now = Instant.now();
         UUID otherCompany = UUID.randomUUID();
@@ -330,6 +368,39 @@ class BackendMySqlIntegrationTest {
 
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND active=TRUE", Integer.class, jornadaId.toString()));
         assertEquals("LLEGADA_TARDE", jdbc.queryForObject("SELECT type FROM deviations WHERE jornada_id=? AND active=TRUE", String.class, jornadaId.toString()));
+    }
+
+    @Test
+    void absenceWorkerSkipsAlreadyProcessedCandidatesOnNextTick() {
+        Instant now = Instant.now().plusSeconds(1);
+        marks.createDueAbsences(now, 200);
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, jornadaId.toString()));
+
+        marks.createDueAbsences(now.plusSeconds(1), 200);
+
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, jornadaId.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO'", Integer.class, jornadaId.toString()));
+    }
+
+    @Test
+    void absenceWorkerAdvancesPastFirstTwoHundredCandidates() {
+        Instant now = Instant.now();
+        UUID templateId = jdbc.queryForObject("SELECT id FROM schedule_templates WHERE company_id=? LIMIT 1", (rs, row) -> UUID.fromString(rs.getString(1)), companyId.toString());
+        Instant start = now.minusSeconds(3600);
+        Instant end = now.minusSeconds(600);
+        String snapshot = "{\"siteId\":\"" + siteId + "\",\"name\":\"Turno\",\"blocks\":[{\"startDayOffset\":0,\"start\":\"08:00:00\",\"end\":\"16:00:00\",\"endDayOffset\":0}],\"breakfastLimitMinutes\":20,\"lunchLimitMinutes\":30}";
+        for (int i = 1; i <= 205; i++) {
+            UUID jornada = UUID.randomUUID();
+            jdbc.update("INSERT INTO jornadas(id,company_id,employee_id,site_id,template_id,local_date,time_zone,schedule_snapshot,tolerance_minutes,scheduled_start_at,scheduled_end_at,state,next_sequence,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,0,?,?,'NO_INGRESO',1,?,?)",
+                    jornada.toString(), companyId.toString(), employeeId.toString(), siteId.toString(), templateId.toString(), java.time.LocalDate.now().minusDays(i),
+                    "America/Argentina/Buenos_Aires", snapshot, java.sql.Timestamp.from(start), java.sql.Timestamp.from(end), accountId.toString(), java.sql.Timestamp.from(now));
+        }
+
+        marks.createDueAbsences(now, 200);
+        assertEquals(200, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE company_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, companyId.toString()));
+
+        marks.createDueAbsences(now.plusSeconds(1), 200);
+        assertEquals(206, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE company_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, companyId.toString()));
     }
 
     @Test

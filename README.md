@@ -4,7 +4,7 @@ Aplicación propia para registrar ingreso, egreso, desayuno y almuerzo. La v1 in
 
 ## Estado
 
-La implementación v1 está en curso en `feat/v1-implementation`. El registro conserva las **22 decisiones base adoptadas**, más **4 aclaraciones adoptadas el 2026-10-16**: **26 filas adoptadas y 0 propuestas**. Mateo es quien adopta decisiones de producto; `ADMIN` es el rol operativo que administra una empresa. La lista vigente está en [docs/DECISIONES.md](docs/DECISIONES.md).
+La implementación v1 está en curso en `feat/v1-implementation`. El registro conserva las **22 decisiones base adoptadas**, más **5 aclaraciones adoptadas el 2026-10-16**: **27 filas adoptadas y 0 propuestas**. Mateo es quien adopta decisiones de producto; `ADMIN` es el rol operativo que administra una empresa. La lista vigente está en [docs/DECISIONES.md](docs/DECISIONES.md).
 
 ## Recorrido de desarrollo
 

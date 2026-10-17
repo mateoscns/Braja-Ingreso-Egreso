@@ -2,6 +2,7 @@ package com.braja.fichaje.api;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -33,6 +34,15 @@ public class ApiExceptionHandler {
     @ExceptionHandler(DuplicateKeyException.class)
     ResponseEntity<Problem> duplicate(DuplicateKeyException ex, HttpServletRequest request) {
         return response(HttpStatus.CONFLICT, "CONFLICT", "The requested resource conflicts with an existing record", request);
+    }
+
+    @ExceptionHandler(PessimisticLockingFailureException.class)
+    ResponseEntity<Problem> lockConflict(PessimisticLockingFailureException ex, HttpServletRequest request) {
+        HttpStatus status = HttpStatus.CONFLICT;
+        return ResponseEntity.status(status).header("Retry-After", "1")
+                .contentType(MediaType.valueOf("application/problem+json"))
+                .body(problem(status, "RETRYABLE_TRANSACTION_CONFLICT",
+                        "The operation conflicted with another transaction; retry the request", request));
     }
 
     @ExceptionHandler(AccessDeniedException.class)

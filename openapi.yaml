@@ -435,7 +435,9 @@ paths:
         validates the latest state, assigns a monotonic sequence, and persists the mark.
         GPS capture runs in parallel and never delays this response. Retrying an identical
         Idempotency-Key and payload returns the original mark. Reusing the key with a
-        different payload returns 409. No offline action is accepted.
+        different payload returns 409. INGRESO is accepted from 30 minutes before the
+        scheduled start; late ingress remains accepted. Other actions are not accepted
+        before the scheduled start. No offline action is accepted.
       parameters:
         - $ref: '#/components/parameters/JornadaId'
         - $ref: '#/components/parameters/CsrfToken'

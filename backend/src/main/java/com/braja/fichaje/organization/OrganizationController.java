@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
@@ -98,12 +99,20 @@ public class OrganizationController {
     }
 
     @PatchMapping("/employees/{employeeId}")
+    @Transactional
     public EmployeeView updateEmployee(Authentication auth, HttpSession session, @PathVariable UUID employeeId, @Valid @RequestBody EmployeePatch input) {
         var scope = scopes.requireAdmin(auth, session);
         ensureEmployee(scope.companyId(), employeeId);
         if (input.displayName() == null && input.siteIds() == null && input.toleranceMinutes() == null && input.active() == null) throw ApiException.invalid("At least one field must be supplied");
         if (input.displayName() != null && input.displayName().isBlank()) throw ApiException.invalid("Display name cannot be blank");
         if (input.toleranceMinutes() != null && (input.toleranceMinutes() < 0 || input.toleranceMinutes() > 240)) throw ApiException.invalid("Tolerance must be between 0 and 240 minutes");
+        UUID employeeAccountId = null;
+        if (input.active() != null) {
+            employeeAccountId = jdbc.queryForObject("SELECT account_id FROM employees WHERE id=? AND company_id=?",
+                    (rs, row) -> UUID.fromString(rs.getString(1)), employeeId.toString(), scope.companyId().toString());
+            jdbc.update("UPDATE company_memberships SET active=? WHERE company_id=? AND account_id=? AND role='EMPLOYEE'",
+                    input.active(), scope.companyId().toString(), employeeAccountId.toString());
+        }
         if (input.siteIds() != null) {
             validateSites(scope.companyId(), input.siteIds(), false);
             jdbc.update("DELETE FROM employee_sites WHERE company_id=? AND employee_id=?", scope.companyId().toString(), employeeId.toString());
