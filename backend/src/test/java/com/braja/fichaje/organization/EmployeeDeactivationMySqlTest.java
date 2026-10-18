@@ -30,7 +30,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.*;
 
 @Testcontainers
-@SpringBootTest
+@SpringBootTest(properties = "braja.scheduling.enabled=false")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class EmployeeDeactivationMySqlTest {
     private static final String PASSWORD = "CorrectHorseBattery9!";
@@ -111,6 +111,10 @@ class EmployeeDeactivationMySqlTest {
     @Test
     void deactivationRevokesMembershipAndExistingSessionScopeAndLogin() {
         assertEquals("EMPLOYEE", scopes.require(employeeAuthentication, employeeSession).role());
+        String employeeDni = employeeDni();
+        var successfulLogin = accounts.login(employeeDni, PASSWORD, new MockHttpServletRequest(), new MockHttpServletResponse());
+        assertTrue(successfulLogin.memberships().stream().anyMatch(membership -> membership.role().equals("EMPLOYEE")));
+        org.springframework.security.core.context.SecurityContextHolder.clearContext();
 
         organizations.updateEmployee(adminAuthentication, adminSession, employeeId,
                 new OrganizationController.EmployeePatch(null, null, null, false));
@@ -118,7 +122,7 @@ class EmployeeDeactivationMySqlTest {
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM company_memberships WHERE company_id=? AND account_id=? AND role='EMPLOYEE' AND active=TRUE",
                 Integer.class, companyId.toString(), employeeAccountId.toString()));
         assertThrows(ApiException.class, () -> scopes.require(employeeAuthentication, employeeSession));
-        assertThrows(ApiException.class, () -> accounts.login("30.1" + dniSuffix(), PASSWORD,
+        assertThrows(ApiException.class, () -> accounts.login(employeeDni, PASSWORD,
                 new MockHttpServletRequest(), new MockHttpServletResponse()));
     }
 
@@ -145,8 +149,8 @@ class EmployeeDeactivationMySqlTest {
                 Integer.class, companyId.toString()));
     }
 
-    private String dniSuffix() {
-        return jdbc.queryForObject("SELECT RIGHT(dni_normalized,8) FROM accounts WHERE id=?", String.class, employeeAccountId.toString());
+    private String employeeDni() {
+        return jdbc.queryForObject("SELECT dni_display FROM accounts WHERE id=?", String.class, employeeAccountId.toString());
     }
 
     private void insertAccount(UUID id, String dni, String display, Instant now) {

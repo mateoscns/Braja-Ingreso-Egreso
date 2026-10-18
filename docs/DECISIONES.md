@@ -2,7 +2,7 @@
 
 Dueño: Mateo. Solo el dueño pasa una fila de `propuesta` a `adoptada por el dueño`.
 
-Las filas adoptadas reflejan lo definido por Mateo en los relevamientos del 2026-10-13 y 2026-10-14 y las confirmaciones explícitas registradas en cada fila, incluidas las confirmaciones del 2026-10-16. Si alguna no refleja lo que dijo, se corrige.
+Las filas adoptadas reflejan lo definido por Mateo en los relevamientos del 2026-10-13 y 2026-10-14 y las confirmaciones explícitas registradas en cada fila, incluidas las confirmaciones del 2026-10-16 y 2026-10-18. Si alguna no refleja lo que dijo, se corrige.
 
 | ID | Fecha | Decisión | Propuesta por | Estado | Motivo |
 | --- | --- | --- | --- | --- | --- |
@@ -33,3 +33,4 @@ Las filas adoptadas reflejan lo definido por Mateo en los relevamientos del 2026
 | D-20261016-03 | 2026-10-16 | Un egreso genera desvío si queda antes o después del horario de fin de la jornada por más de la tolerancia individual | Mateo | adoptada por el dueño | Detectar egresos fuera del horario asignado sin calcular montos ni horas extra |
 | D-20261016-04 | 2026-10-16 | El texto libre de motivos bajo categoría `SALUD` se cifra, solo lo ven el empleado autor y el ADMIN de su empresa, y se purga a los 90 días. No se registra en logs ni se incluye en notificaciones | Mateo | adoptada por el dueño | Reducir la exposición de información sensible |
 | D-20261016-05 | 2026-10-16 | El empleado puede registrar `INGRESO` desde 30 minutos antes del primer bloque de su jornada; el servidor rechaza el ingreso antes de ese margen. Los ingresos tardíos siguen aceptándose. Las demás marcas no se aceptan antes de la hora prevista de inicio | Mateo (confirmado por chat el 2026-10-16) | adoptada por el dueño | Evitar registrar una jornada futura con demasiada anticipación sin impedir llegadas tardías |
+| D-20261018-01 | 2026-10-18 | Si una jornada tiene `INGRESO` y no tiene `EGRESO` al superar la hora prevista de fin más la tolerancia individual, se genera `MARCA_FALTANTE`. El proceso reutiliza el job de ausencias y el desvío aparece solo en la bandeja interna; push queda apagado por defecto. La implementación se realizará en un PR posterior | Mateo (confirmado en la revisión del PR #2 del 2026-10-18) | adoptada por el dueño | Detectar egresos olvidados sin ampliar los avisos automáticos ni bloquear el cierre de la v1 actual |

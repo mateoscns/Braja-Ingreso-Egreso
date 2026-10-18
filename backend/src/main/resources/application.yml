@@ -34,6 +34,8 @@ server:
         same-site: lax
         path: /
 braja:
+  scheduling:
+    enabled: ${BRAJA_SCHEDULING_ENABLED:true}
   session-cookie-secure: ${BRAJA_SESSION_COOKIE_SECURE:true}
   health-encryption-key-base64: ${BRAJA_HEALTH_ENCRYPTION_KEY_BASE64:}
   push-subscription-encryption-key-base64: ${BRAJA_PUSH_SUBSCRIPTION_ENCRYPTION_KEY_BASE64:}

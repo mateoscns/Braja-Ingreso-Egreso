@@ -5,16 +5,17 @@ export class ApiError extends Error {
   readonly code?: string
 
   constructor(status: number, problem?: ApiProblem) {
-    super(messageForStatus(status))
+    super(messageForStatus(status, problem?.code))
     this.name = 'ApiError'
     this.status = status
     this.code = problem?.code
   }
 }
 
-function messageForStatus(status: number): string {
+function messageForStatus(status: number, code?: string): string {
   if (status === 401) return 'Tu sesión venció. Iniciá sesión nuevamente.'
   if (status === 403) return 'No tenés permiso para realizar esta acción.'
+  if (status === 409 && code === 'MARK_TOO_EARLY') return 'Todavía no es horario para registrar esta marca. El ingreso se habilita 30 minutos antes; las demás marcas, desde el inicio de la jornada.'
   if (status === 409) return 'La información cambió o la acción ya fue procesada. Actualizá la vista.'
   if (status === 422) return 'Revisá los datos ingresados.'
   if (status === 429) return 'Hubo demasiados intentos. Esperá un momento y probá otra vez.'

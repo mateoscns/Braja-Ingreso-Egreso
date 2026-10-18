@@ -42,4 +42,16 @@ describe('ApiClient', () => {
     await expect(client.get('/deviations')).rejects.toMatchObject({ message: 'Revisá los datos ingresados.' })
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ cache: 'no-store' })
   })
+
+  it('explica cuándo se habilita una marca rechazada por ser demasiado temprana', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      type: 'about:blank', title: 'Conflict', status: 409, code: 'MARK_TOO_EARLY', detail: 'internal detail'
+    }), { status: 409, headers: { 'Content-Type': 'application/problem+json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new ApiClient()
+
+    await expect(client.get('/jornadas')).rejects.toMatchObject({
+      message: 'Todavía no es horario para registrar esta marca. El ingreso se habilita 30 minutos antes; las demás marcas, desde el inicio de la jornada.'
+    })
+  })
 })

@@ -27,6 +27,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import java.time.temporal.ChronoUnit;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -45,7 +46,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @Testcontainers
-@SpringBootTest
+@SpringBootTest(properties = "braja.scheduling.enabled=false")
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class BackendMySqlIntegrationTest {
@@ -196,7 +197,7 @@ class BackendMySqlIntegrationTest {
 
     @Test
     void employeeMayMarkAtThirtyMinuteBoundary() {
-        Instant now = Instant.now();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         Instant futureStart = now.plusSeconds(600);
         jdbc.update("UPDATE jornadas SET scheduled_start_at=?,scheduled_end_at=? WHERE id=?",
                 java.sql.Timestamp.from(futureStart), java.sql.Timestamp.from(futureStart.plusSeconds(8 * 3600)), jornadaId.toString());
@@ -384,7 +385,7 @@ class BackendMySqlIntegrationTest {
 
     @Test
     void absenceWorkerAdvancesPastFirstTwoHundredCandidates() {
-        Instant now = Instant.now();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         UUID templateId = jdbc.queryForObject("SELECT id FROM schedule_templates WHERE company_id=? LIMIT 1", (rs, row) -> UUID.fromString(rs.getString(1)), companyId.toString());
         Instant start = now.minusSeconds(3600);
         Instant end = now.minusSeconds(600);
@@ -401,6 +402,47 @@ class BackendMySqlIntegrationTest {
 
         marks.createDueAbsences(now.plusSeconds(1), 200);
         assertEquals(206, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE company_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, companyId.toString()));
+    }
+
+    @Test
+    void absenceWorkerContinuesAfterOneCandidateFails() {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        UUID templateId = jdbc.queryForObject("SELECT id FROM schedule_templates WHERE company_id=? LIMIT 1", (rs, row) -> UUID.fromString(rs.getString(1)), companyId.toString());
+        jdbc.update("UPDATE jornadas SET state='EGRESADA' WHERE id=?", jornadaId.toString());
+        String validSnapshot = "{\"siteId\":\"" + siteId + "\",\"name\":\"Turno\",\"blocks\":[{\"startDayOffset\":0,\"start\":\"08:00:00\",\"end\":\"16:00:00\",\"endDayOffset\":0}],\"breakfastLimitMinutes\":20,\"lunchLimitMinutes\":30}";
+        UUID brokenJornadaId = UUID.randomUUID();
+        UUID validJornadaId = UUID.randomUUID();
+        insertDueJornada(brokenJornadaId, templateId, employeeId, adminAccountId, now.minusSeconds(7200), java.time.LocalDate.now().minusDays(2), "not-json", now);
+        insertDueJornada(validJornadaId, templateId, employeeId, adminAccountId, now.minusSeconds(3600), java.time.LocalDate.now().minusDays(1), validSnapshot, now);
+
+        marks.createDueAbsences(now, 10);
+
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, brokenJornadaId.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, validJornadaId.toString()));
+    }
+
+    @Test
+    void absenceWorkerSkipsInactiveAccounts() {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS).plusSeconds(1);
+        UUID inactiveAccountId = UUID.randomUUID();
+        UUID inactiveEmployeeId = UUID.randomUUID();
+        UUID inactiveJornadaId = UUID.randomUUID();
+        UUID templateId = jdbc.queryForObject("SELECT id FROM schedule_templates WHERE company_id=? LIMIT 1", (rs, row) -> UUID.fromString(rs.getString(1)), companyId.toString());
+        jdbc.update("INSERT INTO accounts(id,dni_normalized,dni_display,password_hash,must_change_password,active,created_at,updated_at) VALUES(?,?,?,?,FALSE,FALSE,?,?)",
+                inactiveAccountId.toString(), "30999998", "30.999.998", "unused-test-hash", java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
+        jdbc.update("INSERT INTO company_memberships(id,company_id,account_id,role,active,created_at) VALUES(?,?,?,'EMPLOYEE',TRUE,?)",
+                UUID.randomUUID().toString(), companyId.toString(), inactiveAccountId.toString(), java.sql.Timestamp.from(now));
+        jdbc.update("INSERT INTO employees(id,company_id,account_id,display_name,tolerance_minutes,active,created_at,updated_at) VALUES(?,?,?,?,0,TRUE,?,?)",
+                inactiveEmployeeId.toString(), companyId.toString(), inactiveAccountId.toString(), "Cuenta inactiva", java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
+        jdbc.update("INSERT INTO employee_sites(company_id,employee_id,site_id,created_at) VALUES(?,?,?,?)",
+                companyId.toString(), inactiveEmployeeId.toString(), siteId.toString(), java.sql.Timestamp.from(now));
+        String snapshot = "{\"siteId\":\"" + siteId + "\",\"name\":\"Turno\",\"blocks\":[{\"startDayOffset\":0,\"start\":\"08:00:00\",\"end\":\"16:00:00\",\"endDayOffset\":0}],\"breakfastLimitMinutes\":20,\"lunchLimitMinutes\":30}";
+        insertDueJornada(inactiveJornadaId, templateId, inactiveEmployeeId, adminAccountId, now.minusSeconds(7200), java.time.LocalDate.now().minusDays(2), snapshot, now);
+
+        marks.createDueAbsences(now, 1);
+
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, inactiveJornadaId.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, jornadaId.toString()));
     }
 
     @Test
@@ -646,6 +688,15 @@ class BackendMySqlIntegrationTest {
                 UUID.randomUUID().toString(), companyId.toString(), jornadaId.toString(), sequence, sequence * 1000,
                 action, action, java.sql.Timestamp.from(occurredAt), java.sql.Timestamp.from(occurredAt),
                 java.sql.Timestamp.from(recordedAt), java.sql.Timestamp.from(recordedAt), accountId.toString());
+    }
+
+    private void insertDueJornada(UUID id, UUID templateId, UUID targetEmployeeId, UUID createdBy,
+                                  Instant scheduledStart, java.time.LocalDate localDate, String scheduleSnapshot, Instant createdAt) {
+        jdbc.update("INSERT INTO jornadas(id,company_id,employee_id,site_id,template_id,local_date,time_zone,schedule_snapshot,tolerance_minutes,scheduled_start_at,scheduled_end_at,state,next_sequence,created_by,created_at) " +
+                        "VALUES(?,?,?,?,?,?,?,?,0,?,?,'NO_INGRESO',1,?,?)",
+                id.toString(), companyId.toString(), targetEmployeeId.toString(), siteId.toString(), templateId.toString(), localDate,
+                "America/Argentina/Buenos_Aires", scheduleSnapshot, java.sql.Timestamp.from(scheduledStart),
+                java.sql.Timestamp.from(scheduledStart.plusSeconds(8 * 3600)), createdBy.toString(), java.sql.Timestamp.from(createdAt));
     }
 
     private org.springframework.security.core.Authentication authentication(UUID account, String dni) {

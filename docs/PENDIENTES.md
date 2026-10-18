@@ -4,13 +4,12 @@ Este archivo reúne asuntos que requieren una decisión adicional o una validaci
 
 ## Estado de decisiones
 
-Las 22 decisiones base están adoptadas, incluidas D-20261014-12 a D-20261014-15 el 2026-10-16. Mateo también adoptó cinco aclaraciones de acceso, jornadas, egresos, privacidad y margen de ingreso anticipado, registradas como D-20261016-01 a -05. El registro suma 27 filas adoptadas y 0 propuestas funcionales pendientes.
+Las 22 decisiones base están adoptadas, incluidas D-20261014-12 a D-20261014-15 el 2026-10-16. Mateo también adoptó cinco aclaraciones el 2026-10-16 y una el 2026-10-18, registradas como D-20261016-01 a -05 y D-20261018-01. El registro suma 28 filas adoptadas y 0 propuestas funcionales pendientes.
 
 ## Validaciones y definiciones pendientes
 
 | Prioridad | Pendiente | Motivo |
 | --- | --- | --- |
-| 1 | Decidir si la v1 debe detectar otras marcas faltantes (`MARCA_FALTANTE`), como un egreso olvidado, y bajo qué regla. | La v1 genera `SIN_INGRESO` solo para jornadas declaradas; no hay una decisión adoptada para inferir otras acciones omitidas. |
 | 1 | Validar con asesoría competente el aviso, propósito, base legal y derechos aplicables al tratamiento de ubicación y motivos de salud. | Las reglas técnicas de acceso y purga no sustituyen la revisión legal. |
 | 1 | Definir la retención de motivos que no sean de salud y la política de eliminación efectiva en copias de respaldo. | La decisión adoptada fija 90 días para coordenadas y texto de salud, pero no para los demás motivos ni copias. |
 | 2 | Elegir proveedor de hosting y dominio HTTPS para la prueba real de Web Push en el iPhone del ADMIN. | D-20261014-16 excluye el dominio actual de Braja; la prueba de push necesita un origen HTTPS. |

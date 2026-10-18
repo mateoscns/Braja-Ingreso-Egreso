@@ -8,6 +8,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -21,6 +23,7 @@ import java.util.*;
 
 @Service
 public class MarkService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(MarkService.class);
     private static final Duration EARLY_INGRESS_WINDOW = Duration.ofMinutes(30);
 
     private final JdbcTemplate jdbc;
@@ -179,6 +182,7 @@ public class MarkService {
         if (batchSize < 1) return;
         List<Candidate> candidates = isolatedTransaction.execute(status -> jdbc.query("SELECT j.id,j.company_id FROM jornadas j " +
                         "JOIN employees e ON e.id=j.employee_id AND e.company_id=j.company_id AND e.active=TRUE " +
+                        "JOIN accounts a ON a.id=e.account_id AND a.active=TRUE " +
                         "JOIN company_memberships cm ON cm.company_id=e.company_id AND cm.account_id=e.account_id AND cm.active=TRUE " +
                         "WHERE j.state='NO_INGRESO' AND DATE_ADD(j.scheduled_start_at, INTERVAL j.tolerance_minutes MINUTE) < ? " +
                         "AND NOT EXISTS (SELECT 1 FROM mark_events m WHERE m.jornada_id=j.id AND m.action='INGRESO') " +
@@ -186,7 +190,11 @@ public class MarkService {
                         "ORDER BY j.scheduled_start_at,j.id LIMIT ?",
                 (rs, row) -> new Candidate(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("company_id"))), timestamp(now), batchSize));
         for (Candidate candidate : candidates) {
-            isolatedTransaction.executeWithoutResult(status -> createAbsenceIfStillDue(candidate.companyId(), candidate.jornadaId(), now));
+            try {
+                isolatedTransaction.executeWithoutResult(status -> createAbsenceIfStillDue(candidate.companyId(), candidate.jornadaId(), now));
+            } catch (RuntimeException ex) {
+                LOGGER.error("Failed to process due absence for jornada {} in company {}", candidate.jornadaId(), candidate.companyId(), ex);
+            }
         }
     }
 

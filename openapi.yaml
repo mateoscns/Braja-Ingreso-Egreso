@@ -469,7 +469,22 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '409':
+          description: The action conflicts with current state or is outside its allowed time window.
+          headers:
+            Retry-After:
+              description: Present when the conflict is retryable, such as a database lock conflict.
+              schema: { type: integer, minimum: 1 }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                MARK_TOO_EARLY:
+                  summary: The mark was attempted before its allowed time.
+                  value: { type: about:blank, title: Conflict, status: 409, code: MARK_TOO_EARLY, detail: The mark is earlier than the allowed window for this jornada. }
+                RETRYABLE_TRANSACTION_CONFLICT:
+                  summary: A concurrent transaction caused a retryable lock conflict.
+                  value: { type: about:blank, title: Conflict, status: 409, code: RETRYABLE_TRANSACTION_CONFLICT, detail: The operation conflicted with another transaction; retry the request. }
         '422': { $ref: '#/components/responses/ValidationError' }
   /marks/{markId}:
     get:
@@ -963,10 +978,23 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     Conflict:
-      description: Idempotency conflict, duplicate jornada, expired location window, or invalid state transition
+      description: Idempotency conflict, duplicate jornada, expired location window, invalid state transition, or retryable transaction conflict
+      headers:
+        Retry-After:
+          description: Present when the conflict is retryable.
+          schema: { type: integer, minimum: 1 }
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            RETRYABLE_TRANSACTION_CONFLICT:
+              summary: A concurrent transaction caused a retryable lock conflict.
+              value:
+                type: about:blank
+                title: Conflict
+                status: 409
+                code: RETRYABLE_TRANSACTION_CONFLICT
+                detail: The operation conflicted with another transaction; retry the request.
     ValidationError:
       description: Request is syntactically valid but violates a field or domain constraint
       content:
