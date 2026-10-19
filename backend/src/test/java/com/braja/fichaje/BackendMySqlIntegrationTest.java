@@ -412,7 +412,7 @@ class BackendMySqlIntegrationTest {
         String validSnapshot = "{\"siteId\":\"" + siteId + "\",\"name\":\"Turno\",\"blocks\":[{\"startDayOffset\":0,\"start\":\"08:00:00\",\"end\":\"16:00:00\",\"endDayOffset\":0}],\"breakfastLimitMinutes\":20,\"lunchLimitMinutes\":30}";
         UUID brokenJornadaId = UUID.randomUUID();
         UUID validJornadaId = UUID.randomUUID();
-        insertDueJornada(brokenJornadaId, templateId, employeeId, adminAccountId, now.minusSeconds(7200), java.time.LocalDate.now().minusDays(2), "not-json", now);
+        insertDueJornada(brokenJornadaId, templateId, employeeId, adminAccountId, now.minusSeconds(7200), java.time.LocalDate.now().minusDays(2), "{\"blocks\":\"x\"}", now);
         insertDueJornada(validJornadaId, templateId, employeeId, adminAccountId, now.minusSeconds(3600), java.time.LocalDate.now().minusDays(1), validSnapshot, now);
 
         marks.createDueAbsences(now, 10);
