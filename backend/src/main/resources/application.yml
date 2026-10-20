@@ -37,6 +37,7 @@ braja:
     enabled: ${BRAJA_SCHEDULING_ENABLED:true}
   session-cookie-secure: ${BRAJA_SESSION_COOKIE_SECURE:true}
   health-encryption-key-base64: ${BRAJA_HEALTH_ENCRYPTION_KEY_BASE64:}
+  login-ip-throttle-key-base64: ${BRAJA_LOGIN_IP_THROTTLE_KEY_BASE64:}
   push-subscription-encryption-key-base64: ${BRAJA_PUSH_SUBSCRIPTION_ENCRYPTION_KEY_BASE64:}
   vapid-public-key: ${BRAJA_VAPID_PUBLIC_KEY:}
   vapid-private-key: ${BRAJA_VAPID_PRIVATE_KEY:}

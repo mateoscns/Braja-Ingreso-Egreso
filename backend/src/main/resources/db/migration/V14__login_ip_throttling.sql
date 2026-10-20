@@ -1,3 +1,4 @@
+-- Revert: DROP TABLE login_ip_throttles;
 CREATE TABLE login_ip_throttles (
     ip_hash CHAR(64) NOT NULL,
     window_started_at DATETIME(6) NOT NULL,

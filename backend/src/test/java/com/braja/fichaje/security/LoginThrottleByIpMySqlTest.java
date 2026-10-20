@@ -35,6 +35,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class LoginThrottleByIpMySqlTest {
     private static final String AES_KEY = Base64.getEncoder().encodeToString(new byte[32]);
+    private static final String LOGIN_IP_THROTTLE_KEY = Base64.getEncoder().encodeToString(
+            "0123456789abcdef0123456789abcdef".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
     private static final String KNOWN_DNI = "12345678";
 
     @Container
@@ -49,6 +51,7 @@ class LoginThrottleByIpMySqlTest {
         registry.add("spring.datasource.username", MYSQL::getUsername);
         registry.add("spring.datasource.password", MYSQL::getPassword);
         registry.add("braja.health-encryption-key-base64", () -> AES_KEY);
+        registry.add("braja.login-ip-throttle-key-base64", () -> LOGIN_IP_THROTTLE_KEY);
         registry.add("braja.push-subscription-encryption-key-base64", () -> "");
         registry.add("braja.vapid-public-key", () -> "");
         registry.add("braja.vapid-private-key", () -> "");
@@ -66,6 +69,7 @@ class LoginThrottleByIpMySqlTest {
     @Autowired ObjectMapper objectMapper;
     @Autowired com.braja.fichaje.config.BrajaProperties brajaProperties;
     @Autowired ClientAddressResolver clientAddressResolver;
+    @Autowired PrivacyRetentionScheduler privacyRetentionScheduler;
     @Autowired org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
 
     @BeforeEach
@@ -123,6 +127,23 @@ class LoginThrottleByIpMySqlTest {
         assertEquals(429, login("70000004", "wrong-password", trustedProxy, "203.0.113.50").getResponse().getStatus());
         assertTrue(jdbc.queryForObject("SELECT COUNT(*) FROM login_ip_throttles", Integer.class) >= 5,
                 "IP throttle state must be persisted in MySQL");
+    }
+
+    @Test
+    void purgesExpiredIpThrottleRowsButKeepsActiveLocks() {
+        Instant now = Instant.now();
+        Instant old = now.minus(java.time.Duration.ofDays(2));
+        String expiredHash = "expired-test-hash";
+        String lockedHash = "active-lock-test-hash";
+        jdbc.update("INSERT INTO login_ip_throttles(ip_hash,window_started_at,failed_attempts,locked_until,updated_at) VALUES(?,?,1,NULL,?)",
+                expiredHash, java.sql.Timestamp.from(old), java.sql.Timestamp.from(old));
+        jdbc.update("INSERT INTO login_ip_throttles(ip_hash,window_started_at,failed_attempts,locked_until,updated_at) VALUES(?,?,2,?,?)",
+                lockedHash, java.sql.Timestamp.from(old), java.sql.Timestamp.from(now.plusSeconds(3600)), java.sql.Timestamp.from(old));
+
+        privacyRetentionScheduler.purgeSensitiveData();
+
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM login_ip_throttles WHERE ip_hash=?", Integer.class, expiredHash));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM login_ip_throttles WHERE ip_hash=?", Integer.class, lockedHash));
     }
 
     private MvcResult login(String dni, String password, String remoteAddress, String forwardedFor) throws Exception {

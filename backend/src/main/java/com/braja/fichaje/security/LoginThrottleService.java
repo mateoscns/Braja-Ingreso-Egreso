@@ -26,7 +26,7 @@ public class LoginThrottleService {
 
     public LoginThrottleService(JdbcTemplate jdbc, BrajaProperties properties) {
         this.jdbc = jdbc;
-        this.key = java.util.Base64.getDecoder().decode(properties.getHealthEncryptionKeyBase64());
+        this.key = java.util.Base64.getDecoder().decode(properties.getLoginIpThrottleKeyBase64());
         this.properties = properties;
     }
 

@@ -1,5 +1,6 @@
 package com.braja.fichaje.security;
 
+import com.braja.fichaje.api.ApiException;
 import com.braja.fichaje.config.BrajaProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Component;
@@ -25,21 +26,27 @@ public final class ClientAddressResolver {
     public String resolve(HttpServletRequest request) {
         String remoteAddress = request.getRemoteAddr();
         InetAddress peer = parseAddress(remoteAddress);
-        if (peer == null || !isTrusted(peer)) return peer == null ? remoteAddress : peer.getHostAddress();
+        if (peer == null) throw ApiException.invalid("Unable to determine client address");
+        if (!isTrusted(peer)) return throttleAddress(peer);
 
-        List<InetAddress> chain = parseForwardedFor(request.getHeader("X-Forwarded-For"));
+        String forwardedFor = request.getHeader("X-Forwarded-For");
+        if (forwardedFor == null || forwardedFor.isBlank()) {
+            throw ApiException.invalid("Trusted proxy did not provide a valid client address");
+        }
+        List<InetAddress> chain = parseForwardedFor(forwardedFor);
+        if (chain.isEmpty()) throw ApiException.invalid("Trusted proxy did not provide a valid client address");
         InetAddress current = peer;
         for (int index = chain.size() - 1; index >= 0; index--) {
             if (!isTrusted(current)) break;
             current = chain.get(index);
         }
-        return current.getHostAddress();
+        return throttleAddress(current);
     }
 
     private List<InetAddress> parseForwardedFor(String header) {
         if (header == null || header.isBlank()) return List.of();
         List<InetAddress> addresses = new ArrayList<>();
-        for (String element : header.split(",")) {
+        for (String element : header.split(",", -1)) {
             InetAddress address = parseAddress(element.trim());
             if (address == null) return List.of();
             addresses.add(address);
@@ -49,6 +56,19 @@ public final class ClientAddressResolver {
 
     private boolean isTrusted(InetAddress address) {
         return trustedProxies.stream().anyMatch(network -> network.contains(address));
+    }
+
+    private static String throttleAddress(InetAddress address) {
+        byte[] bytes = address.getAddress();
+        if (bytes.length == 16) {
+            java.util.Arrays.fill(bytes, 8, bytes.length, (byte) 0);
+            try {
+                return InetAddress.getByAddress(bytes).getHostAddress();
+            } catch (UnknownHostException impossible) {
+                throw new IllegalStateException("Unable to normalize client address", impossible);
+            }
+        }
+        return address.getHostAddress();
     }
 
     private static InetAddress parseAddress(String raw) {

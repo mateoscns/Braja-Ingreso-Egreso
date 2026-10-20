@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 
 @Component
@@ -23,5 +24,7 @@ public class PrivacyRetentionScheduler {
                 "WHERE location_status='RECIBIDA' AND location_received_at < ?", Timestamp.from(now), cutoff);
         jdbc.update("UPDATE deviations SET motive_category=NULL,motive_text=NULL,motive_ciphertext=NULL,motive_iv=NULL,motive_cipher_key_id=NULL,motive_author_account_id=NULL,motive_purged_at=?,updated_at=? " +
                 "WHERE motive_created_at IS NOT NULL AND motive_purged_at IS NULL AND motive_created_at < ?", Timestamp.from(now), Timestamp.from(now), cutoff);
+        jdbc.update("DELETE FROM login_ip_throttles WHERE updated_at < ? AND (locked_until IS NULL OR locked_until <= ?)",
+                Timestamp.from(now.minus(Duration.ofDays(1))), Timestamp.from(now));
     }
 }
