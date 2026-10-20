@@ -915,7 +915,7 @@ components:
         employeeDisplayName: { type: string, description: Display name exposed only within the caller's authorized company and employee scope. }
         type:
           type: string
-          enum: [SIN_INGRESO, LLEGADA_TARDE, EGRESO_TEMPRANO, EGRESO_TARDIO, EXCESO_DESAYUNO, EXCESO_ALMUERZO]
+          enum: [SIN_INGRESO, LLEGADA_TARDE, EGRESO_TEMPRANO, EGRESO_TARDIO, MARCA_FALTANTE, EXCESO_DESAYUNO, EXCESO_ALMUERZO]
         status: { type: string, enum: [MOTIVO_PENDIENTE, PENDIENTE_REVISION, JUSTIFICADO, NO_JUSTIFICADO] }
         category: { oneOf: [{ $ref: '#/components/schemas/MotiveCategory' }, { type: 'null' }] }
         motiveText:

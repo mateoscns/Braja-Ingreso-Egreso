@@ -35,6 +35,21 @@ class DeviationPolicyTest {
     }
 
     @Test
+    void missingEgressRequiresIngressNoEgressAndStrictlyExceedingTheTolerance() {
+        Instant deadline = scheduledEnd.plus(Duration.ofMinutes(10));
+        assertEquals(Optional.empty(), policy.missingEgress(scheduledEnd, 10, deadline, true, false));
+        assertEquals(Optional.of(DeviationType.MARCA_FALTANTE),
+                policy.missingEgress(scheduledEnd, 10, deadline.plusSeconds(1), true, false));
+        assertEquals(Optional.empty(), policy.missingEgress(scheduledEnd, 10, deadline.plusSeconds(1), false, false));
+        assertEquals(Optional.empty(), policy.missingEgress(scheduledEnd, 10, deadline.plusSeconds(1), true, true));
+    }
+
+    @Test
+    void missingEgressIsInternalOnlyAndNeverPushEligible() {
+        assertTrue(!DeviationType.MARCA_FALTANTE.isPushEligible());
+    }
+
+    @Test
     void pauseOnlyDeviatesWhenItsDurationExceedsTheTemplateLimit() {
         assertTrue(policy.pause(Duration.ofMinutes(15), 15, DeviationType.EXCESO_DESAYUNO).isEmpty());
         assertEquals(Optional.of(DeviationType.EXCESO_ALMUERZO),

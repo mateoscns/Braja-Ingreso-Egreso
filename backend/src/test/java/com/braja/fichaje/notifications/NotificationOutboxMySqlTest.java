@@ -94,6 +94,20 @@ class NotificationOutboxMySqlTest {
     }
 
     @Test
+    void missingEgressDeviationNeverEntersTheOutboxOrOpensAWindow() {
+        Fixture fixture = createFixture();
+        DeviationNotificationPort port = new JdbcDeviationNotificationOutbox(jdbc,
+                enabledPushProperties(), new NotificationWindowPolicy());
+        UUID deviation = createDeviation(fixture, fixture.siteOne(), fixture.employeeOne(), "MARCA_FALTANTE");
+
+        inTransaction(() -> port.enqueue(fixture.company(), fixture.siteOne(), deviation,
+                "MARCA_FALTANTE", Instant.parse("2026-10-16T20:30:00Z")));
+
+        assertEquals(0, count("SELECT COUNT(*) FROM notification_outbox_events WHERE company_id = ?", fixture.company()));
+        assertEquals(0, count("SELECT COUNT(*) FROM notification_windows WHERE company_id = ?", fixture.company()));
+    }
+
+    @Test
     void concurrentEventsForOneCompanyShareTheFirstOpenWindow() throws Exception {
         Fixture fixture = createFixture();
         DeviationNotificationPort port = new JdbcDeviationNotificationOutbox(jdbc,

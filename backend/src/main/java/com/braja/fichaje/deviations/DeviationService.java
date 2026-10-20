@@ -45,6 +45,9 @@ public class DeviationService {
             policy.egress(scheduledEnd, toleranceMinutes, egress.occurredAt())
                     .ifPresent(type -> desired.put(type, new DesiredDeviation(egress.id(), egress.occurredAt())));
         }
+        // Missing egress is internal-only (never pushed); it shares one persistent deviation with the egress types.
+        policy.missingEgress(scheduledEnd, toleranceMinutes, now, ingress != null, egress != null)
+                .ifPresent(type -> desired.put(type, new DesiredDeviation(null, scheduledEnd.plus(Duration.ofMinutes(toleranceMinutes)))));
 
         MarkFact breakfastStart = null, lunchStart = null;
         for (MarkFact mark : marks) {
@@ -242,7 +245,9 @@ public class DeviationService {
                 rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant(), type.isPushEligible());
     }
 
-    private boolean isEgress(DeviationType type) { return type == DeviationType.EGRESO_TEMPRANO || type == DeviationType.EGRESO_TARDIO; }
+    private boolean isEgress(DeviationType type) {
+        return type == DeviationType.EGRESO_TEMPRANO || type == DeviationType.EGRESO_TARDIO || type == DeviationType.MARCA_FALTANTE;
+    }
     private static java.sql.Timestamp timestamp(Instant instant) { return java.sql.Timestamp.from(instant); }
     private static Cursor decodeCursor(String raw) {
         try {

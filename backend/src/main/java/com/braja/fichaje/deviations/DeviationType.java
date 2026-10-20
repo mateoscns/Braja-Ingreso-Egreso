@@ -6,7 +6,8 @@ public enum DeviationType {
     EGRESO_TEMPRANO(false),
     EGRESO_TARDIO(false),
     EXCESO_DESAYUNO(false),
-    EXCESO_ALMUERZO(false);
+    EXCESO_ALMUERZO(false),
+    MARCA_FALTANTE(false);
 
     private final boolean pushEligible;
 
