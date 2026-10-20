@@ -229,7 +229,7 @@ public class MarkService {
                 return new RetrySchedule(failureCount, retryAt);
             });
             if (retry == null) return;
-            if (candidate.failureCount() == 0) {
+            if (DEVIATION_WORKER_RETRY_POLICY.shouldWarnOnFailure(candidate.failureCount(), retry.failureCount())) {
                 LOGGER.warn("Due deviation candidate {} in company {} failed on attempt {}; retry scheduled at {} (failureType={})",
                         candidate.jornadaId(), candidate.companyId(), retry.failureCount(), retry.retryAt(), failure.getClass().getSimpleName());
             } else {

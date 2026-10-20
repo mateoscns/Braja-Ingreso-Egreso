@@ -5,7 +5,9 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DeviationWorkerRetryPolicyTest {
     private final DeviationWorkerRetryPolicy policy = new DeviationWorkerRetryPolicy();
@@ -24,6 +26,14 @@ class DeviationWorkerRetryPolicyTest {
         assertEquals(1, policy.nextFailureCount(0));
         assertEquals(16, policy.nextFailureCount(15));
         assertEquals(16, policy.nextFailureCount(16));
+    }
+
+    @Test
+    void warnsOnFirstFailureAndAtRetryCeiling() {
+        assertTrue(policy.shouldWarnOnFailure(0, 1));
+        assertTrue(policy.shouldWarnOnFailure(15, 16));
+        assertTrue(policy.shouldWarnOnFailure(16, 16));
+        assertFalse(policy.shouldWarnOnFailure(1, 2));
     }
 
     @Test

@@ -12,6 +12,10 @@ final class DeviationWorkerRetryPolicy {
         return currentFailureCount >= MAX_FAILURE_COUNT ? MAX_FAILURE_COUNT : currentFailureCount + 1;
     }
 
+    boolean shouldWarnOnFailure(int previousFailureCount, int failureCount) {
+        return previousFailureCount == 0 || failureCount == MAX_FAILURE_COUNT;
+    }
+
     Duration delayForFailure(int failureCount) {
         if (failureCount < 1) throw new IllegalArgumentException("Failure count must be positive");
         Duration delay = INITIAL_DELAY;
