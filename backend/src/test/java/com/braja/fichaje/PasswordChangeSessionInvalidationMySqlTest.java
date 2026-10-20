@@ -39,6 +39,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class PasswordChangeSessionInvalidationMySqlTest {
     private static final String AES_KEY = Base64.getEncoder().encodeToString(new byte[32]);
+    private static final String LOGIN_IP_THROTTLE_KEY = Base64.getEncoder().encodeToString(
+            "0123456789abcdef0123456789abcdef".getBytes(StandardCharsets.US_ASCII));
     private static final String DNI = "12345678";
     private static final String OLD_PASSWORD = "initial-password-123";
     private static final String NEW_PASSWORD = "replacement-password-456";
@@ -55,6 +57,7 @@ class PasswordChangeSessionInvalidationMySqlTest {
         registry.add("spring.datasource.username", MYSQL::getUsername);
         registry.add("spring.datasource.password", MYSQL::getPassword);
         registry.add("braja.health-encryption-key-base64", () -> AES_KEY);
+        registry.add("braja.login-ip-throttle-key-base64", () -> LOGIN_IP_THROTTLE_KEY);
         registry.add("braja.push-subscription-encryption-key-base64", () -> "");
         registry.add("braja.vapid-public-key", () -> "");
         registry.add("braja.vapid-private-key", () -> "");
