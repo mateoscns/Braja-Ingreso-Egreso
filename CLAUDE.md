@@ -396,10 +396,12 @@ dirección de dependencias entre carpetas.
 ### Frontend
 
 35. **Capas con dirección de dependencias exigida por ESLint en CI.** Sin
-    `any`, sin ciclos, sin código muerto, cero warnings. Hoy no hay ESLint ni
-    scripts `lint`/`typecheck`; existe `tsc -b` con `strict` y `noUnused*` dentro
-    de `npm run build`, y no hay `any` fuera de tests (`rg` 2026-10-19).
-    `[sin guarda: destino]`
+    `any`, sin ciclos, sin código muerto, cero warnings. `npm run lint` usa
+    ESLint flat config y `typescript-eslint` recomendado; se ejecuta en CI con
+    cero warnings. Los tests pueden usar `any`. `npm run typecheck` invoca el
+    `tsc` 7 ya instalado (`tsc -b`), con `strict` y `noUnused*`, y también se
+    ejecuta en CI. Límites entre capas, ciclos y código muerto todavía no
+    tienen reglas específicas `[sin guarda: destino]` (2026-10-19).
 36. **Componentes de render reciben datos y callbacks por props**; el estado
     remoto vive en contenedores. Incumplida en `features/admin/AdminViews.tsx`
     (388 líneas, estado remoto y render juntos). `[sin guarda: destino]`
@@ -443,9 +445,9 @@ dirección de dependencias entre carpetas.
   errores de tipos pasaron tres fases así.)
 - **Gate antes de cada push**, sin pipes: `cd backend && ./mvnw verify`
   (Windows: `.\mvnw.cmd verify`) y
-  `cd frontend && npm ci && npm test && npm run build && npm audit --omit=dev`.
-  `npm run build` ejecuta `tsc -b`, hoy el único chequeo de tipos. No hay
-  Spotless, `lint` ni `typecheck`.
+  `cd frontend && npm ci && npm run lint && npm run typecheck && npm test &&
+  npm run build && npm audit --omit=dev`. `npm run build` también ejecuta
+  `tsc -b`. No hay Spotless.
 - **CI es la verdad.** Si local pasa y CI falla, la diferencia es el bug.
   `.github/workflows/ci.yml` corre en `pull_request` y en `push` a `main`
   (`permissions: contents: read`; cancela corridas previas de la misma ref).
@@ -483,7 +485,8 @@ dirección de dependencias entre carpetas.
   días; CSRF, cookie `HttpOnly` y `Secure` por defecto con guarda de arranque;
   agrupación, reintento y payload del push; CI con tests en MySQL 8.4 real.
 - **Falta todavía** (2026-10-19), cada ítem verificado en el código:
-  - Inyectar `Clock` (28). ESLint y scripts `lint`/`typecheck` (35, 36).
+  - Inyectar `Clock` (28). Completar reglas ESLint para límites entre capas,
+    ciclos y código muerto (35, 36).
   - Tests CA8 con un `ADMIN` real de otra empresa (9) y ráfaga de acciones
     distintas (10).
   - El cambio de contraseña no invalida otras sesiones (23).
