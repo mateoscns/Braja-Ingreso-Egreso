@@ -102,7 +102,7 @@ public class JornadaController {
 
     private JornadaView getJornada(ScopeService.Scope scope, UUID jornadaId) {
         JornadaRow row = jdbc.query("SELECT id,employee_id,site_id,local_date,state,next_sequence,schedule_snapshot,tolerance_minutes FROM jornadas WHERE id=? AND company_id=?",
-                rs -> rs.next() ? new JornadaRow(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("employee_id")), UUID.fromString(rs.getString("site_id")), rs.getDate("local_date").toLocalDate(), rs.getString("state"), rs.getLong("next_sequence") - 1, rs.getString("schedule_snapshot"), rs.getInt("tolerance_minutes")) : null,
+                rs -> rs.next() ? new JornadaRow(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("employee_id")), UUID.fromString(rs.getString("site_id")), rs.getObject("local_date", LocalDate.class), rs.getString("state"), rs.getLong("next_sequence") - 1, rs.getString("schedule_snapshot"), rs.getInt("tolerance_minutes")) : null,
                 jornadaId.toString(), scope.companyId().toString());
         if (row == null) throw ApiException.notFound();
         if ("EMPLOYEE".equals(scope.role()) && !row.employeeId().equals(scopes.employeeIdFor(scope))) throw ApiException.notFound();
@@ -118,7 +118,7 @@ public class JornadaController {
     }
 
     private JornadaSummary summary(java.sql.ResultSet rs) throws java.sql.SQLException {
-        return new JornadaSummary(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("employee_id")), UUID.fromString(rs.getString("site_id")), rs.getDate("local_date").toLocalDate(), rs.getString("state"));
+        return new JornadaSummary(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("employee_id")), UUID.fromString(rs.getString("site_id")), rs.getObject("local_date", LocalDate.class), rs.getString("state"));
     }
 
     private static Double nullableDouble(Object value) { return value == null ? null : ((Number) value).doubleValue(); }
