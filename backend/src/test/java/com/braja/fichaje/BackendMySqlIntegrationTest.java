@@ -407,7 +407,7 @@ class BackendMySqlIntegrationTest {
     }
 
     @Test
-    void absenceWorkerContinuesAfterOneCandidateFails() {
+    void absenceWorkerBacksOffFailingCandidateAndProcessesNextCandidateOnce() {
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         UUID templateId = jdbc.queryForObject("SELECT id FROM schedule_templates WHERE company_id=? LIMIT 1", (rs, row) -> UUID.fromString(rs.getString(1)), companyId.toString());
         jdbc.update("UPDATE jornadas SET state='EGRESADA' WHERE id=?", jornadaId.toString());
@@ -417,10 +417,34 @@ class BackendMySqlIntegrationTest {
         insertDueJornada(brokenJornadaId, templateId, employeeId, adminAccountId, now.minusSeconds(7200), java.time.LocalDate.now().minusDays(2), "{\"blocks\":\"x\"}", now);
         insertDueJornada(validJornadaId, templateId, employeeId, adminAccountId, now.minusSeconds(3600), java.time.LocalDate.now().minusDays(1), validSnapshot, now);
 
-        marks.createDueAbsences(now, 10);
+        marks.createDueAbsences(now, 1);
+
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, brokenJornadaId.toString()));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, validJornadaId.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT deviation_worker_failure_count FROM jornadas WHERE id=?", Integer.class, brokenJornadaId.toString()));
+        assertEquals(java.sql.Timestamp.from(now.plusSeconds(30)), jdbc.queryForObject(
+                "SELECT deviation_worker_retry_at FROM jornadas WHERE id=?", java.sql.Timestamp.class, brokenJornadaId.toString()));
+
+        marks.createDueAbsences(now.plusSeconds(15), 1);
+
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, validJornadaId.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT deviation_worker_failure_count FROM jornadas WHERE id=?", Integer.class, brokenJornadaId.toString()));
+
+        marks.createDueAbsences(now.plusSeconds(30), 1);
 
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, brokenJornadaId.toString()));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, validJornadaId.toString()));
+        assertEquals(2, jdbc.queryForObject("SELECT deviation_worker_failure_count FROM jornadas WHERE id=?", Integer.class, brokenJornadaId.toString()));
+        assertEquals(java.sql.Timestamp.from(now.plusSeconds(90)), jdbc.queryForObject(
+                "SELECT deviation_worker_retry_at FROM jornadas WHERE id=?", java.sql.Timestamp.class, brokenJornadaId.toString()));
+
+        jdbc.update("UPDATE jornadas SET schedule_snapshot=? WHERE id=?", validSnapshot, brokenJornadaId.toString());
+        marks.createDueAbsences(now.plusSeconds(90), 1);
+
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, brokenJornadaId.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, validJornadaId.toString()));
+        assertEquals(0, jdbc.queryForObject("SELECT deviation_worker_failure_count FROM jornadas WHERE id=?", Integer.class, brokenJornadaId.toString()));
+        assertNull(jdbc.queryForObject("SELECT deviation_worker_retry_at FROM jornadas WHERE id=?", java.sql.Timestamp.class, brokenJornadaId.toString()));
     }
 
     @Test

@@ -25,6 +25,7 @@ import java.util.*;
 public class MarkService {
     private static final Logger LOGGER = LoggerFactory.getLogger(MarkService.class);
     private static final Duration EARLY_INGRESS_WINDOW = Duration.ofMinutes(30);
+    private static final DeviationWorkerRetryPolicy DEVIATION_WORKER_RETRY_POLICY = new DeviationWorkerRetryPolicy();
 
     private final JdbcTemplate jdbc;
     private final ScopeService scopes;
@@ -184,26 +185,60 @@ public class MarkService {
                 "JOIN employees e ON e.id=j.employee_id AND e.company_id=j.company_id AND e.active=TRUE " +
                 "JOIN accounts a ON a.id=e.account_id AND a.active=TRUE " +
                 "JOIN company_memberships cm ON cm.company_id=e.company_id AND cm.account_id=e.account_id AND cm.active=TRUE ";
-        List<Candidate> candidates = new ArrayList<>(isolatedTransaction.execute(status -> jdbc.query("SELECT j.id,j.company_id " + activeJoins +
+        List<Candidate> candidates = new ArrayList<>(isolatedTransaction.execute(status -> jdbc.query("SELECT j.id,j.company_id,j.deviation_worker_failure_count " + activeJoins +
                         "WHERE j.state='NO_INGRESO' AND DATE_ADD(j.scheduled_start_at, INTERVAL j.tolerance_minutes MINUTE) < ? " +
+                        "AND (j.deviation_worker_retry_at IS NULL OR j.deviation_worker_retry_at<=?) " +
                         "AND NOT EXISTS (SELECT 1 FROM mark_events m WHERE m.jornada_id=j.id AND m.action='INGRESO') " +
                         "AND NOT EXISTS (SELECT 1 FROM deviations d WHERE d.jornada_id=j.id AND d.type='SIN_INGRESO' AND d.active=TRUE) " +
                         "ORDER BY j.scheduled_start_at,j.id LIMIT ?",
-                (rs, row) -> new Candidate(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("company_id"))), timestamp(now), batchSize)));
+                (rs, row) -> new Candidate(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("company_id")), rs.getInt("deviation_worker_failure_count")),
+                timestamp(now), timestamp(now), batchSize)));
         // MARCA_FALTANTE (D-20261018-01): INGRESO without EGRESO past scheduled end + tolerance, not yet flagged.
-        candidates.addAll(isolatedTransaction.execute(status -> jdbc.query("SELECT j.id,j.company_id " + activeJoins +
+        candidates.addAll(isolatedTransaction.execute(status -> jdbc.query("SELECT j.id,j.company_id,j.deviation_worker_failure_count " + activeJoins +
                         "WHERE j.state IN ('EN_CURSO','PAUSA_ABIERTA') AND DATE_ADD(j.scheduled_end_at, INTERVAL j.tolerance_minutes MINUTE) < ? " +
+                        "AND (j.deviation_worker_retry_at IS NULL OR j.deviation_worker_retry_at<=?) " +
                         "AND EXISTS (SELECT 1 FROM mark_events m WHERE m.jornada_id=j.id AND m.company_id=j.company_id AND m.action='INGRESO') " +
                         "AND NOT EXISTS (SELECT 1 FROM mark_events m WHERE m.jornada_id=j.id AND m.company_id=j.company_id AND m.action='EGRESO') " +
                         "AND NOT EXISTS (SELECT 1 FROM deviations d WHERE d.jornada_id=j.id AND d.company_id=j.company_id AND d.type='MARCA_FALTANTE' AND d.active=TRUE) " +
                         "ORDER BY j.scheduled_end_at,j.id LIMIT ?",
-                (rs, row) -> new Candidate(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("company_id"))), timestamp(now), batchSize)));
+                (rs, row) -> new Candidate(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("company_id")), rs.getInt("deviation_worker_failure_count")),
+                timestamp(now), timestamp(now), batchSize)));
         for (Candidate candidate : candidates) {
             try {
-                isolatedTransaction.executeWithoutResult(status -> createAbsenceIfStillDue(candidate.companyId(), candidate.jornadaId(), now));
+                isolatedTransaction.executeWithoutResult(status -> {
+                    createAbsenceIfStillDue(candidate.companyId(), candidate.jornadaId(), now);
+                    jdbc.update("UPDATE jornadas SET deviation_worker_failure_count=0,deviation_worker_retry_at=NULL WHERE id=? AND company_id=?",
+                            candidate.jornadaId().toString(), candidate.companyId().toString());
+                });
             } catch (RuntimeException ex) {
-                LOGGER.error("Failed to process due absence for jornada {} in company {}", candidate.jornadaId(), candidate.companyId(), ex);
+                recordDeviationWorkerFailure(candidate, now, ex);
             }
+        }
+    }
+
+    private void recordDeviationWorkerFailure(Candidate candidate, Instant now, RuntimeException failure) {
+        try {
+            RetrySchedule retry = isolatedTransaction.execute(status -> {
+                Integer previousFailureCount = jdbc.query("SELECT deviation_worker_failure_count FROM jornadas WHERE id=? AND company_id=? FOR UPDATE",
+                        rs -> rs.next() ? rs.getInt(1) : null, candidate.jornadaId().toString(), candidate.companyId().toString());
+                if (previousFailureCount == null) return null;
+                int failureCount = DEVIATION_WORKER_RETRY_POLICY.nextFailureCount(previousFailureCount);
+                Instant retryAt = now.plus(DEVIATION_WORKER_RETRY_POLICY.delayForFailure(failureCount));
+                jdbc.update("UPDATE jornadas SET deviation_worker_failure_count=?,deviation_worker_retry_at=? WHERE id=? AND company_id=?",
+                        failureCount, timestamp(retryAt), candidate.jornadaId().toString(), candidate.companyId().toString());
+                return new RetrySchedule(failureCount, retryAt);
+            });
+            if (retry == null) return;
+            if (candidate.failureCount() == 0) {
+                LOGGER.warn("Due deviation candidate {} in company {} failed on attempt {}; retry scheduled at {} (failureType={})",
+                        candidate.jornadaId(), candidate.companyId(), retry.failureCount(), retry.retryAt(), failure.getClass().getSimpleName());
+            } else {
+                LOGGER.debug("Due deviation candidate {} in company {} failed on attempt {}; retry scheduled at {} (failureType={})",
+                        candidate.jornadaId(), candidate.companyId(), retry.failureCount(), retry.retryAt(), failure.getClass().getSimpleName());
+            }
+        } catch (RuntimeException retryFailure) {
+            LOGGER.error("Could not persist retry for due deviation candidate {} in company {} (failureType={}, retryStateFailureType={})",
+                    candidate.jornadaId(), candidate.companyId(), failure.getClass().getSimpleName(), retryFailure.getClass().getSimpleName());
         }
     }
 
@@ -350,7 +385,8 @@ public class MarkService {
     public record LocationResult(UUID markId, String locationStatus) { }
     private record HistoryRow(UUID id, long sequence, long timelineOrder, MarkAction action, Instant occurredAt) { }
     private record JornadaLock(UUID id, UUID employeeId, UUID siteId, String snapshot, int toleranceMinutes, Instant scheduledStart, Instant scheduledEnd, long nextSequence) { }
-    private record Candidate(UUID jornadaId, UUID companyId) { }
+    private record Candidate(UUID jornadaId, UUID companyId, int failureCount) { }
+    private record RetrySchedule(int failureCount, Instant retryAt) { }
     private record MarkRow(UUID id, UUID jornadaId, UUID employeeId, MarkAction action, long sequence, Instant acceptedAt, Instant occurredAt, Instant recordedAt,
                            String locationStatus, BigDecimal latitude, BigDecimal longitude) { }
 }
