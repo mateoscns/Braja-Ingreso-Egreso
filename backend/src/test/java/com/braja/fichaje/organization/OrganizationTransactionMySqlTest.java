@@ -13,6 +13,7 @@ import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.MySQLContainer;
@@ -34,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Testcontainers
 @SpringBootTest(properties = "braja.scheduling.enabled=false")
+@ActiveProfiles("local")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class OrganizationTransactionMySqlTest {
     private static final String AES_KEY = java.util.Base64.getEncoder().encodeToString(new byte[32]);

@@ -329,9 +329,10 @@ dirección de dependencias entre carpetas.
     default en el repo; `EncryptionService` llama `BrajaProperties.validate()`
     y el arranque falla sin clave de salud de 32 bytes, con VAPID incompleto o
     con push activo sin clave de suscripción; no hay springdoc, actuator ni
-    CORS. **Brecha**: `spring.profiles.default` es `local`, que pone
-    `cookie.secure=false`; producción debe fijar perfil o
-    `BRAJA_SESSION_COOKIE_SECURE=true`. `[sin guarda: implementado, sin test]`
+    CORS. Sin perfil activo, la configuración por defecto pone `Secure=true`
+    en `BRAJA_SESSION`. `Secure=false` se permite únicamente si `local` es el
+    único perfil activo; si no, el arranque falla. Guarda:
+    `SessionCookieSecurityStartupTest` (2026-10-19).
 23. **Cambios sensibles revocan acceso.** No hay `token_version`: la
     autenticación es sesión en MySQL (30 min de inactividad). Baja de
     empleado, membresía o cuenta cortan el acceso en la siguiente request
@@ -479,8 +480,8 @@ dirección de dependencias entre carpetas.
   transiciones de jornada; ventana de ingreso de 30 min (D-20261016-05);
   `MARCA_FALTANTE` y su cierre o reemplazo por `EGRESO_TARDIO`
   (D-20261018-01, D-20261019-01); baja de empleado; ubicación y purga a 90
-  días; CSRF y cookie `HttpOnly`; agrupación, reintento y payload del push;
-  CI con tests en MySQL 8.4 real.
+  días; CSRF, cookie `HttpOnly` y `Secure` por defecto con guarda de arranque;
+  agrupación, reintento y payload del push; CI con tests en MySQL 8.4 real.
 - **Falta todavía** (2026-10-19), cada ítem verificado en el código:
   - Inyectar `Clock` (28). ESLint y scripts `lint`/`typecheck` (35, 36).
   - Tests CA8 con un `ADMIN` real de otra empresa (9) y ráfaga de acciones
@@ -500,8 +501,6 @@ dirección de dependencias entre carpetas.
     `LOGGER.error` con traza cada 15 s.
   - N+1 en `OrganizationController.employees/templates` y
     `JornadaController.mine` (17).
-  - Perfil por defecto `local` con `Secure` apagado (22): producción debe
-    exigir la configuración explícita.
   - El límite de login es solo por DNI: con conocer un DNI se puede bloquear
     esa cuenta; falta un límite por IP (21).
   - Primer deploy: V11 exige el procedimiento de reversa antes de volver a la
@@ -543,8 +542,8 @@ si cada clon hace `git config core.hooksPath .githooks`**. Hoy no existe
 3. [ ] Portar `DecisionesDelDuenoTest` (frases de atribución sin ID → falla).
 4. [~] Toolchain: Java 21 y Node 24 fijados solo en CI (PR #4). Los `<…>` de
    este archivo se completaron con lo real; quedan RTO y el dominio.
-5. [~] Sacar `[sin guarda]` regla por regla. Con guarda: 2, 7, 8, 12, 13 y la
-   máquina de estados; parcial: 1, 4, 5, 6, 9, 10, 14, 24. Siguen: 9 (CA8),
-   10 (ráfaga distinta), 28 (`Clock`), 22 (perfil), 21 y 23.
+5. [~] Sacar `[sin guarda]` regla por regla. Con guarda: 2, 7, 8, 12, 13, 22
+   y la máquina de estados; parcial: 1, 4, 5, 6, 9, 10, 14, 24. Siguen: 9
+   (CA8), 10 (ráfaga distinta), 28 (`Clock`), 21 y 23.
 6. [x] Primera verificación completa del archivo contra el código:
    2026-10-19, sobre `5ee220f`. Se repite al cerrar cada hueco de §7.

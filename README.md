@@ -10,7 +10,7 @@ La v1 está en `main` (PR #2), con CI (PR #4) y `MARCA_FALTANTE` (PR #6). El reg
 
 1. Copiar `.env.example` a `.env` y generar claves privadas de 32 bytes distintas para motivos `SALUD` y secretos de suscripción push.
 2. Iniciar MySQL 8.4 con `docker compose up -d mysql`.
-3. Ejecutar migraciones Flyway y arrancar Spring Boot con el perfil local.
+3. Ejecutar migraciones Flyway y arrancar Spring Boot con `--spring.profiles.active=local` para habilitar el perfil HTTP local.
 4. Instalar dependencias y arrancar la PWA; durante desarrollo, Vite envía `/api` al backend.
 5. Ejecutar pruebas de backend y frontend antes de integrar cambios.
 

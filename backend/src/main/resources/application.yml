@@ -1,8 +1,6 @@
 spring:
   application:
     name: braja-fichaje
-  profiles:
-    default: local
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/braja?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true}
     username: ${SPRING_DATASOURCE_USERNAME:braja_app}
