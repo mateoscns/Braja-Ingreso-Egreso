@@ -105,11 +105,13 @@ public class AccountService {
     }
 
     @Transactional
-    public void changePassword(UUID accountId, String currentPassword, String newPassword) {
+    public void changePassword(UUID accountId, String currentPassword, String newPassword, String currentSessionId) {
         if (newPassword == null || newPassword.length() < 12 || newPassword.length() > 256) throw ApiException.invalid("New password must contain between 12 and 256 characters");
-        String encoded = jdbc.queryForObject("SELECT password_hash FROM accounts WHERE id=? AND active=TRUE", String.class, accountId.toString());
-        if (!passwordEncoder.matches(currentPassword, encoded)) throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Current password is incorrect");
+        AccountCredentials account = jdbc.queryForObject("SELECT password_hash,dni_display FROM accounts WHERE id=? AND active=TRUE",
+                (rs, row) -> new AccountCredentials(rs.getString("password_hash"), rs.getString("dni_display")), accountId.toString());
+        if (!passwordEncoder.matches(currentPassword, account.passwordHash())) throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Current password is incorrect");
         jdbc.update("UPDATE accounts SET password_hash=?, must_change_password=FALSE, updated_at=? WHERE id=?", passwordEncoder.encode(newPassword), Instant.now(), accountId.toString());
+        jdbc.update("DELETE FROM SPRING_SESSION WHERE PRINCIPAL_NAME=? AND SESSION_ID<>?", account.principalName(), currentSessionId);
     }
 
     public void invalidateSession(HttpServletRequest request, HttpServletResponse response) {
@@ -123,4 +125,5 @@ public class AccountService {
     public record MembershipView(UUID companyId, String companyName, String role) { }
     public record SessionView(UUID accountId, String dni, List<MembershipView> memberships, UUID activeCompanyId, boolean mustChangePassword) { }
     private record AccountRow(UUID id, String dni, boolean mustChangePassword) { }
+    private record AccountCredentials(String passwordHash, String principalName) { }
 }

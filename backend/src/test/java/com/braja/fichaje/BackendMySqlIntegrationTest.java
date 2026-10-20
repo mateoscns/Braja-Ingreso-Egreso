@@ -160,6 +160,29 @@ class BackendMySqlIntegrationTest {
     }
 
     @Test
+    void journeyDatesDoNotDependOnJvmDefaultTimeZone() throws Exception {
+        java.time.LocalDate expectedDate = java.time.LocalDate.of(2026, 10, 19);
+        jdbc.update("UPDATE jornadas SET local_date=? WHERE id=?", expectedDate, jornadaId.toString());
+        java.util.TimeZone originalTimeZone = java.util.TimeZone.getDefault();
+        try {
+            java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("Pacific/Honolulu"));
+            HttpLogin login = loginOverHttp(accountId, "30.123.456", "CorrectHorseBattery9!");
+
+            mockMvc.perform(get("/api/v1/jornadas")
+                            .param("from", expectedDate.toString())
+                            .param("to", expectedDate.toString())
+                            .cookie(login.sessionCookie()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].localDate").value(expectedDate.toString()));
+            mockMvc.perform(get("/api/v1/jornadas/{id}", jornadaId).cookie(login.sessionCookie()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.localDate").value(expectedDate.toString()));
+        } finally {
+            java.util.TimeZone.setDefault(originalTimeZone);
+        }
+    }
+
+    @Test
     void identicalConcurrentRetriesPersistOneMarkAndReturnTheOriginalResponse() throws Exception {
         UUID key = UUID.randomUUID();
         Instant receivedAt = Instant.now();
