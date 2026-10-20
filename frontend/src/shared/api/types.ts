@@ -31,7 +31,7 @@ export type Jornada = {
 }
 export type Deviation = {
   id: Id; jornadaId: Id; siteId?: Id; employeeId?: Id; employeeDisplayName?: string;
-  type: 'SIN_INGRESO' | 'LLEGADA_TARDE' | 'EGRESO_TEMPRANO' | 'EGRESO_TARDIO' | 'EXCESO_DESAYUNO' | 'EXCESO_ALMUERZO';
+  type: 'SIN_INGRESO' | 'LLEGADA_TARDE' | 'EGRESO_TEMPRANO' | 'EGRESO_TARDIO' | 'MARCA_FALTANTE' | 'EXCESO_DESAYUNO' | 'EXCESO_ALMUERZO';
   status: 'MOTIVO_PENDIENTE' | 'PENDIENTE_REVISION' | 'JUSTIFICADO' | 'NO_JUSTIFICADO';
   category?: 'SALUD' | 'TRANSPORTE' | 'EMERGENCIA' | 'OTRA' | null; motiveText?: string | null;
   createdAt: string; updatedAt?: string; pushEligible: boolean

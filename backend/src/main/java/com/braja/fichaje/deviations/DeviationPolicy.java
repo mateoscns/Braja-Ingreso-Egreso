@@ -24,6 +24,16 @@ public final class DeviationPolicy {
         return !hasIngress && now.isAfter(deadline) ? Optional.of(DeviationType.SIN_INGRESO) : Optional.empty();
     }
 
+    public Optional<DeviationType> missingEgress(Instant scheduledEnd, int toleranceMinutes, Instant now,
+                                                 boolean hasIngress, boolean hasEgress) {
+        validateTolerance(toleranceMinutes);
+        Objects.requireNonNull(scheduledEnd, "scheduledEnd");
+        Objects.requireNonNull(now, "now");
+        Instant deadline = scheduledEnd.plus(Duration.ofMinutes(toleranceMinutes));
+        return hasIngress && !hasEgress && now.isAfter(deadline)
+                ? Optional.of(DeviationType.MARCA_FALTANTE) : Optional.empty();
+    }
+
     public Optional<DeviationType> egress(Instant scheduledEnd, int toleranceMinutes, Instant occurredAt) {
         validateTolerance(toleranceMinutes);
         Objects.requireNonNull(scheduledEnd, "scheduledEnd");

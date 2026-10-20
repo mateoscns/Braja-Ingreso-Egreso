@@ -52,6 +52,15 @@ describe('administración de desvíos y marcas', () => {
     expect(await screen.findByText(/Lucía Pérez/)).toBeInTheDocument()
   })
 
+  it('muestra la etiqueta de egreso sin marcar para MARCA_FALTANTE', async () => {
+    const previous = apiMocks.get.getMockImplementation()!
+    apiMocks.get.mockImplementation((path: string) => path.startsWith('/inbox')
+      ? Promise.resolve({ items: [{ ...deviation, type: 'MARCA_FALTANTE' as const, status: 'MOTIVO_PENDIENTE' as const, pushEligible: false }], nextCursor: null })
+      : previous(path))
+    render(<AdminInbox />)
+    expect(await screen.findByText('Egreso sin marcar')).toBeInTheDocument()
+  })
+
   it('permite corregir una clasificación existente y exige motivo de auditoría', async () => {
     render(<AdminInbox />)
     const correctButton = await screen.findByRole('button', { name: 'Corregir a no justificado' })

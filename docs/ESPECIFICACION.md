@@ -43,6 +43,8 @@ La definición de transiciones y errores está en el contrato [openapi.yaml](../
 - Para el ingreso, se genera `SIN_INGRESO` solo al vencer la hora de inicio de una jornada declarada más la tolerancia individual guardada en esa jornada.
 - Si llega el ingreso después de `SIN_INGRESO`, el sistema actualiza el mismo desvío a `LLEGADA_TARDE` cuando la hora del hecho supera el umbral de ingreso. Conserva un solo desvío y un solo motivo. Para una marca olvidada se usa la hora declarada del hecho, no la hora de carga.
 - Se genera desvío de egreso cuando la hora queda más de la tolerancia individual antes o después del final previsto de la jornada. Un egreso dentro del margen, incluido el límite exacto, no genera ese desvío.
+- Si una jornada tiene `INGRESO` y no tiene `EGRESO` al superar la hora prevista de fin más la tolerancia individual guardada en la jornada, el job de ausencias genera `MARCA_FALTANTE` (D-20261018-01). Aparece solo en la bandeja interna; no genera push. Una pausa abierta no lo impide.
+- Si el `EGRESO` llega después (marca del empleado, marca olvidada del `ADMIN` o corrección), dentro de la tolerancia el `MARCA_FALTANTE` se cierra y no queda desvío; fuera de la tolerancia el mismo desvío pasa a `EGRESO_TARDIO` con la hora real, conservando su motivo (D-20261019-01).
 - La duración de desayuno y almuerzo se compara con el límite configurado en la plantilla congelada en la jornada. El exceso genera un desvío en la bandeja.
 - Ante un desvío, el empleado elige `SALUD`, `TRANSPORTE`, `EMERGENCIA` u `OTRA` y escribe el motivo. Puede completarlo después; mientras tanto queda `MOTIVO_PENDIENTE`.
 - Solo el `ADMIN` de la empresa decide si un desvío está justificado o no justificado. La bandeja permite revisar y corregir esa clasificación con auditoría.
@@ -64,6 +66,7 @@ La bandeja interna es la fuente de verdad y muestra todos los desvíos. En la vi
 | --- | --- | --- |
 | `SIN_INGRESO` | Sí | Sí |
 | `LLEGADA_TARDE` | Sí | Sí; reemplaza el aviso de ausencia existente |
+| `MARCA_FALTANTE` | Sí | No, solo bandeja interna |
 | Exceso de desayuno o almuerzo | Sí | No, apagado por defecto |
 | Otros tipos | Sí | No hasta que Mateo los habilite en la matriz |
 | Completar o corregir motivo | Actualiza el desvío | No genera push |
@@ -120,6 +123,7 @@ El backend usa Maven Wrapper para fijar su versión sin exigir una instalación 
 - [ ] Marcas distintas concurrentes quedan secuenciadas bajo bloqueo MySQL; el reintento exacto es idempotente y reutilizar una clave con otro contenido da conflicto.
 - [ ] `SIN_INGRESO` compite de manera segura con el ingreso tardío; al llegar este, se actualiza el mismo desvío a `LLEGADA_TARDE` cuando corresponda, sin duplicar motivo ni aviso.
 - [ ] Egreso temprano o tardío más allá de tolerancia genera desvío; dentro del margen no lo genera.
+- [ ] `MARCA_FALTANTE` se genera una sola vez para una jornada con `INGRESO` y sin `EGRESO` pasada la tolerancia, sin push; un egreso posterior lo cierra (dentro del margen) o lo convierte en `EGRESO_TARDIO` en el mismo desvío.
 - [ ] Ubicación lenta, denegada o fallida no demora la marca; la asociación posterior respeta 30 segundos y luego queda `SIN_UBICACION`.
 - [ ] Empleado no lee coordenadas de otros; solo ADMIN de su empresa ve ubicación exacta; coordenadas y texto de salud se purgan a los 90 días.
 - [ ] Solo el autor y ADMIN de su empresa leen motivos de salud; secretos y datos sensibles no llegan a logs, caché o push.

@@ -180,15 +180,24 @@ public class MarkService {
 
     public void createDueAbsences(Instant now, int batchSize) {
         if (batchSize < 1) return;
-        List<Candidate> candidates = isolatedTransaction.execute(status -> jdbc.query("SELECT j.id,j.company_id FROM jornadas j " +
-                        "JOIN employees e ON e.id=j.employee_id AND e.company_id=j.company_id AND e.active=TRUE " +
-                        "JOIN accounts a ON a.id=e.account_id AND a.active=TRUE " +
-                        "JOIN company_memberships cm ON cm.company_id=e.company_id AND cm.account_id=e.account_id AND cm.active=TRUE " +
+        String activeJoins = "FROM jornadas j " +
+                "JOIN employees e ON e.id=j.employee_id AND e.company_id=j.company_id AND e.active=TRUE " +
+                "JOIN accounts a ON a.id=e.account_id AND a.active=TRUE " +
+                "JOIN company_memberships cm ON cm.company_id=e.company_id AND cm.account_id=e.account_id AND cm.active=TRUE ";
+        List<Candidate> candidates = new ArrayList<>(isolatedTransaction.execute(status -> jdbc.query("SELECT j.id,j.company_id " + activeJoins +
                         "WHERE j.state='NO_INGRESO' AND DATE_ADD(j.scheduled_start_at, INTERVAL j.tolerance_minutes MINUTE) < ? " +
                         "AND NOT EXISTS (SELECT 1 FROM mark_events m WHERE m.jornada_id=j.id AND m.action='INGRESO') " +
                         "AND NOT EXISTS (SELECT 1 FROM deviations d WHERE d.jornada_id=j.id AND d.type='SIN_INGRESO' AND d.active=TRUE) " +
                         "ORDER BY j.scheduled_start_at,j.id LIMIT ?",
-                (rs, row) -> new Candidate(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("company_id"))), timestamp(now), batchSize));
+                (rs, row) -> new Candidate(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("company_id"))), timestamp(now), batchSize)));
+        // MARCA_FALTANTE (D-20261018-01): INGRESO without EGRESO past scheduled end + tolerance, not yet flagged.
+        candidates.addAll(isolatedTransaction.execute(status -> jdbc.query("SELECT j.id,j.company_id " + activeJoins +
+                        "WHERE j.state IN ('EN_CURSO','PAUSA_ABIERTA') AND DATE_ADD(j.scheduled_end_at, INTERVAL j.tolerance_minutes MINUTE) < ? " +
+                        "AND EXISTS (SELECT 1 FROM mark_events m WHERE m.jornada_id=j.id AND m.company_id=j.company_id AND m.action='INGRESO') " +
+                        "AND NOT EXISTS (SELECT 1 FROM mark_events m WHERE m.jornada_id=j.id AND m.company_id=j.company_id AND m.action='EGRESO') " +
+                        "AND NOT EXISTS (SELECT 1 FROM deviations d WHERE d.jornada_id=j.id AND d.company_id=j.company_id AND d.type='MARCA_FALTANTE' AND d.active=TRUE) " +
+                        "ORDER BY j.scheduled_end_at,j.id LIMIT ?",
+                (rs, row) -> new Candidate(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("company_id"))), timestamp(now), batchSize)));
         for (Candidate candidate : candidates) {
             try {
                 isolatedTransaction.executeWithoutResult(status -> createAbsenceIfStillDue(candidate.companyId(), candidate.jornadaId(), now));

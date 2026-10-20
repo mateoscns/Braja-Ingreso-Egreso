@@ -446,6 +446,215 @@ class BackendMySqlIntegrationTest {
     }
 
     @Test
+    void missingEgressWorkerCreatesOneInternalDeviationAndSkipsItOnNextTick() {
+        Instant end = openJornadaEndingAt(Instant.now().truncatedTo(ChronoUnit.MICROS).minusSeconds(3600));
+        Instant due = end.plusSeconds(10 * 60 + 1);
+
+        marks.createDueAbsences(due, 200);
+
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='MARCA_FALTANTE' AND active=TRUE", Integer.class, jornadaId.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND active=TRUE", Integer.class, jornadaId.toString()));
+        java.sql.Timestamp updatedAt = jdbc.queryForObject("SELECT updated_at FROM deviations WHERE jornada_id=?", java.sql.Timestamp.class, jornadaId.toString());
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM notification_outbox_events", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM notification_windows", Integer.class));
+
+        marks.createDueAbsences(due.plusSeconds(60), 200);
+
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=?", Integer.class, jornadaId.toString()));
+        assertEquals(updatedAt, jdbc.queryForObject("SELECT updated_at FROM deviations WHERE jornada_id=?", java.sql.Timestamp.class, jornadaId.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviation_audits WHERE company_id=?", Integer.class, companyId.toString()));
+    }
+
+    @Test
+    void missingEgressWorkerWaitsForTheStrictToleranceBoundary() {
+        Instant end = openJornadaEndingAt(Instant.now().truncatedTo(ChronoUnit.MICROS).minusSeconds(3600));
+
+        marks.createDueAbsences(end.plusSeconds(10 * 60), 200);
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=?", Integer.class, jornadaId.toString()));
+
+        marks.createDueAbsences(end.plusSeconds(10 * 60 + 1), 200);
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='MARCA_FALTANTE'", Integer.class, jornadaId.toString()));
+    }
+
+    @Test
+    void laterEgressWithinToleranceClosesMissingEgressWithoutLeavingADeviation() {
+        Instant end = openJornadaEndingAt(Instant.now().truncatedTo(ChronoUnit.MICROS).minusSeconds(3600));
+        marks.createDueAbsences(end.plusSeconds(10 * 60 + 1), 200);
+
+        marks.recordEmployeeMark(employeeScope, jornadaId, MarkAction.EGRESO, UUID.randomUUID(), end.plusSeconds(5 * 60));
+
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND active=TRUE", Integer.class, jornadaId.toString()));
+        assertEquals("MARCA_FALTANTE", jdbc.queryForObject("SELECT type FROM deviations WHERE jornada_id=?", String.class, jornadaId.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviation_audits WHERE company_id=? AND change_type='RETRACTED' AND before_type='MARCA_FALTANTE'", Integer.class, companyId.toString()));
+    }
+
+    @Test
+    void laterEgressOutsideToleranceReplacesTheSameDeviationWithEgresoTardioAndKeepsTheMotive() {
+        Instant end = openJornadaEndingAt(Instant.now().truncatedTo(ChronoUnit.MICROS).minusSeconds(3600));
+        marks.createDueAbsences(end.plusSeconds(10 * 60 + 1), 200);
+        String deviationId = jdbc.queryForObject("SELECT id FROM deviations WHERE jornada_id=?", String.class, jornadaId.toString());
+        deviations.saveMotive(null, employeeScope, UUID.fromString(deviationId), "OTRA", "Me olvide de fichar");
+        deviations.classify(adminScope, UUID.fromString(deviationId), "JUSTIFICADO", null);
+
+        marks.recordEmployeeMark(employeeScope, jornadaId, MarkAction.EGRESO, UUID.randomUUID(), end.plusSeconds(20 * 60));
+
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND active=TRUE", Integer.class, jornadaId.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=?", Integer.class, jornadaId.toString()));
+        assertEquals(deviationId, jdbc.queryForObject("SELECT id FROM deviations WHERE jornada_id=? AND type='EGRESO_TARDIO' AND active=TRUE", String.class, jornadaId.toString()));
+        assertEquals("Me olvide de fichar", jdbc.queryForObject("SELECT motive_text FROM deviations WHERE id=?", String.class, deviationId));
+        assertEquals("JUSTIFICADO", jdbc.queryForObject("SELECT classification FROM deviations WHERE id=?", String.class, deviationId));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviation_audits WHERE deviation_id=? AND change_type='TYPE_REPLACED' AND before_type='MARCA_FALTANTE' AND after_type='EGRESO_TARDIO'", Integer.class, deviationId));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM notification_outbox_events", Integer.class));
+    }
+
+    @Test
+    void adminForgottenEgressOutsideToleranceReplacesMissingEgressWithEgresoTardio() {
+        Instant end = openJornadaEndingAt(Instant.now().truncatedTo(ChronoUnit.MICROS).minusSeconds(3600));
+        marks.createDueAbsences(end.plusSeconds(10 * 60 + 1), 200);
+        String deviationId = jdbc.queryForObject("SELECT id FROM deviations WHERE jornada_id=?", String.class, jornadaId.toString());
+
+        marks.forgottenMark(adminScope, jornadaId, MarkAction.EGRESO, end.plusSeconds(30 * 60), "Egreso olvidado");
+
+        assertEquals("EGRESO_TARDIO", jdbc.queryForObject("SELECT type FROM deviations WHERE id=? AND active=TRUE", String.class, deviationId));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND active=TRUE", Integer.class, jornadaId.toString()));
+    }
+
+    @Test
+    void adminForgottenEgressInsideToleranceLeavesNoActiveDeviation() {
+        Instant end = openJornadaEndingAt(Instant.now().truncatedTo(ChronoUnit.MICROS).minusSeconds(3600));
+        marks.createDueAbsences(end.plusSeconds(10 * 60 + 1), 200);
+
+        marks.forgottenMark(adminScope, jornadaId, MarkAction.EGRESO, end.plusSeconds(2 * 60), "Egreso olvidado");
+
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND active=TRUE", Integer.class, jornadaId.toString()));
+    }
+
+    @Test
+    void adminCorrectionTurningEgressIntoLateEgressReplacesNothingExtra() {
+        Instant end = openJornadaEndingAt(Instant.now().truncatedTo(ChronoUnit.MICROS).minusSeconds(3600));
+        marks.createDueAbsences(end.plusSeconds(10 * 60 + 1), 200);
+        var egress = marks.forgottenMark(adminScope, jornadaId, MarkAction.EGRESO, end.plusSeconds(2 * 60), "Egreso olvidado");
+
+        marks.correctMark(adminScope, egress.id(), MarkAction.EGRESO, end.plusSeconds(40 * 60), "Hora corregida");
+
+        assertEquals(List.of("EGRESO_TARDIO"), jdbc.query("SELECT type FROM deviations WHERE jornada_id=? AND active=TRUE", (rs, row) -> rs.getString(1), jornadaId.toString()));
+    }
+
+    @Test
+    void veryLateIngressWithoutEgressYieldsLateArrivalAndMissingEgress() {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        jdbc.update("UPDATE jornadas SET scheduled_start_at=?,scheduled_end_at=? WHERE id=?",
+                java.sql.Timestamp.from(now.minusSeconds(9 * 3600)), java.sql.Timestamp.from(now.minusSeconds(3600)), jornadaId.toString());
+
+        marks.recordEmployeeMark(employeeScope, jornadaId, MarkAction.INGRESO, UUID.randomUUID(), now);
+
+        assertEquals(List.of("LLEGADA_TARDE", "MARCA_FALTANTE"), jdbc.query("SELECT type FROM deviations WHERE jornada_id=? AND active=TRUE ORDER BY type",
+                (rs, row) -> rs.getString(1), jornadaId.toString()));
+    }
+
+    @Test
+    void adminCorrectionRemovingEgressTurnsLateEgressIntoMissingEgressWhenPastTolerance() {
+        Instant end = openJornadaEndingAt(Instant.now().truncatedTo(ChronoUnit.MICROS).minusSeconds(3600));
+        var egress = marks.forgottenMark(adminScope, jornadaId, MarkAction.EGRESO, end.plusSeconds(30 * 60), "Egreso olvidado");
+        String deviationId = jdbc.queryForObject("SELECT id FROM deviations WHERE jornada_id=? AND type='EGRESO_TARDIO' AND active=TRUE", String.class, jornadaId.toString());
+
+        marks.correctMark(adminScope, egress.id(), MarkAction.SALIDA_ALMUERZO, end.plusSeconds(30 * 60), "No era el egreso");
+
+        assertEquals(List.of("MARCA_FALTANTE"), jdbc.query("SELECT type FROM deviations WHERE jornada_id=? AND active=TRUE", (rs, row) -> rs.getString(1), jornadaId.toString()));
+        assertEquals(deviationId, jdbc.queryForObject("SELECT id FROM deviations WHERE jornada_id=? AND active=TRUE", String.class, jornadaId.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviation_audits WHERE deviation_id=? AND change_type='TYPE_REPLACED' AND before_type='EGRESO_TARDIO' AND after_type='MARCA_FALTANTE'", Integer.class, deviationId));
+    }
+
+    @Test
+    void adminCorrectionRemovingEgressRetractsEarlyEgressDeviationWhenNotYetPastTolerance() {
+        Instant end = openJornadaEndingAt(Instant.now().truncatedTo(ChronoUnit.MICROS).plusSeconds(2 * 3600));
+        Instant egressAt = Instant.now().truncatedTo(ChronoUnit.MICROS).minusSeconds(3600);
+        var egress = marks.forgottenMark(adminScope, jornadaId, MarkAction.EGRESO, egressAt, "Egreso olvidado");
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='EGRESO_TEMPRANO' AND active=TRUE", Integer.class, jornadaId.toString()));
+
+        marks.correctMark(adminScope, egress.id(), MarkAction.SALIDA_ALMUERZO, egressAt, "No era el egreso");
+
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND active=TRUE", Integer.class, jornadaId.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviation_audits WHERE company_id=? AND change_type='RETRACTED' AND before_type='EGRESO_TEMPRANO'", Integer.class, companyId.toString()));
+        assertTrue(end.isAfter(egressAt));
+    }
+
+    @Test
+    void missingEgressStillAppliesWhenAPauseIsOpenAtTheScheduledEnd() {
+        Instant end = openJornadaEndingAt(Instant.now().truncatedTo(ChronoUnit.MICROS).minusSeconds(3600));
+        insertHistoricalMark(2, "SALIDA_ALMUERZO", end.minusSeconds(30 * 60));
+        jdbc.update("UPDATE jornadas SET state='PAUSA_ABIERTA',next_sequence=3 WHERE id=?", jornadaId.toString());
+
+        marks.createDueAbsences(end.plusSeconds(10 * 60 + 1), 200);
+
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='MARCA_FALTANTE' AND active=TRUE", Integer.class, jornadaId.toString()));
+    }
+
+    @Test
+    void missingEgressUsesStoredScheduledEndNotTheSnapshotOrLocalDate() {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant end = openJornadaEndingAt(now.plusSeconds(2 * 3600));
+        jdbc.update("UPDATE jornadas SET local_date=? WHERE id=?", java.time.LocalDate.now().minusDays(1), jornadaId.toString());
+
+        marks.createDueAbsences(now.plusSeconds(3600), 200);
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=?", Integer.class, jornadaId.toString()));
+
+        marks.createDueAbsences(end.plusSeconds(10 * 60 + 1), 200);
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='MARCA_FALTANTE' AND active=TRUE", Integer.class, jornadaId.toString()));
+    }
+
+    @Test
+    void missingEgressWorkerSkipsInactiveEmployeesAndAccounts() {
+        Instant end = openJornadaEndingAt(Instant.now().truncatedTo(ChronoUnit.MICROS).minusSeconds(3600));
+        Instant due = end.plusSeconds(10 * 60 + 1);
+
+        jdbc.update("UPDATE employees SET active=FALSE WHERE id=?", employeeId.toString());
+        marks.createDueAbsences(due, 200);
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=?", Integer.class, jornadaId.toString()));
+
+        jdbc.update("UPDATE employees SET active=TRUE WHERE id=?", employeeId.toString());
+        jdbc.update("UPDATE accounts SET active=FALSE WHERE id=?", accountId.toString());
+        marks.createDueAbsences(due, 200);
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=?", Integer.class, jornadaId.toString()));
+    }
+
+    @Test
+    void missingEgressIsNotCreatedWithoutIngress() {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        jdbc.update("UPDATE jornadas SET scheduled_start_at=?,scheduled_end_at=? WHERE id=?",
+                java.sql.Timestamp.from(now.minusSeconds(9 * 3600)), java.sql.Timestamp.from(now.minusSeconds(3600)), jornadaId.toString());
+
+        marks.createDueAbsences(now, 200);
+
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='MARCA_FALTANTE'", Integer.class, jornadaId.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, jornadaId.toString()));
+    }
+
+    @Test
+    void missingEgressWorkerAdvancesPastTheBatchLimit() {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant end = openJornadaEndingAt(now.minusSeconds(3600));
+        UUID templateId = jdbc.queryForObject("SELECT id FROM schedule_templates WHERE company_id=? LIMIT 1", (rs, row) -> UUID.fromString(rs.getString(1)), companyId.toString());
+        String snapshot = "{\"siteId\":\"" + siteId + "\",\"name\":\"Turno\",\"blocks\":[{\"startDayOffset\":0,\"start\":\"08:00:00\",\"end\":\"16:00:00\",\"endDayOffset\":0}],\"breakfastLimitMinutes\":20,\"lunchLimitMinutes\":30}";
+        for (int i = 1; i <= 3; i++) {
+            UUID other = UUID.randomUUID();
+            insertDueJornada(other, templateId, employeeId, adminAccountId, end.minusSeconds(8 * 3600L + i), java.time.LocalDate.now().minusDays(i + 1), snapshot, now);
+            jdbc.update("UPDATE jornadas SET scheduled_end_at=?,state='EN_CURSO' WHERE id=?", java.sql.Timestamp.from(end.minusSeconds(i)), other.toString());
+            jdbc.update("INSERT INTO mark_events(id,company_id,jornada_id,sequence_number,timeline_order,action,original_action,occurred_at,original_occurred_at,accepted_at,recorded_at,origin,created_by,location_status) VALUES(?,?,?,1,1000,'INGRESO','INGRESO',?,?,?,?,'EMPLEADO',?,'NO_APLICA')",
+                    UUID.randomUUID().toString(), companyId.toString(), other.toString(), java.sql.Timestamp.from(end.minusSeconds(8 * 3600L)),
+                    java.sql.Timestamp.from(end.minusSeconds(8 * 3600L)), java.sql.Timestamp.from(end.minusSeconds(8 * 3600L)),
+                    java.sql.Timestamp.from(end.minusSeconds(8 * 3600L)), accountId.toString());
+        }
+        Instant due = end.plusSeconds(10 * 60 + 1);
+
+        marks.createDueAbsences(due, 2);
+        assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE company_id=? AND type='MARCA_FALTANTE' AND active=TRUE", Integer.class, companyId.toString()));
+
+        marks.createDueAbsences(due.plusSeconds(1), 2);
+        assertEquals(4, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE company_id=? AND type='MARCA_FALTANTE' AND active=TRUE", Integer.class, companyId.toString()));
+    }
+
+    @Test
     void forgottenIngressCanBeInsertedBeforeAlreadyStoredEgresoAndKeepsReceiptSequence() {
         Instant acceptedAt = Instant.now().minusSeconds(30);
         Instant egressAt = Instant.now();
@@ -681,6 +890,15 @@ class BackendMySqlIntegrationTest {
     private record HttpLogin(Cookie sessionCookie, String csrfToken) { }
     private record OtherTenantMark(UUID companyId, UUID siteId, UUID employeeId, UUID templateId,
                                    UUID jornadaId, UUID markId) { }
+
+    /** Turns the default jornada into one with an INGRESO and no EGRESO that ends at the given instant (tolerance is 10 minutes). */
+    private Instant openJornadaEndingAt(Instant end) {
+        Instant start = end.minusSeconds(8 * 3600L);
+        jdbc.update("UPDATE jornadas SET scheduled_start_at=?,scheduled_end_at=?,state='EN_CURSO',next_sequence=2 WHERE id=?",
+                java.sql.Timestamp.from(start), java.sql.Timestamp.from(end), jornadaId.toString());
+        insertHistoricalMark(1, "INGRESO", start);
+        return end;
+    }
 
     private void insertHistoricalMark(long sequence, String action, Instant occurredAt) {
         Instant recordedAt = occurredAt.plusSeconds(1);
