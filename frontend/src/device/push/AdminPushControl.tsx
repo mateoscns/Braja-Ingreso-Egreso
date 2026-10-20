@@ -18,6 +18,9 @@ export function AdminPushControl() {
   const [enabled, setEnabled] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [configError, setConfigError] = useState('')
+  const [configLoading, setConfigLoading] = useState(true)
+  const [configAttempt, setConfigAttempt] = useState(0)
   const [busy, setBusy] = useState(false)
   const [supported, setSupported] = useState(false)
 
@@ -36,19 +39,40 @@ export function AdminPushControl() {
   useEffect(() => {
     let active = true
     setSupported('serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window)
-    void api.publicConfig<PublicConfig>().then(async (publicConfig) => {
-      if (!active) return
-      setConfig(publicConfig)
-      if (!publicConfig.pushEnabled || !publicConfig.vapidPublicKey || !('serviceWorker' in navigator) || !('PushManager' in window)) return
-      const registration = await navigator.serviceWorker.ready
-      const existing = await registration.pushManager.getSubscription()
-      if (active && existing) {
-        try { await registerWithServer(existing) }
-        catch (reason) { if (active) setError(reason instanceof Error ? reason.message : 'No se pudo sincronizar el aviso.') }
+    setConfigLoading(true)
+    setConfigError('')
+    void (async () => {
+      let publicConfig: PublicConfig | null = null
+      try {
+        publicConfig = await api.publicConfig<PublicConfig>()
+        if (active) setConfig(publicConfig)
+      } catch (reason) {
+        if (active) setConfigError(reason instanceof Error ? reason.message : 'No se pudo consultar la configuración de avisos.')
+      } finally {
+        if (active) setConfigLoading(false)
       }
-    }).catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : 'No se pudo consultar la configuración de avisos.') })
+
+      if (!active || !publicConfig?.pushEnabled || !publicConfig.vapidPublicKey || !('serviceWorker' in navigator) || !('PushManager' in window)) return
+      try {
+        const registration = await navigator.serviceWorker.ready
+        const existing = await registration.pushManager.getSubscription()
+        if (active && existing) {
+          try { await registerWithServer(existing) }
+          catch (reason) { if (active) setError(reason instanceof Error ? reason.message : 'No se pudo sincronizar el aviso.') }
+        }
+      } catch (reason) {
+        if (active) setError(reason instanceof Error ? reason.message : 'No se pudo consultar la suscripción de avisos.')
+      }
+    })()
     return () => { active = false }
-  }, [])
+  }, [configAttempt])
+
+  function retryConfig() {
+    setError('')
+    setMessage('')
+    setConfigLoading(true)
+    setConfigAttempt((attempt) => attempt + 1)
+  }
 
   async function activate() {
     if (!config?.vapidPublicKey || !config.pushEnabled) return
@@ -77,10 +101,14 @@ export function AdminPushControl() {
   }
 
   if (!supported || (config && (!config.pushEnabled || !config.vapidPublicKey))) return null
-  return <aside className="push-control" aria-label="Avisos de la aplicación">
+  return <aside className="push-control" aria-label="Avisos de la aplicación" aria-busy={configLoading}>
+    {configLoading && <PageMessage>Consultando la configuración de avisos…</PageMessage>}
+    {configError && <PageMessage kind="error">{configError}</PageMessage>}
     {error && <PageMessage kind="error">{error}</PageMessage>}{message && <PageMessage kind="success">{message}</PageMessage>}
     <div className="push-copy"><strong>Alertas en este dispositivo</strong><span>Solo avisan sobre ingresos pendientes o llegadas tarde.</span></div>
     {enabled ? <button className="button button-small button-quiet" onClick={() => void deactivate()} disabled={busy}>{busy ? 'Actualizando…' : 'Desactivar'}</button>
-      : <button className="button button-small button-outline" onClick={() => void activate()} disabled={busy || !config}>{busy ? 'Activando…' : 'Activar avisos'}</button>}
+      : configError
+        ? <button className="button button-small button-outline" onClick={retryConfig} disabled={configLoading}>Reintentar consulta</button>
+        : <button className="button button-small button-outline" onClick={() => void activate()} disabled={busy || configLoading || !config}>{busy ? 'Activando…' : configLoading ? 'Cargando configuración…' : 'Activar avisos'}</button>}
   </aside>
 }

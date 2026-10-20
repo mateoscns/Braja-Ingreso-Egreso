@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { AppHeader, CompanySwitcher, Empty, FormField, Loading, PageMessage, Panel } from '../../app/ui'
 import { useSession } from '../../app/session'
 import { api } from '../../shared/api/client'
@@ -23,6 +23,7 @@ export function EmployeeApp() {
   const [selectedId, setSelectedId] = useState('')
   const [deviations, setDeviations] = useState<Deviation[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [receipt, setReceipt] = useState<MarkReceipt | null>(null)
@@ -30,11 +31,10 @@ export function EmployeeApp() {
   const [motiveValues, setMotiveValues] = useState<Record<string, { category: string; text: string }>>({})
   const [savingMotive, setSavingMotive] = useState('')
   const loadSequence = useRef(0)
-  if (!session || !active) return null
 
   async function load() {
     const requestId = ++loadSequence.current
-    setLoading(true); setError(''); setReceipt(null)
+    setLoading(true); setLoadFailed(false); setError(''); setReceipt(null)
     try {
       const availableSites = await api.get<Site[]>('/sites')
       const dayData = await loadEmployeeDayData(api, availableSites, date)
@@ -42,13 +42,22 @@ export function EmployeeApp() {
       setSites(availableSites); setSiteDates(dayData.siteDates); setJornadas(dayData.jornadas)
       setSelectedId((current) => dayData.jornadas.some((jornada) => jornada.id === current) ? current : dayData.jornadas[0]?.id ?? '')
       setDeviations(dayData.deviations)
-    } catch (reason) { if (requestId === loadSequence.current) setError(reason instanceof Error ? reason.message : 'No se pudieron cargar tus registros.') }
+    } catch (reason) {
+      if (requestId === loadSequence.current) {
+        setLoadFailed(true)
+        setError(reason instanceof Error ? reason.message : 'No se pudieron cargar tus registros.')
+      }
+    }
     finally { if (requestId === loadSequence.current) setLoading(false) }
   }
-  useEffect(() => { void load() }, [date, session.activeCompanyId])
+  useEffect(() => {
+    if (!session?.activeCompanyId) return
+    void load()
+  }, [date, session?.activeCompanyId])
   const selected = jornadas.find((jornada) => jornada.id === selectedId)
   const selectedSite = sites.find((site) => site.id === selected?.siteId)
   const actions = useMemo(() => selected ? allowedActions(selected) : [], [selected])
+  if (!session || !active) return null
 
   async function mark(action: MarkAction) {
     setBusy(true); setError(''); setReceipt(null)
@@ -92,32 +101,33 @@ export function EmployeeApp() {
       <div className="page-title-row employee-title"><div><p className="eyebrow">MI JORNADA</p><h1>Hola, {session.dni ? `DNI ${session.dni}` : 'bienvenido'}</h1><p className="muted">Tus marcas se registran con hora oficial del servidor.</p></div>
         <FormField label="Fecha de consulta" hint="Sin elegir fecha se consulta hoy según cada sede. Si elegís una fecha, se usa ese mismo día local en todas las sedes."><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></FormField>
       </div>
-      {!loading && sites.length > 0 && <p className="muted small-copy date-semantics">{date ? `Fecha local seleccionada: ${date} en todas tus sedes.` : `Hoy según la sede: ${sites.map((site) => `${site.name}, ${siteDates.get(site.id) ?? '…'}`).join(' · ')}.`}</p>}
+      {!loading && !loadFailed && sites.length > 0 && <p className="muted small-copy date-semantics">{date ? `Fecha local seleccionada: ${date} en todas tus sedes.` : `Hoy según la sede: ${sites.map((site) => `${site.name}, ${siteDates.get(site.id) ?? '…'}`).join(' · ')}.`}</p>}
       {error && <PageMessage kind="error">{error}</PageMessage>}
       {receipt && <PageMessage kind="success">Marca confirmada por el servidor a las <strong>{localTime(receipt.acceptedAt, selectedSite?.timeZone)}</strong>. Guardá el comprobante si lo necesitás.</PageMessage>}
-      {loading ? <Loading label="Consultando tu jornada…" /> : jornadas.length === 0 ? <Panel title="Sin jornada declarada"><Empty>{date ? `El administrador todavía no declaró una jornada para el ${date}. No hay una marca que completar.` : 'El administrador todavía no declaró una jornada para el día local actual de tus sedes. No hay una marca que completar.'}</Empty></Panel> : <>
-        {jornadas.length > 1 && <Panel title="Elegí una jornada"><div className="journey-picker">{jornadas.map((jornada) => <button key={jornada.id} onClick={() => { setSelectedId(jornada.id); setPendingAttempt(null); setReceipt(null) }} className={`journey-option ${selectedId === jornada.id ? 'journey-option-active' : ''}`}><strong>{jornada.scheduleSnapshot.name}</strong><small>{jornada.localDate} · {jornada.state.replaceAll('_', ' ')}</small></button>)}</div></Panel>}
+      {loading ? <Loading label="Consultando tu jornada…" /> : loadFailed ? <Panel title="No se pudo consultar tu jornada"><Empty>Revisá el error y volvé a intentar.</Empty><button className="button button-quiet" onClick={() => void load()}>Reintentar</button></Panel> : jornadas.length === 0 ? <Panel title="Sin jornada declarada"><Empty>{date ? `El administrador todavía no declaró una jornada para el ${date}. No hay una marca que completar.` : 'El administrador todavía no declaró una jornada para el día local actual de tus sedes. No hay una marca que completar.'}</Empty></Panel> : <>
+        {jornadas.length > 1 && <Panel title="Elegí una jornada"><div className="journey-picker" role="group" aria-label="Jornadas disponibles">{jornadas.map((jornada) => <button key={jornada.id} aria-pressed={selectedId === jornada.id} onClick={() => { setSelectedId(jornada.id); setPendingAttempt(null); setReceipt(null) }} className={`journey-option ${selectedId === jornada.id ? 'journey-option-active' : ''}`}><strong>{jornada.scheduleSnapshot.name}</strong><small>{jornada.localDate} · {sites.find((site) => site.id === jornada.siteId)?.name ?? 'Sede'} · {stateName(jornada.state)}</small></button>)}</div></Panel>}
         {selected && <>
           <Panel title="Horario de la jornada" action={<span className={`status-chip status-${selected.state.toLowerCase()}`}>{stateName(selected.state)}</span>}>
             <div className="schedule-summary"><div className="schedule-icon">◷</div><div><strong>{selected.scheduleSnapshot.name}</strong><p>{selected.scheduleSnapshot.blocks.map((block, index) => <span className="schedule-block" key={`${block.start}-${index}`}>{block.startDayOffset ? 'Día siguiente · ' : ''}{block.start}–{block.endDayOffset ? 'día siguiente · ' : ''}{block.end}</span>)}</p><small>Jornada del {selected.localDate} · {selectedSite ? `${selectedSite.name} · ${selectedSite.timeZone} · ` : ''}Tolerancia individual: {selected.toleranceMinutes} minutos</small></div></div>
             <div className="mark-timeline"><div className="timeline-title">Marcas de la jornada</div>{selected.marks.length ? selected.marks.map((mark) => <div className="mark-row" key={mark.id}><span className="timeline-point" /><strong>{actionLabel[mark.action]}</strong><time>{localTime(mark.acceptedAt, selectedSite?.timeZone)}</time></div>) : <p className="muted">Todavía no hay marcas en esta jornada.</p>}</div>
           </Panel>
           <Panel title="Registrar una marca"><p className="muted small-copy">La marca se envía ahora. Necesitás conexión; no se guarda para enviar más tarde. La ubicación, si está disponible, se adjunta aparte.</p>
-            <div className="mark-actions">{actions.map((action) => <button key={action} className={`mark-action ${action === 'INGRESO' || action === 'EGRESO' ? 'mark-action-primary' : ''}`} disabled={busy} onClick={() => void mark(action)}><span>{action === 'INGRESO' ? '→' : action === 'EGRESO' ? '←' : '◷'}</span><strong>{actionLabel[action]}</strong><small>{busy && pendingAttempt?.action === action ? 'Enviando al servidor…' : 'Enviar marca'}</small></button>)}</div>
+            <div className="mark-actions" aria-busy={busy}>{actions.map((action) => <button key={action} className={`mark-action ${action === 'INGRESO' || action === 'EGRESO' ? 'mark-action-primary' : ''}`} disabled={busy} onClick={() => void mark(action)}><span>{action === 'INGRESO' ? '→' : action === 'EGRESO' ? '←' : '◷'}</span><strong>{actionLabel[action]}</strong><small>{busy && pendingAttempt?.action === action ? 'Enviando al servidor…' : 'Enviar marca'}</small></button>)}</div>
+            {busy && pendingAttempt && !receipt && <p role="status" aria-live="polite" aria-atomic="true">Enviando {actionLabel[pendingAttempt.action]} al servidor. La marca todavía no está confirmada.</p>}
             {selected.state === 'EGRESADA' && <PageMessage>Esta jornada ya fue cerrada.</PageMessage>}
           </Panel>
         </>}
       </>}
       <Panel title="Motivos pendientes"><p className="muted small-copy">Completá el motivo del desvío. El texto solo aparece para vos y el administrador de tu empresa.</p>
-        {deviations.filter((item) => item.status === 'MOTIVO_PENDIENTE').length === 0 ? <Empty>No tenés motivos pendientes para esta fecha.</Empty> : <div className="motive-list">{deviations.filter((item) => item.status === 'MOTIVO_PENDIENTE').map((item) => {
+        {loading ? <Loading label="Consultando motivos…" /> : loadFailed ? <Empty>No se pudieron consultar los motivos.</Empty> : deviations.filter((item) => item.status === 'MOTIVO_PENDIENTE').length === 0 ? <Empty>No tenés motivos pendientes para esta fecha.</Empty> : <div className="motive-list">{deviations.filter((item) => item.status === 'MOTIVO_PENDIENTE').map((item) => {
           const values = motiveValues[item.id] ?? { category: 'OTRA', text: '' }
-          return <form key={item.id} className="motive-card" onSubmit={(event) => void saveMotive(event, item)}><div><strong>{deviationName(item.type)}</strong><span className="status-chip">{localTime(item.createdAt, item.siteId ? sites.find((site) => site.id === item.siteId)?.timeZone : undefined)}</span></div>
+          return <Fragment key={item.id}><form className="motive-card" aria-busy={savingMotive === item.id} onSubmit={(event) => void saveMotive(event, item)}><div><strong>{deviationName(item.type)}</strong><span className="status-chip">{localTime(item.createdAt, item.siteId ? sites.find((site) => site.id === item.siteId)?.timeZone : undefined)}</span></div>
             <div className="form-grid"><FormField label="Categoría"><select required value={values.category} onChange={(e) => updateMotive(item.id, { category: e.target.value })}><option value="SALUD">Salud</option><option value="TRANSPORTE">Transporte</option><option value="EMERGENCIA">Emergencia</option><option value="OTRA">Otra</option></select></FormField><FormField label="Motivo"><textarea required maxLength={4000} rows={3} value={values.text} onChange={(e) => updateMotive(item.id, { text: e.target.value })} placeholder="Contanos qué pasó…" /></FormField></div>
             <button className="button button-primary button-small" disabled={savingMotive === item.id || !values.text.trim()}>{savingMotive === item.id ? 'Guardando…' : 'Enviar motivo'}</button>
-          </form>
+          </form>{savingMotive === item.id && <p role="status" aria-live="polite">Enviando el motivo al servidor…</p>}</Fragment>
         })}</div>}
       </Panel>
-      <Panel title="Desvíos de esta fecha">{deviations.length ? <div className="deviation-list">{deviations.map((item) => <article className="deviation-card" key={item.id}><div className="deviation-symbol">!</div><div className="deviation-main"><div className="deviation-title"><strong>{deviationName(item.type)}</strong><span className="status-chip">{statusName(item.status)}</span></div>{item.category && <p className="reason-line"><b>Motivo:</b> {categoryName(item.category)}{item.motiveText ? ` · ${item.motiveText}` : ''}</p>}</div></article>)}</div> : <Empty>No hay desvíos para esta fecha.</Empty>}</Panel>
+      <Panel title="Desvíos de esta fecha">{loading ? <Loading label="Consultando desvíos…" /> : loadFailed ? <Empty>No se pudieron consultar los desvíos.</Empty> : deviations.length ? <div className="deviation-list">{deviations.map((item) => <article className="deviation-card" key={item.id}><div className="deviation-symbol">!</div><div className="deviation-main"><div className="deviation-title"><strong>{deviationName(item.type)}</strong><span className="status-chip">{statusName(item.status)}</span></div>{item.category && <p className="reason-line"><b>Motivo:</b> {categoryName(item.category)}{item.motiveText ? ` · ${item.motiveText}` : ''}</p>}</div></article>)}</div> : <Empty>No hay desvíos para esta fecha.</Empty>}</Panel>
     </main>
   </div>
 }

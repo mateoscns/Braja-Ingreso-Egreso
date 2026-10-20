@@ -23,7 +23,12 @@ export function AdminApp() {
     </AppHeader>
     <div className="workspace">
       <aside className="sidebar"><div className="sidebar-caption">ADMINISTRACIÓN</div><nav aria-label="Navegación principal">
-        {links.map((link) => <button key={link.id} className={`nav-link ${section === link.id ? 'nav-link-active' : ''}`} onClick={() => setSection(link.id)}><span className="nav-icon">{link.icon}</span>{link.label}{link.id === 'inbox' && <span className="nav-dot" />}</button>)}
+        {links.map((link) => {
+          const current = section === link.id
+          return <button key={link.id} type="button" aria-current={current ? 'page' : undefined} className={`nav-link ${current ? 'nav-link-active' : ''}`} onClick={() => setSection(link.id)}>
+            <span className="nav-icon" aria-hidden="true">{link.icon}</span>{link.label}
+          </button>
+        })}
       </nav><div className="sidebar-footer"><span className="live-dot" />Conexión protegida</div></aside>
       <main className="main-content">
         {section === 'inbox' && <AdminInbox />}

@@ -15,7 +15,8 @@ export function LoginScreen({ onSignIn, error }: { onSignIn: (dni: string, passw
   return <main className="auth-page"><div className="auth-brand"><span className="brand-mark">B</span><span>Fichaje<span className="brand-light">Braja</span></span></div>
     <section className="auth-card"><p className="eyebrow">INGRESO AL SISTEMA</p><h1>Bienvenido</h1><p className="muted">Ingresá con tu DNI y contraseña.</p>
       {(formError || error) && <PageMessage kind="error">{formError || error}</PageMessage>}
-      <form onSubmit={submit} className="form-stack">
+      {busy && <p role="status" aria-live="polite" aria-atomic="true">Esperando respuesta del servidor para iniciar sesión…</p>}
+      <form onSubmit={submit} className="form-stack" aria-busy={busy}>
         <FormField label="DNI"><input autoComplete="username" inputMode="numeric" minLength={7} maxLength={12} required value={dni} onChange={(e) => setDni(e.target.value)} /></FormField>
         <FormField label="Contraseña"><input type="password" autoComplete="current-password" maxLength={256} required value={password} onChange={(e) => setPassword(e.target.value)} /></FormField>
         <button className="button button-primary button-wide" disabled={busy}>{busy ? 'Ingresando…' : 'Ingresar'}</button>
@@ -34,7 +35,8 @@ export function CompanyScreen({ session, onSelect, onSignOut }: { session: Sessi
   return <main className="auth-page"><div className="auth-brand"><span className="brand-mark">B</span><span>Fichaje<span className="brand-light">Braja</span></span></div>
     <section className="auth-card"><p className="eyebrow">CUENTA COMPARTIDA</p><h1>Elegí una empresa</h1><p className="muted">Solo aparecen las empresas donde tenés acceso.</p>
       {error && <PageMessage kind="error">{error}</PageMessage>}
-      <div className="company-list">{session.memberships.map((membership) => <button key={membership.companyId} className="company-choice" disabled={Boolean(busyId)} onClick={() => void select(membership.companyId)}>
+      {busyId && <p role="status" aria-live="polite" aria-atomic="true">Esperando la activación de {session.memberships.find((membership) => membership.companyId === busyId)?.companyName ?? 'la empresa'}…</p>}
+      <div className="company-list" aria-busy={Boolean(busyId)}>{session.memberships.map((membership) => <button key={membership.companyId} className="company-choice" disabled={Boolean(busyId)} onClick={() => void select(membership.companyId)}>
         <span className="choice-icon">{membership.companyName.slice(0, 1).toUpperCase()}</span><span><strong>{membership.companyName}</strong><small>{membership.role === 'ADMIN' ? 'Administración' : 'Empleado'}</small></span><span className="choice-arrow">{busyId === membership.companyId ? '…' : '→'}</span>
       </button>)}</div>
       {session.memberships.length === 0 && <PageMessage kind="error">Tu cuenta todavía no tiene empresas asignadas. Consultá con un administrador.</PageMessage>}
@@ -59,7 +61,8 @@ export function PasswordChangeScreen({ onChange, onSignOut }: { onChange: (curre
   return <main className="auth-page"><div className="auth-brand"><span className="brand-mark">B</span><span>Fichaje<span className="brand-light">Braja</span></span></div>
     <section className="auth-card"><p className="eyebrow">PRIMER INGRESO</p><h1>Cambiá tu contraseña</h1><p className="muted">Tu contraseña provisoria ya cumplió su función. Elegí una de al menos 12 caracteres.</p>
       {error && <PageMessage kind="error">{error}</PageMessage>}
-      <form onSubmit={submit} className="form-stack">
+      {busy && <p role="status" aria-live="polite" aria-atomic="true">Esperando confirmación del servidor…</p>}
+      <form onSubmit={submit} className="form-stack" aria-busy={busy}>
         <FormField label="Contraseña actual"><input type="password" autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} /></FormField>
         <FormField label="Nueva contraseña"><input type="password" autoComplete="new-password" minLength={12} required value={next} onChange={(e) => setNext(e.target.value)} /></FormField>
         <FormField label="Repetí la nueva contraseña"><input type="password" autoComplete="new-password" minLength={12} required value={confirm} onChange={(e) => setConfirm(e.target.value)} /></FormField>
