@@ -15,6 +15,7 @@ La v1 está en `main` (PR #2), con CI (PR #4) y `MARCA_FALTANTE` (PR #6). El reg
 5. Ejecutar pruebas de backend y frontend antes de integrar cambios.
 
 Los comandos están en [docs/ESPECIFICACION.md](docs/ESPECIFICACION.md). `.env` es local y está excluido de Git; el perfil de desarrollo lo importa desde la raíz cuando Spring Boot se inicia dentro de `backend/`. Producción no importa ese archivo: sus secretos se inyectan desde el entorno de ejecución. No hay credenciales iniciales ni claves de cifrado productivas versionadas.
+El límite adicional de inicio de sesión por IP usa 30 fallos en 15 minutos y bloquea por 15 minutos; se ajusta con `BRAJA_LOGIN_IP_THROTTLE_MAX_FAILURES`, `BRAJA_LOGIN_IP_THROTTLE_WINDOW` y `BRAJA_LOGIN_IP_THROTTLE_LOCK_DURATION`. Si el backend está detrás de un proxy, configurar `BRAJA_TRUSTED_PROXY_CIDRS` solo con las redes de proxies controlados por el operador. Los proxies deben sobrescribir o anexar correctamente `X-Forwarded-For`; la app ignora esa cabecera cuando la conexión no viene de una red confiable.
 
 ### Primer `ADMIN`
 
