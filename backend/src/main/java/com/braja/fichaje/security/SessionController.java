@@ -59,8 +59,8 @@ public class SessionController {
 
     @PutMapping("/session/password")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void changePassword(Authentication authentication, @Valid @RequestBody ChangePasswordInput input) {
-        accounts.changePassword(actor.accountId(authentication), input.currentPassword(), input.newPassword());
+    public void changePassword(Authentication authentication, HttpSession session, @Valid @RequestBody ChangePasswordInput input) {
+        accounts.changePassword(actor.accountId(authentication), input.currentPassword(), input.newPassword(), session.getId());
     }
 
     @DeleteMapping("/session")
