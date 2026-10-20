@@ -17,6 +17,8 @@ class SessionCookieSecurityStartupTest {
             assertEquals(0, context.getEnvironment().getActiveProfiles().length);
             assertTrue(context.getEnvironment().getProperty(
                     "server.servlet.session.cookie.secure", Boolean.class, false));
+            assertTrue(context.getEnvironment().getProperty(
+                    "braja.session-cookie-secure", Boolean.class, false));
         }
     }
 
@@ -27,10 +29,18 @@ class SessionCookieSecurityStartupTest {
     }
 
     @Test
+    void insecureBrajaSessionCookieFlagFailsStartupWhenLocalIsNotExplicit() {
+        assertThrows(IllegalStateException.class,
+                () -> start("--braja.session-cookie-secure=false"));
+    }
+
+    @Test
     void explicitLocalProfileAllowsHttpDevelopmentCookie() {
         try (ConfigurableApplicationContext context = start("--spring.profiles.active=local")) {
             assertFalse(context.getEnvironment().getProperty(
                     "server.servlet.session.cookie.secure", Boolean.class, true));
+            assertFalse(context.getEnvironment().getProperty(
+                    "braja.session-cookie-secure", Boolean.class, true));
         }
     }
 
