@@ -184,6 +184,81 @@ class BackendMySqlIntegrationTest {
     }
 
     @Test
+    void distinctConcurrentPauseMarksSerializeToOneAcceptedMarkAndOneConflict() throws Exception {
+        HttpLogin login = loginOverHttp(accountId, "30.123.456", "CorrectHorseBattery9!");
+        MvcResult ingress = postEmployeeMark(login, jornadaId, UUID.randomUUID(), MarkAction.INGRESO);
+        assertEquals(201, ingress.getResponse().getStatus());
+
+        UUID breakfastKey = UUID.randomUUID();
+        UUID lunchKey = UUID.randomUUID();
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        Future<MvcResult> breakfast = pool.submit(() -> {
+            ready.countDown();
+            start.await();
+            return postEmployeeMark(login, jornadaId, breakfastKey, MarkAction.SALIDA_DESAYUNO);
+        });
+        Future<MvcResult> lunch = pool.submit(() -> {
+            ready.countDown();
+            start.await();
+            return postEmployeeMark(login, jornadaId, lunchKey, MarkAction.SALIDA_ALMUERZO);
+        });
+
+        MvcResult breakfastResponse;
+        MvcResult lunchResponse;
+        try {
+            assertTrue(ready.await(5, TimeUnit.SECONDS));
+            start.countDown();
+            breakfastResponse = breakfast.get(20, TimeUnit.SECONDS);
+            lunchResponse = lunch.get(20, TimeUnit.SECONDS);
+        } finally {
+            start.countDown();
+            pool.shutdownNow();
+            assertTrue(pool.awaitTermination(5, TimeUnit.SECONDS));
+        }
+
+        List<Integer> statuses = List.of(
+                breakfastResponse.getResponse().getStatus(),
+                lunchResponse.getResponse().getStatus());
+        assertEquals(1, statuses.stream().filter(status -> status == 201).count());
+        assertEquals(1, statuses.stream().filter(status -> status == 409).count());
+        assertTrue(statuses.stream().noneMatch(status -> status >= 500));
+
+        MvcResult accepted = breakfastResponse.getResponse().getStatus() == 201 ? breakfastResponse : lunchResponse;
+        MvcResult conflicted = breakfastResponse.getResponse().getStatus() == 409 ? breakfastResponse : lunchResponse;
+        JsonNode acceptedBody = objectMapper.readTree(accepted.getResponse().getContentAsString());
+        JsonNode conflictBody = objectMapper.readTree(conflicted.getResponse().getContentAsString());
+        String acceptedAction = acceptedBody.path("action").asText();
+        assertTrue(List.of("SALIDA_DESAYUNO", "SALIDA_ALMUERZO").contains(acceptedAction));
+        assertEquals(2L, acceptedBody.path("sequence").asLong());
+        assertEquals("INVALID_MARK_TRANSITION", conflictBody.path("code").asText());
+
+        List<String> actions = jdbc.query("SELECT action FROM mark_events WHERE jornada_id=? ORDER BY sequence_number",
+                (rs, row) -> rs.getString(1), jornadaId.toString());
+        assertEquals(2, actions.size());
+        assertEquals("INGRESO", actions.getFirst());
+        assertEquals(acceptedAction, actions.getLast());
+        assertEquals(List.of(1L, 2L), jdbc.query(
+                "SELECT sequence_number FROM mark_events WHERE jornada_id=? ORDER BY sequence_number",
+                (rs, row) -> rs.getLong(1), jornadaId.toString()));
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM mark_events WHERE jornada_id=? AND action IN ('SALIDA_DESAYUNO','SALIDA_ALMUERZO')",
+                Integer.class, jornadaId.toString()));
+        assertEquals(0, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM mark_events WHERE jornada_id=? AND action IN ('VUELTA_DESAYUNO','VUELTA_ALMUERZO')",
+                Integer.class, jornadaId.toString()));
+        assertEquals("PAUSA_ABIERTA", jdbc.queryForObject(
+                "SELECT state FROM jornadas WHERE id=? AND company_id=?", String.class, jornadaId.toString(), companyId.toString()));
+        assertEquals(3L, jdbc.queryForObject(
+                "SELECT next_sequence FROM jornadas WHERE id=? AND company_id=?", Long.class, jornadaId.toString(), companyId.toString()));
+        assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM mark_events WHERE jornada_id=?",
+                Integer.class, jornadaId.toString()));
+        assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM mark_idempotency WHERE account_id=?",
+                Integer.class, accountId.toString()));
+    }
+
+    @Test
     void employeeCannotMarkMoreThanThirtyMinutesBeforeJornadaStart() {
         Instant now = Instant.now();
         Instant futureStart = now.plusSeconds(3600);
@@ -329,6 +404,51 @@ class BackendMySqlIntegrationTest {
                                 + "\",\"localDate\":\"" + java.time.LocalDate.now().plusDays(1) + "\",\"templateId\":\""
                                 + foreign.templateId() + "\"}"))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void validAdminsCannotReadOrModifyRecordsFromAnotherCompany() throws Exception {
+        OtherTenantAdmin tenantB = createOtherTenantAdmin();
+        HttpLogin adminA = loginOverHttp(adminAccountId, "30.123.457", "CorrectHorseBattery9!");
+        HttpLogin adminB = loginOverHttp(tenantB.adminAccountId(), tenantB.adminDni(), "CorrectHorseBattery9!");
+
+        mockMvc.perform(get("/api/v1/session").cookie(adminA.sessionCookie()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.activeCompanyId").value(companyId.toString()))
+                .andExpect(jsonPath("$.memberships[0].role").value("ADMIN"));
+        mockMvc.perform(get("/api/v1/session").cookie(adminB.sessionCookie()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.activeCompanyId").value(tenantB.companyId().toString()))
+                .andExpect(jsonPath("$.memberships[0].role").value("ADMIN"));
+
+        mockMvc.perform(get("/api/v1/jornadas/{id}", jornadaId).cookie(adminA.sessionCookie()))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/jornadas/{id}", tenantB.jornadaId()).cookie(adminB.sessionCookie()))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/jornadas/{id}", tenantB.jornadaId()).cookie(adminA.sessionCookie()))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/jornadas/{id}", jornadaId).cookie(adminB.sessionCookie()))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(patch("/api/v1/employees/{id}", tenantB.employeeId())
+                        .cookie(adminA.sessionCookie(), new Cookie("BRAJA_CSRF", adminA.csrfToken()))
+                        .header("X-CSRF-TOKEN", adminA.csrfToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"displayName\":\"Modificado desde A\"}"))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(patch("/api/v1/employees/{id}", employeeId)
+                        .cookie(adminB.sessionCookie(), new Cookie("BRAJA_CSRF", adminB.csrfToken()))
+                        .header("X-CSRF-TOKEN", adminB.csrfToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"displayName\":\"Modificado desde B\"}"))
+                .andExpect(status().isNotFound());
+
+        assertEquals("Persona de prueba", jdbc.queryForObject(
+                "SELECT display_name FROM employees WHERE id=? AND company_id=?", String.class,
+                employeeId.toString(), companyId.toString()));
+        assertEquals(tenantB.employeeName(), jdbc.queryForObject(
+                "SELECT display_name FROM employees WHERE id=? AND company_id=?", String.class,
+                tenantB.employeeId().toString(), tenantB.companyId().toString()));
     }
 
     @Test
@@ -847,6 +967,18 @@ class BackendMySqlIntegrationTest {
         return new HttpLogin(new Cookie("BRAJA_SESSION", sessionId), csrfToken);
     }
 
+    private MvcResult postEmployeeMark(HttpLogin login, UUID targetJornadaId, UUID idempotencyKey,
+                                       MarkAction action) throws Exception {
+        return mockMvc.perform(post("/api/v1/jornadas/{jornadaId}/marks", targetJornadaId)
+                        .cookie(new Cookie(login.sessionCookie().getName(), login.sessionCookie().getValue()),
+                                new Cookie("BRAJA_CSRF", login.csrfToken()))
+                        .header("X-CSRF-TOKEN", login.csrfToken())
+                        .header("Idempotency-Key", idempotencyKey.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"action\":\"" + action.name() + "\"}"))
+                .andReturn();
+    }
+
     private String setCookieHeader(MvcResult result, String cookieName) {
         return result.getResponse().getHeaders("Set-Cookie").stream()
                 .filter(header -> header.startsWith(cookieName + "="))
@@ -889,9 +1021,57 @@ class BackendMySqlIntegrationTest {
         return new OtherTenantMark(otherCompany, otherSite, otherEmployee, otherTemplate, otherJornada, result.mark().id());
     }
 
+    private OtherTenantAdmin createOtherTenantAdmin() {
+        Instant now = Instant.now();
+        String suffix = String.format("%08d", Math.floorMod(System.nanoTime(), 100_000_000L));
+        String adminDni = "42" + suffix;
+        String employeeDni = "43" + suffix;
+        String employeeName = "Persona empresa B " + suffix;
+        UUID otherCompany = UUID.randomUUID();
+        UUID otherAdmin = UUID.randomUUID();
+        UUID otherEmployeeAccount = UUID.randomUUID();
+        UUID otherSite = UUID.randomUUID();
+        UUID otherTemplate = UUID.randomUUID();
+        UUID otherEmployee = UUID.randomUUID();
+        UUID otherJornada = UUID.randomUUID();
+
+        jdbc.update("INSERT INTO companies(id,name,created_at) VALUES(?,?,?)",
+                otherCompany.toString(), "Empresa B " + suffix, java.sql.Timestamp.from(now));
+        jdbc.update("INSERT INTO sites(id,company_id,name,time_zone,created_at) VALUES(?,?,?,?,?)",
+                otherSite.toString(), otherCompany.toString(), "Sede B " + suffix,
+                "America/Argentina/Buenos_Aires", java.sql.Timestamp.from(now));
+        jdbc.update("INSERT INTO accounts(id,dni_normalized,dni_display,password_hash,must_change_password,active,created_at,updated_at) VALUES(?,?,?,?,FALSE,TRUE,?,?)",
+                otherAdmin.toString(), adminDni, adminDni, "unused-test-hash",
+                java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
+        jdbc.update("INSERT INTO accounts(id,dni_normalized,dni_display,password_hash,must_change_password,active,created_at,updated_at) VALUES(?,?,?,?,FALSE,TRUE,?,?)",
+                otherEmployeeAccount.toString(), employeeDni, employeeDni, "unused-test-hash",
+                java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
+        jdbc.update("INSERT INTO company_memberships(id,company_id,account_id,role,active,created_at) VALUES(?,?,?,'ADMIN',TRUE,?)",
+                UUID.randomUUID().toString(), otherCompany.toString(), otherAdmin.toString(), java.sql.Timestamp.from(now));
+        jdbc.update("INSERT INTO company_memberships(id,company_id,account_id,role,active,created_at) VALUES(?,?,?,'EMPLOYEE',TRUE,?)",
+                UUID.randomUUID().toString(), otherCompany.toString(), otherEmployeeAccount.toString(), java.sql.Timestamp.from(now));
+        jdbc.update("INSERT INTO employees(id,company_id,account_id,display_name,tolerance_minutes,active,created_at,updated_at) VALUES(?,?,?,?,10,TRUE,?,?)",
+                otherEmployee.toString(), otherCompany.toString(), otherEmployeeAccount.toString(), employeeName,
+                java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
+        jdbc.update("INSERT INTO employee_sites(company_id,employee_id,site_id,created_at) VALUES(?,?,?,?)",
+                otherCompany.toString(), otherEmployee.toString(), otherSite.toString(), java.sql.Timestamp.from(now));
+        jdbc.update("INSERT INTO schedule_templates(id,company_id,site_id,name,breakfast_limit_minutes,lunch_limit_minutes,active,created_at,updated_at) VALUES(?,?,?,?,20,30,TRUE,?,?)",
+                otherTemplate.toString(), otherCompany.toString(), otherSite.toString(), "Turno B",
+                java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
+        String snapshot = "{\"siteId\":\"" + otherSite + "\",\"name\":\"Turno B\",\"blocks\":[{\"startDayOffset\":0,\"start\":\"08:00:00\",\"end\":\"16:00:00\",\"endDayOffset\":0}],\"breakfastLimitMinutes\":20,\"lunchLimitMinutes\":30}";
+        jdbc.update("INSERT INTO jornadas(id,company_id,employee_id,site_id,template_id,local_date,time_zone,schedule_snapshot,tolerance_minutes,scheduled_start_at,scheduled_end_at,state,next_sequence,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,'NO_INGRESO',1,?,?)",
+                otherJornada.toString(), otherCompany.toString(), otherEmployee.toString(), otherSite.toString(),
+                otherTemplate.toString(), java.time.LocalDate.now(), "America/Argentina/Buenos_Aires",
+                snapshot, 10, java.sql.Timestamp.from(now.minusSeconds(900)),
+                java.sql.Timestamp.from(now.plusSeconds(3600)), otherAdmin.toString(), java.sql.Timestamp.from(now));
+        return new OtherTenantAdmin(otherCompany, otherAdmin, adminDni, otherEmployee, employeeName, otherJornada);
+    }
+
     private record HttpLogin(Cookie sessionCookie, String csrfToken) { }
     private record OtherTenantMark(UUID companyId, UUID siteId, UUID employeeId, UUID templateId,
                                    UUID jornadaId, UUID markId) { }
+    private record OtherTenantAdmin(UUID companyId, UUID adminAccountId, String adminDni, UUID employeeId,
+                                    String employeeName, UUID jornadaId) { }
 
     /** Turns the default jornada into one with an INGRESO and no EGRESO that ends at the given instant (tolerance is 10 minutes). */
     private Instant openJornadaEndingAt(Instant end) {
