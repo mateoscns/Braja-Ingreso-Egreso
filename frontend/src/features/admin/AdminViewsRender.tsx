@@ -7,6 +7,14 @@ export type JourneyRow = Pick<Jornada, 'id' | 'employeeId' | 'siteId' | 'localDa
 
 type Correction = { deviationId: string; classification: DeviationClassification } | null
 
+function journeysTitle(date: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return 'Jornadas'
+  const parsedDate = new Date(`${date}T12:00:00Z`)
+  if (!Number.isFinite(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== date) return 'Jornadas'
+  const formattedDate = new Intl.DateTimeFormat('es-AR', { dateStyle: 'full', timeZone: 'UTC' }).format(parsedDate)
+  return `Jornadas del ${formattedDate}`
+}
+
 export function AdminInboxRender({ items, timeZones, nextCursor, loading, inboxLoadError, timeZoneLoadError, error, notice, busy, correction, correctionReason, targetDeviation, onReload, onClassify, onRetry, onLoadMore, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
   items: Deviation[]; timeZones: Map<string, string>; nextCursor: string | null; loading: boolean; inboxLoadError: string; timeZoneLoadError: string
   error: string; notice: string; busy: string; correction: Correction; correctionReason: string; targetDeviation: string
@@ -148,12 +156,12 @@ export function JourneysViewRender({ sites, eligibleEmployees, siteTemplates, jo
     {notice && <PageMessage kind="success">{notice}</PageMessage>}
     <Panel title="Declarar una jornada"><form className="form-grid" onSubmit={onDeclare}>
       <FormField label="Fecha" hint="La fecha inicial usa el calendario local de este dispositivo; la fecha elegida se aplica como día local en cada sede."><input type="date" required disabled={loading} value={date} onChange={(event) => onDateChange(event.target.value)} /></FormField>
-      <FormField label="Empleado"><select required value={employeeId} onChange={(event) => onEmployeeChange(event.target.value)}>{eligibleEmployees.map((person) => <option value={person.id} key={person.id}>{person.displayName}</option>)}</select>{eligibleEmployees.length === 0 && <span className="field-hint">No hay empleados activos habilitados para esta sede.</span>}</FormField>
+      <FormField label="Empleado" hint={eligibleEmployees.length === 0 ? 'No hay empleados activos habilitados para esta sede.' : undefined}><select required value={employeeId} onChange={(event) => onEmployeeChange(event.target.value)}>{eligibleEmployees.map((person) => <option value={person.id} key={person.id}>{person.displayName}</option>)}</select></FormField>
       <FormField label="Sede"><select required value={siteId} onChange={(event) => onSiteChange(event.target.value)}>{sites.map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}</select></FormField>
       <FormField label="Plantilla horaria"><select required value={templateId} onChange={(event) => onTemplateChange(event.target.value)}>{siteTemplates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>)}</select></FormField>
       <div className="field-wide"><button className="button button-primary" disabled={busy || loading || journeysLoading || !templateId || !employeeId}>{busy ? 'Guardando…' : 'Declarar jornada'}</button></div>
     </form></Panel>
-    <Panel title={`Jornadas del ${new Intl.DateTimeFormat('es-AR', { dateStyle: 'full', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`))}`} action={<button className="button button-small button-quiet" disabled={journeysLoading} onClick={onReloadJourneys}>{journeysLoading ? 'Actualizando…' : 'Actualizar'}</button>}>
+    <Panel title={journeysTitle(date)} action={<button className="button button-small button-quiet" disabled={journeysLoading} onClick={onReloadJourneys}>{journeysLoading ? 'Actualizando…' : 'Actualizar'}</button>}>
       {loading || journeysLoading || journeysDate !== date ? <Loading label={loading || !journeysDate ? 'Cargando jornadas…' : 'Actualizando jornadas…'} /> : journeysError ? <LoadFailure message={journeysError} onRetry={onReloadJourneys} /> : jornadas.length ? <div className="table-scroll"><table><thead><tr><th>Empleado</th><th>Sede</th><th>Estado</th><th /></tr></thead><tbody>{jornadas.map((jornada) => <tr key={jornada.id}><td>{peopleById.get(jornada.employeeId) ?? 'Empleado'}</td><td>{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Sede'}</td><td><span className="status-chip">{jornada.state.replaceAll('_', ' ')}</span></td><td><button className="button button-small button-quiet" disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></td></tr>)}</tbody></table></div> : <Empty>No hay jornadas declaradas para esta fecha.</Empty>}
     </Panel>
     {detailLoading && <Panel title="Detalle"><Loading label="Consultando marcas…" /></Panel>}

@@ -219,6 +219,20 @@ describe('administración de desvíos y marcas', () => {
     expect(await screen.findByText('No hay jornadas declaradas para esta fecha.')).toBeInTheDocument()
   })
 
+  it('asocia la etiqueta Empleado con el selector de la jornada', async () => {
+    render(<JourneysView />)
+    expect(await screen.findByLabelText('Empleado')).toHaveRole('combobox')
+  })
+
+  it('mantiene el título de Jornadas cuando se borra la fecha', async () => {
+    render(<JourneysView />)
+    expect(await screen.findByRole('row', { name: /Lucía Pérez/ })).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Fecha'), { target: { value: '' } })
+
+    expect(screen.getAllByRole('heading', { name: 'Jornadas' })).toHaveLength(2)
+  })
+
   it('muestra el estado vacío de la bandeja solo cuando la consulta termina correctamente sin filas', async () => {
     const previousGet = apiMocks.get.getMockImplementation()!
     apiMocks.get.mockImplementation((path: string) => path.startsWith('/inbox')
