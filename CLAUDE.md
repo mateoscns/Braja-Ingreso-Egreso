@@ -154,9 +154,12 @@ ArchUnit que se agreguen se ajustan a esta estructura.
   Flyway V1–V11. Las FK llevan `(id, company_id)` compuesto: la base
   rechaza cruces entre empresas.
 - **Transacciones**: `@Transactional` en servicios (`MarkService`,
-  `DeviationService`, `AccountService`, el outbox); los jobs usan
-  `TransactionTemplate` `REQUIRES_NEW` por candidato. Tres controladores
-  usan `JdbcTemplate` directo y uno lleva `@Transactional` (§7).
+  `DeviationService`, `AccountService`, `OrganizationService`, el outbox); los
+  jobs usan `TransactionTemplate` `REQUIRES_NEW` por candidato. Ningún
+  controlador lleva `@Transactional`; las escrituras de varias sentencias
+  viven en servicios. Al 2026-10-19 `OrganizationController` y
+  `JornadaController` todavía leen con `JdbcTemplate` directo y escriben una
+  sola sentencia (§7).
 - **Alcance de empresa**: sin JWT. `ScopeService.require/requireAdmin` toma
   la empresa activa de la sesión (`braja.activeCompanyId`) y relee de MySQL,
   en cada request, membresía, rol y `active`. Cada consulta recibe
@@ -464,10 +467,12 @@ dirección de dependencias entre carpetas.
     adopta (D-20261019-03, §4).
   - `docs/ARQUITECTURA.md` nombra módulos `identity`, `scheduling`, `privacy`,
     `common` y `device/location` que no existen con esos nombres.
-  - Controladores con `JdbcTemplate` directo y un `@Transactional` en un
-    controlador. `createEmployee` y `saveTemplate` ejecutan varias sentencias
-    sin transacción: un fallo a mitad deja una membresía sin empleado o una
-    plantilla sin bloques.
+  - Al 2026-10-19 `OrganizationController` (lecturas y `createSite`) y
+    `JornadaController` (lecturas y alta de jornada) usan `JdbcTemplate`
+    directo, con a lo sumo una sentencia de escritura; ningún controlador
+    lleva `@Transactional`. Las escrituras de varias sentencias de
+    organización viven en `OrganizationService`
+    (`OrganizationTransactionMySqlTest`).
   - `openapi.yaml` es manual (no hay springdoc) y ningún test lo compara con
     el código.
 - **Ya cubierto** (2026-10-19): reintentos idénticos concurrentes;
