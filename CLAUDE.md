@@ -24,7 +24,8 @@ datos de ubicación) se garantiza con algo determinista que no dependa de la
 memoria del modelo: una restricción en la base, un test que corre en CI, un
 chequeo estático. Una instrucción en lenguaje natural no es una garantía.
 
-Estado al 2026-10-19 (verificado sobre `main` en `5ee220f`): hay backend,
+Estado al 2026-10-20 (verificado sobre `main` en
+`5e61d0a5bb6b81c26603f42e9093bf85e9baab4a`): hay backend,
 frontend, `openapi.yaml`, CI y 34 decisiones adoptadas (0 propuestas). No hay
 deploy, backup, Dockerfile ni VPS. Cada regla de §5 está en un estado:
 
@@ -88,7 +89,7 @@ deploy, backup, Dockerfile ni VPS. Cada regla de §5 está en un estado:
   `ADMIN`.
 - **Registro de decisiones**: `docs/DECISIONES.md`, filas `ID
   (D-AAAAMMDD-NN) | fecha | decisión | propuesta por | estado | motivo`. Al
-  2026-10-19: 34 filas, todas `adoptada por el dueño`, 0 `propuesta`. El
+  2026-10-20: 34 filas, todas `adoptada por el dueño`, 0 `propuesta`. El
   `DECISIONES.md` sin versionar de la raíz es una copia vieja (§7).
 - **Toda atribución al dueño lleva su ID de `docs/DECISIONES.md`.** Una
   frase `decisión del dueño`, `adoptada por el dueño` o `regla del dueño`
@@ -130,7 +131,9 @@ deploy, backup, Dockerfile ni VPS. Cada regla de §5 está en un estado:
 
 ## 4. Arquitectura
 
-Es el estado verificado al 2026-10-19, y también el destino: la estructura
+Es el estado verificado sobre `main` en
+`5e61d0a5bb6b81c26603f42e9093bf85e9baab4a` al 2026-10-20, y también el
+destino: la estructura
 por funcionalidad con `JdbcTemplate` se mantiene (D-20261019-03). Lo que la
 versión anterior planteaba (capas `api/servicio/repositorio/dominio`, JPA,
 `ContextoEmpresa`, `OutboxPush`, JWT) queda descartado; las reglas de
@@ -187,8 +190,8 @@ ArchUnit que se agreguen se ajustan a esta estructura.
 `ADMIN`): `app/`, `features/{auth,admin,employee}`, `shared/api`
 (`ApiClient`: único `fetch`, CSRF en memoria), `shared/pwa`,
 `device/{push,pwa}`, `sw.ts` (Workbox; `/api/v1` en `NetworkOnly`, sin cola
-offline). Tests: vitest + Testing Library. Ninguna herramienta exige la
-dirección de dependencias entre carpetas.
+offline). Tests: vitest + Testing Library. ESLint y el chequeo de tipos corren
+en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpetas.
 
 ## 5. Reglas
 
@@ -395,16 +398,21 @@ dirección de dependencias entre carpetas.
 
 ### Frontend
 
-35. **Capas con dirección de dependencias exigida por ESLint en CI.** Sin
-    `any`, sin ciclos, sin código muerto, cero warnings. `npm run lint` usa
-    ESLint flat config y `typescript-eslint` recomendado; se ejecuta en CI con
-    cero warnings. Los tests pueden usar `any`. `npm run typecheck` invoca el
-    `tsc` 7 ya instalado (`tsc -b`), con `strict` y `noUnused*`, y también se
-    ejecuta en CI. Límites entre capas, ciclos y código muerto todavía no
-    tienen reglas específicas `[sin guarda: destino]` (2026-10-19).
-36. **Componentes de render reciben datos y callbacks por props**; el estado
-    remoto vive en contenedores. Incumplida en `features/admin/AdminViews.tsx`
-    (388 líneas, estado remoto y render juntos). `[sin guarda: destino]`
+35. **Lint y chequeo de tipos del frontend corren en CI.** `npm run lint` usa
+    ESLint flat config con `typescript-eslint` recomendado y cero warnings;
+    `@typescript-eslint/no-explicit-any` se desactiva en archivos de test.
+    `npm run typecheck` ejecuta `tsc -b` con `strict`, `noUnusedLocals` y
+    `noUnusedParameters`. No hay reglas específicas para límites entre capas,
+    ciclos de imports ni exports sin uso `[sin guarda: destino]` (2026-10-20;
+    `frontend/eslint.config.js`, `frontend/tsconfig.json`,
+    `.github/workflows/ci.yml`).
+36. **Los componentes de render reciben datos y callbacks por props; el estado
+    remoto vive en contenedores.** En ADMIN, los contenedores viven en
+    `frontend/src/features/admin/AdminViews.tsx` y las vistas en
+    `frontend/src/features/admin/AdminViewsRender.tsx`.
+    `frontend/src/features/admin/AdminViews.test.tsx` cubre interacciones,
+    pero no existe una prueba que proteja esa separación arquitectónica
+    `[sin guarda: implementado, sin test]` (2026-10-20).
 37. **Toda llamada a la API pasa por `frontend/src/shared/api/client.ts`**
     (único `fetch`; el archivo anterior decía `frontend/src/api`). Guarda:
     `client.test.ts` prueba el cliente; que nadie más llame `fetch`
@@ -453,7 +461,8 @@ dirección de dependencias entre carpetas.
   (`permissions: contents: read`; cancela corridas previas de la misma ref).
   Jobs: `backend` (Temurin 21, `./mvnw verify -B`; Testcontainers levanta
   MySQL 8.4 con el Docker del runner; 20 min) y `frontend` (Node 24: `npm ci`,
-  `npm test`, `npm run build`, `npm audit --omit=dev`; 15 min). **Es un
+  `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`,
+  `npm audit --omit=dev`; 15 min). **Es un
   check requerido**: `main` tiene protección de rama con `backend` y
   `frontend` obligatorios (D-20261019-06), sin costo porque el repo es
   público (D-20261019-02).
@@ -484,15 +493,18 @@ dirección de dependencias entre carpetas.
   (D-20261018-01, D-20261019-01); baja de empleado; ubicación y purga a 90
   días; CSRF, cookie `HttpOnly` y `Secure` por defecto con guarda de arranque;
   agrupación, reintento y payload del push; CI con tests en MySQL 8.4 real.
-- **Falta todavía** (2026-10-19), cada ítem verificado en el código:
-  - Inyectar `Clock` (28). Completar reglas ESLint para límites entre capas,
-    ciclos y código muerto (35, 36).
+- **Falta todavía** (inventario verificado 2026-10-19; las referencias de
+  Organización y frontend se revalidaron sobre `main` `5e61d0a` el 2026-10-20):
+  - Inyectar `Clock` (28). Agregar reglas ESLint para límites entre capas,
+    ciclos y exports sin uso (35), y una prueba arquitectónica para proteger
+    la separación contenedor/render (36).
   - Tests CA8 con un `ADMIN` real de otra empresa (9) y ráfaga de acciones
     distintas (10).
   - El cambio de contraseña no invalida otras sesiones (23).
   - El alta con un DNI existente filtra estado de la cuenta a otra empresa:
-    `OrganizationController.createEmployee` responde `ACCOUNT_INACTIVE` y
-    devuelve DNI y `mustChangePassword` de una cuenta ajena.
+    `OrganizationService.createEmployee` responde `ACCOUNT_INACTIVE` para una
+    cuenta inactiva; al agregar una cuenta activa ya existente, devuelve su DNI
+    y `mustChangePassword`. `OrganizationController` delega la operación.
   - `occurredAt` de marcas olvidadas y corregidas por el `ADMIN` sin cota (ni
     futuro ni ventana de la jornada).
   - `receivedAt` se toma antes de los locks (`MarkController`): una marca con
@@ -522,8 +534,8 @@ si cada clon hace `git config core.hooksPath .githooks`**. Hoy no existe
 
 - **Pre-commit**: no existe. Destino: toolchain (JDK 21, Node 24), formato,
   lint y tipos de back y front, cero warnings.
-- **CI**: existe lo de §6. No existen formato (Spotless, Prettier), lint,
-  escaneo de secretos, SAST ni cobertura.
+- **CI**: existe lo de §6. No existen formato (Spotless, Prettier), escaneo de
+  secretos, SAST ni cobertura.
 - **Todo cambio de endpoint actualiza `openapi.yaml` en el mismo commit.** Se
   escribe a mano y ningún test falla si difiere del código
   `[sin guarda: destino]`.
@@ -547,6 +559,9 @@ si cada clon hace `git config core.hooksPath .githooks`**. Hoy no existe
    este archivo se completaron con lo real; quedan RTO y el dominio.
 5. [~] Sacar `[sin guarda]` regla por regla. Con guarda: 2, 7, 8, 12, 13, 22
    y la máquina de estados; parcial: 1, 4, 5, 6, 9, 10, 14, 24. Siguen: 9
-   (CA8), 10 (ráfaga distinta), 28 (`Clock`), 21 y 23.
+   (CA8), 10 (ráfaga distinta), 21 (límite por IP), 23 (revocación tras
+   cambio de contraseña), 28 (`Clock`), 35 (reglas para capas, ciclos y
+   exports) y 36 (guarda de la separación contenedor/render).
 6. [x] Primera verificación completa del archivo contra el código:
-   2026-10-19, sobre `5ee220f`. Se repite al cerrar cada hueco de §7.
+   2026-10-20, sobre `main` en `5e61d0a5bb6b81c26603f42e9093bf85e9baab4a`.
+   Se repite al cerrar cada hueco de §7.
