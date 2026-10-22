@@ -160,7 +160,7 @@ describe('administración de desvíos y marcas', () => {
     expect(await screen.findByText('Falló la carga de plantillas.')).toBeInTheDocument()
     expect(screen.queryByText('No hay plantillas para esta sede.')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
-    expect(await screen.findByText(/09:00–17:00/)).toBeInTheDocument()
+    expect(await screen.findByText(/09:00 a 17:00/)).toBeInTheDocument()
   })
 
   it('muestra el estado vacío de plantillas solo cuando la consulta termina correctamente sin filas', async () => {
@@ -322,12 +322,12 @@ describe('administración de desvíos y marcas', () => {
     render(<JourneysView />)
 
     expect(await screen.findByRole('row', { name: /Lucía Pérez/ })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Ver marcas' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Ver marcas' })).toBeDisabled())
+    fireEvent.click(screen.getByRole('button', { name: /^Ver marcas/ }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Ver marcas/ })).toBeDisabled())
 
     fireEvent.change(screen.getByLabelText('Fecha'), { target: { value: '2026-10-17' } })
     expect(await screen.findByRole('row', { name: /Nicolás Arce/ })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Ver marcas' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Ver marcas/ }))
     expect(await screen.findByText('Horario asignado: Tarde · tolerancia 5 min')).toBeInTheDocument()
 
     await act(async () => { resolveOldDetail({ ...jornada, scheduleSnapshot: { ...jornada.scheduleSnapshot, name: 'Mañana antigua' } }) })
@@ -343,7 +343,7 @@ describe('administración de desvíos y marcas', () => {
 
   it('registra una marca olvidada y permite corregir una marca con motivo de auditoría', async () => {
     render(<JourneysView />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Ver marcas' }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
     await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
 
     fireEvent.change(screen.getByLabelText('Tipo de marca olvidada'), { target: { value: 'SALIDA_ALMUERZO' } })
@@ -355,7 +355,7 @@ describe('administración de desvíos y marcas', () => {
     }))
 
     const markRow = await screen.findByRole('row', { name: /Ingreso/ })
-    fireEvent.click(within(markRow).getByRole('button', { name: 'Corregir' }))
+    fireEvent.click(within(markRow).getByRole('button', { name: /^Corregir marca/ }))
     fireEvent.change(screen.getByLabelText('Motivo de corrección de marca'), { target: { value: 'Se verificó la hora con la persona.' } })
     fireEvent.click(screen.getByRole('button', { name: 'Guardar corrección de marca' }))
     await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/admin/marks/m-1/correction', expect.objectContaining({
@@ -367,7 +367,7 @@ describe('administración de desvíos y marcas', () => {
     const originalGet = apiMocks.get.getMockImplementation()!
     apiMocks.get.mockImplementation((path: string) => path === '/sites' ? Promise.resolve([{ ...site, timeZone: 'America/New_York' }]) : originalGet(path))
     render(<JourneysView />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Ver marcas' }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
     await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
     fireEvent.change(screen.getByLabelText('Tipo de marca olvidada'), { target: { value: 'SALIDA_ALMUERZO' } })
     fireEvent.change(screen.getByLabelText('Hora del evento (Local Centro)'), { target: { value: localTime } })
@@ -375,5 +375,74 @@ describe('administración de desvíos y marcas', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Registrar marca olvidada' }))
     expect(await screen.findByText(/Esa hora no existe en la zona horaria de la sede/)).toBeInTheDocument()
     expect(apiMocks.post).not.toHaveBeenCalled()
+  })
+
+  it('muestra "Conexión protegida" solo en un contexto seguro', () => {
+    const original = Object.getOwnPropertyDescriptor(window, 'isSecureContext')
+    try {
+      Object.defineProperty(window, 'isSecureContext', { configurable: true, value: false })
+      const insecure = render(<AdminApp />)
+      expect(screen.queryByText('Conexión protegida')).not.toBeInTheDocument()
+      insecure.unmount()
+      Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
+      render(<AdminApp />)
+      expect(screen.getByText('Conexión protegida')).toBeInTheDocument()
+    } finally {
+      if (original) Object.defineProperty(window, 'isSecureContext', original)
+      else Reflect.deleteProperty(window, 'isSecureContext')
+    }
+  })
+
+  it('muestra los estados de jornada con nombres legibles y botones con contexto', async () => {
+    const previousGet = apiMocks.get.getMockImplementation()!
+    apiMocks.get.mockImplementation((path: string) => path.startsWith('/jornadas?') ? Promise.resolve([{ id: 'j-1', employeeId: 'e-1', siteId: 's-1', localDate: '2026-10-16', state: 'NO_INGRESO' }]) : previousGet(path))
+    render(<JourneysView />)
+    expect(await screen.findByText('Sin ingreso')).toBeInTheDocument()
+    expect(screen.queryByText('NO INGRESO')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ver marcas de Lucía Pérez' })).toBeInTheDocument()
+  })
+
+  it('da contexto accesible al botón Corregir de cada marca', async () => {
+    render(<JourneysView />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
+    expect(await screen.findByRole('button', { name: /^Corregir marca Ingreso de/ })).toBeInTheDocument()
+  })
+
+  it('muestra los bloques de plantilla como HH:MM y el cruce de medianoche en palabras', async () => {
+    const previousGet = apiMocks.get.getMockImplementation()!
+    apiMocks.get.mockImplementation((path: string) => path === '/templates' ? Promise.resolve([{
+      id: 't-2', siteId: 's-1', name: 'Noche', active: true, breakfastLimitMinutes: 15, lunchLimitMinutes: 60,
+      blocks: [{ startDayOffset: 0, start: '22:00:00', end: '06:00:00', endDayOffset: 1 }]
+    }]) : previousGet(path))
+    render(<TemplatesView />)
+    expect(await screen.findByText('22:00 a 06:00 (día siguiente)')).toBeInTheDocument()
+    expect(screen.queryByText(/D\+1/)).not.toBeInTheDocument()
+  })
+
+  it('no consulta la API con la fecha vacía y pide elegir una fecha', async () => {
+    render(<JourneysView />)
+    await screen.findByRole('row', { name: /Lucía Pérez/ })
+    const callsBefore = apiMocks.get.mock.calls.length
+    fireEvent.change(screen.getByLabelText('Fecha'), { target: { value: '' } })
+    expect((await screen.findAllByText('Elegí una fecha para ver o declarar jornadas.')).length).toBeGreaterThan(0)
+    expect(apiMocks.get.mock.calls.length).toBe(callsBefore)
+    expect(screen.queryByText(/conexión/i)).not.toBeInTheDocument()
+  })
+
+  it('etiqueta con el empleado los controles de edición en línea y el estado Activo', async () => {
+    render(<EmployeesView />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Editar/ }))
+    expect(screen.getByRole('textbox', { name: 'Nombre del empleado con DNI 30123456' })).toBeInTheDocument()
+    expect(screen.getByRole('spinbutton', { name: 'Tolerancia en minutos del empleado con DNI 30123456' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Activo (DNI 30123456)' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Local Centro (DNI 30123456)' })).toBeInTheDocument()
+  })
+
+  it('un error de red en la vista de administración no usa el texto de marca del empleado', async () => {
+    const previousGet = apiMocks.get.getMockImplementation()!
+    apiMocks.get.mockImplementation((path: string) => path === '/employees' ? Promise.reject(new Error('No se pudo conectar con el servidor. Revisá tu conexión y reintentá.')) : previousGet(path))
+    render(<EmployeesView />)
+    expect(await screen.findByText(/No se pudo conectar con el servidor/)).toBeInTheDocument()
+    expect(screen.queryByText(/marca no fue confirmada/)).not.toBeInTheDocument()
   })
 })

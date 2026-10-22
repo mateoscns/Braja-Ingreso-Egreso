@@ -55,3 +55,38 @@ describe('ApiClient', () => {
     })
   })
 })
+
+describe('ApiClient: mensajes de error', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  const csrf = () => new Response(JSON.stringify({ token: 'csrf-token-long-enough' }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  const problem = (status: number, headers: Record<string, string> = {}) => new Response(JSON.stringify({ status }), { status, headers: { 'Content-Type': 'application/problem+json', ...headers } })
+
+  it('un 401 al iniciar sesión dice que el DNI o la contraseña son incorrectos, sin decir cuál', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(csrf()).mockResolvedValueOnce(problem(401)))
+    const failure = await new ApiClient().post('/session', { dni: '1', password: 'x' }).catch((reason: Error) => reason)
+    expect((failure as Error).message).toBe('El DNI o la contraseña son incorrectos.')
+  })
+
+  it('un 401 en una petición ya autenticada sigue diciendo que la sesión venció', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(problem(401)))
+    await expect(new ApiClient().get('/jornadas')).rejects.toMatchObject({ message: 'Tu sesión venció. Iniciá sesión nuevamente.' })
+  })
+
+  it('un 429 informa la espera según Retry-After', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(csrf()).mockResolvedValueOnce(problem(429, { 'Retry-After': '900' })))
+    const failure = await new ApiClient().post('/session', {}).catch((reason: Error) => reason)
+    expect((failure as Error).message).toContain('15 minutos')
+  })
+
+  it('un 429 sin Retry-After habla de unos minutos', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(problem(429)))
+    await expect(new ApiClient().get('/x')).rejects.toMatchObject({ message: expect.stringContaining('unos minutos') })
+  })
+
+  it('un fallo de red no habla de marcas y se identifica como NetworkError', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+    const failure = await new ApiClient().get('/employees').catch((reason: Error) => reason)
+    expect((failure as Error).name).toBe('NetworkError')
+    expect((failure as Error).message).not.toMatch(/marca/i)
+  })
+})
