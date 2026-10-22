@@ -22,7 +22,8 @@ spring:
     serialization:
       write-dates-as-timestamps: false
 server:
-  forward-headers-strategy: framework
+  # Forwarded headers are interpreted only by ClientAddressResolver after the peer is trusted.
+  forward-headers-strategy: none
   servlet:
     session:
       cookie:
@@ -36,10 +37,15 @@ braja:
     enabled: ${BRAJA_SCHEDULING_ENABLED:true}
   session-cookie-secure: ${BRAJA_SESSION_COOKIE_SECURE:true}
   health-encryption-key-base64: ${BRAJA_HEALTH_ENCRYPTION_KEY_BASE64:}
+  login-ip-throttle-key-base64: ${BRAJA_LOGIN_IP_THROTTLE_KEY_BASE64:}
   push-subscription-encryption-key-base64: ${BRAJA_PUSH_SUBSCRIPTION_ENCRYPTION_KEY_BASE64:}
   vapid-public-key: ${BRAJA_VAPID_PUBLIC_KEY:}
   vapid-private-key: ${BRAJA_VAPID_PRIVATE_KEY:}
   vapid-subject: ${BRAJA_VAPID_SUBJECT:}
+  login-ip-throttle-max-failures: ${BRAJA_LOGIN_IP_THROTTLE_MAX_FAILURES:30}
+  login-ip-throttle-window: ${BRAJA_LOGIN_IP_THROTTLE_WINDOW:15m}
+  login-ip-throttle-lock-duration: ${BRAJA_LOGIN_IP_THROTTLE_LOCK_DURATION:15m}
+  trusted-proxy-cidrs: ${BRAJA_TRUSTED_PROXY_CIDRS:}
   bootstrap-enabled: ${BRAJA_BOOTSTRAP_ENABLED:false}
   bootstrap-dni: ${BRAJA_BOOTSTRAP_DNI:}
   bootstrap-password: ${BRAJA_BOOTSTRAP_PASSWORD:}

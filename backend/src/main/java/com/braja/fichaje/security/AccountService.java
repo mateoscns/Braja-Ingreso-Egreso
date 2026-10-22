@@ -33,11 +33,12 @@ public class AccountService {
     private final CsrfTokenRepository csrfRepository;
     private final BrajaProperties properties;
     private final LoginThrottleService throttle;
+    private final ClientAddressResolver clientAddressResolver;
 
     public AccountService(JdbcTemplate jdbc, AuthenticationManager authenticationManager, PasswordEncoder passwordEncoder,
                           CurrentActor currentActor, SessionAuthenticationStrategy sessionStrategy,
                           SecurityContextRepository contextRepository, CsrfTokenRepository csrfRepository,
-                          BrajaProperties properties, LoginThrottleService throttle) {
+                          BrajaProperties properties, LoginThrottleService throttle, ClientAddressResolver clientAddressResolver) {
         this.jdbc = jdbc;
         this.authenticationManager = authenticationManager;
         this.passwordEncoder = passwordEncoder;
@@ -47,17 +48,19 @@ public class AccountService {
         this.csrfRepository = csrfRepository;
         this.properties = properties;
         this.throttle = throttle;
+        this.clientAddressResolver = clientAddressResolver;
     }
 
     @Transactional
     public SessionView login(String rawDni, String password, HttpServletRequest request, HttpServletResponse response) {
         String dni = DniNormalizer.normalize(rawDni);
-        throttle.assertNotLocked(dni);
+        String clientAddress = clientAddressResolver.resolve(request);
+        throttle.assertNotLocked(dni, clientAddress);
         Authentication authentication;
         try {
             authentication = authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(dni, password));
         } catch (org.springframework.security.core.AuthenticationException ex) {
-            throttle.failed(dni);
+            throttle.failed(dni, clientAddress);
             throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Invalid DNI or password");
         }
         UUID accountId = ((BrajaUserDetails) authentication.getPrincipal()).accountId();

@@ -145,8 +145,10 @@ class NotificationOutboxMySqlTest {
         BrajaProperties properties = pushPropertiesWithEncryptionKeys();
         DeviationNotificationPort port = new JdbcDeviationNotificationOutbox(jdbc, properties,
                 new NotificationWindowPolicy());
+        org.springframework.mock.env.MockEnvironment localEnvironment = new org.springframework.mock.env.MockEnvironment();
+        localEnvironment.setActiveProfiles("local");
         DeviationService deviations = new DeviationService(jdbc,
-                new ScopeService(jdbc, new CurrentActor()), new EncryptionService(properties), port);
+                new ScopeService(jdbc, new CurrentActor()), new EncryptionService(properties, localEnvironment), port);
         UUID seedDeviation = createDeviation(fixture, fixture.siteOne(), fixture.employeeOne(), "SIN_INGRESO");
         UUID jornada = UUID.fromString(jdbc.queryForObject("SELECT jornada_id FROM deviations WHERE id=?", String.class, seedDeviation.toString()));
         jdbc.update("DELETE FROM deviations WHERE id=?", seedDeviation.toString());
@@ -311,9 +313,14 @@ class NotificationOutboxMySqlTest {
 
     private static BrajaProperties pushPropertiesWithEncryptionKeys() {
         BrajaProperties properties = enabledPushProperties();
-        String key = java.util.Base64.getEncoder().encodeToString(new byte[32]);
-        properties.setHealthEncryptionKeyBase64(key);
-        properties.setPushSubscriptionEncryptionKeyBase64(key);
+        byte[] healthKey = new byte[32];
+        byte[] pushKey = new byte[32];
+        pushKey[0] = 1;
+        String throttleKey = java.util.Base64.getEncoder().encodeToString(
+                "0123456789abcdef0123456789abcdef".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        properties.setHealthEncryptionKeyBase64(java.util.Base64.getEncoder().encodeToString(healthKey));
+        properties.setLoginIpThrottleKeyBase64(throttleKey);
+        properties.setPushSubscriptionEncryptionKeyBase64(java.util.Base64.getEncoder().encodeToString(pushKey));
         return properties;
     }
 

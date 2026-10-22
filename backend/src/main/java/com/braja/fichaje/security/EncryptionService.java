@@ -1,6 +1,7 @@
 package com.braja.fichaje.security;
 
 import com.braja.fichaje.config.BrajaProperties;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Cipher;
@@ -15,8 +16,8 @@ public class EncryptionService {
     private final SecretKeySpec key;
     private final SecureRandom random = new SecureRandom();
 
-    public EncryptionService(BrajaProperties properties) {
-        properties.validate();
+    public EncryptionService(BrajaProperties properties, Environment environment) {
+        properties.validate(environment);
         this.key = new SecretKeySpec(Base64.getDecoder().decode(properties.getHealthEncryptionKeyBase64()), "AES");
     }
 
