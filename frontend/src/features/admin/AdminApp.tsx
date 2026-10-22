@@ -29,7 +29,7 @@ export function AdminApp() {
             <span className="nav-icon" aria-hidden="true">{link.icon}</span>{link.label}
           </button>
         })}
-      </nav><div className="sidebar-footer"><span className="live-dot" />Conexión protegida</div></aside>
+      </nav>{window.isSecureContext && <div className="sidebar-footer"><span className="live-dot" />Conexión protegida</div>}</aside>
       <main className="main-content">
         {section === 'inbox' && <AdminInbox />}
         {section === 'jornadas' && <JourneysView />}
