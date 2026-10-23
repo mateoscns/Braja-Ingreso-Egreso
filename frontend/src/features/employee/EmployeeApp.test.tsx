@@ -197,6 +197,27 @@ describe('EmployeeApp', () => {
     expect(siteRequests).toBe(2)
   })
 
+  it('saluda con el nombre de la sesión cuando existe', async () => {
+    mocks.useSession.mockReturnValue({
+      session: {
+        accountId: 'account-1', dni: '30123456', displayName: 'Lucía Pérez',
+        memberships: [{ companyId: 'company-1', companyName: 'Braja', role: 'EMPLOYEE' }], activeCompanyId: 'company-1', mustChangePassword: false
+      },
+      signOut: vi.fn(), activateCompany: vi.fn()
+    })
+    render(<EmployeeApp />)
+    expect(await screen.findByRole('heading', { name: 'Hola, Lucía Pérez' })).toBeInTheDocument()
+    expect(screen.queryByText('DNI 30123456')).not.toBeInTheDocument()
+  })
+
+  it('muestra la hora del hecho (occurredAt) del motivo pendiente y no la de detección', async () => {
+    configureApi([{ ...pendingDeviation, occurredAt: '2026-10-20T11:15:00Z', createdAt: '2026-10-20T12:00:00Z' }])
+    render(<EmployeeApp />)
+    const card = (await screen.findByLabelText('Motivo')).closest('form')!
+    expect(card).toHaveTextContent(/0?8:15/)
+    expect(card).not.toHaveTextContent(/0?9:00/)
+  })
+
   it('anuncia el envío de un motivo y actualiza su estado al recibir respuesta', async () => {
     let resolveMotive!: (value: Deviation) => void
     const pendingSave = new Promise<Deviation>((resolve) => { resolveMotive = resolve })

@@ -77,7 +77,7 @@ describe('administración de desvíos y marcas', () => {
 
   it('muestra el nombre entregado por el servidor en la bandeja', async () => {
     render(<AdminInbox />)
-    expect(await screen.findByText(/Lucía Pérez/)).toBeInTheDocument()
+    expect(await screen.findByText(/Lucía Pérez ·/)).toBeInTheDocument()
   })
 
   it('distingue un fallo de carga de la bandeja vacía y permite reintentar', async () => {
@@ -95,7 +95,7 @@ describe('administración de desvíos y marcas', () => {
     expect(await screen.findByText('Falló la carga de la bandeja.')).toBeInTheDocument()
     expect(screen.queryByText('No hay desvíos para mostrar.')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
-    expect(await screen.findByText(/Lucía Pérez/)).toBeInTheDocument()
+    expect(await screen.findByText(/Lucía Pérez ·/)).toBeInTheDocument()
   })
 
   it('mantiene la bandeja si falla la carga de zonas horarias y explica el huso usado', async () => {
@@ -107,7 +107,7 @@ describe('administración de desvíos y marcas', () => {
 
     expect(await screen.findByText(/Falló la consulta de sedes\./)).toBeInTheDocument()
     expect(screen.getByText(/Las horas se muestran en la zona horaria de este dispositivo\./)).toBeInTheDocument()
-    expect(screen.getByText(/Lucía Pérez/)).toBeInTheDocument()
+    expect(screen.getByText(/Lucía Pérez ·/)).toBeInTheDocument()
     expect(screen.queryByText('No hay desvíos para mostrar.')).not.toBeInTheDocument()
   })
 
@@ -444,5 +444,101 @@ describe('administración de desvíos y marcas', () => {
     render(<EmployeesView />)
     expect(await screen.findByText(/No se pudo conectar con el servidor/)).toBeInTheDocument()
     expect(screen.queryByText(/marca no fue confirmada/)).not.toBeInTheDocument()
+  })
+
+  describe('filtros de la bandeja', () => {
+    const inboxCalls = () => apiMocks.get.mock.calls.map(([path]) => path as string).filter((path) => path.startsWith('/inbox'))
+    const pick = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } })
+
+    it('envía empleado, sede y fechas al aplicar y vuelve a la consulta sin filtros al limpiar', async () => {
+      render(<AdminInbox />)
+      await screen.findByText(/Lucía Pérez ·/)
+      expect(inboxCalls()).toEqual(['/inbox?limit=50'])
+
+      pick('Empleado', 'e-1'); pick('Sede', 's-1'); pick('Desde', '2026-10-01'); pick('Hasta', '2026-10-10')
+      fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
+      await waitFor(() => expect(inboxCalls()).toContain('/inbox?limit=50&employeeId=e-1&siteId=s-1&from=2026-10-01&to=2026-10-10'))
+
+      fireEvent.click(screen.getByRole('button', { name: 'Limpiar' }))
+      await waitFor(() => expect(inboxCalls().at(-1)).toBe('/inbox?limit=50'))
+      expect(screen.getByLabelText('Empleado')).toHaveValue('')
+      expect(screen.getByLabelText('Desde')).toHaveValue('')
+    })
+
+    it('al cambiar los filtros descarta el cursor y la paginación sigue con los filtros nuevos', async () => {
+      apiMocks.get.mockImplementation((path: string) => {
+        if (path === '/inbox?limit=50') return Promise.resolve({ items: [deviation], nextCursor: 'c1' })
+        if (path === '/inbox?limit=50&employeeId=e-1') return Promise.resolve({ items: [deviation], nextCursor: 'c2' })
+        if (path.startsWith('/inbox')) return Promise.resolve({ items: [], nextCursor: null })
+        if (path === '/sites') return Promise.resolve([site])
+        if (path === '/employees') return Promise.resolve([employee])
+        throw new Error(`GET inesperado: ${path}`)
+      })
+      render(<AdminInbox />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Cargar anteriores' }))
+      await waitFor(() => expect(inboxCalls()).toContain('/inbox?limit=50&cursor=c1'))
+
+      pick('Empleado', 'e-1')
+      fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
+      await waitFor(() => expect(inboxCalls().at(-1)).toBe('/inbox?limit=50&employeeId=e-1'))
+      fireEvent.click(await screen.findByRole('button', { name: 'Cargar anteriores' }))
+      await waitFor(() => expect(inboxCalls().at(-1)).toBe('/inbox?limit=50&employeeId=e-1&cursor=c2'))
+    })
+
+    it.each([
+      ['solo una fecha', { Desde: '2026-10-01' }, 'Completá las dos fechas: desde y hasta.'],
+      ['rango invertido', { Desde: '2026-10-10', Hasta: '2026-10-01' }, 'La fecha desde no puede ser posterior a la fecha hasta.'],
+      ['rango mayor a 366 días', { Desde: '2025-01-01', Hasta: '2026-10-01' }, 'El rango no puede superar los 366 días.']
+    ])('no consulta la API con %s y explica el problema', async (_name, values, message) => {
+      render(<AdminInbox />)
+      await screen.findByText(/Lucía Pérez ·/)
+      Object.entries(values).forEach(([label, value]) => pick(label, value))
+      fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
+      expect(await screen.findByRole('alert')).toHaveTextContent(message)
+      expect(inboxCalls()).toEqual(['/inbox?limit=50'])
+    })
+
+    it('muestra un estado vacío claro cuando los filtros no encuentran nada', async () => {
+      render(<AdminInbox />)
+      await screen.findByText(/Lucía Pérez ·/)
+      apiMocks.get.mockImplementation((path: string) => path.startsWith('/inbox') ? Promise.resolve({ items: [], nextCursor: null }) : Promise.resolve([]))
+      pick('Sede', 's-1')
+      fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
+      expect(await screen.findByText('Ningún desvío coincide con los filtros aplicados.')).toBeInTheDocument()
+    })
+
+    it('mantiene las acciones de clasificación sobre los resultados filtrados', async () => {
+      apiMocks.get.mockImplementation((path: string) => path.startsWith('/inbox')
+        ? Promise.resolve({ items: [{ ...deviation, status: 'PENDIENTE_REVISION' }], nextCursor: null })
+        : Promise.resolve(path === '/sites' ? [site] : [employee]))
+      render(<AdminInbox />)
+      await screen.findByText(/Lucía Pérez ·/)
+      pick('Empleado', 'e-1')
+      fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Justificado' }))
+      await waitFor(() => expect(apiMocks.put).toHaveBeenCalledWith('/admin/deviations/d-1/classification', { classification: 'JUSTIFICADO' }))
+    })
+  })
+
+  it('muestra la hora del hecho (occurredAt) y no la de detección en la bandeja', async () => {
+    apiMocks.get.mockImplementation((path: string) => path.startsWith('/inbox')
+      ? Promise.resolve({ items: [{ ...deviation, occurredAt: '2026-10-16T11:15:00Z', createdAt: '2026-10-16T12:00:00Z' }], nextCursor: null })
+      : Promise.resolve(path === '/sites' ? [site] : [employee]))
+    render(<AdminInbox />)
+    const card = (await screen.findByText(/Lucía Pérez ·/)).closest('article')!
+    expect(card).toHaveTextContent(/0?8:15/)
+    expect(card).not.toHaveTextContent(/0?9:00/)
+  })
+
+  it('saluda con el nombre de la sesión y cae al DNI cuando no hay nombre', () => {
+    const original = adminSessionMocks.session
+    adminSessionMocks.session = { ...original, displayName: 'Mateo Scienza' } as typeof original
+    const view = render(<AdminApp />)
+    expect(screen.getByText('Mateo Scienza')).toBeInTheDocument()
+    expect(screen.queryByText('DNI 30123456')).not.toBeInTheDocument()
+    view.unmount()
+    adminSessionMocks.session = original
+    render(<AdminApp />)
+    expect(screen.getByText('DNI 30123456')).toBeInTheDocument()
   })
 })
