@@ -1,6 +1,7 @@
 package com.braja.fichaje.timekeeping;
 
 import com.braja.fichaje.api.ApiException;
+import com.braja.fichaje.deviations.DeviationService;
 import com.braja.fichaje.organization.OrganizationController;
 import com.braja.fichaje.security.ScopeService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,11 +22,13 @@ public class JornadaController {
     private final JdbcTemplate jdbc;
     private final ScopeService scopes;
     private final ObjectMapper objectMapper;
+    private final JornadaHistoryService history;
 
-    public JornadaController(JdbcTemplate jdbc, ScopeService scopes, ObjectMapper objectMapper) {
+    public JornadaController(JdbcTemplate jdbc, ScopeService scopes, ObjectMapper objectMapper, JornadaHistoryService history) {
         this.jdbc = jdbc;
         this.scopes = scopes;
         this.objectMapper = objectMapper;
+        this.history = history;
     }
 
     @PostMapping
@@ -67,22 +70,9 @@ public class JornadaController {
 
     @GetMapping
     public List<JornadaSummary> list(Authentication auth, HttpSession session, @RequestParam LocalDate from,
-                                     @RequestParam LocalDate to, @RequestParam(required=false) UUID employeeId) {
-        var scope = scopes.require(auth, session);
-        validateRange(from, to);
-        UUID targetEmployee;
-        if ("ADMIN".equals(scope.role())) targetEmployee = employeeId;
-        else {
-            if (employeeId != null) throw ApiException.forbidden();
-            targetEmployee = scopes.employeeIdFor(scope);
-            if (targetEmployee == null) return List.of();
-        }
-        String sql = "SELECT id,employee_id,site_id,local_date,state FROM jornadas WHERE company_id=? AND local_date BETWEEN ? AND ?" +
-                (targetEmployee == null ? "" : " AND employee_id=?") + " ORDER BY local_date DESC,created_at DESC,id";
-        Object[] args = targetEmployee == null
-                ? new Object[]{scope.companyId().toString(), from, to}
-                : new Object[]{scope.companyId().toString(), from, to, targetEmployee.toString()};
-        return jdbc.query(sql, (rs, row) -> summary(rs), args);
+                                     @RequestParam LocalDate to, @RequestParam(required=false) UUID employeeId,
+                                     @RequestParam(required=false) UUID siteId, @RequestParam(defaultValue="false") boolean includeDetail) {
+        return history.list(scopes.require(auth, session), from, to, employeeId, siteId, includeDetail);
     }
 
     @GetMapping("/mine")
@@ -109,27 +99,27 @@ public class JornadaController {
         OrganizationController.TemplateInput snapshot;
         try { snapshot = objectMapper.readValue(row.snapshot(), OrganizationController.TemplateInput.class); }
         catch (Exception ex) { throw new IllegalStateException("Stored schedule snapshot is invalid", ex); }
+        boolean admin = "ADMIN".equals(scope.role());
         List<MarkView> marks = jdbc.query("SELECT id,jornada_id,action,sequence_number,accepted_at,occurred_at,recorded_at,location_status,latitude,longitude FROM mark_events WHERE company_id=? AND jornada_id=? ORDER BY timeline_order,sequence_number",
-                (rs, index) -> new MarkView(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("jornada_id")), rs.getString("action"), rs.getLong("sequence_number"),
-                        rs.getTimestamp("accepted_at").toInstant(), rs.getTimestamp("occurred_at").toInstant(), rs.getTimestamp("recorded_at").toInstant(), rs.getString("location_status"),
-                        "ADMIN".equals(scope.role()) ? nullableDouble(rs.getObject("latitude")) : null, "ADMIN".equals(scope.role()) ? nullableDouble(rs.getObject("longitude")) : null, List.of()),
-                scope.companyId().toString(), jornadaId.toString());
+                (rs, index) -> markView(rs, admin), scope.companyId().toString(), jornadaId.toString());
         return new JornadaView(row.id(), row.employeeId(), row.siteId(), row.localDate(), row.state(), snapshot, row.toleranceMinutes(), row.sequence(), marks);
     }
 
-    private JornadaSummary summary(java.sql.ResultSet rs) throws java.sql.SQLException {
-        return new JornadaSummary(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("employee_id")), UUID.fromString(rs.getString("site_id")), rs.getObject("local_date", LocalDate.class), rs.getString("state"));
+    /** Maps a mark_events row (columns id..longitude); coordinates are only exposed to ADMIN. */
+    static MarkView markView(java.sql.ResultSet rs, boolean admin) throws java.sql.SQLException {
+        return new MarkView(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("jornada_id")), rs.getString("action"), rs.getLong("sequence_number"),
+                rs.getTimestamp("accepted_at").toInstant(), rs.getTimestamp("occurred_at").toInstant(), rs.getTimestamp("recorded_at").toInstant(), rs.getString("location_status"),
+                admin ? nullableDouble(rs.getObject("latitude")) : null, admin ? nullableDouble(rs.getObject("longitude")) : null, List.of());
     }
 
     private static Double nullableDouble(Object value) { return value == null ? null : ((Number) value).doubleValue(); }
-    private static void validateRange(LocalDate from, LocalDate to) {
-        if (from == null || to == null || to.isBefore(from) || to.isAfter(from.plusDays(366))) throw ApiException.invalid("Date range must be ordered and no longer than 366 days");
-    }
 
     private record ScheduleRow(String templateId, String siteId, String name, int breakfastLimit, int lunchLimit, String timeZone, int toleranceMinutes) { }
     private record JornadaRow(UUID id, UUID employeeId, UUID siteId, LocalDate localDate, String state, long sequence, String snapshot, int toleranceMinutes) { }
     public record DeclareJornada(@NotNull UUID employeeId, @NotNull UUID siteId, @NotNull LocalDate localDate, @NotNull UUID templateId) { }
-    public record JornadaSummary(UUID id, UUID employeeId, UUID siteId, LocalDate localDate, String state) { }
+    /** includeDetail=true adds marks and deviations (absent otherwise); employeeDisplayName is always present. */
+    public record JornadaSummary(UUID id, UUID employeeId, UUID siteId, LocalDate localDate, String state, String employeeDisplayName,
+                                 List<MarkView> marks, List<DeviationService.DeviationView> deviations) { }
     public record JornadaView(UUID id, UUID employeeId, UUID siteId, LocalDate localDate, String state,
                               OrganizationController.TemplateInput scheduleSnapshot, int toleranceMinutes, long sequence, List<MarkView> marks) { }
     public record MarkView(UUID id, UUID jornadaId, String action, long sequence, Instant acceptedAt, Instant occurredAt, Instant recordedAt,

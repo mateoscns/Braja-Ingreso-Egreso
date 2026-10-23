@@ -4,7 +4,7 @@ Este archivo reúne asuntos que requieren una decisión adicional o una validaci
 
 ## Estado de decisiones
 
-Las 22 decisiones base están adoptadas, incluidas D-20261014-12 a D-20261014-15 el 2026-10-16. Mateo también adoptó cinco aclaraciones el 2026-10-16, una el 2026-10-18 y seis el 2026-10-19, registradas como D-20261016-01 a -05, D-20261018-01 y D-20261019-01 a -06. El registro suma 34 filas adoptadas y 0 propuestas funcionales pendientes.
+Las 22 decisiones base están adoptadas, incluidas D-20261014-12 a D-20261014-15 el 2026-10-16. Mateo también adoptó cinco aclaraciones el 2026-10-16, una el 2026-10-18, seis el 2026-10-19 y dos el 2026-10-23, registradas como D-20261016-01 a -05, D-20261018-01, D-20261019-01 a -06 y D-20261023-01 a -02. El registro suma 36 filas adoptadas y 0 propuestas funcionales pendientes.
 
 ## Validaciones y definiciones pendientes
 

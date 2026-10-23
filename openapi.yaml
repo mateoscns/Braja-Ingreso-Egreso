@@ -343,7 +343,10 @@ paths:
     get:
       tags: [Jornadas]
       summary: List jornadas in a local date range
-      description: Employees may query only their own jornadas; ADMIN may query employees in the active company.
+      description: >-
+        Employees may query only their own jornadas; ADMIN may query employees in the active company. Optional siteId narrows to one site.
+        With includeDetail=true each jornada also carries its marks and active deviations (history of an employee or site); the range is
+        at most 366 days and a detailed answer at most 500 jornadas (422 VALIDATION_ERROR beyond that). Marks and deviations are loaded in bulk, never per row.
       parameters:
         - name: from
           in: query
@@ -357,6 +360,14 @@ paths:
           in: query
           description: Accepted only for ADMIN; ignored only if omitted, never used to widen employee access.
           schema: { $ref: '#/components/schemas/Id' }
+        - name: siteId
+          in: query
+          description: Optional site filter; a site of another company answers 404.
+          schema: { $ref: '#/components/schemas/Id' }
+        - name: includeDetail
+          in: query
+          description: When true, adds marks and deviations to every jornada (see JornadaSummary).
+          schema: { type: boolean, default: false }
       responses:
         '200':
           description: Jornadas within the authorized scope
@@ -366,6 +377,7 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/JornadaSummary' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
     post:
       tags: [Jornadas]
@@ -683,6 +695,11 @@ paths:
     get:
       tags: [Inbox]
       summary: List in-app deviations and their review state
+      description: >-
+        Optional filters employeeId, siteId, from and to (local jornada dates, inclusive) combine with AND. from and to must be given together
+        (one without the other answers 422), at most 366 days apart and within years 2000-2100.
+        An employee or site of another company answers 404 and never returns data; an EMPLOYEE may only name themselves (403 otherwise).
+        nextCursor is bound to the filters of the request that issued it: reusing it with different filters answers 422 VALIDATION_ERROR.
       parameters:
         - name: cursor
           in: query
@@ -690,6 +707,20 @@ paths:
         - name: limit
           in: query
           schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - name: employeeId
+          in: query
+          schema: { $ref: '#/components/schemas/Id' }
+        - name: siteId
+          in: query
+          schema: { $ref: '#/components/schemas/Id' }
+        - name: from
+          in: query
+          description: First local jornada date to include.
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          description: Last local jornada date to include.
+          schema: { type: string, format: date }
       responses:
         '200':
           description: Feed in the current account's authorized scope
@@ -703,7 +734,24 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/Deviation' }
                   nextCursor: { type: [string, 'null'] }
+              examples:
+                LateArrivalOfOneEmployee:
+                  summary: GET /inbox?employeeId=...&from=2026-03-01&to=2026-03-31&limit=1
+                  value:
+                    items:
+                      - id: 5f0c3b1e-8d57-4a52-9b0c-6a0f6c7d1e11
+                        jornadaId: 0a7e8c52-1c5e-4c3a-8e53-2f6f0e3d9a10
+                        employeeDisplayName: Ana Empleada
+                        type: LLEGADA_TARDE
+                        status: MOTIVO_PENDIENTE
+                        occurredAt: '2026-03-10T11:25:00Z'
+                        createdAt: '2026-03-10T11:25:01Z'
+                        updatedAt: '2026-03-10T11:25:01Z'
+                        pushEligible: true
+                    nextCursor: MjAyNi0wMy0xMFQxMToyNTowMS4wMDAwMDBafDNhOWYxYzJlZGY0YTcxMGJ8NWYwYzNiMWUtOGQ1Ny00YTUyLTliMGMtNmEwZjZjN2QxZTEx
         '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /push/subscriptions:
     put:
       tags: [Push]
@@ -804,6 +852,11 @@ components:
           items: { $ref: '#/components/schemas/Membership' }
         activeCompanyId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
         mustChangePassword: { type: boolean }
+        displayName:
+          type: string
+          description: >-
+            Name of the person in the active company (employees.display_name). Omitted when none is stored, which is the case for
+            an ADMIN without an employee row: ADMIN accounts and memberships persist no name.
     Membership:
       type: object
       required: [companyId, companyName, role]
@@ -860,7 +913,7 @@ components:
           properties:
             id: { $ref: '#/components/schemas/Id' }
             active: { type: boolean }
-    JornadaSummary:
+    JornadaBase:
       type: object
       required: [id, employeeId, siteId, localDate, state]
       properties:
@@ -869,9 +922,23 @@ components:
         siteId: { $ref: '#/components/schemas/Id' }
         localDate: { type: string, format: date }
         state: { type: string, enum: [NO_INGRESO, EN_CURSO, PAUSA_ABIERTA, EGRESADA] }
+    JornadaSummary:
+      allOf:
+        - $ref: '#/components/schemas/JornadaBase'
+        - type: object
+          properties:
+            employeeDisplayName: { type: string }
+            marks:
+              type: array
+              description: Present only with includeDetail=true on GET /jornadas.
+              items: { $ref: '#/components/schemas/Mark' }
+            deviations:
+              type: array
+              description: Active deviations of the jornada; present only with includeDetail=true on GET /jornadas.
+              items: { $ref: '#/components/schemas/Deviation' }
     Jornada:
       allOf:
-        - $ref: '#/components/schemas/JornadaSummary'
+        - $ref: '#/components/schemas/JornadaBase'
         - type: object
           required: [scheduleSnapshot, toleranceMinutes, sequence, marks]
           properties:
@@ -921,6 +988,12 @@ components:
         motiveText:
           type: [string, 'null']
           description: Omitted unless the caller is the author or ADMIN of the deviation's company; SALUD values are encrypted at rest.
+        occurredAt:
+          type: string
+          format: date-time
+          description: >-
+            Time of the fact: the source mark's time; for SIN_INGRESO the due time (scheduled start + tolerance); for MARCA_FALTANTE
+            the due time (scheduled end + tolerance). createdAt stays the detection time.
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
         pushEligible: { type: boolean, description: True only for SIN_INGRESO and LLEGADA_TARDE in v1. }

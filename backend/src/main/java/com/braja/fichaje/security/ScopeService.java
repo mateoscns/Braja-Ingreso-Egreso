@@ -53,5 +53,10 @@ public class ScopeService {
                 companyId.toString(), siteId.toString()).isEmpty();
     }
 
+    public boolean companyHasEmployee(UUID companyId, UUID employeeId) {
+        return !jdbc.queryForList("SELECT 1 FROM employees WHERE company_id=? AND id=?",
+                companyId.toString(), employeeId.toString()).isEmpty();
+    }
+
     public record Scope(UUID accountId, UUID companyId, String role, boolean mustChangePassword) { }
 }

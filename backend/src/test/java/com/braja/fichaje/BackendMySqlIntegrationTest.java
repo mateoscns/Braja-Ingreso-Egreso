@@ -782,7 +782,7 @@ class BackendMySqlIntegrationTest {
         assertEquals(403, assertThrows(ApiException.class,
                 () -> deviationController.list(authentication, session, null, null, null)).status().value());
         assertEquals(403, assertThrows(ApiException.class,
-                () -> deviationController.inbox(authentication, session, null, 50)).status().value());
+                () -> deviationController.inbox(authentication, session, null, 50, null, null, null, null)).status().value());
     }
 
     @Test
