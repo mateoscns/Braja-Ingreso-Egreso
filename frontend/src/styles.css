@@ -139,6 +139,15 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
 .content-grid { display: grid; grid-template-columns: minmax(0, .9fr) minmax(360px, 1.1fr); gap: 19px; align-items: start; }
 .toolbar { display: flex; justify-content: flex-end; margin: -8px 0 17px; }
 .toolbar .field { width: min(290px, 100%); }
+.filter-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; align-items: end; margin-bottom: 18px; padding: 14px; border: 1px solid #e9eeea; border-radius: 12px; background: #fff; }
+.filter-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.filter-error { grid-column: 1 / -1; }
+.history-list { display: flex; flex-direction: column; gap: 12px; }
+.history-card { border: 1px solid #e9eeea; border-radius: 11px; padding: 12px 14px; background: #fff; min-width: 0; }
+.history-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 8px; }
+.history-items { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.history-items li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 6px 0; border-top: 1px solid #eef1ef; overflow-wrap: anywhere; }
+.history-items small { color: var(--text-secondary); }
 
 .simple-list, .template-list, .deviation-list, .motive-list { display: flex; flex-direction: column; gap: 10px; }
 .simple-row { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #eef1ef; padding: 9px 2px 12px; }

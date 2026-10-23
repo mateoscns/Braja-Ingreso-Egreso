@@ -100,12 +100,12 @@ export function EmployeeApp() {
   }
 
   return <div className="app-frame employee-frame">
-    <AppHeader companyName={active.companyName} name={session.dni ? `DNI ${session.dni}` : 'Empleado'} onSignOut={() => void signOut()}>
+    <AppHeader companyName={active.companyName} name={session.displayName?.trim() || (session.dni ? `DNI ${session.dni}` : 'Empleado')} onSignOut={() => void signOut()}>
       <InstallControl />
       <CompanySwitcher memberships={session.memberships} activeCompanyId={active.companyId} onSelect={activateCompany} />
     </AppHeader>
     <main className="employee-main">
-      <div className="page-title-row employee-title"><div><p className="eyebrow">MI JORNADA</p><h1>Hola, {session.dni ? `DNI ${session.dni}` : 'bienvenido'}</h1><p className="muted">Tus marcas se registran con hora oficial del servidor.</p></div>
+      <div className="page-title-row employee-title"><div><p className="eyebrow">MI JORNADA</p><h1>Hola, {session.displayName?.trim() || (session.dni ? `DNI ${session.dni}` : 'bienvenido')}</h1><p className="muted">Tus marcas se registran con hora oficial del servidor.</p></div>
         <FormField label="Fecha de consulta" hint="Sin elegir fecha se consulta hoy según cada sede. Si elegís una fecha, se usa ese mismo día local en todas las sedes."><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></FormField>
       </div>
       {!loading && !loadFailed && sites.length > 0 && <p className="muted small-copy date-semantics">{date ? `Fecha seleccionada: ${formatLocalDate(date)} en todas tus sedes.` : `Hoy según la sede: ${sites.map((site) => `${site.name}, ${siteDates.get(site.id) ? formatLocalDate(siteDates.get(site.id)!) : '…'}`).join(' · ')}.`}</p>}
@@ -128,7 +128,7 @@ export function EmployeeApp() {
       <Panel title="Motivos pendientes"><p className="muted small-copy">Completá el motivo del desvío. El texto solo aparece para vos y el administrador de tu empresa.</p>
         {loading ? <Loading label="Consultando motivos…" /> : loadFailed ? <Empty>No se pudieron consultar los motivos.</Empty> : deviations.filter((item) => item.status === 'MOTIVO_PENDIENTE').length === 0 ? <Empty>No tenés motivos pendientes para esta fecha.</Empty> : <div className="motive-list">{deviations.filter((item) => item.status === 'MOTIVO_PENDIENTE').map((item) => {
           const values = motiveValues[item.id] ?? { category: 'OTRA', text: '' }
-          return <Fragment key={item.id}><form className="motive-card" aria-busy={savingMotive === item.id} onSubmit={(event) => void saveMotive(event, item)}><div><strong>{deviationName(item.type)}</strong><span className="status-chip">{localTime(item.createdAt, item.siteId ? sites.find((site) => site.id === item.siteId)?.timeZone : undefined)}</span></div>
+          return <Fragment key={item.id}><form className="motive-card" aria-busy={savingMotive === item.id} onSubmit={(event) => void saveMotive(event, item)}><div><strong>{deviationName(item.type)}</strong><span className="status-chip">{localTime(item.occurredAt ?? item.createdAt, item.siteId ? sites.find((site) => site.id === item.siteId)?.timeZone : undefined)}</span></div>
             <div className="form-grid"><FormField label="Categoría"><select required value={values.category} onChange={(e) => updateMotive(item.id, { category: e.target.value })}><option value="SALUD">Salud</option><option value="TRANSPORTE">Transporte</option><option value="EMERGENCIA">Emergencia</option><option value="OTRA">Otra</option></select></FormField><FormField label="Motivo"><textarea required maxLength={4000} rows={3} value={values.text} onChange={(e) => updateMotive(item.id, { text: e.target.value })} placeholder="Contanos qué pasó…" /></FormField></div>
             <button className="button button-primary button-small" disabled={savingMotive === item.id || !values.text.trim()}>{savingMotive === item.id ? 'Guardando…' : 'Enviar motivo'}</button>
           </form>{savingMotive === item.id && <p role="status" aria-live="polite">Enviando el motivo al servidor…</p>}</Fragment>
