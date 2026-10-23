@@ -47,8 +47,10 @@ public class DeviationController {
 
     @GetMapping("/inbox")
     public DeviationService.InboxPage inbox(Authentication authentication, HttpSession session,
-                                             @RequestParam(required=false) String cursor, @RequestParam(defaultValue="50") int limit) {
-        return deviations.inbox(scopes.require(authentication, session), cursor, limit);
+                                             @RequestParam(required=false) String cursor, @RequestParam(defaultValue="50") int limit,
+                                             @RequestParam(required=false) UUID employeeId, @RequestParam(required=false) UUID siteId,
+                                             @RequestParam(required=false) LocalDate from, @RequestParam(required=false) LocalDate to) {
+        return deviations.inbox(scopes.require(authentication, session), cursor, limit, new DeviationService.InboxFilter(employeeId, siteId, from, to));
     }
 
     public record MotiveInput(@NotBlank String category, @NotBlank @Size(max=4000) String text) { }

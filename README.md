@@ -4,7 +4,7 @@ Aplicación propia para registrar ingreso, egreso, desayuno y almuerzo. La v1 in
 
 ## Estado
 
-La v1 está en `main` (PR #2), con CI (PR #4) y `MARCA_FALTANTE` (PR #6). El registro conserva las **22 decisiones base adoptadas**, más **5 aclaraciones del 2026-10-16, 1 del 2026-10-18 y 6 del 2026-10-19**: **34 filas adoptadas y 0 propuestas**. Mateo es quien adopta decisiones de producto; `ADMIN` es el rol operativo que administra una empresa. La lista vigente está en [docs/DECISIONES.md](docs/DECISIONES.md).
+La v1 está en `main` (PR #2), con CI (PR #4) y `MARCA_FALTANTE` (PR #6). El registro conserva las **22 decisiones base adoptadas**, más **5 aclaraciones del 2026-10-16, 1 del 2026-10-18, 6 del 2026-10-19 y 2 del 2026-10-23**: **36 filas adoptadas y 0 propuestas**. Mateo es quien adopta decisiones de producto; `ADMIN` es el rol operativo que administra una empresa. La lista vigente está en [docs/DECISIONES.md](docs/DECISIONES.md).
 
 ## Recorrido de desarrollo
 

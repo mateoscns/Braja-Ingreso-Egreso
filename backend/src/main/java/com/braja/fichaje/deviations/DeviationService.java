@@ -1,6 +1,7 @@
 package com.braja.fichaje.deviations;
 
 import com.braja.fichaje.api.ApiException;
+import com.braja.fichaje.api.DateRanges;
 import com.braja.fichaje.notifications.DeviationNotificationPort;
 import com.braja.fichaje.security.EncryptionService;
 import com.braja.fichaje.security.ScopeService;
@@ -16,6 +17,17 @@ import java.util.*;
 
 @Service
 public class DeviationService {
+    /**
+     * Shared read model. occurred_at is the time of the fact: the source mark's time, or the due time for deviations that have no mark
+     * (SIN_INGRESO: scheduled start + tolerance; MARCA_FALTANTE: scheduled end + tolerance), matching what reconcile() derives them from.
+     */
+    private static final String VIEW_SQL = "SELECT d.*,j.local_date,e.display_name AS employee_display_name," +
+            " CASE WHEN d.source_mark_id IS NOT NULL THEN m.occurred_at" +
+            " WHEN d.type='SIN_INGRESO' THEN DATE_ADD(j.scheduled_start_at, INTERVAL j.tolerance_minutes MINUTE)" +
+            " WHEN d.type='MARCA_FALTANTE' THEN DATE_ADD(j.scheduled_end_at, INTERVAL j.tolerance_minutes MINUTE) END AS occurred_at" +
+            " FROM deviations d JOIN jornadas j ON j.id=d.jornada_id AND j.company_id=d.company_id" +
+            " JOIN employees e ON e.id=d.employee_id AND e.company_id=d.company_id" +
+            " LEFT JOIN mark_events m ON m.id=d.source_mark_id AND m.company_id=d.company_id";
     private final DeviationPolicy policy = new DeviationPolicy();
     private final JdbcTemplate jdbc;
     private final ScopeService scopes;
@@ -135,11 +147,11 @@ public class DeviationService {
 
     @Transactional
     public List<DeviationView> list(Authentication auth, ScopeService.Scope scope, LocalDate from, LocalDate to, UUID siteId) {
-        if (from != null && to != null && (to.isBefore(from) || to.isAfter(from.plusDays(366)))) throw ApiException.invalid("Date range must be ordered and no longer than 366 days");
+        DateRanges.validate(from, to);
         if (siteId != null && !scopes.companyHasSite(scope.companyId(), siteId)) throw ApiException.notFound();
         UUID employeeId = "EMPLOYEE".equals(scope.role()) ? scopes.employeeIdFor(scope) : null;
         if ("EMPLOYEE".equals(scope.role()) && employeeId == null) throw ApiException.forbidden();
-        StringBuilder sql = new StringBuilder("SELECT d.*,j.local_date,e.display_name AS employee_display_name FROM deviations d JOIN jornadas j ON j.id=d.jornada_id AND j.company_id=d.company_id JOIN employees e ON e.id=d.employee_id AND e.company_id=d.company_id WHERE d.company_id=? AND d.active=TRUE");
+        StringBuilder sql = new StringBuilder(VIEW_SQL + " WHERE d.company_id=? AND d.active=TRUE");
         List<Object> args = new ArrayList<>();
         args.add(scope.companyId().toString());
         if (employeeId != null) { sql.append(" AND d.employee_id=?"); args.add(employeeId.toString()); }
@@ -151,16 +163,30 @@ public class DeviationService {
     }
 
     @Transactional
-    public InboxPage inbox(ScopeService.Scope scope, String cursor, int limit) {
+    public InboxPage inbox(ScopeService.Scope scope, String cursor, int limit, InboxFilter filter) {
         if (limit < 1 || limit > 100) throw ApiException.invalid("Inbox limit must be between 1 and 100");
+        if ((filter.from() == null) != (filter.to() == null)) throw ApiException.invalid("from and to must be given together");
+        DateRanges.validate(filter.from(), filter.to());
         UUID employeeId = "EMPLOYEE".equals(scope.role()) ? scopes.employeeIdFor(scope) : null;
         if ("EMPLOYEE".equals(scope.role()) && employeeId == null) throw ApiException.forbidden();
-        StringBuilder sql = new StringBuilder("SELECT d.*,j.local_date,e.display_name AS employee_display_name FROM deviations d JOIN jornadas j ON j.id=d.jornada_id AND j.company_id=d.company_id JOIN employees e ON e.id=d.employee_id AND e.company_id=d.company_id WHERE d.company_id=? AND d.active=TRUE");
+        if (filter.siteId() != null && !scopes.companyHasSite(scope.companyId(), filter.siteId())) throw ApiException.notFound();
+        if (filter.employeeId() != null) {
+            // An employee may only name themselves; an ADMIN may only name an employee of the active company.
+            if ("EMPLOYEE".equals(scope.role())) { if (!filter.employeeId().equals(employeeId)) throw ApiException.forbidden(); }
+            else if (!scopes.companyHasEmployee(scope.companyId(), filter.employeeId())) throw ApiException.notFound();
+            else employeeId = filter.employeeId();
+        }
+        StringBuilder sql = new StringBuilder(VIEW_SQL + " WHERE d.company_id=? AND d.active=TRUE");
         List<Object> args = new ArrayList<>();
         args.add(scope.companyId().toString());
         if (employeeId != null) { sql.append(" AND d.employee_id=?"); args.add(employeeId.toString()); }
+        if (filter.siteId() != null) { sql.append(" AND d.site_id=?"); args.add(filter.siteId().toString()); }
+        if (filter.from() != null) { sql.append(" AND j.local_date>=?"); args.add(filter.from()); }
+        if (filter.to() != null) { sql.append(" AND j.local_date<=?"); args.add(filter.to()); }
         if (cursor != null && !cursor.isBlank()) {
             Cursor decoded = decodeCursor(cursor);
+            // The cursor is bound to the filters it was issued for, so a page of one filter set never continues another.
+            if (!decoded.filters().equals(filter.fingerprint())) throw ApiException.invalid("Inbox cursor does not match the active filters");
             sql.append(" AND (d.updated_at<? OR (d.updated_at=? AND d.id<?))");
             args.add(timestamp(decoded.updatedAt())); args.add(timestamp(decoded.updatedAt())); args.add(decoded.id().toString());
         }
@@ -169,8 +195,29 @@ public class DeviationService {
         List<InboxRow> rows = jdbc.query(sql.toString(), (rs, row) -> new InboxRow(deviationView(scope, rs), rs.getTimestamp("updated_at").toInstant()), args.toArray());
         boolean hasMore = rows.size() > limit;
         if (hasMore) rows = rows.subList(0, limit);
-        String nextCursor = hasMore ? encodeCursor(rows.getLast()) : null;
+        String nextCursor = hasMore ? encodeCursor(rows.getLast(), filter.fingerprint()) : null;
         return new InboxPage(rows.stream().map(InboxRow::deviation).toList(), nextCursor);
+    }
+
+    /** Active deviations of the given jornadas of the caller's company, grouped by jornada (one query, no per-row lookups). */
+    @Transactional
+    public Map<UUID, List<DeviationView>> listForJornadas(ScopeService.Scope scope, Collection<UUID> jornadaIds) {
+        if (jornadaIds.isEmpty()) return Map.of();
+        UUID employeeId = "EMPLOYEE".equals(scope.role()) ? scopes.employeeIdFor(scope) : null;
+        if ("EMPLOYEE".equals(scope.role()) && employeeId == null) throw ApiException.forbidden();
+        StringBuilder sql = new StringBuilder(VIEW_SQL + " WHERE d.company_id=? AND d.active=TRUE AND d.jornada_id IN (");
+        List<Object> args = new ArrayList<>();
+        args.add(scope.companyId().toString());
+        for (UUID id : jornadaIds) { sql.append(args.size() > 1 ? ",?" : "?"); args.add(id.toString()); }
+        sql.append(")");
+        if (employeeId != null) { sql.append(" AND d.employee_id=?"); args.add(employeeId.toString()); }
+        sql.append(" ORDER BY d.created_at,d.id");
+        Map<UUID, List<DeviationView>> byJornada = new HashMap<>();
+        jdbc.query(sql.toString(), rs -> {
+            DeviationView view = deviationView(scope, rs);
+            byJornada.computeIfAbsent(view.jornadaId(), key -> new ArrayList<>()).add(view);
+        }, args.toArray());
+        return byJornada;
     }
 
     @Transactional
@@ -212,7 +259,7 @@ public class DeviationService {
 
     @Transactional
     public DeviationView loadView(ScopeService.Scope scope, UUID id) {
-        DeviationView view = jdbc.query("SELECT d.*,j.local_date,e.display_name AS employee_display_name FROM deviations d JOIN jornadas j ON j.id=d.jornada_id AND j.company_id=d.company_id JOIN employees e ON e.id=d.employee_id AND e.company_id=d.company_id WHERE d.id=? AND d.company_id=? AND d.active=TRUE",
+        DeviationView view = jdbc.query(VIEW_SQL + " WHERE d.id=? AND d.company_id=? AND d.active=TRUE",
                 rs -> rs.next() ? deviationView(scope, rs) : null, id.toString(), scope.companyId().toString());
         if (view != null && "EMPLOYEE".equals(scope.role()) && !view.employeeId().equals(scopes.employeeIdFor(scope))) throw ApiException.notFound();
         return view;
@@ -242,6 +289,7 @@ public class DeviationService {
         DeviationType type = DeviationType.valueOf(rs.getString("type"));
         return new DeviationView(id, UUID.fromString(rs.getString("jornada_id")), UUID.fromString(rs.getString("site_id")),
                 UUID.fromString(rs.getString("employee_id")), rs.getString("employee_display_name"), type.name(), status, category, text,
+                rs.getTimestamp("occurred_at") == null ? rs.getTimestamp("created_at").toInstant() : rs.getTimestamp("occurred_at").toInstant(),
                 rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant(), type.isPushEligible());
     }
 
@@ -252,21 +300,36 @@ public class DeviationService {
     private static Cursor decodeCursor(String raw) {
         try {
             String decoded = new String(Base64.getUrlDecoder().decode(raw), StandardCharsets.UTF_8);
-            int delimiter = decoded.lastIndexOf('|');
-            return new Cursor(Instant.parse(decoded.substring(0, delimiter)), UUID.fromString(decoded.substring(delimiter + 1)));
+            // Format: updatedAt|filterFingerprint|id. Cursors issued before filters existed (updatedAt|id) mean "no filters".
+            int first = decoded.indexOf('|');
+            int last = decoded.lastIndexOf('|');
+            String filters = first == last ? "" : decoded.substring(first + 1, last);
+            return new Cursor(Instant.parse(decoded.substring(0, first)), filters, UUID.fromString(decoded.substring(last + 1)));
         } catch (Exception ex) { throw ApiException.invalid("Inbox cursor is invalid"); }
     }
-    private static String encodeCursor(InboxRow row) {
-        String value = row.updatedAt().toString() + "|" + row.deviation().id();
+    private static String encodeCursor(InboxRow row, String filters) {
+        String value = row.updatedAt().toString() + "|" + filters + "|" + row.deviation().id();
         return Base64.getUrlEncoder().withoutPadding().encodeToString(value.getBytes(StandardCharsets.UTF_8));
     }
     private record DesiredDeviation(UUID markId, Instant occurredAt) { }
     private record ExistingDeviation(UUID id, DeviationType type, boolean active) { }
     private record DeviationRow(UUID id, UUID employeeId, String classification, Instant motiveCreatedAt, Instant motivePurgedAt) { }
-    private record Cursor(Instant updatedAt, UUID id) { }
+    private record Cursor(Instant updatedAt, String filters, UUID id) { }
+    /** Optional inbox filters; from/to are local jornada dates (inclusive). */
+    public record InboxFilter(UUID employeeId, UUID siteId, LocalDate from, LocalDate to) {
+        /** Empty without filters; otherwise a short digest, so the cursor can only continue the filter set it was issued for. */
+        String fingerprint() {
+            if (employeeId == null && siteId == null && from == null && to == null) return "";
+            try {
+                byte[] hash = java.security.MessageDigest.getInstance("SHA-256")
+                        .digest((employeeId + "|" + siteId + "|" + from + "|" + to).getBytes(StandardCharsets.UTF_8));
+                return HexFormat.of().formatHex(hash, 0, 8);
+            } catch (java.security.NoSuchAlgorithmException ex) { throw new IllegalStateException(ex); }
+        }
+    }
     private record InboxRow(DeviationView deviation, Instant updatedAt) { }
     public record InboxPage(List<DeviationView> items, String nextCursor) { }
     public record MarkFact(UUID id, MarkAction action, Instant occurredAt) { }
     public record DeviationView(UUID id, UUID jornadaId, UUID siteId, UUID employeeId, String employeeDisplayName, String type, String status,
-                                String category, String motiveText, Instant createdAt, Instant updatedAt, boolean pushEligible) { }
+                                String category, String motiveText, Instant occurredAt, Instant createdAt, Instant updatedAt, boolean pushEligible) { }
 }

@@ -26,7 +26,7 @@ chequeo estático. Una instrucción en lenguaje natural no es una garantía.
 
 Estado al 2026-10-20 (verificado sobre `main` en
 `5e61d0a5bb6b81c26603f42e9093bf85e9baab4a`): hay backend,
-frontend, `openapi.yaml`, CI y 34 decisiones adoptadas (0 propuestas). No hay
+frontend, `openapi.yaml`, CI y 36 decisiones adoptadas (0 propuestas). No hay
 deploy, backup, Dockerfile ni VPS. Cada regla de §5 está en un estado:
 
 - **`Guarda: …`**: se leyó el test o la restricción que la sostiene.
@@ -89,7 +89,7 @@ deploy, backup, Dockerfile ni VPS. Cada regla de §5 está en un estado:
   `ADMIN`.
 - **Registro de decisiones**: `docs/DECISIONES.md`, filas `ID
   (D-AAAAMMDD-NN) | fecha | decisión | propuesta por | estado | motivo`. Al
-  2026-10-20: 34 filas, todas `adoptada por el dueño`, 0 `propuesta`. El
+  2026-10-20: 36 filas, todas `adoptada por el dueño`, 0 `propuesta`. El
   `DECISIONES.md` sin versionar de la raíz es una copia vieja (§7).
 - **Toda atribución al dueño lleva su ID de `docs/DECISIONES.md`.** Una
   frase `decisión del dueño`, `adoptada por el dueño` o `regla del dueño`
@@ -552,7 +552,7 @@ si cada clon hace `git config core.hooksPath .githooks`**. Hoy no existe
 1. [x] Repo con `backend/`, `frontend/`, `docs/` (PR #2, v1); `docs/` tiene
    `ESPECIFICACION.md`, `DECISIONES.md`, `ARQUITECTURA.md` y `PENDIENTES.md`;
    `openapi.yaml` en la raíz.
-2. [x] El dueño revisó `docs/DECISIONES.md`: 34 filas adoptadas, 0 propuestas
+2. [x] El dueño revisó `docs/DECISIONES.md`: 36 filas adoptadas, 0 propuestas
    (adopciones del 2026-10-16, 10-18 y 10-19).
 3. [ ] Portar `DecisionesDelDuenoTest` (frases de atribución sin ID → falla).
 4. [~] Toolchain: Java 21 y Node 24 fijados solo en CI (PR #4). Los `<…>` de

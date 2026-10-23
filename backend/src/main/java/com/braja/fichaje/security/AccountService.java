@@ -93,7 +93,14 @@ public class AccountService {
             active = memberships.getFirst().companyId();
             request.getSession(true).setAttribute(CurrentActor.ACTIVE_COMPANY_SESSION_KEY, active);
         }
-        return new SessionView(account.id(), account.dni(), memberships, active, account.mustChangePassword());
+        return new SessionView(account.id(), account.dni(), memberships, active, account.mustChangePassword(), displayName(accountId, active));
+    }
+
+    /** Name stored in the active company's employee row; an ADMIN without one (no name is persisted for them) yields null. */
+    private String displayName(UUID accountId, UUID companyId) {
+        if (companyId == null) return null;
+        return jdbc.query("SELECT display_name FROM employees WHERE company_id=? AND account_id=? AND active=TRUE",
+                rs -> rs.next() ? rs.getString(1) : null, companyId.toString(), accountId.toString());
     }
 
     public List<MembershipView> memberships(UUID accountId) {
@@ -123,7 +130,7 @@ public class AccountService {
     }
 
     public record MembershipView(UUID companyId, String companyName, String role) { }
-    public record SessionView(UUID accountId, String dni, List<MembershipView> memberships, UUID activeCompanyId, boolean mustChangePassword) { }
+    public record SessionView(UUID accountId, String dni, List<MembershipView> memberships, UUID activeCompanyId, boolean mustChangePassword, String displayName) { }
     private record AccountRow(UUID id, String dni, boolean mustChangePassword) { }
     private record AccountCredentials(String passwordHash, String principalName) { }
 }
