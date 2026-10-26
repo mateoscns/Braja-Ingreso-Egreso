@@ -54,8 +54,8 @@ public class BootstrapAdminRunner implements ApplicationRunner {
         jdbc.update("INSERT INTO accounts(id,dni_normalized,dni_display,password_hash,must_change_password,active,created_at,updated_at) VALUES(?,?,?,?,FALSE,TRUE,?,?)",
                 accountId.toString(), dni, dniInput.trim(), passwords.encode(password), java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
         jdbc.update("INSERT INTO companies(id,name,created_at) VALUES(?,?,?)", companyId.toString(), companyName.trim(), java.sql.Timestamp.from(now));
-        jdbc.update("INSERT INTO company_memberships(id,company_id,account_id,role,active,created_at) VALUES(?,?,?,'ADMIN',TRUE,?)",
-                UUID.randomUUID().toString(), companyId.toString(), accountId.toString(), java.sql.Timestamp.from(now));
+        jdbc.update("INSERT INTO company_memberships(id,company_id,account_id,role,active,created_at,display_name) VALUES(?,?,?,'ADMIN',TRUE,?,?)",
+                UUID.randomUUID().toString(), companyId.toString(), accountId.toString(), java.sql.Timestamp.from(now), adminName.trim());
         jdbc.update("INSERT INTO sites(id,company_id,name,time_zone,created_at) VALUES(?,?,?,?,?)", siteId.toString(), companyId.toString(), siteName.trim(), timeZone, java.sql.Timestamp.from(now));
         jdbc.update("UPDATE bootstrap_guard SET consumed_at=? WHERE id=1 AND consumed_at IS NULL", java.sql.Timestamp.from(now));
     }

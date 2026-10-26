@@ -96,10 +96,11 @@ public class AccountService {
         return new SessionView(account.id(), account.dni(), memberships, active, account.mustChangePassword(), displayName(accountId, active));
     }
 
-    /** Name stored in the active company's employee row; an ADMIN without one (no name is persisted for them) yields null. */
+    /** Active company employee name, else the membership name (bootstrap ADMIN); null when neither is stored. */
     private String displayName(UUID accountId, UUID companyId) {
         if (companyId == null) return null;
-        return jdbc.query("SELECT display_name FROM employees WHERE company_id=? AND account_id=? AND active=TRUE",
+        return jdbc.query("SELECT COALESCE((SELECT e.display_name FROM employees e WHERE e.company_id=m.company_id AND e.account_id=m.account_id AND e.active=TRUE), m.display_name) " +
+                        "FROM company_memberships m WHERE m.company_id=? AND m.account_id=? AND m.active=TRUE",
                 rs -> rs.next() ? rs.getString(1) : null, companyId.toString(), accountId.toString());
     }
 

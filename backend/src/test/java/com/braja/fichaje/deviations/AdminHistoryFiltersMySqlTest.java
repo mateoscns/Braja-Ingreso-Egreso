@@ -323,7 +323,7 @@ class AdminHistoryFiltersMySqlTest {
 
     @Test
     void adminWithoutEmployeeRowHasNoDisplayNameBecauseNoNameIsStoredForThem() throws Exception {
-        // accounts and company_memberships store no name; the bootstrap admin name is not persisted (BootstrapAdminRunner).
+        // a membership created without a name (legacy rows, pre-V15 bootstraps) stores none.
         MvcResult login = loginResult(adminA, "30000001");
         assertFalse(json(login).has("displayName"));
         mockMvc.perform(get("/api/v1/session").cookie(sessionCookie(login)))
