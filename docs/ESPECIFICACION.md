@@ -71,6 +71,8 @@ La bandeja interna es la fuente de verdad y muestra todos los desvíos. En la vi
 | Otros tipos | Sí | No hasta que Mateo los habilite en la matriz |
 | Completar o corregir motivo | Actualiza el desvío | No genera push |
 
+La bandeja del `ADMIN` se filtra por empleado, sede y rango de fechas locales de jornada (hasta 366 días; el cursor de paginación solo continúa el mismo conjunto de filtros; un empleado o sede de otra empresa responde 404) y el `ADMIN` consulta el historial de jornadas, marcas y desvíos de un empleado o sede en un rango acotado (D-20261023-01). Cada desvío expone `occurredAt`, la hora del hecho: la de la marca que lo originó, o el vencimiento (inicio o fin programado más tolerancia) en `SIN_INGRESO` y `MARCA_FALTANTE`; la sesión expone el nombre visible de la persona en la empresa activa, que no existe para un `ADMIN` sin ficha de empleado (D-20261023-02).
+
 El agrupador, los intentos de entrega y el estado se guardan en MySQL. Un lease evita dos dispatchers simultáneos; reintentos usan una clave estable para actualizar el aviso correspondiente. Los payloads solo contienen conteos y datos de navegación no sensibles, nunca motivos, coordenadas ni categorías de salud. No se usan Redis ni brokers externos.
 
 ## API y módulos
@@ -129,6 +131,7 @@ El backend usa Maven Wrapper para fijar su versión sin exigir una instalación 
 - [ ] Solo el autor y ADMIN de su empresa leen motivos de salud; secretos y datos sensibles no llegan a logs, caché o push.
 - [ ] Push agrupa por empresa en ventanas fijas de cinco minutos, cuenta por sede, reintenta sin duplicados visibles y solo notifica por `SIN_INGRESO` y `LLEGADA_TARDE`.
 - [ ] La PWA no cachea respuestas de API ni encola marcas offline; solo presenta éxito tras confirmación del servidor.
+- [ ] La bandeja y el historial del `ADMIN` filtran por empleado, sede y fecha (rango de hasta 366 días) sin cruzar empresas; `occurredAt` de cada desvío es la hora del hecho y la sesión trae el nombre visible.
 - [ ] Las pruebas de integración validan bloqueo, restricciones y aislamiento contra MySQL 8 con Testcontainers.
 
 La prueba final de Web Push requiere URL HTTPS y el iPhone real del `ADMIN`. Capacitor solo se incorpora si esa prueba falla de forma confiable; la validación de dispositivo y la revisión legal siguen siendo puertas de entorno, no excusas para omitir los controles técnicos en el código.

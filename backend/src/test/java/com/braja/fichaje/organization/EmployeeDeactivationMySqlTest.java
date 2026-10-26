@@ -37,6 +37,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class EmployeeDeactivationMySqlTest {
     private static final String PASSWORD = "CorrectHorseBattery9!";
     private static final String AES_KEY = java.util.Base64.getEncoder().encodeToString(new byte[32]);
+    private static final String LOGIN_IP_THROTTLE_KEY = java.util.Base64.getEncoder().encodeToString(
+            "0123456789abcdef0123456789abcdef".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
 
     @Container
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
@@ -50,6 +52,7 @@ class EmployeeDeactivationMySqlTest {
         registry.add("spring.datasource.username", MYSQL::getUsername);
         registry.add("spring.datasource.password", MYSQL::getPassword);
         registry.add("braja.health-encryption-key-base64", () -> AES_KEY);
+        registry.add("braja.login-ip-throttle-key-base64", () -> LOGIN_IP_THROTTLE_KEY);
         registry.add("braja.push-subscription-encryption-key-base64", () -> "");
         registry.add("braja.vapid-public-key", () -> "");
         registry.add("braja.vapid-private-key", () -> "");

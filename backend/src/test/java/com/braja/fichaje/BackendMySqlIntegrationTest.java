@@ -163,6 +163,29 @@ class BackendMySqlIntegrationTest {
     }
 
     @Test
+    void journeyDatesDoNotDependOnJvmDefaultTimeZone() throws Exception {
+        java.time.LocalDate expectedDate = java.time.LocalDate.of(2026, 10, 19);
+        jdbc.update("UPDATE jornadas SET local_date=? WHERE id=?", expectedDate, jornadaId.toString());
+        java.util.TimeZone originalTimeZone = java.util.TimeZone.getDefault();
+        try {
+            java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("Pacific/Honolulu"));
+            HttpLogin login = loginOverHttp(accountId, "30.123.456", "CorrectHorseBattery9!");
+
+            mockMvc.perform(get("/api/v1/jornadas")
+                            .param("from", expectedDate.toString())
+                            .param("to", expectedDate.toString())
+                            .cookie(login.sessionCookie()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].localDate").value(expectedDate.toString()));
+            mockMvc.perform(get("/api/v1/jornadas/{id}", jornadaId).cookie(login.sessionCookie()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.localDate").value(expectedDate.toString()));
+        } finally {
+            java.util.TimeZone.setDefault(originalTimeZone);
+        }
+    }
+
+    @Test
     void identicalConcurrentRetriesPersistOneMarkAndReturnTheOriginalResponse() throws Exception {
         UUID key = UUID.randomUUID();
         Instant receivedAt = Instant.now();
@@ -726,7 +749,7 @@ class BackendMySqlIntegrationTest {
     }
 
     @Test
-    void absenceWorkerContinuesAfterOneCandidateFails() {
+    void absenceWorkerBacksOffFailingCandidateAndProcessesNextCandidateOnce() {
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         UUID templateId = jdbc.queryForObject("SELECT id FROM schedule_templates WHERE company_id=? LIMIT 1", (rs, row) -> UUID.fromString(rs.getString(1)), companyId.toString());
         jdbc.update("UPDATE jornadas SET state='EGRESADA' WHERE id=?", jornadaId.toString());
@@ -736,10 +759,34 @@ class BackendMySqlIntegrationTest {
         insertDueJornada(brokenJornadaId, templateId, employeeId, adminAccountId, now.minusSeconds(7200), java.time.LocalDate.now().minusDays(2), "{\"blocks\":\"x\"}", now);
         insertDueJornada(validJornadaId, templateId, employeeId, adminAccountId, now.minusSeconds(3600), java.time.LocalDate.now().minusDays(1), validSnapshot, now);
 
-        marks.createDueAbsences(now, 10);
+        marks.createDueAbsences(now, 1);
+
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, brokenJornadaId.toString()));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, validJornadaId.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT deviation_worker_failure_count FROM jornadas WHERE id=?", Integer.class, brokenJornadaId.toString()));
+        assertEquals(java.sql.Timestamp.from(now.plusSeconds(30)), jdbc.queryForObject(
+                "SELECT deviation_worker_retry_at FROM jornadas WHERE id=?", java.sql.Timestamp.class, brokenJornadaId.toString()));
+
+        marks.createDueAbsences(now.plusSeconds(15), 1);
+
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, validJornadaId.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT deviation_worker_failure_count FROM jornadas WHERE id=?", Integer.class, brokenJornadaId.toString()));
+
+        marks.createDueAbsences(now.plusSeconds(30), 1);
 
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, brokenJornadaId.toString()));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, validJornadaId.toString()));
+        assertEquals(2, jdbc.queryForObject("SELECT deviation_worker_failure_count FROM jornadas WHERE id=?", Integer.class, brokenJornadaId.toString()));
+        assertEquals(java.sql.Timestamp.from(now.plusSeconds(90)), jdbc.queryForObject(
+                "SELECT deviation_worker_retry_at FROM jornadas WHERE id=?", java.sql.Timestamp.class, brokenJornadaId.toString()));
+
+        jdbc.update("UPDATE jornadas SET schedule_snapshot=? WHERE id=?", validSnapshot, brokenJornadaId.toString());
+        marks.createDueAbsences(now.plusSeconds(90), 1);
+
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, brokenJornadaId.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", Integer.class, validJornadaId.toString()));
+        assertEquals(0, jdbc.queryForObject("SELECT deviation_worker_failure_count FROM jornadas WHERE id=?", Integer.class, brokenJornadaId.toString()));
+        assertNull(jdbc.queryForObject("SELECT deviation_worker_retry_at FROM jornadas WHERE id=?", java.sql.Timestamp.class, brokenJornadaId.toString()));
     }
 
     @Test
@@ -1051,7 +1098,7 @@ class BackendMySqlIntegrationTest {
         assertEquals(403, assertThrows(ApiException.class,
                 () -> deviationController.list(authentication, session, null, null, null)).status().value());
         assertEquals(403, assertThrows(ApiException.class,
-                () -> deviationController.inbox(authentication, session, null, 50)).status().value());
+                () -> deviationController.inbox(authentication, session, null, 50, null, null, null, null)).status().value());
     }
 
     @Test

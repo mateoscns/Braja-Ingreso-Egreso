@@ -77,7 +77,7 @@ describe('administración de desvíos y marcas', () => {
 
   it('muestra el nombre entregado por el servidor en la bandeja', async () => {
     render(<AdminInbox />)
-    expect(await screen.findByText(/Lucía Pérez/)).toBeInTheDocument()
+    expect(await screen.findByText(/Lucía Pérez ·/)).toBeInTheDocument()
   })
 
   it('distingue un fallo de carga de la bandeja vacía y permite reintentar', async () => {
@@ -95,7 +95,7 @@ describe('administración de desvíos y marcas', () => {
     expect(await screen.findByText('Falló la carga de la bandeja.')).toBeInTheDocument()
     expect(screen.queryByText('No hay desvíos para mostrar.')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
-    expect(await screen.findByText(/Lucía Pérez/)).toBeInTheDocument()
+    expect(await screen.findByText(/Lucía Pérez ·/)).toBeInTheDocument()
   })
 
   it('mantiene la bandeja si falla la carga de zonas horarias y explica el huso usado', async () => {
@@ -107,7 +107,7 @@ describe('administración de desvíos y marcas', () => {
 
     expect(await screen.findByText(/Falló la consulta de sedes\./)).toBeInTheDocument()
     expect(screen.getByText(/Las horas se muestran en la zona horaria de este dispositivo\./)).toBeInTheDocument()
-    expect(screen.getByText(/Lucía Pérez/)).toBeInTheDocument()
+    expect(screen.getByText(/Lucía Pérez ·/)).toBeInTheDocument()
     expect(screen.queryByText('No hay desvíos para mostrar.')).not.toBeInTheDocument()
   })
 
@@ -160,7 +160,7 @@ describe('administración de desvíos y marcas', () => {
     expect(await screen.findByText('Falló la carga de plantillas.')).toBeInTheDocument()
     expect(screen.queryByText('No hay plantillas para esta sede.')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
-    expect(await screen.findByText(/09:00–17:00/)).toBeInTheDocument()
+    expect(await screen.findByText(/09:00 a 17:00/)).toBeInTheDocument()
   })
 
   it('muestra el estado vacío de plantillas solo cuando la consulta termina correctamente sin filas', async () => {
@@ -322,12 +322,12 @@ describe('administración de desvíos y marcas', () => {
     render(<JourneysView />)
 
     expect(await screen.findByRole('row', { name: /Lucía Pérez/ })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Ver marcas' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Ver marcas' })).toBeDisabled())
+    fireEvent.click(screen.getByRole('button', { name: /^Ver marcas/ }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Ver marcas/ })).toBeDisabled())
 
     fireEvent.change(screen.getByLabelText('Fecha'), { target: { value: '2026-10-17' } })
     expect(await screen.findByRole('row', { name: /Nicolás Arce/ })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Ver marcas' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Ver marcas/ }))
     expect(await screen.findByText('Horario asignado: Tarde · tolerancia 5 min')).toBeInTheDocument()
 
     await act(async () => { resolveOldDetail({ ...jornada, scheduleSnapshot: { ...jornada.scheduleSnapshot, name: 'Mañana antigua' } }) })
@@ -343,7 +343,7 @@ describe('administración de desvíos y marcas', () => {
 
   it('registra una marca olvidada y permite corregir una marca con motivo de auditoría', async () => {
     render(<JourneysView />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Ver marcas' }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
     await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
 
     fireEvent.change(screen.getByLabelText('Tipo de marca olvidada'), { target: { value: 'SALIDA_ALMUERZO' } })
@@ -355,7 +355,7 @@ describe('administración de desvíos y marcas', () => {
     }))
 
     const markRow = await screen.findByRole('row', { name: /Ingreso/ })
-    fireEvent.click(within(markRow).getByRole('button', { name: 'Corregir' }))
+    fireEvent.click(within(markRow).getByRole('button', { name: /^Corregir marca/ }))
     fireEvent.change(screen.getByLabelText('Motivo de corrección de marca'), { target: { value: 'Se verificó la hora con la persona.' } })
     fireEvent.click(screen.getByRole('button', { name: 'Guardar corrección de marca' }))
     await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/admin/marks/m-1/correction', expect.objectContaining({
@@ -367,7 +367,7 @@ describe('administración de desvíos y marcas', () => {
     const originalGet = apiMocks.get.getMockImplementation()!
     apiMocks.get.mockImplementation((path: string) => path === '/sites' ? Promise.resolve([{ ...site, timeZone: 'America/New_York' }]) : originalGet(path))
     render(<JourneysView />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Ver marcas' }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
     await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
     fireEvent.change(screen.getByLabelText('Tipo de marca olvidada'), { target: { value: 'SALIDA_ALMUERZO' } })
     fireEvent.change(screen.getByLabelText('Hora del evento (Local Centro)'), { target: { value: localTime } })
@@ -375,5 +375,170 @@ describe('administración de desvíos y marcas', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Registrar marca olvidada' }))
     expect(await screen.findByText(/Esa hora no existe en la zona horaria de la sede/)).toBeInTheDocument()
     expect(apiMocks.post).not.toHaveBeenCalled()
+  })
+
+  it('muestra "Conexión protegida" solo en un contexto seguro', () => {
+    const original = Object.getOwnPropertyDescriptor(window, 'isSecureContext')
+    try {
+      Object.defineProperty(window, 'isSecureContext', { configurable: true, value: false })
+      const insecure = render(<AdminApp />)
+      expect(screen.queryByText('Conexión protegida')).not.toBeInTheDocument()
+      insecure.unmount()
+      Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
+      render(<AdminApp />)
+      expect(screen.getByText('Conexión protegida')).toBeInTheDocument()
+    } finally {
+      if (original) Object.defineProperty(window, 'isSecureContext', original)
+      else Reflect.deleteProperty(window, 'isSecureContext')
+    }
+  })
+
+  it('muestra los estados de jornada con nombres legibles y botones con contexto', async () => {
+    const previousGet = apiMocks.get.getMockImplementation()!
+    apiMocks.get.mockImplementation((path: string) => path.startsWith('/jornadas?') ? Promise.resolve([{ id: 'j-1', employeeId: 'e-1', siteId: 's-1', localDate: '2026-10-16', state: 'NO_INGRESO' }]) : previousGet(path))
+    render(<JourneysView />)
+    expect(await screen.findByText('Sin ingreso')).toBeInTheDocument()
+    expect(screen.queryByText('NO INGRESO')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ver marcas de Lucía Pérez' })).toBeInTheDocument()
+  })
+
+  it('da contexto accesible al botón Corregir de cada marca', async () => {
+    render(<JourneysView />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
+    expect(await screen.findByRole('button', { name: /^Corregir marca Ingreso de/ })).toBeInTheDocument()
+  })
+
+  it('muestra los bloques de plantilla como HH:MM y el cruce de medianoche en palabras', async () => {
+    const previousGet = apiMocks.get.getMockImplementation()!
+    apiMocks.get.mockImplementation((path: string) => path === '/templates' ? Promise.resolve([{
+      id: 't-2', siteId: 's-1', name: 'Noche', active: true, breakfastLimitMinutes: 15, lunchLimitMinutes: 60,
+      blocks: [{ startDayOffset: 0, start: '22:00:00', end: '06:00:00', endDayOffset: 1 }]
+    }]) : previousGet(path))
+    render(<TemplatesView />)
+    expect(await screen.findByText('22:00 a 06:00 (día siguiente)')).toBeInTheDocument()
+    expect(screen.queryByText(/D\+1/)).not.toBeInTheDocument()
+  })
+
+  it('no consulta la API con la fecha vacía y pide elegir una fecha', async () => {
+    render(<JourneysView />)
+    await screen.findByRole('row', { name: /Lucía Pérez/ })
+    const callsBefore = apiMocks.get.mock.calls.length
+    fireEvent.change(screen.getByLabelText('Fecha'), { target: { value: '' } })
+    expect((await screen.findAllByText('Elegí una fecha para ver o declarar jornadas.')).length).toBeGreaterThan(0)
+    expect(apiMocks.get.mock.calls.length).toBe(callsBefore)
+    expect(screen.queryByText(/conexión/i)).not.toBeInTheDocument()
+  })
+
+  it('etiqueta con el empleado los controles de edición en línea y el estado Activo', async () => {
+    render(<EmployeesView />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Editar/ }))
+    expect(screen.getByRole('textbox', { name: 'Nombre del empleado con DNI 30123456' })).toBeInTheDocument()
+    expect(screen.getByRole('spinbutton', { name: 'Tolerancia en minutos del empleado con DNI 30123456' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Activo (DNI 30123456)' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Local Centro (DNI 30123456)' })).toBeInTheDocument()
+  })
+
+  it('un error de red en la vista de administración no usa el texto de marca del empleado', async () => {
+    const previousGet = apiMocks.get.getMockImplementation()!
+    apiMocks.get.mockImplementation((path: string) => path === '/employees' ? Promise.reject(new Error('No se pudo conectar con el servidor. Revisá tu conexión y reintentá.')) : previousGet(path))
+    render(<EmployeesView />)
+    expect(await screen.findByText(/No se pudo conectar con el servidor/)).toBeInTheDocument()
+    expect(screen.queryByText(/marca no fue confirmada/)).not.toBeInTheDocument()
+  })
+
+  describe('filtros de la bandeja', () => {
+    const inboxCalls = () => apiMocks.get.mock.calls.map(([path]) => path as string).filter((path) => path.startsWith('/inbox'))
+    const pick = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } })
+
+    it('envía empleado, sede y fechas al aplicar y vuelve a la consulta sin filtros al limpiar', async () => {
+      render(<AdminInbox />)
+      await screen.findByText(/Lucía Pérez ·/)
+      expect(inboxCalls()).toEqual(['/inbox?limit=50'])
+
+      pick('Empleado', 'e-1'); pick('Sede', 's-1'); pick('Desde', '2026-10-01'); pick('Hasta', '2026-10-10')
+      fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
+      await waitFor(() => expect(inboxCalls()).toContain('/inbox?limit=50&employeeId=e-1&siteId=s-1&from=2026-10-01&to=2026-10-10'))
+
+      fireEvent.click(screen.getByRole('button', { name: 'Limpiar' }))
+      await waitFor(() => expect(inboxCalls().at(-1)).toBe('/inbox?limit=50'))
+      expect(screen.getByLabelText('Empleado')).toHaveValue('')
+      expect(screen.getByLabelText('Desde')).toHaveValue('')
+    })
+
+    it('al cambiar los filtros descarta el cursor y la paginación sigue con los filtros nuevos', async () => {
+      apiMocks.get.mockImplementation((path: string) => {
+        if (path === '/inbox?limit=50') return Promise.resolve({ items: [deviation], nextCursor: 'c1' })
+        if (path === '/inbox?limit=50&employeeId=e-1') return Promise.resolve({ items: [deviation], nextCursor: 'c2' })
+        if (path.startsWith('/inbox')) return Promise.resolve({ items: [], nextCursor: null })
+        if (path === '/sites') return Promise.resolve([site])
+        if (path === '/employees') return Promise.resolve([employee])
+        throw new Error(`GET inesperado: ${path}`)
+      })
+      render(<AdminInbox />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Cargar anteriores' }))
+      await waitFor(() => expect(inboxCalls()).toContain('/inbox?limit=50&cursor=c1'))
+
+      pick('Empleado', 'e-1')
+      fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
+      await waitFor(() => expect(inboxCalls().at(-1)).toBe('/inbox?limit=50&employeeId=e-1'))
+      fireEvent.click(await screen.findByRole('button', { name: 'Cargar anteriores' }))
+      await waitFor(() => expect(inboxCalls().at(-1)).toBe('/inbox?limit=50&employeeId=e-1&cursor=c2'))
+    })
+
+    it.each([
+      ['solo una fecha', { Desde: '2026-10-01' }, 'Completá las dos fechas: desde y hasta.'],
+      ['rango invertido', { Desde: '2026-10-10', Hasta: '2026-10-01' }, 'La fecha desde no puede ser posterior a la fecha hasta.'],
+      ['rango mayor a 366 días', { Desde: '2025-01-01', Hasta: '2026-10-01' }, 'El rango no puede superar los 366 días.']
+    ])('no consulta la API con %s y explica el problema', async (_name, values, message) => {
+      render(<AdminInbox />)
+      await screen.findByText(/Lucía Pérez ·/)
+      Object.entries(values).forEach(([label, value]) => pick(label, value))
+      fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
+      expect(await screen.findByRole('alert')).toHaveTextContent(message)
+      expect(inboxCalls()).toEqual(['/inbox?limit=50'])
+    })
+
+    it('muestra un estado vacío claro cuando los filtros no encuentran nada', async () => {
+      render(<AdminInbox />)
+      await screen.findByText(/Lucía Pérez ·/)
+      apiMocks.get.mockImplementation((path: string) => path.startsWith('/inbox') ? Promise.resolve({ items: [], nextCursor: null }) : Promise.resolve([]))
+      pick('Sede', 's-1')
+      fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
+      expect(await screen.findByText('Ningún desvío coincide con los filtros aplicados.')).toBeInTheDocument()
+    })
+
+    it('mantiene las acciones de clasificación sobre los resultados filtrados', async () => {
+      apiMocks.get.mockImplementation((path: string) => path.startsWith('/inbox')
+        ? Promise.resolve({ items: [{ ...deviation, status: 'PENDIENTE_REVISION' }], nextCursor: null })
+        : Promise.resolve(path === '/sites' ? [site] : [employee]))
+      render(<AdminInbox />)
+      await screen.findByText(/Lucía Pérez ·/)
+      pick('Empleado', 'e-1')
+      fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Justificado' }))
+      await waitFor(() => expect(apiMocks.put).toHaveBeenCalledWith('/admin/deviations/d-1/classification', { classification: 'JUSTIFICADO' }))
+    })
+  })
+
+  it('muestra la hora del hecho (occurredAt) y no la de detección en la bandeja', async () => {
+    apiMocks.get.mockImplementation((path: string) => path.startsWith('/inbox')
+      ? Promise.resolve({ items: [{ ...deviation, occurredAt: '2026-10-16T11:15:00Z', createdAt: '2026-10-16T12:00:00Z' }], nextCursor: null })
+      : Promise.resolve(path === '/sites' ? [site] : [employee]))
+    render(<AdminInbox />)
+    const card = (await screen.findByText(/Lucía Pérez ·/)).closest('article')!
+    expect(card).toHaveTextContent(/0?8:15/)
+    expect(card).not.toHaveTextContent(/0?9:00/)
+  })
+
+  it('saluda con el nombre de la sesión y cae al DNI cuando no hay nombre', () => {
+    const original = adminSessionMocks.session
+    adminSessionMocks.session = { ...original, displayName: 'Mateo Scienza' } as typeof original
+    const view = render(<AdminApp />)
+    expect(screen.getByText('Mateo Scienza')).toBeInTheDocument()
+    expect(screen.queryByText('DNI 30123456')).not.toBeInTheDocument()
+    view.unmount()
+    adminSessionMocks.session = original
+    render(<AdminApp />)
+    expect(screen.getByText('DNI 30123456')).toBeInTheDocument()
   })
 })

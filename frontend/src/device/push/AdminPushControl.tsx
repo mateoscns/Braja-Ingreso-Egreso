@@ -12,6 +12,8 @@ function decodeVapidKey(value: string): Uint8Array {
   return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0))
 }
 
+const pushSupported = () => typeof navigator !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
+
 export function AdminPushControl() {
   const [config, setConfig] = useState<PublicConfig | null>(null)
   const [subscriptionId, setSubscriptionId] = useState<string>('')
@@ -22,7 +24,7 @@ export function AdminPushControl() {
   const [configLoading, setConfigLoading] = useState(true)
   const [configAttempt, setConfigAttempt] = useState(0)
   const [busy, setBusy] = useState(false)
-  const [supported, setSupported] = useState(false)
+  const [supported, setSupported] = useState(pushSupported)
 
   async function registerWithServer(subscription: BrowserSubscription) {
     const json = subscription.toJSON()
@@ -38,7 +40,7 @@ export function AdminPushControl() {
 
   useEffect(() => {
     let active = true
-    setSupported('serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window)
+    setSupported(pushSupported())
     setConfigLoading(true)
     setConfigError('')
     void (async () => {
@@ -100,7 +102,16 @@ export function AdminPushControl() {
     finally { setBusy(false) }
   }
 
-  if (!supported || (config && (!config.pushEnabled || !config.vapidPublicKey))) return null
+  const unavailable = !supported
+    ? 'Este navegador no admite avisos. En iPhone, instalá la app desde Safari (Compartir, Agregar a pantalla de inicio) y abrila desde el ícono.'
+    : config && (!config.pushEnabled || !config.vapidPublicKey)
+      ? 'Los avisos no están habilitados en el servidor.'
+      : !enabled && Notification.permission === 'denied'
+        ? 'No podemos avisarte porque bloqueaste los avisos en este navegador. Habilitalos desde los permisos del sitio.'
+        : ''
+  if (unavailable) return <aside className="push-control" aria-label="Avisos de la aplicación">
+    <div className="push-copy"><strong>Alertas en este dispositivo</strong><span>{unavailable}</span></div>
+  </aside>
   return <aside className="push-control" aria-label="Avisos de la aplicación" aria-busy={configLoading}>
     {configLoading && <PageMessage>Consultando la configuración de avisos…</PageMessage>}
     {configError && <PageMessage kind="error">{configError}</PageMessage>}

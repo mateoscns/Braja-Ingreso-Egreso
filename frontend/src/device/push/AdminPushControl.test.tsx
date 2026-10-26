@@ -60,4 +60,26 @@ describe('AdminPushControl', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Activar avisos' })).toBeEnabled())
     expect(publicConfig).toHaveBeenCalledTimes(2)
   })
+
+  it('explica que el navegador no admite avisos en lugar de desaparecer', async () => {
+    Reflect.deleteProperty(window, 'PushManager')
+    vi.mocked(api.publicConfig<PublicConfig>).mockResolvedValue({ pushEnabled: true, vapidPublicKey: 'public-vapid-key' })
+    render(<AdminPushControl />)
+    expect(await screen.findByText(/no admite avisos/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Activar avisos' })).not.toBeInTheDocument()
+  })
+
+  it('explica que el servidor tiene los avisos deshabilitados', async () => {
+    vi.mocked(api.publicConfig<PublicConfig>).mockResolvedValue({ pushEnabled: false, vapidPublicKey: null })
+    render(<AdminPushControl />)
+    expect(await screen.findByText(/no están habilitados en el servidor/)).toBeInTheDocument()
+  })
+
+  it('explica cómo habilitar los avisos cuando el permiso está bloqueado', async () => {
+    Object.defineProperty(window, 'Notification', { configurable: true, value: { permission: 'denied', requestPermission: vi.fn() } })
+    vi.mocked(api.publicConfig<PublicConfig>).mockResolvedValue({ pushEnabled: true, vapidPublicKey: 'public-vapid-key' })
+    render(<AdminPushControl />)
+    expect(await screen.findByText(/bloqueaste los avisos/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Activar avisos' })).not.toBeInTheDocument()
+  })
 })

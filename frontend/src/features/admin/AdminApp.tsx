@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { AppHeader, CompanySwitcher } from '../../app/ui'
 import { useSession } from '../../app/session'
-import { AdminInbox, EmployeesView, JourneysView, SitesView, TemplatesView } from './AdminViews'
+import { AdminHistory, AdminInbox, EmployeesView, JourneysView, SitesView, TemplatesView } from './AdminViews'
 import { AdminPushControl } from '../../device/push/AdminPushControl'
 import { InstallControl } from '../../device/pwa/InstallControl'
 
-type AdminSection = 'inbox' | 'jornadas' | 'empleados' | 'sedes' | 'plantillas'
+type AdminSection = 'inbox' | 'jornadas' | 'historial' | 'empleados' | 'sedes' | 'plantillas'
 const links: { id: AdminSection; label: string; icon: string }[] = [
   { id: 'inbox', label: 'Bandeja', icon: '◷' }, { id: 'jornadas', label: 'Jornadas', icon: '▦' },
+  { id: 'historial', label: 'Historial', icon: '☰' },
   { id: 'empleados', label: 'Empleados', icon: '♙' }, { id: 'sedes', label: 'Sedes', icon: '⌖' }, { id: 'plantillas', label: 'Plantillas', icon: '▤' }
 ]
 
@@ -17,7 +18,7 @@ export function AdminApp() {
   const active = session?.memberships.find((membership) => membership.companyId === session.activeCompanyId)
   if (!session || !active) return null
   return <div className="app-frame">
-    <AppHeader companyName={active.companyName} name={session.dni ? `DNI ${session.dni}` : 'Administración'} onSignOut={() => void signOut()}>
+    <AppHeader companyName={active.companyName} name={session.displayName?.trim() || (session.dni ? `DNI ${session.dni}` : 'Administración')} onSignOut={() => void signOut()}>
       <InstallControl />
       <CompanySwitcher memberships={session.memberships} activeCompanyId={active.companyId} onSelect={activateCompany} />
     </AppHeader>
@@ -29,10 +30,11 @@ export function AdminApp() {
             <span className="nav-icon" aria-hidden="true">{link.icon}</span>{link.label}
           </button>
         })}
-      </nav><div className="sidebar-footer"><span className="live-dot" />Conexión protegida</div></aside>
+      </nav>{window.isSecureContext && <div className="sidebar-footer"><span className="live-dot" />Conexión protegida</div>}</aside>
       <main className="main-content">
         {section === 'inbox' && <AdminInbox />}
         {section === 'jornadas' && <JourneysView />}
+        {section === 'historial' && <AdminHistory />}
         {section === 'empleados' && <EmployeesView />}
         {section === 'sedes' && <SitesView />}
         {section === 'plantillas' && <TemplatesView />}

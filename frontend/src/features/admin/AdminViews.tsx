@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { api, queryString } from '../../shared/api/client'
-import type { Deviation, Employee, Jornada, Mark, MarkAction, Site, Template, TemplateBlock, TemplateInput } from '../../shared/api/types'
+import type { Deviation, Employee, Jornada, JornadaSummary, Mark, MarkAction, Site, Template, TemplateBlock, TemplateInput } from '../../shared/api/types'
+import { deviceDate, validateDateRange, DATE_PAIR_MESSAGE } from '../../shared/dateRange'
 import {
+  AdminHistoryRender,
   AdminInboxRender,
+  EMPTY_INBOX_FILTERS,
   EmployeesViewRender,
   JourneysViewRender,
   SitesViewRender,
   TemplatesViewRender,
   type DeviationClassification,
+  type HistoryFilterValues,
+  type InboxFilterValues,
   type JourneyRow
 } from './AdminViewsRender'
 
@@ -54,6 +59,12 @@ function siteTimeInput(value: string, timeZone: string): string {
 export function AdminInbox() {
   const [items, setItems] = useState<Deviation[]>([])
   const [timeZones, setTimeZones] = useState<Map<string, string>>(new Map())
+  const [sites, setSites] = useState<Site[]>([])
+  const [employees, setEmployees] = useState<Employee[]>([])
+  const [filters, setFilters] = useState<InboxFilterValues>(EMPTY_INBOX_FILTERS)
+  const [appliedFilters, setAppliedFilters] = useState<InboxFilterValues>(EMPTY_INBOX_FILTERS)
+  const [filterError, setFilterError] = useState('')
+  const generation = useRef(0)
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [inboxLoadError, setInboxLoadError] = useState('')
@@ -64,23 +75,36 @@ export function AdminInbox() {
   const [correction, setCorrection] = useState<{ deviationId: string; classification: DeviationClassification } | null>(null)
   const [correctionReason, setCorrectionReason] = useState('')
   const [targetDeviation] = useState(() => new URLSearchParams(window.location.search).get('deviation') ?? '')
-  const reload = async () => {
-    setLoading(true); setInboxLoadError(''); setTimeZoneLoadError(''); setError(''); setNotice('')
+  // A new filter set always starts from the first page: a cursor is only valid for the filters that produced it.
+  const reload = async (active: InboxFilterValues = appliedFilters) => {
+    const requestId = ++generation.current
+    setLoading(true); setInboxLoadError(''); setTimeZoneLoadError(''); setError(''); setNotice(''); setNextCursor(null)
     try {
       const [page, sitesResult] = await Promise.all([
-        api.get<{ items: Deviation[]; nextCursor?: string | null }>('/inbox?limit=50'),
+        api.get<{ items: Deviation[]; nextCursor?: string | null }>(`/inbox${queryString({ limit: 50, ...active })}`),
         api.get<Site[]>('/sites').then(
           (sites) => ({ sites, error: '' }),
           (reason) => ({ sites: [] as Site[], error: errText(reason) })
         )
       ])
+      if (requestId !== generation.current) return
       setItems(page.items); setNextCursor(page.nextCursor ?? null)
+      setSites(sitesResult.sites)
       setTimeZones(new Map(sitesResult.sites.map((site) => [site.id, site.timeZone])))
       setTimeZoneLoadError(sitesResult.error)
     }
-    catch (reason) { setItems([]); setNextCursor(null); setInboxLoadError(errText(reason)) } finally { setLoading(false) }
+    catch (reason) { if (requestId !== generation.current) return; setItems([]); setNextCursor(null); setInboxLoadError(errText(reason)) } finally { if (requestId === generation.current) setLoading(false) }
   }
-  useEffect(() => { void reload() }, [])
+  useEffect(() => { void reload(EMPTY_INBOX_FILTERS) }, [])
+  useEffect(() => { api.get<Employee[]>('/employees').then(setEmployees, () => setEmployees([])) }, [])
+  function applyFilters() {
+    const problem = validateDateRange(filters.from, filters.to)
+    if (problem) { setFilterError(problem); return }
+    setFilterError(''); setAppliedFilters(filters); void reload(filters)
+  }
+  function clearFilters() {
+    setFilters(EMPTY_INBOX_FILTERS); setAppliedFilters(EMPTY_INBOX_FILTERS); setFilterError(''); void reload(EMPTY_INBOX_FILTERS)
+  }
   useEffect(() => {
     if (!loading && targetDeviation) {
       const target = document.getElementById(`deviation-${targetDeviation}`)
@@ -107,15 +131,57 @@ export function AdminInbox() {
   }
   async function loadMore() {
     if (!nextCursor) return
+    const requestId = generation.current
     setBusy('page'); setError('')
     try {
-      const page = await api.get<{ items: Deviation[]; nextCursor?: string | null }>(`/inbox${queryString({ limit: 50, cursor: nextCursor })}`)
+      const page = await api.get<{ items: Deviation[]; nextCursor?: string | null }>(`/inbox${queryString({ limit: 50, ...appliedFilters, cursor: nextCursor })}`)
+      if (requestId !== generation.current) return
       setItems((current) => [...current, ...page.items]); setNextCursor(page.nextCursor ?? null)
-    } catch (reason) { setError(errText(reason)) } finally { setBusy('') }
+    } catch (reason) { if (requestId === generation.current) setError(errText(reason)) } finally { setBusy('') }
   }
-  return <AdminInboxRender items={items} timeZones={timeZones} nextCursor={nextCursor} loading={loading} inboxLoadError={inboxLoadError} timeZoneLoadError={timeZoneLoadError} error={error} notice={notice} busy={busy} correction={correction} correctionReason={correctionReason} targetDeviation={targetDeviation}
+  const filtered = Object.values(appliedFilters).some(Boolean)
+  return <AdminInboxRender items={items} employees={employees} sites={sites} filters={filters} filterError={filterError} filtered={filtered} onFiltersChange={(patch) => setFilters((current) => ({ ...current, ...patch }))} onApplyFilters={applyFilters} onClearFilters={clearFilters} timeZones={timeZones} nextCursor={nextCursor} loading={loading} inboxLoadError={inboxLoadError} timeZoneLoadError={timeZoneLoadError} error={error} notice={notice} busy={busy} correction={correction} correctionReason={correctionReason} targetDeviation={targetDeviation}
     onReload={() => void reload()} onClassify={requestClassification} onRetry={() => void reload()} onLoadMore={() => void loadMore()} onCorrectionReasonChange={setCorrectionReason}
     onSubmitCorrection={(item) => void classify(item, correction!.classification, correctionReason)} onCancelCorrection={() => { setCorrection(null); setCorrectionReason('') }} />
+}
+
+export function AdminHistory() {
+  const [employees, setEmployees] = useState<Employee[]>([])
+  const [sites, setSites] = useState<Site[]>([])
+  const [loadingOptions, setLoadingOptions] = useState(true)
+  const [optionsError, setOptionsError] = useState('')
+  const [filters, setFilters] = useState<HistoryFilterValues>(() => ({ employeeId: '', siteId: '', from: deviceDate(6), to: deviceDate() }))
+  const [filterError, setFilterError] = useState('')
+  const [rows, setRows] = useState<JornadaSummary[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const request = useRef(0)
+  async function loadOptions() {
+    setLoadingOptions(true); setOptionsError('')
+    try {
+      const [people, availableSites] = await Promise.all([api.get<Employee[]>('/employees'), api.get<Site[]>('/sites')])
+      setEmployees(people); setSites(availableSites)
+    } catch (reason) { setOptionsError(errText(reason)) } finally { setLoadingOptions(false) }
+  }
+  useEffect(() => { void loadOptions() }, [])
+  async function search() {
+    const problem = !filters.employeeId && !filters.siteId ? 'Elegí un empleado o una sede.' : !filters.from || !filters.to ? DATE_PAIR_MESSAGE : validateDateRange(filters.from, filters.to)
+    if (problem) { setFilterError(problem); return }
+    const requestId = ++request.current
+    setFilterError(''); setError(''); setLoading(true)
+    try {
+      const result = await api.get<JornadaSummary[]>(`/jornadas${queryString({ from: filters.from, to: filters.to, employeeId: filters.employeeId, siteId: filters.siteId, includeDetail: 'true' })}`)
+      if (requestId === request.current) setRows(result)
+    } catch (reason) {
+      if (requestId !== request.current) return
+      setRows(null)
+      setError((reason as { status?: number } | null)?.status === 422
+        ? 'El servidor rechazó la consulta: acotá el rango de fechas o elegí un empleado o una sede (máximo 366 días y 500 jornadas).'
+        : errText(reason))
+    } finally { if (requestId === request.current) setLoading(false) }
+  }
+  return <AdminHistoryRender employees={employees} sites={sites} loadingOptions={loadingOptions} optionsError={optionsError} filters={filters} filterError={filterError} rows={rows} loading={loading} error={error}
+    onFiltersChange={(patch) => setFilters((current) => ({ ...current, ...patch }))} onSearch={() => void search()} onRetryOptions={() => void loadOptions()} />
 }
 
 export function SitesView() {
@@ -237,7 +303,7 @@ export function JourneysView() {
   const [employees, setEmployees] = useState<Employee[]>([]); const [sites, setSites] = useState<Site[]>([]); const [templates, setTemplates] = useState<Template[]>([])
   const [jornadas, setJornadas] = useState<JourneyRow[]>([]); const [loading, setLoading] = useState(true); const [journeysLoading, setJourneysLoading] = useState(false); const [journeysDate, setJourneysDate] = useState(''); const [journeysError, setJourneysError] = useState(''); const [dependencyError, setDependencyError] = useState(''); const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [busy, setBusy] = useState(false)
   const [detail, setDetail] = useState<Jornada | null>(null); const [detailLoading, setDetailLoading] = useState(false); const [markBusy, setMarkBusy] = useState('')
-  const [date, setDate] = useState(dateInBrowserZone); const [employeeId, setEmployeeId] = useState(''); const [siteId, setSiteId] = useState(''); const [templateId, setTemplateId] = useState('')
+  const [date, setDate] = useState(dateInBrowserZone); const [dateError, setDateError] = useState(''); const [employeeId, setEmployeeId] = useState(''); const [siteId, setSiteId] = useState(''); const [templateId, setTemplateId] = useState('')
   const journeyRequest = useRef(0)
   const detailRequest = useRef(0)
   const [forgotAction, setForgotAction] = useState<MarkAction>('INGRESO'); const [forgotOccurredAt, setForgotOccurredAt] = useState(''); const [forgotReason, setForgotReason] = useState('')
@@ -316,9 +382,19 @@ export function JourneysView() {
       setEditingMarkId(''); setCorrectionReason(''); setNotice('Marca corregida.'); await showDetail(detail.id)
     } catch (reason) { setError(errText(reason)) } finally { setMarkBusy('') }
   }
+  function changeDate(value: string) {
+    setDate(value)
+    if (!value) {
+      journeyRequest.current += 1; detailRequest.current += 1
+      setDateError('Elegí una fecha para ver o declarar jornadas.'); setJornadas([]); setJourneysError(''); setJourneysLoading(false); setDetail(null); setDetailLoading(false)
+      return
+    }
+    setDateError('')
+    void loadJourneys(value)
+  }
   const peopleById = useMemo(() => new Map(employees.map((person) => [person.id, person.displayName])), [employees])
   const siteTemplates = templates.filter((template) => template.siteId === siteId)
-  return <JourneysViewRender sites={sites} eligibleEmployees={eligibleEmployees} siteTemplates={siteTemplates} jornadas={jornadas} loading={loading} journeysLoading={journeysLoading} journeysDate={journeysDate} journeysError={journeysError} dependencyError={dependencyError} error={error} notice={notice} busy={busy} detail={detail} detailLoading={detailLoading} markBusy={markBusy} date={date} employeeId={employeeId} siteId={siteId} templateId={templateId} peopleById={peopleById} detailSite={detailSite} detailTimeZone={detailTimeZone} forgotAction={forgotAction} forgotOccurredAt={forgotOccurredAt} forgotReason={forgotReason} editingMarkId={editingMarkId} correctedAction={correctedAction} correctedOccurredAt={correctedOccurredAt} correctionReason={correctionReason}
-    onDateChange={(value) => { setDate(value); void loadJourneys(value) }} onEmployeeChange={setEmployeeId} onSiteChange={setSiteId} onTemplateChange={setTemplateId} onDeclare={declare} onRetryDependencies={() => void loadDependencies(date)} onReloadJourneys={() => void loadJourneys(date)} onShowDetail={(id) => void showDetail(id)}
+  return <JourneysViewRender sites={sites} eligibleEmployees={eligibleEmployees} siteTemplates={siteTemplates} jornadas={jornadas} loading={loading} journeysLoading={journeysLoading} journeysDate={journeysDate} journeysError={journeysError} dependencyError={dependencyError} error={error} notice={notice} busy={busy} detail={detail} detailLoading={detailLoading} markBusy={markBusy} date={date} employeeId={employeeId} siteId={siteId} templateId={templateId} peopleById={peopleById} dateError={dateError} detailSite={detailSite} detailTimeZone={detailTimeZone} forgotAction={forgotAction} forgotOccurredAt={forgotOccurredAt} forgotReason={forgotReason} editingMarkId={editingMarkId} correctedAction={correctedAction} correctedOccurredAt={correctedOccurredAt} correctionReason={correctionReason}
+    onDateChange={changeDate} onEmployeeChange={setEmployeeId} onSiteChange={setSiteId} onTemplateChange={setTemplateId} onDeclare={declare} onRetryDependencies={() => void loadDependencies(date)} onReloadJourneys={() => void loadJourneys(date)} onShowDetail={(id) => void showDetail(id)}
     onForgotActionChange={setForgotAction} onForgotOccurredAtChange={setForgotOccurredAt} onForgotReasonChange={setForgotReason} onAddForgottenMark={(event) => void addForgottenMark(event)} onBeginMarkCorrection={beginMarkCorrection} onCorrectedActionChange={setCorrectedAction} onCorrectedOccurredAtChange={setCorrectedOccurredAt} onCorrectionReasonChange={setCorrectionReason} onCorrectMark={(event, mark) => void correctMark(event, mark)} onCancelMarkCorrection={() => setEditingMarkId('')} />
 }

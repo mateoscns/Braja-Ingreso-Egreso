@@ -1,9 +1,13 @@
 import { Fragment, type FormEvent } from 'react'
 import { Empty, FormField, Loading, PageMessage, Panel } from '../../app/ui'
-import type { Deviation, Employee, Jornada, Mark, MarkAction, Site, Template, TemplateBlock } from '../../shared/api/types'
+import type { Deviation, Employee, Jornada, JornadaSummary, Mark, MarkAction, Site, Template, TemplateBlock } from '../../shared/api/types'
+import { formatBlock, formatDateTime, formatLocalDate, jornadaStateLabel } from '../../shared/format'
 
 export type DeviationClassification = 'JUSTIFICADO' | 'NO_JUSTIFICADO'
 export type JourneyRow = Pick<Jornada, 'id' | 'employeeId' | 'siteId' | 'localDate' | 'state'>
+
+export type InboxFilterValues = { employeeId: string; siteId: string; from: string; to: string }
+export const EMPTY_INBOX_FILTERS: InboxFilterValues = { employeeId: '', siteId: '', from: '', to: '' }
 
 type Correction = { deviationId: string; classification: DeviationClassification } | null
 
@@ -15,8 +19,10 @@ function journeysTitle(date: string) {
   return `Jornadas del ${formattedDate}`
 }
 
-export function AdminInboxRender({ items, timeZones, nextCursor, loading, inboxLoadError, timeZoneLoadError, error, notice, busy, correction, correctionReason, targetDeviation, onReload, onClassify, onRetry, onLoadMore, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
-  items: Deviation[]; timeZones: Map<string, string>; nextCursor: string | null; loading: boolean; inboxLoadError: string; timeZoneLoadError: string
+export function AdminInboxRender({ items, employees, sites, filters, filterError, filtered, onFiltersChange, onApplyFilters, onClearFilters, timeZones, nextCursor, loading, inboxLoadError, timeZoneLoadError, error, notice, busy, correction, correctionReason, targetDeviation, onReload, onClassify, onRetry, onLoadMore, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
+  items: Deviation[]; employees: Employee[]; sites: Site[]; filters: InboxFilterValues; filterError: string; filtered: boolean
+  onFiltersChange: (patch: Partial<InboxFilterValues>) => void; onApplyFilters: () => void; onClearFilters: () => void
+  timeZones: Map<string, string>; nextCursor: string | null; loading: boolean; inboxLoadError: string; timeZoneLoadError: string
   error: string; notice: string; busy: string; correction: Correction; correctionReason: string; targetDeviation: string
   onReload: () => void; onClassify: (item: Deviation, classification: DeviationClassification) => void; onRetry: () => void; onLoadMore: () => void
   onCorrectionReasonChange: (reason: string) => void; onSubmitCorrection: (item: Deviation) => void; onCancelCorrection: () => void
@@ -27,8 +33,16 @@ export function AdminInboxRender({ items, timeZones, nextCursor, loading, inboxL
     {notice && <PageMessage kind="success">{notice}</PageMessage>}
     {timeZoneLoadError && <PageMessage kind="error">No se pudieron cargar las zonas horarias de las sedes: {timeZoneLoadError} Las horas se muestran en la zona horaria de este dispositivo.</PageMessage>}
     {targetDeviation && items.some((item) => item.id === targetDeviation) && <PageMessage kind="success">Abriste el desvío indicado por la notificación.</PageMessage>}
+    <form className="filter-bar" aria-label="Filtros de la bandeja" noValidate onSubmit={(event) => { event.preventDefault(); onApplyFilters() }}>
+      <FormField label="Empleado"><select value={filters.employeeId} onChange={(event) => onFiltersChange({ employeeId: event.target.value })}><option value="">Todos</option>{employees.map((person) => <option key={person.id} value={person.id}>{person.displayName}</option>)}</select></FormField>
+      <FormField label="Sede"><select value={filters.siteId} onChange={(event) => onFiltersChange({ siteId: event.target.value })}><option value="">Todas</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></FormField>
+      <FormField label="Desde"><input type="date" value={filters.from} onChange={(event) => onFiltersChange({ from: event.target.value })} /></FormField>
+      <FormField label="Hasta"><input type="date" value={filters.to} onChange={(event) => onFiltersChange({ to: event.target.value })} /></FormField>
+      <div className="button-row filter-actions"><button className="button button-primary" disabled={loading}>Aplicar</button><button type="button" className="button button-quiet" disabled={loading} onClick={onClearFilters}>Limpiar</button></div>
+      {filterError && <div className="filter-error"><PageMessage kind="error">{filterError}</PageMessage></div>}
+    </form>
     <Panel title="Casos recientes">{inboxLoadError ? <LoadFailure message={inboxLoadError} onRetry={onRetry} /> : <>
-      <DeviationList items={items} loading={loading} busy={busy} onClassify={onClassify} targetId={targetDeviation} timeZones={timeZones}
+      <DeviationList items={items} filtered={filtered} loading={loading} busy={busy} onClassify={onClassify} targetId={targetDeviation} timeZones={timeZones}
         correction={correction} correctionReason={correctionReason} onCorrectionReasonChange={onCorrectionReasonChange}
         onSubmitCorrection={onSubmitCorrection} onCancelCorrection={onCancelCorrection} />
       {nextCursor && <div className="load-more"><button className="button button-quiet" disabled={busy === 'page'} onClick={onLoadMore}>{busy === 'page' ? 'Cargando…' : 'Cargar anteriores'}</button></div>}
@@ -37,17 +51,17 @@ export function AdminInboxRender({ items, timeZones, nextCursor, loading, inboxL
   </>
 }
 
-function DeviationList({ items, loading, busy, onClassify, targetId, timeZones, correction, correctionReason, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
-  items: Deviation[]; loading: boolean; busy: string; onClassify: (item: Deviation, classification: DeviationClassification) => void
+function DeviationList({ items, filtered, loading, busy, onClassify, targetId, timeZones, correction, correctionReason, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
+  items: Deviation[]; filtered: boolean; loading: boolean; busy: string; onClassify: (item: Deviation, classification: DeviationClassification) => void
   targetId: string; timeZones: Map<string, string>; correction: Correction; correctionReason: string
   onCorrectionReasonChange: (reason: string) => void; onSubmitCorrection: (item: Deviation) => void; onCancelCorrection: () => void
 }) {
   if (loading) return <Loading label="Cargando desvíos…" />
-  if (!items.length) return <Empty>No hay desvíos para mostrar.</Empty>
+  if (!items.length) return <Empty>{filtered ? 'Ningún desvío coincide con los filtros aplicados.' : 'No hay desvíos para mostrar.'}</Empty>
   return <div className="deviation-list">{items.map((item) => <article className={`deviation-card ${targetId === item.id ? 'deviation-target' : ''}`} key={item.id} id={`deviation-${item.id}`}>
     <div className="deviation-symbol">{item.type === 'SIN_INGRESO' ? '!' : '↗'}</div>
     <div className="deviation-main"><div className="deviation-title"><strong>{deviationName(item.type)}</strong><span className={`status-chip status-${item.status.toLowerCase()}`}>{statusName(item.status)}</span></div>
-      <p>{item.employeeDisplayName?.trim() || 'Registro de jornada'} · {dateTime(item.createdAt, item.siteId ? timeZones.get(item.siteId) : undefined)}</p>
+      <p>{item.employeeDisplayName?.trim() || 'Registro de jornada'} · {dateTime(item.occurredAt ?? item.createdAt, item.siteId ? timeZones.get(item.siteId) : undefined)}</p>
       {item.category && <p className="reason-line"><b>Motivo:</b> {categoryName(item.category)}{item.motiveText ? ` · ${item.motiveText}` : ''}</p>}
     </div>
     <div className="deviation-actions">
@@ -90,11 +104,11 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
     {error && <PageMessage kind="error">{error}</PageMessage>}
     {notice && <PageMessage kind="success">{notice}</PageMessage>}
     <Panel title={loading || loadError ? 'Empleados' : `Empleados (${employees.length})`}>{loading ? <Loading /> : loadError ? <LoadFailure message={loadError} onRetry={onReload} /> : employees.length ? <div className="table-scroll"><table><thead><tr><th>Nombre</th><th>DNI</th><th>Sedes</th><th>Tolerancia</th><th>Estado</th><th /></tr></thead><tbody>{employees.map((person) => <tr key={person.id}>
-      <td>{editingId === person.id ? <input aria-label="Nombre del empleado" value={person.displayName} onChange={(event) => onUpdateEmployee(person.id, { displayName: event.target.value })} /> : <strong>{person.displayName}</strong>}</td><td>{person.dni ?? '—'}</td>
-      <td>{editingId === person.id ? <div className="inline-checks">{sites.map((site) => <label key={site.id}><input type="checkbox" checked={person.siteIds.includes(site.id)} onChange={() => onUpdateEmployee(person.id, { siteIds: person.siteIds.includes(site.id) ? person.siteIds.filter((id) => id !== site.id) : [...person.siteIds, site.id] })} />{site.name}</label>)}</div> : person.siteIds.map((id) => sites.find((site) => site.id === id)?.name ?? 'Sede').join(', ')}</td>
-      <td>{editingId === person.id ? <input className="short-input" aria-label="Tolerancia en minutos" type="number" min="0" max="240" value={person.toleranceMinutes} onChange={(event) => onUpdateEmployee(person.id, { toleranceMinutes: Number(event.target.value) })} /> : `${person.toleranceMinutes} min`}</td>
-      <td>{editingId === person.id ? <label><input type="checkbox" checked={person.active} onChange={(event) => onUpdateEmployee(person.id, { active: event.target.checked })} /> Activo</label> : person.active ? 'Activo' : 'Inactivo'}</td>
-      <td>{editingId === person.id ? <button className="button button-small button-primary" disabled={busy || person.siteIds.length === 0} onClick={() => onSave(person)}>{busy ? 'Guardando…' : 'Guardar'}</button> : <button className="button button-small button-quiet" onClick={() => onStartEditing(person.id)}>Editar</button>}</td>
+      <td>{editingId === person.id ? <input aria-label={`Nombre del empleado con ${who(person)}`} value={person.displayName} onChange={(event) => onUpdateEmployee(person.id, { displayName: event.target.value })} /> : <strong>{person.displayName}</strong>}</td><td>{person.dni ?? '—'}</td>
+      <td>{editingId === person.id ? <div className="inline-checks">{sites.map((site) => <label key={site.id}><input type="checkbox" aria-label={`${site.name} (${who(person)})`} checked={person.siteIds.includes(site.id)} onChange={() => onUpdateEmployee(person.id, { siteIds: person.siteIds.includes(site.id) ? person.siteIds.filter((id) => id !== site.id) : [...person.siteIds, site.id] })} />{site.name}</label>)}</div> : person.siteIds.map((id) => sites.find((site) => site.id === id)?.name ?? 'Sede').join(', ')}</td>
+      <td>{editingId === person.id ? <input className="short-input" aria-label={`Tolerancia en minutos del empleado con ${who(person)}`} type="number" min="0" max="240" value={person.toleranceMinutes} onChange={(event) => onUpdateEmployee(person.id, { toleranceMinutes: Number(event.target.value) })} /> : `${person.toleranceMinutes} min`}</td>
+      <td>{editingId === person.id ? <label><input type="checkbox" aria-label={`Activo (${who(person)})`} checked={person.active} onChange={(event) => onUpdateEmployee(person.id, { active: event.target.checked })} /> Activo</label> : person.active ? 'Activo' : 'Inactivo'}</td>
+      <td>{editingId === person.id ? <button className="button button-small button-primary" disabled={busy || person.siteIds.length === 0} onClick={() => onSave(person)}>{busy ? 'Guardando…' : 'Guardar'}</button> : <button className="button button-small button-quiet" aria-label={`Editar empleado ${person.displayName}`} onClick={() => onStartEditing(person.id)}>Editar</button>}</td>
     </tr>)}</tbody></table></div> : <Empty>No hay empleados cargados.</Empty>}</Panel>
     <Panel title="Dar de alta un empleado"><form className="form-grid" onSubmit={onCreate}>
       <FormField label="Nombre y apellido"><input required maxLength={160} value={displayName} onChange={(event) => onDisplayNameChange(event.target.value)} /></FormField>
@@ -118,7 +132,7 @@ export function TemplatesViewRender({ sites, siteTemplates, loading, loadError, 
     {error && <PageMessage kind="error">{error}</PageMessage>}
     {notice && <PageMessage kind="success">{notice}</PageMessage>}
     <div className="toolbar"><FormField label="Sede"><select value={selectedSite} onChange={(event) => onSiteChange(event.target.value)}>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></FormField></div>
-    <div className="content-grid"><Panel title="Plantillas de la sede">{loading ? <Loading /> : loadError ? <LoadFailure message={loadError} onRetry={onReload} /> : siteTemplates.length ? <div className="template-list">{siteTemplates.map((template) => <article className="template-card" key={template.id}><div><div className="template-title"><strong>{template.name}</strong><span className={`status-chip ${template.active ? 'status-justificado' : 'status-inactivo'}`}>{template.active ? 'Activa' : 'Inactiva'}</span></div><p>{template.blocks.map((block) => `${block.startDayOffset ? 'D+1 ' : ''}${block.start}–${block.endDayOffset ? 'D+1 ' : ''}${block.end}`).join(' · ')}</p><small>Pausas: desayuno {template.breakfastLimitMinutes} min · almuerzo {template.lunchLimitMinutes} min</small></div><button className="button button-small button-quiet" onClick={() => onBeginEdit(template)}>Editar</button></article>)}</div> : <Empty>No hay plantillas para esta sede.</Empty>}</Panel>
+    <div className="content-grid"><Panel title="Plantillas de la sede">{loading ? <Loading /> : loadError ? <LoadFailure message={loadError} onRetry={onReload} /> : siteTemplates.length ? <div className="template-list">{siteTemplates.map((template) => <article className="template-card" key={template.id}><div><div className="template-title"><strong>{template.name}</strong><span className={`status-chip ${template.active ? 'status-justificado' : 'status-inactivo'}`}>{template.active ? 'Activa' : 'Inactiva'}</span></div><p>{template.blocks.map(formatBlock).join(' · ')}</p><small>Pausas: desayuno {template.breakfastLimitMinutes} min · almuerzo {template.lunchLimitMinutes} min</small></div><button className="button button-small button-quiet" aria-label={`Editar plantilla ${template.name}`} onClick={() => onBeginEdit(template)}>Editar</button></article>)}</div> : <Empty>No hay plantillas para esta sede.</Empty>}</Panel>
       <Panel title={editing ? 'Editar plantilla' : 'Crear plantilla'}><form className="form-stack" onSubmit={onSubmit}>
         <FormField label="Nombre"><input required maxLength={120} value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="Mañana, tarde, noche…" /></FormField>
         <div className="form-subhead"><strong>Bloques de trabajo</strong><span>{blocks.length}/4</span></div>
@@ -137,10 +151,10 @@ export function TemplatesViewRender({ sites, siteTemplates, loading, loadError, 
   </>
 }
 
-export function JourneysViewRender({ sites, eligibleEmployees, siteTemplates, jornadas, loading, journeysLoading, journeysDate, journeysError, dependencyError, error, notice, busy, detail, detailLoading, markBusy, date, employeeId, siteId, templateId, peopleById, detailSite, detailTimeZone, forgotAction, forgotOccurredAt, forgotReason, editingMarkId, correctedAction, correctedOccurredAt, correctionReason, onDateChange, onEmployeeChange, onSiteChange, onTemplateChange, onDeclare, onRetryDependencies, onReloadJourneys, onShowDetail, onForgotActionChange, onForgotOccurredAtChange, onForgotReasonChange, onAddForgottenMark, onBeginMarkCorrection, onCorrectedActionChange, onCorrectedOccurredAtChange, onCorrectionReasonChange, onCorrectMark, onCancelMarkCorrection }: {
+export function JourneysViewRender({ sites, eligibleEmployees, siteTemplates, jornadas, loading, journeysLoading, journeysDate, journeysError, dependencyError, error, notice, busy, detail, detailLoading, markBusy, date, dateError, employeeId, siteId, templateId, peopleById, detailSite, detailTimeZone, forgotAction, forgotOccurredAt, forgotReason, editingMarkId, correctedAction, correctedOccurredAt, correctionReason, onDateChange, onEmployeeChange, onSiteChange, onTemplateChange, onDeclare, onRetryDependencies, onReloadJourneys, onShowDetail, onForgotActionChange, onForgotOccurredAtChange, onForgotReasonChange, onAddForgottenMark, onBeginMarkCorrection, onCorrectedActionChange, onCorrectedOccurredAtChange, onCorrectionReasonChange, onCorrectMark, onCancelMarkCorrection }: {
   sites: Site[]; eligibleEmployees: Employee[]; siteTemplates: Template[]; jornadas: JourneyRow[]
   loading: boolean; journeysLoading: boolean; journeysDate: string; journeysError: string; dependencyError: string; error: string; notice: string; busy: boolean
-  detail: Jornada | null; detailLoading: boolean; markBusy: string; date: string; employeeId: string; siteId: string; templateId: string; peopleById: Map<string, string>
+  detail: Jornada | null; detailLoading: boolean; markBusy: string; date: string; dateError: string; employeeId: string; siteId: string; templateId: string; peopleById: Map<string, string>
   detailSite?: Site; detailTimeZone: string; forgotAction: MarkAction; forgotOccurredAt: string; forgotReason: string; editingMarkId: string
   correctedAction: MarkAction; correctedOccurredAt: string; correctionReason: string
   onDateChange: (value: string) => void; onEmployeeChange: (value: string) => void; onSiteChange: (value: string) => void; onTemplateChange: (value: string) => void
@@ -155,20 +169,20 @@ export function JourneysViewRender({ sites, eligibleEmployees, siteTemplates, jo
     {dependencyError && <div className="form-stack"><PageMessage kind="error">{dependencyError}</PageMessage><button type="button" className="button button-quiet" disabled={loading || journeysLoading} onClick={onRetryDependencies}>Reintentar datos de la jornada</button></div>}
     {notice && <PageMessage kind="success">{notice}</PageMessage>}
     <Panel title="Declarar una jornada"><form className="form-grid" onSubmit={onDeclare}>
-      <FormField label="Fecha" hint="La fecha inicial usa el calendario local de este dispositivo; la fecha elegida se aplica como día local en cada sede."><input type="date" required disabled={loading} value={date} onChange={(event) => onDateChange(event.target.value)} /></FormField>
+      <FormField label="Fecha" hint={dateError || 'La fecha inicial usa el calendario local de este dispositivo; la fecha elegida se aplica como día local en cada sede.'}><input type="date" required aria-invalid={Boolean(dateError)} disabled={loading} value={date} onChange={(event) => onDateChange(event.target.value)} /></FormField>
       <FormField label="Empleado" hint={eligibleEmployees.length === 0 ? 'No hay empleados activos habilitados para esta sede.' : undefined}><select required value={employeeId} onChange={(event) => onEmployeeChange(event.target.value)}>{eligibleEmployees.map((person) => <option value={person.id} key={person.id}>{person.displayName}</option>)}</select></FormField>
       <FormField label="Sede"><select required value={siteId} onChange={(event) => onSiteChange(event.target.value)}>{sites.map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}</select></FormField>
       <FormField label="Plantilla horaria"><select required value={templateId} onChange={(event) => onTemplateChange(event.target.value)}>{siteTemplates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>)}</select></FormField>
-      <div className="field-wide"><button className="button button-primary" disabled={busy || loading || journeysLoading || !templateId || !employeeId}>{busy ? 'Guardando…' : 'Declarar jornada'}</button></div>
+      <div className="field-wide"><button className="button button-primary" disabled={busy || loading || journeysLoading || !date || !templateId || !employeeId}>{busy ? 'Guardando…' : 'Declarar jornada'}</button></div>
     </form></Panel>
     <Panel title={journeysTitle(date)} action={<button className="button button-small button-quiet" disabled={journeysLoading} onClick={onReloadJourneys}>{journeysLoading ? 'Actualizando…' : 'Actualizar'}</button>}>
-      {loading || journeysLoading || journeysDate !== date ? <Loading label={loading || !journeysDate ? 'Cargando jornadas…' : 'Actualizando jornadas…'} /> : journeysError ? <LoadFailure message={journeysError} onRetry={onReloadJourneys} /> : jornadas.length ? <div className="table-scroll"><table><thead><tr><th>Empleado</th><th>Sede</th><th>Estado</th><th /></tr></thead><tbody>{jornadas.map((jornada) => <tr key={jornada.id}><td>{peopleById.get(jornada.employeeId) ?? 'Empleado'}</td><td>{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Sede'}</td><td><span className="status-chip">{jornada.state.replaceAll('_', ' ')}</span></td><td><button className="button button-small button-quiet" disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></td></tr>)}</tbody></table></div> : <Empty>No hay jornadas declaradas para esta fecha.</Empty>}
+      {!date ? <Empty>{dateError}</Empty> : loading || journeysLoading || journeysDate !== date ? <Loading label={loading || !journeysDate ? 'Cargando jornadas…' : 'Actualizando jornadas…'} /> : journeysError ? <LoadFailure message={journeysError} onRetry={onReloadJourneys} /> : jornadas.length ? <div className="table-scroll"><table><thead><tr><th>Empleado</th><th>Sede</th><th>Estado</th><th /></tr></thead><tbody>{jornadas.map((jornada) => <tr key={jornada.id}><td>{peopleById.get(jornada.employeeId) ?? 'Empleado'}</td><td>{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Sede'}</td><td><span className="status-chip">{jornadaStateLabel(jornada.state)}</span></td><td><button className="button button-small button-quiet" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></td></tr>)}</tbody></table></div> : <Empty>No hay jornadas declaradas para esta fecha.</Empty>}
     </Panel>
     {detailLoading && <Panel title="Detalle"><Loading label="Consultando marcas…" /></Panel>}
     {detail && !detailLoading && <Panel title={`Marcas de ${peopleById.get(detail.employeeId) ?? 'empleado'}`}>
       <p className="muted">Horario asignado: {detail.scheduleSnapshot.name} · tolerancia {detail.toleranceMinutes} min</p>
       {detail.marks.length ? <div className="table-scroll"><table><thead><tr><th>Marca</th><th>Hora del evento</th><th>Alta en servidor</th><th>Ubicación</th><th>Acciones</th></tr></thead><tbody>{detail.marks.map((mark) => <Fragment key={mark.id}>
-        <tr><td>{actionName(mark.action)}</td><td>{dateTime(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)}</td><td>{dateTime(mark.recordedAt ?? mark.acceptedAt, detailTimeZone)}</td><td>{typeof mark.latitude === 'number' && typeof mark.longitude === 'number' ? `${mark.latitude.toFixed(5)}, ${mark.longitude.toFixed(5)}` : locationName(mark.locationStatus)}</td><td><button className="button button-small button-quiet" disabled={markBusy !== ''} onClick={() => onBeginMarkCorrection(mark)}>Corregir</button></td></tr>
+        <tr><td>{actionName(mark.action)}</td><td>{dateTime(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)}</td><td>{dateTime(mark.recordedAt ?? mark.acceptedAt, detailTimeZone)}</td><td>{typeof mark.latitude === 'number' && typeof mark.longitude === 'number' ? `${mark.latitude.toFixed(5)}, ${mark.longitude.toFixed(5)}` : locationName(mark.locationStatus)}</td><td><button className="button button-small button-quiet" aria-label={`Corregir marca ${actionName(mark.action)} de ${dateTime(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)}`} disabled={markBusy !== ''} onClick={() => onBeginMarkCorrection(mark)}>Corregir</button></td></tr>
         {editingMarkId === mark.id && <tr><td colSpan={5}><form className="form-stack correction-form" onSubmit={(event) => onCorrectMark(event, mark)}>
           <FormField label="Tipo de marca corregida"><select value={correctedAction} onChange={(event) => onCorrectedActionChange(event.target.value as MarkAction)}>{MARK_ACTIONS.map((action) => <option key={action} value={action}>{actionName(action)}</option>)}</select></FormField>
           <FormField label={`Hora corregida (${detailSite?.name ?? 'zona horaria de la sede'})`}><input type="datetime-local" step="1" required value={correctedOccurredAt} onChange={(event) => onCorrectedOccurredAtChange(event.target.value)} /></FormField>
@@ -187,18 +201,56 @@ export function JourneysViewRender({ sites, eligibleEmployees, siteTemplates, jo
   </>
 }
 
+export type HistoryFilterValues = { employeeId: string; siteId: string; from: string; to: string }
+
+export function AdminHistoryRender({ employees, sites, loadingOptions, optionsError, filters, filterError, rows, loading, error, onFiltersChange, onSearch, onRetryOptions }: {
+  employees: Employee[]; sites: Site[]; loadingOptions: boolean; optionsError: string; filters: HistoryFilterValues; filterError: string
+  rows: JornadaSummary[] | null; loading: boolean; error: string
+  onFiltersChange: (patch: Partial<HistoryFilterValues>) => void; onSearch: () => void; onRetryOptions: () => void
+}) {
+  const siteById = new Map(sites.map((site) => [site.id, site]))
+  const nameById = new Map(employees.map((person) => [person.id, person.displayName]))
+  return <>
+    <PageHeading eyebrow="CONSULTA" title="Historial" subtitle="Jornadas, marcas y desvíos de un empleado o una sede en un rango de fechas." />
+    {optionsError && <div className="form-stack"><PageMessage kind="error">{optionsError}</PageMessage><button type="button" className="button button-quiet" disabled={loadingOptions} onClick={onRetryOptions}>Reintentar datos</button></div>}
+    <form className="filter-bar" aria-label="Filtros del historial" noValidate onSubmit={(event) => { event.preventDefault(); onSearch() }}>
+      <FormField label="Empleado"><select value={filters.employeeId} disabled={loadingOptions} onChange={(event) => onFiltersChange({ employeeId: event.target.value })}><option value="">Todos</option>{employees.map((person) => <option key={person.id} value={person.id}>{person.displayName}</option>)}</select></FormField>
+      <FormField label="Sede"><select value={filters.siteId} disabled={loadingOptions} onChange={(event) => onFiltersChange({ siteId: event.target.value })}><option value="">Todas</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></FormField>
+      <FormField label="Desde"><input type="date" value={filters.from} onChange={(event) => onFiltersChange({ from: event.target.value })} /></FormField>
+      <FormField label="Hasta"><input type="date" value={filters.to} onChange={(event) => onFiltersChange({ to: event.target.value })} /></FormField>
+      <div className="button-row filter-actions"><button className="button button-primary" disabled={loading || loadingOptions}>{loading ? 'Buscando…' : 'Buscar'}</button></div>
+      {filterError && <div className="filter-error"><PageMessage kind="error">{filterError}</PageMessage></div>}
+    </form>
+    <Panel title={rows && !loading && !error ? `Jornadas encontradas (${rows.length})` : 'Jornadas encontradas'}>
+      {loading ? <Loading label="Consultando el historial…" /> : error ? <LoadFailure message={error} onRetry={onSearch} /> : rows === null ? <Empty>Elegí un empleado o una sede y un rango de fechas, y tocá Buscar.</Empty> : rows.length === 0 ? <Empty>No hay jornadas para esos filtros en el rango elegido.</Empty> : <div className="history-list">{rows.map((row) => {
+        const timeZone = siteById.get(row.siteId)?.timeZone
+        const person = row.employeeDisplayName?.trim() || nameById.get(row.employeeId) || 'Empleado'
+        const marks = row.marks ?? []
+        const deviations = row.deviations ?? []
+        return <article className="history-card" key={row.id} aria-label={`Jornada del ${formatLocalDate(row.localDate)} de ${person}`}>
+          <div className="history-head"><strong>{formatLocalDate(row.localDate)}</strong><span>{person}</span><span className="muted">{siteById.get(row.siteId)?.name ?? 'Sede'}</span><span className="status-chip">{jornadaStateLabel(row.state)}</span></div>
+          {marks.length ? <ul className="history-items" aria-label="Marcas">{marks.map((mark) => <li key={mark.id}><strong>{actionName(mark.action)}</strong><span>{dateTime(mark.occurredAt ?? mark.acceptedAt, timeZone)}</span><small>{locationName(mark.locationStatus)}</small></li>)}</ul> : <p className="muted small-copy">Sin marcas.</p>}
+          {deviations.length ? <ul className="history-items history-deviations" aria-label="Desvíos">{deviations.map((item) => <li key={item.id}><strong>{deviationName(item.type)}</strong><span>{dateTime(item.occurredAt ?? item.createdAt, timeZone)}</span><span className={`status-chip status-${item.status.toLowerCase()}`}>{statusName(item.status)}</span>{item.category && <small>{categoryName(item.category)}{item.motiveText ? ` · ${item.motiveText}` : ''}</small>}</li>)}</ul> : <p className="muted small-copy">Sin desvíos.</p>}
+        </article>
+      })}</div>}
+    </Panel>
+  </>
+}
+
 function LoadFailure({ message, onRetry }: { message: string; onRetry: () => void }) {
   return <div className="form-stack"><PageMessage kind="error">{message}</PageMessage><button type="button" className="button button-quiet" onClick={onRetry}>Reintentar</button></div>
 }
+
+const who = (person: Employee) => person.dni ? `DNI ${person.dni}` : 'identificador interno'
 
 function PageHeading({ eyebrow, title, subtitle }: { eyebrow: string; title: string; subtitle: string }) {
   return <div className="page-title-row"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p className="muted">{subtitle}</p></div></div>
 }
 
-const dateTime = (value: string, timeZone?: string) => new Intl.DateTimeFormat('es-AR', { dateStyle: 'medium', timeStyle: 'short', ...(timeZone ? { timeZone } : {}) }).format(new Date(value))
+const dateTime = formatDateTime
 const MARK_ACTIONS: MarkAction[] = ['INGRESO', 'EGRESO', 'SALIDA_DESAYUNO', 'VUELTA_DESAYUNO', 'SALIDA_ALMUERZO', 'VUELTA_ALMUERZO']
 function actionName(action: MarkAction) { return ({ INGRESO: 'Ingreso', EGRESO: 'Egreso', SALIDA_DESAYUNO: 'Salida desayuno', VUELTA_DESAYUNO: 'Vuelta desayuno', SALIDA_ALMUERZO: 'Salida almuerzo', VUELTA_ALMUERZO: 'Vuelta almuerzo' } as const)[action] }
 function deviationName(type: Deviation['type']) { return ({ SIN_INGRESO: 'Sin ingreso', LLEGADA_TARDE: 'Llegada tarde', EGRESO_TEMPRANO: 'Egreso temprano', EGRESO_TARDIO: 'Egreso tardío', MARCA_FALTANTE: 'Egreso sin marcar', EXCESO_DESAYUNO: 'Exceso de desayuno', EXCESO_ALMUERZO: 'Exceso de almuerzo' } as const)[type] }
 function statusName(status: Deviation['status']) { return ({ MOTIVO_PENDIENTE: 'Falta motivo', PENDIENTE_REVISION: 'A revisar', JUSTIFICADO: 'Justificado', NO_JUSTIFICADO: 'No justificado' } as const)[status] }
 function categoryName(category: NonNullable<Deviation['category']>) { return ({ SALUD: 'Salud', TRANSPORTE: 'Transporte', EMERGENCIA: 'Emergencia', OTRA: 'Otra' } as const)[category] }
-function locationName(status: string) { return ({ PENDIENTE: 'Ubicación pendiente', RECIBIDA: 'Ubicación recibida', SIN_UBICACION: 'Sin ubicación', NO_APLICA: 'No aplica' } as Record<string, string>)[status] ?? '—' }
+function locationName(status: string) { return ({ PENDIENTE: 'Ubicación pendiente', RECIBIDA: 'Ubicación recibida', SIN_UBICACION: 'Sin ubicación', PURGADA: 'Ubicación depurada', NO_APLICA: 'No aplica' } as Record<string, string>)[status] ?? '—' }

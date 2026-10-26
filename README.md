@@ -4,17 +4,18 @@ Aplicación propia para registrar ingreso, egreso, desayuno y almuerzo. La v1 in
 
 ## Estado
 
-La v1 está en `main` (PR #2), con CI (PR #4) y `MARCA_FALTANTE` (PR #6). El registro conserva las **22 decisiones base adoptadas**, más **5 aclaraciones del 2026-10-16, 1 del 2026-10-18 y 6 del 2026-10-19**: **34 filas adoptadas y 0 propuestas**. Mateo es quien adopta decisiones de producto; `ADMIN` es el rol operativo que administra una empresa. La lista vigente está en [docs/DECISIONES.md](docs/DECISIONES.md).
+La v1 está en `main` (PR #2), con CI (PR #4) y `MARCA_FALTANTE` (PR #6). El registro conserva las **22 decisiones base adoptadas**, más **5 aclaraciones del 2026-10-16, 1 del 2026-10-18, 6 del 2026-10-19 y 2 del 2026-10-23**: **36 filas adoptadas y 0 propuestas**. Mateo es quien adopta decisiones de producto; `ADMIN` es el rol operativo que administra una empresa. La lista vigente está en [docs/DECISIONES.md](docs/DECISIONES.md).
 
 ## Recorrido de desarrollo
 
-1. Copiar `.env.example` a `.env` y generar claves privadas de 32 bytes distintas para motivos `SALUD` y secretos de suscripción push.
+1. Copiar `.env.example` a `.env` y generar tres claves privadas distintas de 32 bytes: para motivos `SALUD`, el HMAC de límite de login por IP y los secretos de suscripción push.
 2. Iniciar MySQL 8.4 con `docker compose up -d mysql`.
 3. Ejecutar migraciones Flyway y arrancar Spring Boot con `--spring.profiles.active=local` para habilitar el perfil HTTP local.
-4. Instalar dependencias y arrancar la PWA; durante desarrollo, Vite envía `/api` al backend.
+4. Instalar dependencias y arrancar la PWA con `cd frontend && npm ci && npm run dev`. Durante desarrollo, Vite reenvía `/api` a `http://localhost:8080` (el backend del paso 3); para apuntar a otro backend, definir `VITE_API_PROXY_TARGET` (por ejemplo `VITE_API_PROXY_TARGET=http://localhost:9090 npm run dev`).
 5. Ejecutar pruebas de backend y frontend antes de integrar cambios.
 
 Los comandos están en [docs/ESPECIFICACION.md](docs/ESPECIFICACION.md). `.env` es local y está excluido de Git; el perfil de desarrollo lo importa desde la raíz cuando Spring Boot se inicia dentro de `backend/`. Producción no importa ese archivo: sus secretos se inyectan desde el entorno de ejecución. No hay credenciales iniciales ni claves de cifrado productivas versionadas.
+El límite adicional de inicio de sesión por IP usa 30 fallos en 15 minutos y bloquea por 15 minutos; se ajusta con `BRAJA_LOGIN_IP_THROTTLE_MAX_FAILURES`, `BRAJA_LOGIN_IP_THROTTLE_WINDOW` y `BRAJA_LOGIN_IP_THROTTLE_LOCK_DURATION`. `BRAJA_LOGIN_IP_THROTTLE_KEY_BASE64` debe ser una clave aleatoria de 32 bytes, distinta de las claves de cifrado. Fuera del perfil `local` activo por sí solo, el backend exige `BRAJA_TRUSTED_PROXY_CIDRS` y falla al iniciar si no está configurado. Con Caddy, usar la IP interna fija del contenedor que el backend ve como peer (`/32` para IPv4 o `/128` para IPv6), o la subred dedicada de Docker si Caddy usa direcciones dinámicas; no confiar en rangos amplios de redes privadas. Este repositorio no fija una red de producción para Caddy, así que el operador debe obtener la IP/subred real de la red de despliegue antes de configurar el valor. El proxy debe sobrescribir o construir correctamente `X-Forwarded-For`; si un proxy confiable omite o envía una cadena inválida, la solicitud se rechaza. La cabecera se ignora cuando la conexión no viene de una red confiable.
 
 ### Primer `ADMIN`
 

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EmployeeApp } from './EmployeeApp'
 import type { Deviation, Jornada, Site } from '../../shared/api/types'
@@ -146,7 +146,7 @@ describe('EmployeeApp', () => {
 
     expect(options[0]).toHaveAttribute('aria-pressed', 'false')
     expect(options[1]).toHaveAttribute('aria-pressed', 'true')
-    expect(await screen.findByText(new RegExp(`Local Norte · ${timeZone}`))).toBeInTheDocument()
+    expect(await screen.findByText(/Jornada del .* · Local Norte · Tolerancia/)).toBeInTheDocument()
   })
 
   it('anuncia una marca pendiente, muestra el error y reintenta con la misma clave', async () => {
@@ -197,6 +197,27 @@ describe('EmployeeApp', () => {
     expect(siteRequests).toBe(2)
   })
 
+  it('saluda con el nombre de la sesión cuando existe', async () => {
+    mocks.useSession.mockReturnValue({
+      session: {
+        accountId: 'account-1', dni: '30123456', displayName: 'Lucía Pérez',
+        memberships: [{ companyId: 'company-1', companyName: 'Braja', role: 'EMPLOYEE' }], activeCompanyId: 'company-1', mustChangePassword: false
+      },
+      signOut: vi.fn(), activateCompany: vi.fn()
+    })
+    render(<EmployeeApp />)
+    expect(await screen.findByRole('heading', { name: 'Hola, Lucía Pérez' })).toBeInTheDocument()
+    expect(screen.queryByText('DNI 30123456')).not.toBeInTheDocument()
+  })
+
+  it('muestra la hora del hecho (occurredAt) del motivo pendiente y no la de detección', async () => {
+    configureApi([{ ...pendingDeviation, occurredAt: '2026-10-20T11:15:00Z', createdAt: '2026-10-20T12:00:00Z' }])
+    render(<EmployeeApp />)
+    const card = (await screen.findByLabelText('Motivo')).closest('form')!
+    expect(card).toHaveTextContent(/0?8:15/)
+    expect(card).not.toHaveTextContent(/0?9:00/)
+  })
+
   it('anuncia el envío de un motivo y actualiza su estado al recibir respuesta', async () => {
     let resolveMotive!: (value: Deviation) => void
     const pendingSave = new Promise<Deviation>((resolve) => { resolveMotive = resolve })
@@ -217,5 +238,61 @@ describe('EmployeeApp', () => {
 
     expect(await screen.findByText('A revisar')).toBeInTheDocument()
     expect(screen.queryByLabelText('Motivo')).not.toBeInTheDocument()
+  })
+
+  it('muestra estados y horarios legibles, sin segundos, zona IANA ni fechas ISO', async () => {
+    const overnight: Jornada = { ...jornadas[0], state: 'NO_INGRESO', marks: [], scheduleSnapshot: { ...jornadas[0].scheduleSnapshot, blocks: [{ startDayOffset: 0, start: '22:00:00', end: '06:00:00', endDayOffset: 1 }] } }
+    mocks.apiGet.mockImplementation((path: string) => {
+      if (path === '/sites') return Promise.resolve(sites)
+      if (path.startsWith('/jornadas/mine?')) return Promise.resolve([overnight])
+      if (path.startsWith('/deviations?')) return Promise.resolve([])
+      throw new Error(`GET inesperado: ${path}`)
+    })
+    const { container } = render(<EmployeeApp />)
+
+    expect(await screen.findByText('22:00 a 06:00 (día siguiente)')).toBeInTheDocument()
+    expect(screen.getAllByText('Sin ingreso').length).toBeGreaterThan(0)
+    expect(container.textContent).not.toMatch(/America\//)
+    expect(container.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}/)
+    expect(container.textContent).not.toMatch(/:\d{2}:\d{2}/)
+  })
+
+  it('llama Finalizada a una jornada egresada', async () => {
+    mocks.apiGet.mockImplementation((path: string) => {
+      if (path === '/sites') return Promise.resolve(sites)
+      if (path.startsWith('/jornadas/mine?')) return Promise.resolve([{ ...jornadas[0], state: 'EGRESADA' }])
+      if (path.startsWith('/deviations?')) return Promise.resolve([])
+      throw new Error(`GET inesperado: ${path}`)
+    })
+    render(<EmployeeApp />)
+    expect((await screen.findAllByText('Finalizada')).length).toBeGreaterThan(0)
+  })
+
+  it('ignora un segundo disparo de la misma marca mientras el primero está en vuelo', async () => {
+    let resolveMark!: (value: { id: string; acceptedAt: string }) => void
+    mocks.submitMark.mockReturnValueOnce(new Promise((resolve) => { resolveMark = resolve }))
+    render(<EmployeeApp />)
+    const egreso = await screen.findByRole('button', { name: /Registrar egreso/ })
+
+    act(() => { egreso.click(); egreso.click() })
+    await act(async () => { resolveMark({ id: 'mark-new', acceptedAt: '2026-10-20T13:05:00Z' }) })
+
+    expect(mocks.submitMark).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(/ya fue procesada/)).not.toBeInTheDocument()
+    expect(await screen.findByText(/Marca confirmada por el servidor/)).toBeInTheDocument()
+  })
+
+  it('no deja un punto doble después de la hora de la marca confirmada', async () => {
+    render(<EmployeeApp />)
+    fireEvent.click(await screen.findByRole('button', { name: /Registrar egreso/ }))
+    const confirmation = await screen.findByText(/Marca confirmada por el servidor/)
+    expect(confirmation.textContent).not.toContain('..')
+  })
+
+  it('un fallo de red al marcar dice que la marca no fue confirmada', async () => {
+    mocks.submitMark.mockRejectedValueOnce(Object.assign(new Error('No se pudo conectar con el servidor. Revisá tu conexión y reintentá.'), { name: 'NetworkError' }))
+    render(<EmployeeApp />)
+    fireEvent.click(await screen.findByRole('button', { name: /Registrar egreso/ }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('La marca no fue confirmada')
   })
 })
