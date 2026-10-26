@@ -534,10 +534,14 @@ class BackendMySqlIntegrationTest {
                 "SELECT display_name FROM employees WHERE id=? AND company_id=?", String.class,
                 employeeId.toString(), companyId.toString()));
 
-        String correctMarkBodyA = "{\"correctedAction\":\"EGRESO\",\"correctedOccurredAt\":\""
-                + markBAt.plusSeconds(8 * 3600L) + "\",\"auditReason\":\"Cross-company test\"}";
-        String correctMarkBodyB = "{\"correctedAction\":\"EGRESO\",\"correctedOccurredAt\":\""
-                + markAAt.plusSeconds(8 * 3600L) + "\",\"auditReason\":\"Cross-company test\"}";
+        // Valid in BOTH companies: each jornada holds only an INGRESO, so moving that INGRESO 60 s earlier keeps
+        // the history valid. The same body is replayed against the attacker's own mark at the end (positive control).
+        Instant correctedMarkBAt = markBAt.minusSeconds(60);
+        Instant correctedMarkAAt = markAAt.minusSeconds(60);
+        String correctMarkBodyA = "{\"correctedAction\":\"INGRESO\",\"correctedOccurredAt\":\""
+                + correctedMarkBAt + "\",\"auditReason\":\"Cross-company test\"}";
+        String correctMarkBodyB = "{\"correctedAction\":\"INGRESO\",\"correctedOccurredAt\":\""
+                + correctedMarkAAt + "\",\"auditReason\":\"Cross-company test\"}";
         assertEquals(404, adminWrite(adminA,
                 post("/api/v1/admin/marks/{id}/correction", markBId), correctMarkBodyA).getResponse().getStatus());
         assertEquals(404, adminWrite(adminB,
@@ -545,7 +549,8 @@ class BackendMySqlIntegrationTest {
         assertMarkUnchanged(markAId, markAAt);
         assertMarkUnchanged(markBId, markBAt);
 
-        Instant forgottenAt = Instant.now().minusSeconds(3600).truncatedTo(ChronoUnit.MICROS);
+        // After both INGRESO marks (about -240 s), so an EGRESO at this instant is a valid history in either company.
+        Instant forgottenAt = Instant.now().minusSeconds(60).truncatedTo(ChronoUnit.MICROS);
         String forgottenMarkBody = "{\"action\":\"EGRESO\",\"occurredAt\":\"" + forgottenAt
                 + "\",\"auditReason\":\"Cross-company test\"}";
         assertEquals(404, adminWrite(adminA,
@@ -596,6 +601,53 @@ class BackendMySqlIntegrationTest {
         assertFalse(inboxA.contains(deviationBId.toString()));
         assertTrue(inboxB.contains(deviationBId.toString()));
         assertFalse(inboxB.contains(deviationAId.toString()));
+
+        // Positive controls: the very same bodies, sent by the attacking ADMIN against their OWN company, succeed
+        // and change the database. So the cross-company 404s above come from tenant isolation, not from a body
+        // that is invalid for the jornada state.
+        for (int i = 0; i < 2; i++) {
+            HttpLogin admin = i == 0 ? adminA : adminB;
+            UUID ownCompany = i == 0 ? companyId : tenantB.companyId();
+            UUID ownMark = i == 0 ? markAId : markBId;
+            UUID ownJornada = i == 0 ? jornadaId : tenantB.jornadaId();
+            UUID ownDeviation = i == 0 ? deviationAId : deviationBId;
+            String markBody = i == 0 ? correctMarkBodyA : correctMarkBodyB;
+            Instant markCorrectedAt = i == 0 ? correctedMarkBAt : correctedMarkAAt;
+            Instant markOriginalAt = i == 0 ? markAAt : markBAt;
+
+            MvcResult classified = adminWrite(admin,
+                    put("/api/v1/admin/deviations/{id}/classification", ownDeviation), classificationBody);
+            assertEquals(200, classified.getResponse().getStatus());
+            assertEquals("JUSTIFICADO", jdbc.queryForObject(
+                    "SELECT classification FROM deviations WHERE id=? AND company_id=?", String.class,
+                    ownDeviation.toString(), ownCompany.toString()));
+            assertEquals(1, count("SELECT COUNT(*) FROM deviation_audits WHERE deviation_id=? "
+                    + "AND change_type='CLASSIFICATION_CHANGED' AND after_classification='JUSTIFICADO'",
+                    ownDeviation.toString()));
+
+            MvcResult corrected = adminWrite(admin,
+                    post("/api/v1/admin/marks/{id}/correction", ownMark), markBody);
+            assertEquals(200, corrected.getResponse().getStatus());
+            assertEquals("INGRESO", jdbc.queryForObject("SELECT action FROM mark_events WHERE id=? AND company_id=?",
+                    String.class, ownMark.toString(), ownCompany.toString()));
+            assertEquals(markCorrectedAt, jdbc.queryForObject(
+                    "SELECT occurred_at FROM mark_events WHERE id=? AND company_id=?",
+                    java.sql.Timestamp.class, ownMark.toString(), ownCompany.toString()).toInstant());
+            assertEquals(1, count("SELECT COUNT(*) FROM mark_correction_audits WHERE mark_id=? AND company_id=? "
+                    + "AND before_occurred_at=? AND after_occurred_at=?", ownMark.toString(), ownCompany.toString(),
+                    java.sql.Timestamp.from(markOriginalAt), java.sql.Timestamp.from(markCorrectedAt)));
+
+            MvcResult forgotten = adminWrite(admin,
+                    post("/api/v1/admin/jornadas/{id}/forgotten-marks", ownJornada), forgottenMarkBody);
+            assertEquals(2, forgotten.getResponse().getStatus() / 100);
+            assertEquals(2, count("SELECT COUNT(*) FROM mark_events WHERE jornada_id=? AND company_id=?",
+                    ownJornada.toString(), ownCompany.toString()));
+            assertEquals(1, count("SELECT COUNT(*) FROM mark_events WHERE jornada_id=? AND company_id=? "
+                    + "AND action='EGRESO' AND origin='ADMIN' AND occurred_at=?", ownJornada.toString(),
+                    ownCompany.toString(), java.sql.Timestamp.from(forgottenAt)));
+            assertEquals(1, count("SELECT COUNT(*) FROM forgotten_mark_audits WHERE jornada_id=? AND company_id=?",
+                    ownJornada.toString(), ownCompany.toString()));
+        }
     }
 
     @Test
