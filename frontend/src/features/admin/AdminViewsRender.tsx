@@ -171,7 +171,7 @@ export function JourneysViewRender({ sites, eligibleEmployees, siteTemplates, jo
   onBeginCancel: () => void; onCancelReasonChange: (value: string) => void; onConfirmCancel: (event: FormEvent<HTMLFormElement>) => void; onAbortCancel: () => void
   onBeginVoid: (mark: Mark) => void; onVoidReasonChange: (value: string) => void; onConfirmVoid: (event: FormEvent<HTMLFormElement>, mark: Mark) => void; onAbortVoid: () => void
 }) {
-  const cancellable = detail?.state === 'NO_INGRESO' && detail.marks.length === 0
+  const cancellable = detail?.state === 'NO_INGRESO' && detail.marks.every((mark) => mark.voided)
   return <>
     <PageHeading eyebrow="PLANIFICACIÓN POR FECHA" title="Jornadas" subtitle="Declaralas para una fecha y sede. La fecha sigue el calendario local de cada sede; no hay recurrencia semanal." />
     {error && <PageMessage kind="error">{error}</PageMessage>}

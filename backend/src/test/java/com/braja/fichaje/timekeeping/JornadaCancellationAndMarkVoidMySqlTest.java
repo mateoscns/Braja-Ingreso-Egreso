@@ -166,7 +166,7 @@ class JornadaCancellationAndMarkVoidMySqlTest {
     }
 
     @Test
-    void cancellingAJornadaWithMarksIsAConflictEvenWhenTheMarkWasVoided() throws Exception {
+    void cancellingAJornadaWithValidMarksIsAConflictButOnlyVoidedMarksDoNotBlockIt() throws Exception {
         Login employee = login(employeeDni);
         UUID markId = UUID.fromString(json(mark(employee, jornadaId, UUID.randomUUID(), "INGRESO")).get("id").asText());
         Login admin = login(adminDni);
@@ -177,8 +177,10 @@ class JornadaCancellationAndMarkVoidMySqlTest {
 
         assertEquals(200, send(admin, post("/api/v1/admin/marks/{id}/void", markId), reasonBody("Marca equivocada")).getResponse().getStatus());
         assertEquals("NO_INGRESO", jdbc.queryForObject("SELECT state FROM jornadas WHERE id=?", String.class, jornadaId.toString()));
-        assertProblem(send(admin, post("/api/v1/admin/jornadas/{id}/cancellation", jornadaId), reasonBody("Licencia")), 409, "JORNADA_HAS_MARKS");
-        assertEquals("NO_INGRESO", jdbc.queryForObject("SELECT state FROM jornadas WHERE id=?", String.class, jornadaId.toString()));
+        // Owner answer 2026-10-27: voided marks do not count, so the jornada can be cancelled and keeps the voided mark.
+        assertEquals(200, send(admin, post("/api/v1/admin/jornadas/{id}/cancellation", jornadaId), reasonBody("Licencia")).getResponse().getStatus());
+        assertEquals("CANCELADA", jdbc.queryForObject("SELECT state FROM jornadas WHERE id=?", String.class, jornadaId.toString()));
+        assertEquals(1, count("SELECT COUNT(*) FROM mark_events WHERE id=? AND voided_at IS NOT NULL", markId.toString()));
     }
 
     @Test

@@ -1,9 +1,9 @@
 -- Issue #53 (D-20261027-08): an ADMIN may void a wrong mark with a required reason. The row is never deleted and keeps its
 -- sequence number; a voided mark stops counting for the jornada state, transitions and deviations. One ALTER TABLE
 -- statement (rule 19).
--- Revert: the previous schema cannot tell a voided mark from a valid one. First restore from the pre-migration backup, or
--- delete the mark_correction_audits rows of voided marks (change_kind VOID, see V21) and then the voided mark_events rows
--- after checking that no deviation still references them, recomputing each affected jornada state. Then run:
+-- Revert: the previous schema cannot tell a voided mark from a valid one, and voided rows cannot simply be deleted
+-- (mark_idempotency, forgotten_mark_audits, mark_correction_audits and deviations.source_mark_id reference them).
+-- Restore from the pre-migration backup. Only on a database without voided marks may the columns be dropped:
 --   ALTER TABLE mark_events DROP FOREIGN KEY fk_mark_voider, DROP CHECK chk_mark_void,
 --     DROP COLUMN void_reason, DROP COLUMN voided_by, DROP COLUMN voided_at;
 -- and delete the V20 row from flyway_schema_history.

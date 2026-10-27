@@ -681,9 +681,9 @@ paths:
   /admin/jornadas/{jornadaId}/cancellation:
     post:
       tags: [Jornadas]
-      summary: Cancel a declared jornada that has no marks (D-20261027-07)
+      summary: Cancel a declared jornada that has no valid marks (D-20261027-07)
       description: >-
-        ADMIN only. Allowed only for a NO_INGRESO jornada without any mark, voided ones included (409 JORNADA_HAS_MARKS otherwise);
+        ADMIN only. Allowed only for a NO_INGRESO jornada without valid marks; voided marks do not count and stay visible (409 JORNADA_HAS_MARKS otherwise);
         a jornada already cancelled answers 409 JORNADA_CANCELLED. The jornada becomes CANCELADA with author, server time and
         reason; its active deviations are retracted and audited (RETRACTED), and a pending push stops counting them like any
         retracted deviation. A cancelled jornada accepts no marks or forgotten marks, the absence and missing-egress jobs ignore it,

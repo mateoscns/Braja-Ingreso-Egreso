@@ -212,10 +212,10 @@ public class MarkService {
         if (!"ADMIN".equals(scope.role())) throw ApiException.forbidden();
         JornadaLock jornada = lockJornada(scope.companyId(), jornadaId);
         requireNotCancelled(jornada);
-        Integer marks = jdbc.queryForObject("SELECT COUNT(*) FROM mark_events WHERE company_id=? AND jornada_id=? FOR UPDATE",
+        Integer marks = jdbc.queryForObject("SELECT COUNT(*) FROM mark_events WHERE company_id=? AND jornada_id=? AND voided_at IS NULL FOR UPDATE",
                 Integer.class, scope.companyId().toString(), jornadaId.toString());
         if (!"NO_INGRESO".equals(jornada.state()) || marks == null || marks > 0) {
-            throw ApiException.conflict("JORNADA_HAS_MARKS", "A jornada with marks cannot be cancelled; correct or void its marks instead");
+            throw ApiException.conflict("JORNADA_HAS_MARKS", "A jornada with valid marks cannot be cancelled; correct or void its marks instead");
         }
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         jdbc.update("UPDATE jornadas SET state='CANCELADA',cancelled_at=?,cancelled_by=?,cancel_reason=? WHERE id=? AND company_id=? AND state='NO_INGRESO'",
