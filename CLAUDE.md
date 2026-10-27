@@ -54,8 +54,15 @@ deploy, backup, Dockerfile ni VPS. Cada regla de §5 está en un estado:
   concreto; (4) pide la aprobación de Mateo. Mateo responde sí o no; la IA
   existe para mostrar lo que se pasó por alto. Si Mateo dice que algo está
   aprobado, ya fue leído: no se cuestiona, se señalan problemas concretos.
+- **Asignate el issue antes de empezar** (acordado con Mateo el 2026-10-26):
+  quien lo va a implementar se asigna el issue en GitHub con
+  `gh issue edit <N> --add-assignee @me` y comprueba que la asignación quedó
+  visible. Si el issue ya tiene a otra persona asignada, no se empieza: se
+  consulta con Mateo. (2026-10-26: el #35 se implementó dos veces en paralelo,
+  en la rama `fix/admin-display-name-35` y en el PR #36.)
 - **Flujo de entrega** (verificado 2026-10-19 con `gh`): issue aprobado
-  (labels `status:approved` + un `type:*`) → rama `tipo/descripcion` → PR con
+  (labels `status:approved` + un `type:*`) → asignado a quien implementa →
+  rama `tipo/descripcion` → PR con
   `Closes #N` → CI verde → merge commit, sin squash, fijado al commit head
   verificado (`gh pr merge --merge --match-head-commit <sha>`). Así entraron
   el PR #2 (v1), el #4 (CI) y el #6 (`MARCA_FALTANTE`).
@@ -157,7 +164,9 @@ ArchUnit que se agreguen se ajustan a esta estructura.
   Flyway V1–V11. Las FK llevan `(id, company_id)` compuesto: la base
   rechaza cruces entre empresas.
 - **Transacciones**: `@Transactional` en servicios (`MarkService`,
-  `DeviationService`, `AccountService`, `OrganizationService`, el outbox); los
+  `DeviationService`, `OrganizationService`, el outbox, `LoginThrottleService`);
+  `AccountService` no envuelve login ni cambio de contraseña en una
+  transacción (§5.21) y escribe la contraseña con `TransactionTemplate`; los
   jobs usan `TransactionTemplate` `REQUIRES_NEW` por candidato. Ningún
   controlador lleva `@Transactional`; las escrituras de varias sentencias
   viven en servicios. Al 2026-10-19 `OrganizationController` y
@@ -333,9 +342,15 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
 
 21. **Rate limit de login** por DNI (no por IP), persistido en MySQL
     (`login_throttles`, V5): 5 fallos en 15 min bloquean ese DNI 15 min (429 con
-    `Retry-After`). Sobrevive a reinicios; no hay Bucket4j. Brecha: sin límite
-    por IP, y quien conoce un DNI puede bloquearlo. El umbral
-    `[sin guarda: implementado, sin test]`; el límite por IP
+    `Retry-After`). Sobrevive a reinicios; no hay Bucket4j. El intento se
+    reserva bajo lock de la fila antes de verificar la contraseña, en una
+    transacción corta propia, y el login no lleva `@Transactional`: una
+    conexión del pool por vez (2026-10-27: intentos concurrentes pasaban el
+    chequeo antes de guardar fallos, y 12 logins agotaban el pool de 12). La
+    contraseña actual de `PUT /session/password` cuenta en el mismo límite. Una
+    falla de la base al autenticar da 503 `AUTHENTICATION_UNAVAILABLE` y no
+    cuenta. Guarda: `LoginHardeningMySqlTest`. Brecha: sin límite por IP, y
+    quien conoce un DNI puede bloquearlo. El límite por IP
     `[sin guarda: destino]`.
 22. **Configuración de producción falla cerrada.** Hoy: ningún secreto con
     default en el repo; `EncryptionService` llama `BrajaProperties.validate()`
@@ -353,8 +368,13 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     cambiar el rol ni dar de baja a un `ADMIN`: "nunca el último `ADMIN`" se
     cumple por ausencia `[sin guarda: implementado, sin test]`.
 24. **Anti-CSRF**: toda mutación exige `X-CSRF-TOKEN`; cookie de sesión
-    `HttpOnly`, `SameSite=Lax`. Guarda:
-    `IT.httpLoginCreatesHttpOnlySessionCookieAndCsrfProtectsMutableRoutes`. La
+    `HttpOnly`, `SameSite=Lax`. El login rota el token (2026-10-27: el token
+    previo al login seguía valiendo). Sin sesión autenticada (vencida o
+    ausente) el rechazo de CSRF da 401 `SESSION_EXPIRED`; con sesión viva, 403.
+    Guarda:
+    `IT.httpLoginCreatesHttpOnlySessionCookieAndCsrfProtectsMutableRoutes`,
+    `LoginHardeningMySqlTest.loginRotatesTheCsrfTokenSoThePreLoginTokenIsRejected`,
+    `LoginHardeningMySqlTest.mutationWithoutAnAuthenticatedSessionIs401WhileCsrfMismatchOnALiveSessionStays403`. La
     lista explícita de `Content-Type` del archivo anterior no existe
     `[sin guarda: destino]`.
 25. **Entrada hostil**: el motivo y todo texto que ve el `ADMIN` se limpia de
@@ -363,8 +383,12 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     `[sin guarda: destino]`
 26. **Errores neutros hacia afuera**: Problem Details con `code` estable; el
     login da el mismo 401 para usuario inexistente, contraseña errónea o sin
-    membresías. El `traceId` es un UUID aleatorio, sin correlación con logs.
-    `[sin guarda: implementado, sin test]`
+    membresías; una contraseña actual errónea en `PUT /session/password` da
+    401 `CURRENT_PASSWORD_INVALID`, distinto de la sesión vencida. El `traceId`
+    es un UUID aleatorio, sin correlación con logs. Guarda (DNI inexistente
+    contra contraseña errónea): `LoginThrottleByIpMySqlTest`; el código
+    `CURRENT_PASSWORD_INVALID`: `LoginHardeningMySqlTest`. El caso sin
+    membresías `[sin guarda: implementado, sin test]`
 27. **Sin token de acceso en el front.** La sesión es la cookie `HttpOnly`
     `BRAJA_SESSION`; lo único en memoria es el token CSRF. El front no usa
     `localStorage`, `sessionStorage` ni IndexedDB (`rg` 2026-10-19). No hay

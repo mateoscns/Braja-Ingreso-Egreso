@@ -219,9 +219,10 @@ export function EmployeesView() {
   const [busy, setBusy] = useState(false)
   const [dni, setDni] = useState(''); const [displayName, setDisplayName] = useState(''); const [siteIds, setSiteIds] = useState<string[]>([])
   const [tolerance, setTolerance] = useState('5'); const [temporaryPassword, setTemporaryPassword] = useState('')
-  const [editingId, setEditingId] = useState('')
+  // Edits live in a draft copy; the list only changes with what the server returns.
+  const [draft, setDraft] = useState<Employee | null>(null)
   async function reload() {
-    setLoading(true); setLoadError(''); setError('')
+    setLoading(true); setLoadError(''); setError(''); setDraft(null)
     try {
       const [people, availableSites] = await Promise.all([api.get<Employee[]>('/employees'), api.get<Site[]>('/sites')])
       setEmployees(people); setSites(availableSites)
@@ -236,17 +237,22 @@ export function EmployeesView() {
       setEmployees((current) => [...current, created]); setDni(''); setDisplayName(''); setSiteIds([]); setTolerance('5'); setTemporaryPassword(''); setNotice('Empleado creado.')
     } catch (reason) { setError(errText(reason)) } finally { setBusy(false) }
   }
-  async function saveEmployee(person: Employee) {
+  async function saveEmployee() {
+    if (!draft) return
     setBusy(true); setError(''); setNotice('')
     try {
-      const updated = await api.patch<Employee>(`/employees/${encodeURIComponent(person.id)}`, { displayName: person.displayName, siteIds: person.siteIds, toleranceMinutes: person.toleranceMinutes, active: person.active })
-      setEmployees((current) => current.map((entry) => entry.id === updated.id ? updated : entry)); setEditingId(''); setNotice('Cambios del empleado guardados.')
+      const updated = await api.patch<Employee>(`/employees/${encodeURIComponent(draft.id)}`, { displayName: draft.displayName, siteIds: draft.siteIds, toleranceMinutes: draft.toleranceMinutes, active: draft.active })
+      setEmployees((current) => current.map((entry) => entry.id === updated.id ? updated : entry)); setDraft(null); setNotice('Cambios del empleado guardados.')
     } catch (reason) { setError(errText(reason)) } finally { setBusy(false) }
   }
-  function updateEmployee(id: string, patch: Partial<Employee>) { setEmployees((current) => current.map((person) => person.id === id ? { ...person, ...patch } : person)) }
-  return <EmployeesViewRender employees={employees} sites={sites} loading={loading} loadError={loadError} error={error} notice={notice} busy={busy} dni={dni} displayName={displayName} siteIds={siteIds} tolerance={tolerance} temporaryPassword={temporaryPassword} editingId={editingId}
+  function startEditing(id: string) {
+    const person = employees.find((entry) => entry.id === id)
+    setDraft(person ? { ...person, siteIds: [...person.siteIds] } : null); setError(''); setNotice('')
+  }
+  function updateDraft(patch: Partial<Employee>) { setDraft((current) => current ? { ...current, ...patch } : current) }
+  return <EmployeesViewRender employees={employees} sites={sites} loading={loading} loadError={loadError} error={error} notice={notice} busy={busy} dni={dni} displayName={displayName} siteIds={siteIds} tolerance={tolerance} temporaryPassword={temporaryPassword} draft={draft}
     onReload={() => void reload()} onCreate={create} onDniChange={setDni} onDisplayNameChange={setDisplayName} onToggleSite={toggleSite} onToleranceChange={setTolerance} onTemporaryPasswordChange={setTemporaryPassword}
-    onSave={(person) => void saveEmployee(person)} onUpdateEmployee={updateEmployee} onStartEditing={setEditingId} />
+    onSave={() => void saveEmployee()} onDraftChange={updateDraft} onStartEditing={startEditing} onCancelEditing={() => { setDraft(null); setError('') }} />
 }
 
 export function TemplatesView() {
@@ -354,10 +360,11 @@ export function JourneysView() {
     } finally { if (requestId === detailRequest.current) setDetailLoading(false) }
   }
   const detailSite = detail ? sites.find((site) => site.id === detail.siteId) : undefined
-  const detailTimeZone = detailSite?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone
+  // Without the site's zone a typed time cannot be converted safely; the device zone would silently shift it.
+  const detailTimeZone = detailSite?.timeZone
   async function addForgottenMark(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!detail) return
+    if (!detail || !detailTimeZone) return
     const occurredAt = instantForSiteTime(forgotOccurredAt, detailTimeZone)
     if (!occurredAt) { setError('Esa hora no existe en la zona horaria de la sede. Revisá la fecha y la hora.'); return }
     if (!forgotReason.trim()) { setError('Escribí el motivo de incorporación.'); return }
@@ -368,11 +375,12 @@ export function JourneysView() {
     } catch (reason) { setError(errText(reason)) } finally { setMarkBusy('') }
   }
   function beginMarkCorrection(mark: Mark) {
+    if (!detailTimeZone) return
     setEditingMarkId(mark.id); setCorrectedAction(mark.action); setCorrectedOccurredAt(siteTimeInput(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)); setCorrectionReason('')
   }
   async function correctMark(event: FormEvent<HTMLFormElement>, mark: Mark) {
     event.preventDefault()
-    if (!detail) return
+    if (!detail || !detailTimeZone) return
     const correctedAt = instantForSiteTime(correctedOccurredAt, detailTimeZone)
     if (!correctedAt) { setError('Esa hora no existe en la zona horaria de la sede. Revisá la fecha y la hora.'); return }
     if (!correctionReason.trim()) { setError('Escribí el motivo de corrección.'); return }

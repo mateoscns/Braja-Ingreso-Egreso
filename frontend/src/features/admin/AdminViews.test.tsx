@@ -438,6 +438,78 @@ describe('administración de desvíos y marcas', () => {
     expect(screen.getByRole('checkbox', { name: 'Local Centro (DNI 30123456)' })).toBeInTheDocument()
   })
 
+  describe('edición de empleados sobre un borrador', () => {
+    const second = { id: 'e-2', displayName: 'Mario Gómez', dni: '30999888', siteIds: ['s-1'], toleranceMinutes: 10, active: true }
+    beforeEach(() => {
+      const previous = apiMocks.get.getMockImplementation()!
+      apiMocks.get.mockImplementation((path: string) => path === '/employees' ? Promise.resolve([employee, second]) : previous(path))
+    })
+    const rowOf = (name: string) => screen.getAllByRole('row').find((row) => row.textContent?.includes(name) || within(row).queryByDisplayValue(name))!
+
+    it('guarda los cambios del borrador con PATCH', async () => {
+      apiMocks.patch.mockResolvedValueOnce({ ...employee, displayName: 'Lucía P.', active: false })
+      render(<EmployeesView />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Editar empleado Lucía Pérez' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Nombre del empleado con DNI 30123456' }), { target: { value: 'Lucía P.' } })
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Activo (DNI 30123456)' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
+
+      expect(await screen.findByText('Cambios del empleado guardados.')).toBeInTheDocument()
+      expect(apiMocks.patch).toHaveBeenCalledWith('/employees/e-1', { displayName: 'Lucía P.', siteIds: ['s-1'], toleranceMinutes: 5, active: false })
+      expect(rowOf('Lucía P.')).toHaveTextContent('Inactivo')
+    })
+
+    it('Cancelar descarta el borrador y muestra los valores guardados', async () => {
+      render(<EmployeesView />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Editar empleado Lucía Pérez' }))
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Activo (DNI 30123456)' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }))
+
+      expect(rowOf('Lucía Pérez')).toHaveTextContent('Activo')
+      expect(rowOf('Lucía Pérez')).not.toHaveTextContent('Inactivo')
+      expect(apiMocks.patch).not.toHaveBeenCalled()
+    })
+
+    it('cambiar de fila no deja valores sin guardar a la vista como si estuvieran guardados', async () => {
+      render(<EmployeesView />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Editar empleado Lucía Pérez' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Nombre del empleado con DNI 30123456' }), { target: { value: 'Nombre sin guardar' } })
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Activo (DNI 30123456)' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Editar empleado Mario Gómez' }))
+
+      expect(screen.queryByText('Nombre sin guardar')).not.toBeInTheDocument()
+      expect(rowOf('Lucía Pérez')).toHaveTextContent('Activo')
+      expect(rowOf('Lucía Pérez')).not.toHaveTextContent('Inactivo')
+    })
+
+    it('un guardado fallido mantiene la edición abierta y no altera los valores guardados', async () => {
+      apiMocks.patch.mockRejectedValueOnce(new Error('No se pudo guardar.'))
+      render(<EmployeesView />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Editar empleado Lucía Pérez' }))
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Activo (DNI 30123456)' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo guardar.')
+      expect(screen.getByRole('checkbox', { name: 'Activo (DNI 30123456)' })).not.toBeChecked()
+      fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }))
+      expect(rowOf('Lucía Pérez')).toHaveTextContent('Activo')
+      expect(rowOf('Lucía Pérez')).not.toHaveTextContent('Inactivo')
+    })
+  })
+
+  it('sin la zona horaria de la sede deshabilita las marcas olvidadas y las correcciones', async () => {
+    const previous = apiMocks.get.getMockImplementation()!
+    apiMocks.get.mockImplementation((path: string) => path === '/sites' ? Promise.reject(new Error('Servidor no disponible.')) : previous(path))
+    render(<JourneysView />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
+    await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
+
+    expect(screen.getByText('No se pudo cargar la zona horaria de la sede. Reintentá los datos de la jornada antes de incorporar o corregir marcas.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Registrar marca olvidada' })).toBeDisabled()
+    expect(screen.getByLabelText(/^Hora del evento/)).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^Corregir marca/ })).toBeDisabled()
+  })
+
   it('un error de red en la vista de administración no usa el texto de marca del empleado', async () => {
     const previousGet = apiMocks.get.getMockImplementation()!
     apiMocks.get.mockImplementation((path: string) => path === '/employees' ? Promise.reject(new Error('No se pudo conectar con el servidor. Revisá tu conexión y reintentá.')) : previousGet(path))
