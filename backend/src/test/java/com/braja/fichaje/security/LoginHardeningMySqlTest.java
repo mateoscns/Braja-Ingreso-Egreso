@@ -5,9 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -29,6 +32,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -36,8 +40,10 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -59,6 +65,7 @@ class LoginHardeningMySqlTest {
             "0123456789abcdef0123456789abcdef".getBytes(StandardCharsets.US_ASCII));
     private static final String PASSWORD = "valid-password-123";
     private static final int POOL_SIZE = 2;
+    private static final String UNAVAILABLE_LOG = "Authentication unavailable because of a database failure";
 
     @Container
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
@@ -276,13 +283,109 @@ class LoginHardeningMySqlTest {
         assertEquals("SESSION_EXPIRED", body(absent).path("code").asText());
     }
 
+    /**
+     * 2026-10-27: only the user lookup mapped a database failure to 503; a failure in the throttle tables or the
+     * membership query answered 500 and left the reserved DNI attempt counted.
+     */
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void databaseFailureAtAnyLoginStepAnswers503ReleasesTheReservationAndLogsTheCauseOnce(CapturedOutput output) throws Exception {
+        String dni = "47000001";
+        account(dni);
+        List<String> unavailableTables = List.of("company_memberships", "login_throttles", "login_ip_throttles");
+        for (String table : unavailableTables) {
+            MvcResult unavailable = withTableUnavailable(table, () -> login(dni, PASSWORD));
+            assertEquals(503, unavailable.getResponse().getStatus(), table + ": " + unavailable.getResponse().getContentAsString());
+            assertEquals("AUTHENTICATION_UNAVAILABLE", body(unavailable).path("code").asText(), table);
+            assertEquals(0, count("SELECT COALESCE(SUM(failed_attempts),0) FROM login_throttles"), table + " must release the DNI attempt");
+            assertEquals(0, count("SELECT COUNT(*) FROM login_throttles WHERE locked_until IS NOT NULL"), table);
+            assertEquals(0, count("SELECT COUNT(*) FROM login_ip_throttles"), table + " is not a wrong password for the IP throttle");
+        }
+        assertEquals(unavailableTables.size(), output.getAll().lines()
+                .filter(line -> line.contains("WARN") && line.contains(UNAVAILABLE_LOG)).count(), "One WARN per failed login");
+        assertFalse(output.getAll().contains(dni), "The log must not contain the DNI");
+        assertFalse(output.getAll().contains(PASSWORD), "The log must not contain the password");
+
+        MvcResult wrong = login(dni, "wrong-password");
+        assertEquals(401, wrong.getResponse().getStatus(), "Wrong credentials keep the neutral 401");
+        assertEquals("Invalid DNI or password", body(wrong).path("detail").asText());
+        assertEquals(200, login(dni, PASSWORD).getResponse().getStatus());
+    }
+
+    @Test
+    void databaseFailureDuringPasswordChangeAnswers503AndKeepsThePassword() throws Exception {
+        String dni = "47000002";
+        account(dni);
+        MvcResult login = login(dni, PASSWORD);
+        Cookie session = new Cookie("BRAJA_SESSION", cookieValue(login, "BRAJA_SESSION"));
+        String token = csrfToken(session);
+        for (String table : List.of("accounts", "login_throttles")) {
+            MvcResult unavailable = withTableUnavailable(table, () -> changePassword(session, token, PASSWORD));
+            assertEquals(503, unavailable.getResponse().getStatus(), table + ": " + unavailable.getResponse().getContentAsString());
+            assertEquals("AUTHENTICATION_UNAVAILABLE", body(unavailable).path("code").asText(), table);
+            assertEquals(0, count("SELECT COALESCE(SUM(failed_attempts),0) FROM login_throttles"), table);
+        }
+        assertEquals(200, login(dni, PASSWORD).getResponse().getStatus(), "The password did not change");
+    }
+
+    /** The fifth reservation sets locked_until; returning it must also return the lock. */
+    @Test
+    void releasingTheReservationThatSetTheLockRestoresFourAttemptsAndClearsTheLock() throws Exception {
+        String dni = "48000001";
+        account(dni);
+        for (int attempt = 1; attempt <= 4; attempt++) assertEquals(401, login(dni, "wrong-password").getResponse().getStatus());
+
+        MvcResult fifth = withTableUnavailable("company_memberships", () -> login(dni, PASSWORD));
+
+        assertEquals(503, fifth.getResponse().getStatus(), fifth.getResponse().getContentAsString());
+        Map<String, Object> row = jdbc.queryForMap("SELECT failed_attempts, locked_until FROM login_throttles");
+        assertEquals(4, ((Number) row.get("failed_attempts")).intValue());
+        assertNull(row.get("locked_until"), "Releasing the fifth attempt clears the lock it set");
+        assertEquals(200, login(dni, PASSWORD).getResponse().getStatus());
+    }
+
+    @Test
+    void correctPasswordWithoutActiveMembershipsIsANeutral401CountedOnlyOnTheDniThrottle() throws Exception {
+        String dni = "49000001";
+        UUID accountId = accountWithoutMembership(dni);
+        jdbc.update("INSERT INTO company_memberships(id,company_id,account_id,role,active,created_at) VALUES(?,?,?,'ADMIN',FALSE,?)",
+                UUID.randomUUID().toString(), companyId.toString(), accountId.toString(), Timestamp.from(Instant.now()));
+        for (int attempt = 1; attempt <= 5; attempt++) {
+            MvcResult rejected = login(dni, PASSWORD);
+            assertEquals(401, rejected.getResponse().getStatus());
+            assertEquals("UNAUTHORIZED", body(rejected).path("code").asText());
+            assertEquals("Invalid DNI or password", body(rejected).path("detail").asText());
+        }
+        Map<String, Object> row = jdbc.queryForMap("SELECT failed_attempts, locked_until FROM login_throttles");
+        assertEquals(5, ((Number) row.get("failed_attempts")).intValue());
+        assertNotNull(row.get("locked_until"));
+        MvcResult sixth = login(dni, PASSWORD);
+        assertEquals(429, sixth.getResponse().getStatus());
+        assertEquals("TOO_MANY_REQUESTS", body(sixth).path("code").asText());
+        assertEquals(0, count("SELECT COUNT(*) FROM login_ip_throttles"), "A correct password never counts on the IP throttle");
+    }
+
+    private MvcResult withTableUnavailable(String table, Callable<MvcResult> request) throws Exception {
+        jdbc.execute("RENAME TABLE " + table + " TO " + table + "_unavailable");
+        try {
+            return request.call();
+        } finally {
+            jdbc.execute("RENAME TABLE " + table + "_unavailable TO " + table);
+        }
+    }
+
     private void account(String dni) {
+        UUID accountId = accountWithoutMembership(dni);
+        jdbc.update("INSERT INTO company_memberships(id,company_id,account_id,role,active,created_at) VALUES(?,?,?,'ADMIN',TRUE,?)",
+                UUID.randomUUID().toString(), companyId.toString(), accountId.toString(), Timestamp.from(Instant.now()));
+    }
+
+    private UUID accountWithoutMembership(String dni) {
         UUID accountId = UUID.randomUUID();
         Timestamp now = Timestamp.from(Instant.now());
         jdbc.update("INSERT INTO accounts(id,dni_normalized,dni_display,password_hash,must_change_password,active,created_at,updated_at) VALUES(?,?,?,?,FALSE,TRUE,?,?)",
                 accountId.toString(), dni, dni, passwordHash, now, now);
-        jdbc.update("INSERT INTO company_memberships(id,company_id,account_id,role,active,created_at) VALUES(?,?,?,'ADMIN',TRUE,?)",
-                UUID.randomUUID().toString(), companyId.toString(), accountId.toString(), now);
+        return accountId;
     }
 
     private MvcResult login(String dni, String password) throws Exception {

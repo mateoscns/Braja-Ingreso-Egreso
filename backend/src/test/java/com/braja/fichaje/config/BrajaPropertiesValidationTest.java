@@ -13,6 +13,7 @@ import java.util.Base64;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -56,6 +57,18 @@ class BrajaPropertiesValidationTest {
         BrajaProperties properties = validProperties();
         properties.setTrustedProxyCidrs(List.of("10.0.0.0/8", "192.0.2.10", "fd00::/8"));
         assertDoesNotThrow(() -> properties.validate());
+    }
+
+    /** D-20261027-05: a shop's employees share one public IP; 30 typos locked the whole shop out of login (2026-10-27). */
+    @Test
+    void loginIpThrottleDefaultsToOneHundredFailuresAndIsConfigurableThroughItsEnvironmentVariable() {
+        assertEquals(100, new BrajaProperties().getLoginIpThrottleMaxFailures());
+        try (ConfigurableApplicationContext context = start("--spring.profiles.active=local")) {
+            assertEquals(100, context.getBean(BrajaProperties.class).getLoginIpThrottleMaxFailures(), "application.yml default");
+        }
+        try (ConfigurableApplicationContext context = start("--spring.profiles.active=local", "--BRAJA_LOGIN_IP_THROTTLE_MAX_FAILURES=250")) {
+            assertEquals(250, context.getBean(BrajaProperties.class).getLoginIpThrottleMaxFailures());
+        }
     }
 
     @Test

@@ -21,6 +21,10 @@ class NotificationWindowRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    /**
+     * SKIP LOCKED also skips a window whose row an uncommitted enqueue holds ({@code FOR UPDATE} in
+     * {@link JdbcDeviationNotificationOutbox}); after this commits, enqueues no longer join the window.
+     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     List<NotificationWindowLease> claimDueWindows(Instant now, int limit) {
         if (limit < 1 || limit > 100) {
@@ -103,8 +107,9 @@ class NotificationWindowRepository {
                 lease.leaseToken().toString());
     }
 
-    void scheduleRetry(NotificationWindowLease lease, Instant now, Instant nextAttemptAt, String errorCode) {
-        jdbcTemplate.update("""
+    /** Returns whether this lease still owned the window, so the caller logs a DEAD transition only once. */
+    boolean scheduleRetry(NotificationWindowLease lease, Instant now, Instant nextAttemptAt, String errorCode) {
+        return jdbcTemplate.update("""
                 UPDATE notification_windows
                 SET status = CASE WHEN attempt_count >= ? THEN 'DEAD' ELSE 'RETRY' END,
                     next_attempt_at = ?, lease_token = NULL, lease_until = NULL,
@@ -112,7 +117,7 @@ class NotificationWindowRepository {
                 WHERE id = ? AND company_id = ? AND status = 'LEASED' AND lease_token = ?
                 """, NotificationRetryPolicy.MAX_ATTEMPTS, sqlTime(nextAttemptAt), sqlTime(now),
                 safeErrorCode(errorCode), lease.id().toString(), lease.companyId().toString(),
-                lease.leaseToken().toString());
+                lease.leaseToken().toString()) == 1;
     }
 
     void removeExpiredSubscription(UUID companyId, UUID subscriptionId) {

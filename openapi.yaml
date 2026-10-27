@@ -70,6 +70,7 @@ paths:
       description: >-
         Wrong DNI, wrong password, and an account without active memberships all answer the same 401 UNAUTHORIZED.
         Every attempt counts against the DNI throttle before the password is verified (five per 15-minute window).
+        Wrong passwords also count against the client address (100 per 15-minute window by default, configurable).
         A successful login changes the session id and discards the pre-login CSRF token; the client fetches a new
         token from /csrf before its next unsafe request.
       security: []
@@ -137,6 +138,7 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/AuthenticationUnavailable' }
   /companies:
     get:
       tags: [Company]
@@ -883,7 +885,7 @@ paths:
     put:
       tags: [Push]
       summary: Register or update this ADMIN account's browser push subscription
-      description: ADMIN only. The subscription is scoped to the active company and user. Push content contains no reason, coordinates, or health category.
+      description: ADMIN only. The subscription is scoped to the active company and user; alerts are enabled per company and opening another company does not subscribe the device (D-20261027-04). Push content contains no reason, coordinates, or health category.
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
       requestBody:
@@ -910,6 +912,35 @@ paths:
                 type: object
                 required: [id]
                 properties:
+                  id: { $ref: '#/components/schemas/Id' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /push/subscriptions/current:
+    post:
+      tags: [Push]
+      summary: Tell whether this device is subscribed in the active company
+      description: ADMIN only. Read-only lookup of this account's subscription for the given browser endpoint in the active company. POST keeps the endpoint, a capability URL, out of URLs and access logs. It never registers the device.
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [endpoint]
+              properties:
+                endpoint: { type: string, format: uri, maxLength: 2048, writeOnly: true }
+      responses:
+        '200':
+          description: Subscription state for the active company; id is present only when subscribed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [subscribed]
+                properties:
+                  subscribed: { type: boolean }
                   id: { $ref: '#/components/schemas/Id' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
@@ -1237,8 +1268,9 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     AuthenticationUnavailable:
       description: >-
-        Credentials could not be checked because of an infrastructure failure (code AUTHENTICATION_UNAVAILABLE).
-        The attempt is not counted against the DNI or address throttles; the client may retry later.
+        Credentials could not be checked or the result could not be stored because of a database failure at any step
+        (throttles, account lookup, memberships, password update) (code AUTHENTICATION_UNAVAILABLE). An attempt whose
+        check did not finish is not counted against the DNI or address throttles; the client may retry later.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }

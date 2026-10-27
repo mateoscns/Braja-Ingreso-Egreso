@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "audit:prod": "node scripts/audit-check.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint . --max-warnings 0",
     "preview": "vite preview",

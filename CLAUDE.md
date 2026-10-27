@@ -267,6 +267,12 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
    `MARCA_FALTANTE` no notifican. Guarda: `chk_notification_event_type` (V8),
    `NotificationWindowPolicyTest`, `SafePushPayloadFactoryTest`,
    `Outbox.groupsByFirstEventForFiveMinutesAndReplacementKeepsOneOutboxEvent`.
+   Un desvío retirado que se reactiva vuelve a avisar; el reemplazo
+   `SIN_INGRESO` → `LLEGADA_TARDE` no (2026-10-27: el reactivado no avisaba).
+   Las alertas se activan por empresa y abrir otra empresa no suscribe el
+   dispositivo (D-20261027-04). Guarda:
+   `Outbox.reactivatedDeviationAfterSentWindowNotifiesAgainButReplacementDoesNot`,
+   `AdminPushControl.test.tsx`.
 
 ### Concurrencia y estado
 
@@ -294,7 +300,8 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     `JornadaCancellationAndMarkVoidMySqlTest.concurrentDeclarationsOfTheSameEmployeeSiteAndDateStillYieldOneJornada` (4 hilos).
     **Brecha**: falta la ráfaga de N acciones distintas sobre un empleado.
 11. **Orden único de locks**, el real: cuenta → membresía → (empleado) →
-    jornada → marcas → desvíos → estado de notificación de la empresa. Todo
+    jornada → marcas → desvíos → estado de notificación de la empresa →
+    ventana de aviso (`FOR UPDATE`; el reclamo solo toma ventanas). Todo
     camino nuevo lo respeta. `ApiExceptionHandlerTest` solo prueba que un
     fallo de lock da 409 reintentable. `[sin guarda: implementado, sin test]`
 12. **El envío de push va fuera de la transacción** (D-20261014-14). El desvío
@@ -304,11 +311,19 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     (timeout de 5 s en `VapidWebPushGateway`) y registra el resultado aparte.
     Reintento exponencial de 5 s a 1 h, `DEAD` tras 12 intentos. Garantía:
     **al menos una vez**. (Shifty, 2026-09-04: una llamada al proveedor dentro
-    del lock agotaba el pool.) Guarda: `chk_notification_window_status` (V8),
-    `NotificationRetryPolicyTest`,
+    del lock agotaba el pool.) Un evento solo se suma a una ventana `PENDING`
+    bloqueada `FOR UPDATE` hasta el commit; el `SKIP LOCKED` del reclamo la
+    saltea mientras tanto y, ya reclamada, el evento abre otra ventana
+    (2026-10-27: un evento que commiteaba tras el reclamo quedaba en una ventana
+    `SENT`). Solo 404 y 410 borran la suscripción; otro rechazo es intento
+    fallido, con WARN de estado y host; `DEAD` deja un ERROR. Guarda:
+    `chk_notification_window_status` (V8), `NotificationRetryPolicyTest`,
     `Outbox.concurrentEventsForOneCompanyShareTheFirstOpenWindow`,
-    `Outbox.partialDeliverySchedulesRetryWithStableTagAndTopic`. El
-    `SKIP LOCKED` `[sin guarda: implementado, sin test]`.
+    `Outbox.partialDeliverySchedulesRetryWithStableTagAndTopic`,
+    `Outbox.eventEnqueuedAfterItsWindowWasClaimedIsDeliveredInANewWindow`,
+    `Outbox.claimSkipsAWindowWhileAnEnqueueIntoItIsUncommittedAndThenCountsTheEvent`,
+    `Outbox.rejectedSubscriptionsAreKeptAndRetriedWhileGoneSubscriptionsAreRemoved`,
+    `Outbox.windowThatExhaustsItsAttemptsBecomesDeadAndIsLoggedOnce`.
 13. **Idempotencia de marcas en un solo lugar**: header `Idempotency-Key`
     (UUID) obligatorio; PK `(account_id, idempotency_key)` en
     `mark_idempotency`: **única por cuenta, no por empresa**, porque la cuenta
@@ -368,11 +383,23 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     transacción corta propia, y el login no lleva `@Transactional`: una
     conexión del pool por vez (2026-10-27: intentos concurrentes pasaban el
     chequeo antes de guardar fallos, y 12 logins agotaban el pool de 12). La
-    contraseña actual de `PUT /session/password` cuenta en el mismo límite. Una
-    falla de la base al autenticar da 503 `AUTHENTICATION_UNAVAILABLE` y no
-    cuenta. Guarda: `LoginHardeningMySqlTest`. Brecha: sin límite por IP, y
-    quien conoce un DNI puede bloquearlo. El límite por IP
-    `[sin guarda: destino]`.
+    contraseña actual de `PUT /session/password` cuenta en el mismo límite.
+    Cualquier falla de la base en el login o en `PUT /session/password`
+    (throttles, búsqueda de la cuenta, membresías) da 503
+    `AUTHENTICATION_UNAVAILABLE`, devuelve el intento reservado si la
+    verificación no terminó y registra la causa una vez en WARN, sin DNI,
+    contraseña ni IP (2026-10-27: solo la búsqueda de la cuenta lo hacía; el
+    resto daba 500 y dejaba el intento contado). Una contraseña errónea ya
+    verificada consume el intento aunque falle el contador por IP. Además hay
+    límite por IP (`login_ip_throttles`, HMAC de la IP): 100 fallos en 15 min
+    bloquean esa IP 15 min (D-20261027-05: los empleados de un local comparten
+    la IP pública y 30 errores bloqueaban a todo el local), configurable con
+    `BRAJA_LOGIN_IP_THROTTLE_MAX_FAILURES` (1 a 10000),
+    `BRAJA_LOGIN_IP_THROTTLE_WINDOW` y `BRAJA_LOGIN_IP_THROTTLE_LOCK_DURATION`.
+    Solo cuentan las contraseñas erróneas, no la correcta sin membresías.
+    Guarda: `LoginHardeningMySqlTest`, `LoginThrottleByIpMySqlTest`,
+    `BrajaPropertiesValidationTest.loginIpThrottleDefaultsToOneHundredFailuresAndIsConfigurableThroughItsEnvironmentVariable`.
+    Brecha: quien conoce un DNI puede bloquearlo.
 22. **Configuración de producción falla cerrada.** Hoy: ningún secreto con
     default en el repo; `EncryptionService` llama `BrajaProperties.validate()`
     y el arranque falla sin clave de salud de 32 bytes, con VAPID incompleto o
@@ -380,7 +407,12 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     CORS. Sin perfil activo, la configuración por defecto pone `Secure=true`
     en `BRAJA_SESSION`. `Secure=false` se permite únicamente si `local` es el
     único perfil activo; si no, el arranque falla. Guarda:
-    `SessionCookieSecurityStartupTest` (2026-10-19).
+    `SessionCookieSecurityStartupTest` (2026-10-19). `BRAJA_TRUSTED_PROXY_CIDRS`
+    no puede confiar en todas las direcciones IPv4 o IPv6, ni con prefijo 0 ni
+    repartidas en varios rangos (2026-10-27: `0.0.0.0/1` más `128.0.0.0/1`
+    pasaba). Un rango amplio que no cubre todo (`0.0.0.0/1`) se acepta: elegir
+    la IP real del proxy es responsabilidad del operador. Guarda:
+    `ClientAddressResolverTest.rejectsTrustedProxyRangesThatTogetherCoverAWholeAddressFamily`.
 23. **Cambios sensibles revocan acceso.** No hay `token_version`: la
     autenticación es sesión en MySQL (30 min de inactividad). Baja de
     empleado, membresía o cuenta cortan el acceso en la siguiente request
@@ -408,8 +440,9 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     401 `CURRENT_PASSWORD_INVALID`, distinto de la sesión vencida. El `traceId`
     es un UUID aleatorio, sin correlación con logs. Guarda (DNI inexistente
     contra contraseña errónea): `LoginThrottleByIpMySqlTest`; el código
-    `CURRENT_PASSWORD_INVALID`: `LoginHardeningMySqlTest`. El caso sin
-    membresías `[sin guarda: implementado, sin test]`
+    `CURRENT_PASSWORD_INVALID`: `LoginHardeningMySqlTest`; el caso sin
+    membresías (401 neutro, cuenta en el límite por DNI y no en el de IP):
+    `LoginHardeningMySqlTest.correctPasswordWithoutActiveMembershipsIsANeutral401CountedOnlyOnTheDniThrottle`.
 27. **Sin token de acceso en el front.** La sesión es la cookie `HttpOnly`
     `BRAJA_SESSION`; lo único en memoria es el token CSRF. El front no usa
     `localStorage`, `sessionStorage` ni IndexedDB (`rg` 2026-10-19). No hay
@@ -478,8 +511,13 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     Nunca se probó en un iPhone real (`docs/PENDIENTES.md`).
     `[sin guarda: destino]`
 39. **Cobertura con trinquete por capa**: hoy no se mide. `npm audit
-    --omit=dev` corre en CI; no hay `mvn dependency-check`.
-    `[sin guarda: destino]`
+    --omit=dev` corre en CI a través de `npm run audit:prod`
+    (`frontend/scripts/audit-check.mjs`): falla ante todo aviso salvo las
+    excepciones fechadas de `frontend/scripts/audit-policy.mjs`, que vencen
+    solas. Al 2026-10-27 hay una: `GHSA-gcqx-w48m-w2h4` (`deepmerge`, baja,
+    sin versión corregida, solo en la compilación), vence el 2027-01-31
+    (D-20261027-10). Guarda: `frontend/scripts/audit-policy.test.mjs`. No hay
+    `mvn dependency-check`. La cobertura `[sin guarda: destino]`.
 
 ### Tamaño y forma
 
@@ -508,7 +546,7 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
 - **Gate antes de cada push**, sin pipes: `cd backend && ./mvnw verify`
   (Windows: `.\mvnw.cmd verify`) y
   `cd frontend && npm ci && npm run lint && npm run typecheck && npm test &&
-  npm run build && npm audit --omit=dev`. `npm run build` también ejecuta
+  npm run build && npm run audit:prod`. `npm run build` también ejecuta
   `tsc -b`. No hay Spotless.
 - **CI es la verdad.** Si local pasa y CI falla, la diferencia es el bug.
   `.github/workflows/ci.yml` corre en `pull_request` y en `push` a `main`
@@ -516,7 +554,7 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
   Jobs: `backend` (Temurin 21, `./mvnw verify -B`; Testcontainers levanta
   MySQL 8.4 con el Docker del runner; 20 min) y `frontend` (Node 24: `npm ci`,
   `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`,
-  `npm audit --omit=dev`; 15 min). **Es un
+  `npm run audit:prod`; 15 min). **Es un
   check requerido**: `main` tiene protección de rama con `backend` y
   `frontend` obligatorios (D-20261019-06), sin costo porque el repo es
   público (D-20261019-02).
@@ -566,8 +604,8 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     `LOGGER.error` con traza cada 15 s.
   - N+1 en `OrganizationController.employees/templates` y
     `JornadaController.mine` (17).
-  - El límite de login es solo por DNI: con conocer un DNI se puede bloquear
-    esa cuenta; falta un límite por IP (21).
+  - Con conocer un DNI se puede bloquear esa cuenta (21); el límite por IP
+    existe (100 fallos en 15 min, D-20261027-05) pero no evita eso.
   - Primer deploy: V11 exige el procedimiento de reversa antes de volver a la
     imagen anterior, y el job crea `MARCA_FALTANTE` para toda jornada abierta
     histórica (la consulta no tiene cota de fecha; interno, sin push).
@@ -610,7 +648,7 @@ si cada clon hace `git config core.hooksPath .githooks`**. Hoy no existe
    este archivo se completaron con lo real; quedan RTO y el dominio.
 5. [~] Sacar `[sin guarda]` regla por regla. Con guarda: 2, 7, 8, 12, 13, 22
    y la máquina de estados; parcial: 1, 4, 5, 6, 9, 10, 14, 24. Siguen: 9
-   (CA8), 10 (ráfaga distinta), 21 (límite por IP), 23 (revocación tras
+   (CA8), 10 (ráfaga distinta), 23 (revocación tras
    cambio de contraseña), 28 (`Clock`), 35 (reglas para capas, ciclos y
    exports) y 36 (guarda de la separación contenedor/render).
 6. [x] Primera verificación completa del archivo contra el código:
