@@ -207,10 +207,15 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
 ### Dominio (propias de este proyecto)
 
 1. **La hora de cada marca la pone el servidor** (D-20261015-03).
-   `MarkController.MarkInput` solo trae `action`. El instante se toma en el
-   controlador antes de esperar los locks (§7). Guarda parcial:
+   `MarkController.MarkInput` solo trae `action`. El instante se toma en
+   `MarkService.recordEmployeeMark` con los locks de cuenta, membresía y jornada
+   ya tomados, y una marca anterior a otra ya guardada da 409
+   `INVALID_MARK_ORDER` (2026-10-27, #46: antes se tomaba en el controlador y una
+   marca con secuencia mayor podía tener hora menor). Guarda:
+   `TimekeepingBoundsMySqlTest.employeeMarkTimeIsTakenAfterTheJornadaLockIsReleasedByAnotherTransaction`
+   y `.employeeMarkEarlierThanTheLastStoredMarkIsRejected` (HTTP);
    `IT.identicalConcurrentRetriesPersistOneMarkAndReturnTheOriginalResponse`
-   aserta `acceptedAt`. El controlador `[sin guarda: implementado, sin test]`.
+   aserta `acceptedAt`.
 2. **La ubicación es informativa y nunca bloquea una marca**
    (D-20261014-12). Llega después (`POST /marks/{id}/location`): la marca nace
    `PENDIENTE` y pasa a `RECIBIDA` o, a los 30 s, a `SIN_UBICACION`. Guarda:
@@ -325,11 +330,15 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
 
 15. **Todo parámetro numérico de la API lleva cota inferior Y superior**:
     tolerancia y pausas (`@Min/@Max`), ubicación (`@DecimalMin/@DecimalMax`),
-    `limit` de bandeja 1–100 y rangos de fechas ≤ 366 días (a mano),
-    contraseña 12–256. Un solo lado deja un 500 alcanzable (Shifty,
-    2026-09-04: desborde con `offset`). Guarda de base: `chk_employee_tolerance`,
-    `chk_jornada_tolerance`. En la API `[sin guarda: implementado, sin test]`;
-    el `occurredAt` de marcas olvidadas o corregidas no tiene cota (§7).
+    `limit` de bandeja 1–100 y rangos de fechas de 366 días inclusive como
+    máximo en años 2000–2100 (`api/DateRanges`), contraseña 12–256. Un solo lado
+    deja un 500 alcanzable (Shifty, 2026-09-04: desborde con `offset`). Guarda de
+    base: `chk_employee_tolerance`, `chk_jornada_tolerance`. Desde 2026-10-27
+    (#46; antes se aceptaban 367 días, fechas de jornada sin año acotado y horas
+    a futuro): `DateRangesTest`; la `localDate` de una jornada declarada y el
+    `occurredAt` de marcas olvidadas o corregidas (nunca a futuro, a ≤ 24 h del
+    horario de la jornada) tienen guarda en `TimekeepingBoundsMySqlTest`. El resto
+    en la API `[sin guarda: implementado, sin test]`.
 16. **Agregados en la base**: los conteos del push salen de `GROUP BY`
     (`NotificationWindowRepository.loadSiteCounts`). No hay otros totales.
     `[sin guarda: implementado, sin test]`
@@ -552,10 +561,6 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     `OrganizationService.createEmployee` responde `ACCOUNT_INACTIVE` para una
     cuenta inactiva; al agregar una cuenta activa ya existente, devuelve su DNI
     y `mustChangePassword`. `OrganizationController` delega la operación.
-  - `occurredAt` de marcas olvidadas y corregidas por el `ADMIN` sin cota (ni
-    futuro ni ventana de la jornada).
-  - `receivedAt` se toma antes de los locks (`MarkController`): una marca con
-    secuencia mayor puede tener hora menor (D-20261015-06).
   - `rs.getDate("local_date")` en `JornadaController` depende de la zona de la
     JVM, que no está fijada.
   - Job de ausencias: un candidato que falla siempre se vuelve a elegir en
@@ -571,7 +576,8 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
   - Web Push en un iPhone real; dominio y hosting (D-20261014-16,
     `docs/PENDIENTES.md`); deploy, backup, Dockerfile, Caddy, VPS y RTO;
     acuerdo escrito con Braja sobre reuso del código con otros clientes.
-- **Cerrado**: nada todavía.
+- **Cerrado** (2026-10-27, #46): `occurredAt` de marcas olvidadas y corregidas
+  sin cota (regla 15); `receivedAt` tomado antes de los locks (regla 1).
 
 Hueco que se repite en todos los proyectos: **el pre-commit hook solo corre
 si cada clon hace `git config core.hooksPath .githooks`**. Hoy no existe

@@ -1,6 +1,7 @@
 package com.braja.fichaje.timekeeping;
 
 import com.braja.fichaje.api.ApiException;
+import com.braja.fichaje.api.DateRanges;
 import com.braja.fichaje.deviations.DeviationService;
 import com.braja.fichaje.organization.OrganizationController;
 import com.braja.fichaje.security.ScopeService;
@@ -35,6 +36,7 @@ public class JornadaController {
     @ResponseStatus(HttpStatus.CREATED)
     public JornadaView declare(Authentication auth, HttpSession session, @Valid @RequestBody DeclareJornada input) {
         var scope = scopes.requireAdmin(auth, session);
+        DateRanges.validateDate(input.localDate());
         if (!scopes.employeeHasSite(scope.companyId(), input.employeeId(), input.siteId())) throw ApiException.notFound();
         ScheduleRow schedule = jdbc.query("SELECT t.id,t.site_id,t.name,t.breakfast_limit_minutes,t.lunch_limit_minutes,s.time_zone,e.tolerance_minutes " +
                         "FROM schedule_templates t JOIN sites s ON s.id=t.site_id AND s.company_id=t.company_id " +
@@ -46,6 +48,8 @@ public class JornadaController {
                 (rs, row) -> new OrganizationController.BlockInput(rs.getInt("start_day_offset"), rs.getTime("starts_at").toLocalTime(), rs.getTime("ends_at").toLocalTime(), rs.getInt("end_day_offset")),
                 scope.companyId().toString(), input.templateId().toString());
         if (blocks.isEmpty()) throw ApiException.invalid("The selected template has no work blocks");
+        // The jornada date is the local date of its first block; templates saved before that rule may still start on day 1.
+        if (blocks.getFirst().startDayOffset() != 0) throw ApiException.invalid("The selected template's first block must start on day offset 0; update the template");
         ZoneId zone = ZoneId.of(schedule.timeZone());
         Instant start = input.localDate().plusDays(blocks.getFirst().startDayOffset()).atTime(blocks.getFirst().start()).atZone(zone).toInstant();
         OrganizationController.BlockInput last = blocks.getLast();
