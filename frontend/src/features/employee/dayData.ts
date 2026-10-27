@@ -5,8 +5,14 @@ import type { Deviation, Jornada, Site } from '../../shared/api/types'
 export type EmployeeDayData = {
   siteDates: Map<string, string>
   jornadas: Jornada[]
+  /** Deviations of the consulted local date at each site. */
   deviations: Deviation[]
+  /** MOTIVO_PENDIENTE deviations of every date (overnight and older jornadas included), scoped by the session. */
+  pendingMotives: Deviation[]
 }
+
+/** Upper bound of pending motives loaded at once; the API allows 1 to 200. */
+export const PENDING_MOTIVES_LIMIT = 100
 
 export function localCalendarDate(timeZone: string, instant = new Date()): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -39,12 +45,13 @@ export async function loadEmployeeDayData(
   const siteDates = new Map(sites.map((site) => [site.id, dateForSite(site.timeZone, selectedDate, instant)]))
   const previousDates = new Map([...siteDates].map(([siteId, localDate]) => [siteId, previousDate(localDate)]))
   const distinctDates = [...new Set([...siteDates.values(), ...(selectedDate ? [] : previousDates.values())])]
-  const [journeyPages, deviationPages] = await Promise.all([
+  const [journeyPages, deviationPages, pendingMotives] = await Promise.all([
     Promise.all(distinctDates.map((localDate) => apiClient.get<Jornada[]>(`/jornadas/mine${queryString({ localDate })}`))),
     Promise.all(sites.map((site) => {
       const localDate = siteDates.get(site.id)!
       return apiClient.get<Deviation[]>(`/deviations${queryString({ from: localDate, to: localDate, siteId: site.id })}`)
-    }))
+    })),
+    apiClient.get<Deviation[]>(`/deviations${queryString({ status: 'MOTIVO_PENDIENTE', limit: PENDING_MOTIVES_LIMIT })}`)
   ])
 
   const jornadas = new Map<string, Jornada>()
@@ -56,5 +63,5 @@ export async function loadEmployeeDayData(
   }
   const deviations = new Map<string, Deviation>()
   for (const item of deviationPages.flat()) deviations.set(item.id, item)
-  return { siteDates, jornadas: [...jornadas.values()], deviations: [...deviations.values()] }
+  return { siteDates, jornadas: [...jornadas.values()], deviations: [...deviations.values()], pendingMotives }
 }

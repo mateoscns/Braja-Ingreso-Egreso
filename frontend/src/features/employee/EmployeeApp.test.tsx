@@ -81,10 +81,12 @@ const pendingDeviation: Deviation = {
   pushEligible: true
 }
 
-function configureApi(deviations: Deviation[] = []) {
+/** Dated requests return `deviations`; GET /deviations?status=... returns `pending` (by default the dated MOTIVO_PENDIENTE ones). */
+function configureApi(deviations: Deviation[] = [], pending = deviations.filter((item) => item.status === 'MOTIVO_PENDIENTE')) {
   mocks.apiGet.mockImplementation((path: string) => {
     if (path === '/sites') return Promise.resolve(sites)
     if (path.startsWith('/jornadas/mine?')) return Promise.resolve(jornadas)
+    if (path.startsWith('/deviations?status=')) return Promise.resolve(pending)
     if (path.startsWith('/deviations?')) return Promise.resolve(deviations)
     if (path === '/jornadas/jornada-center') return Promise.resolve(jornadas[0])
     if (path === '/jornadas/jornada-north') return Promise.resolve(jornadas[1])
@@ -240,6 +242,51 @@ describe('EmployeeApp', () => {
 
     expect(await screen.findByText('A revisar')).toBeInTheDocument()
     expect(screen.queryByLabelText('Motivo')).not.toBeInTheDocument()
+  })
+
+  it('muestra motivos pendientes de otras fechas, incluida la jornada nocturna de la víspera', async () => {
+    const previousNight: Deviation = { ...pendingDeviation, id: 'deviation-night', jornadaId: 'jornada-previous-night', type: 'MARCA_FALTANTE', occurredAt: '2026-10-19T09:10:00Z' }
+    configureApi([], [previousNight])
+    render(<EmployeeApp />)
+
+    const card = (await screen.findByLabelText('Motivo')).closest('form')!
+    expect(card).toHaveTextContent('Egreso sin marcar')
+    expect(mocks.apiGet).toHaveBeenCalledWith('/deviations?status=MOTIVO_PENDIENTE&limit=100')
+    expect(screen.getByText('No hay desvíos para esta fecha.')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'Me olvidé de marcar al salir.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar motivo' }))
+    await waitFor(() => expect(mocks.apiPut).toHaveBeenCalledWith('/deviations/deviation-night/motive', { category: 'OTRA', text: 'Me olvidé de marcar al salir.' }))
+    await waitFor(() => expect(screen.queryByLabelText('Motivo')).not.toBeInTheDocument())
+  })
+
+  it('permite corregir el motivo mientras el desvío no está clasificado', async () => {
+    const underReview: Deviation = { ...pendingDeviation, status: 'PENDIENTE_REVISION', category: 'OTRA', motiveText: 'Texto anterior.' }
+    configureApi([underReview], [])
+    mocks.apiPut.mockResolvedValueOnce({ ...underReview, category: 'TRANSPORTE', motiveText: 'Paro de colectivos.' })
+    render(<EmployeeApp />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Corregir motivo' }))
+    const text = screen.getByLabelText('Motivo')
+    expect(text).toHaveValue('Texto anterior.')
+    fireEvent.change(screen.getByLabelText('Categoría'), { target: { value: 'TRANSPORTE' } })
+    fireEvent.change(text, { target: { value: 'Paro de colectivos.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar corrección' }))
+
+    await waitFor(() => expect(mocks.apiPut).toHaveBeenCalledWith('/deviations/deviation-1/motive', { category: 'TRANSPORTE', text: 'Paro de colectivos.' }))
+    expect(await screen.findByText(/Paro de colectivos\./)).toBeInTheDocument()
+    expect(screen.queryByLabelText('Motivo')).not.toBeInTheDocument()
+  })
+
+  it('no ofrece corregir un motivo ya clasificado, pero sí agregar el primero si se clasificó sin motivo', async () => {
+    configureApi([
+      { ...pendingDeviation, id: 'classified', status: 'JUSTIFICADO', category: 'OTRA', motiveText: 'Revisado.' },
+      { ...pendingDeviation, id: 'classified-empty', status: 'NO_JUSTIFICADO', category: null }
+    ], [])
+    render(<EmployeeApp />)
+
+    expect(await screen.findByRole('button', { name: 'Agregar motivo' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Corregir motivo' })).not.toBeInTheDocument()
   })
 
   it('muestra estados y horarios legibles, sin segundos, zona IANA ni fechas ISO', async () => {
