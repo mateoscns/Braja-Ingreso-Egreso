@@ -40,6 +40,6 @@ export function AdminApp() {
         {section === 'plantillas' && <TemplatesView />}
       </main>
     </div>
-    <AdminPushControl />
+    <AdminPushControl key={active.companyId} companyName={active.companyName} />
   </div>
 }

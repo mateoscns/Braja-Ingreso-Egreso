@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../shared/api/client'
-import type { PublicConfig } from '../../shared/api/types'
+import type { CurrentPushSubscription, PublicConfig } from '../../shared/api/types'
 import { PageMessage } from '../../app/ui'
 
 type SubscriptionRecord = { id: string }
@@ -14,7 +14,11 @@ function decodeVapidKey(value: string): Uint8Array {
 
 const pushSupported = () => typeof navigator !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
 
-export function AdminPushControl() {
+/**
+ * Alerts are per company (D-20261027-04): the server keeps one subscription per company, so mounting only asks
+ * whether this device is subscribed in the active company and never registers it. Remount it per company.
+ */
+export function AdminPushControl({ companyName }: { companyName: string }) {
   const [config, setConfig] = useState<PublicConfig | null>(null)
   const [subscriptionId, setSubscriptionId] = useState<string>('')
   const [enabled, setEnabled] = useState(false)
@@ -35,7 +39,7 @@ export function AdminPushControl() {
     })
     setSubscriptionId(saved.id)
     setEnabled(true)
-    setMessage('Avisos activados en este dispositivo.')
+    setMessage(`Avisos activados para ${companyName} en este dispositivo.`)
   }
 
   useEffect(() => {
@@ -58,10 +62,11 @@ export function AdminPushControl() {
       try {
         const registration = await navigator.serviceWorker.ready
         const existing = await registration.pushManager.getSubscription()
-        if (active && existing) {
-          try { await registerWithServer(existing) }
-          catch (reason) { if (active) setError(reason instanceof Error ? reason.message : 'No se pudo sincronizar el aviso.') }
-        }
+        if (!active || !existing?.endpoint) return
+        const current = await api.post<CurrentPushSubscription>('/push/subscriptions/current', { endpoint: existing.endpoint })
+        if (!active) return
+        setEnabled(current.subscribed && Boolean(current.id))
+        setSubscriptionId(current.subscribed && current.id ? current.id : '')
       } catch (reason) {
         if (active) setError(reason instanceof Error ? reason.message : 'No se pudo consultar la suscripción de avisos.')
       }
@@ -90,14 +95,12 @@ export function AdminPushControl() {
     finally { setBusy(false) }
   }
 
+  // Only this company's subscription is removed; the browser subscription stays for the other companies.
   async function deactivate() {
     setBusy(true); setError(''); setMessage('')
     try {
       if (subscriptionId) await api.delete(`/push/subscriptions/${encodeURIComponent(subscriptionId)}`)
-      const registration = await navigator.serviceWorker.ready
-      const subscription = await registration.pushManager.getSubscription()
-      if (subscription) await subscription.unsubscribe()
-      setSubscriptionId(''); setEnabled(false); setMessage('Avisos desactivados en este dispositivo.')
+      setSubscriptionId(''); setEnabled(false); setMessage(`Avisos desactivados para ${companyName} en este dispositivo.`)
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'No se pudieron desactivar los avisos.') }
     finally { setBusy(false) }
   }
@@ -116,7 +119,9 @@ export function AdminPushControl() {
     {configLoading && <PageMessage>Consultando la configuración de avisos…</PageMessage>}
     {configError && <PageMessage kind="error">{configError}</PageMessage>}
     {error && <PageMessage kind="error">{error}</PageMessage>}{message && <PageMessage kind="success">{message}</PageMessage>}
-    <div className="push-copy"><strong>Alertas en este dispositivo</strong><span>Solo avisan sobre ingresos pendientes o llegadas tarde.</span></div>
+    <div className="push-copy"><strong>Alertas en este dispositivo</strong><span>
+      {enabled ? `Activadas para ${companyName}.` : `Desactivadas para ${companyName}; cada empresa se activa por separado.`} Solo avisan sobre ingresos pendientes o llegadas tarde.
+    </span></div>
     {enabled ? <button className="button button-small button-quiet" onClick={() => void deactivate()} disabled={busy}>{busy ? 'Actualizando…' : 'Desactivar'}</button>
       : configError
         ? <button className="button button-small button-outline" onClick={retryConfig} disabled={configLoading}>Reintentar consulta</button>

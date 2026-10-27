@@ -2,6 +2,7 @@ package com.braja.fichaje.notifications;
 
 import com.braja.fichaje.config.BrajaProperties;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -40,6 +41,16 @@ public class AdminPushSubscriptionService {
     public void remove(UUID companyId, UUID adminAccountId, UUID subscriptionId) {
         requireActiveAdmin(companyId, adminAccountId);
         repository.removeOwned(companyId, adminAccountId, subscriptionId);
+    }
+
+    /** The subscription this ADMIN registered for this device endpoint in this company, if any (D-20261027-04). */
+    @Transactional(readOnly = true)
+    public Optional<UUID> findSubscription(UUID companyId, UUID adminAccountId, String endpoint) {
+        requireActiveAdmin(companyId, adminAccountId);
+        if (endpoint == null || endpoint.isBlank()) {
+            return Optional.empty();
+        }
+        return repository.findOwnedActive(companyId, adminAccountId, endpoint);
     }
 
     private void requireActiveAdmin(UUID companyId, UUID accountId) {

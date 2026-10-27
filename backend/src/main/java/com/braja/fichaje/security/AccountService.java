@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -63,27 +64,47 @@ public class AccountService {
      * Deliberately not {@code @Transactional}: each step takes one pooled connection and returns it before the next,
      * and BCrypt runs without holding any (2026-10-27: an outer transaction plus the user lookup's own connection
      * starved the pool under 12 concurrent logins). The DNI attempt is reserved before the password is verified.
+     * Any database failure answers 503 and returns a reservation whose check did not finish (2026-10-27: only the user
+     * lookup did; a failing throttle or membership query answered 500 and kept the attempt counted).
      */
     public SessionView login(String rawDni, String password, HttpServletRequest request, HttpServletResponse response) {
         String dni = DniNormalizer.normalize(rawDni);
         String clientAddress = clientAddressResolver.resolve(request);
+        AttemptState attempt = new AttemptState(dni);
+        try {
+            return authenticate(dni, password, clientAddress, attempt, request, response);
+        } catch (EmptyResultDataAccessException ex) {
+            throw ex; // a missing row is not an outage; the reservation, if any, was already settled
+        } catch (DataAccessException | org.springframework.transaction.TransactionException | AuthenticationServiceException ex) {
+            if (attempt.sessionStarted) clearSession(request, ex);
+            throw unavailable(attempt, ex);
+        }
+    }
+
+    private SessionView authenticate(String dni, String password, String clientAddress, AttemptState attempt,
+                                     HttpServletRequest request, HttpServletResponse response) {
         throttle.assertNotLocked(dni, clientAddress);
         throttle.reserveAttempt(dni);
+        attempt.held = true;
         Authentication authentication;
         try {
             authentication = authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(dni, password));
         } catch (AuthenticationServiceException ex) {
-            // 2026-10-27: a database failure was counted as a wrong password and answered "Invalid DNI or password".
-            releaseAttempt(dni);
-            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "AUTHENTICATION_UNAVAILABLE", "Authentication is temporarily unavailable");
+            throw ex; // 2026-10-27: a database failure was counted as a wrong password and answered "Invalid DNI or password".
         } catch (org.springframework.security.core.AuthenticationException ex) {
+            attempt.held = false; // a verified wrong password consumes the reservation, even if the IP update fails
             throttle.failedFromAddress(clientAddress);
             throw invalidCredentials();
         }
         UUID accountId = ((BrajaUserDetails) authentication.getPrincipal()).accountId();
         List<MembershipView> activeMemberships = memberships(accountId);
-        if (activeMemberships.isEmpty()) throw invalidCredentials(); // the reserved DNI attempt stays counted
+        if (activeMemberships.isEmpty()) {
+            attempt.held = false; // the reserved DNI attempt stays counted
+            throw invalidCredentials();
+        }
         throttle.succeeded(dni);
+        attempt.held = false;
+        attempt.sessionStarted = true;
         sessionStrategy.onAuthentication(authentication, request, response);
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(authentication);
@@ -134,26 +155,67 @@ public class AccountService {
      */
     public void changePassword(UUID accountId, String currentPassword, String newPassword, String currentSessionId) {
         if (newPassword == null || newPassword.length() < 12 || newPassword.length() > 256) throw ApiException.invalid("New password must contain between 12 and 256 characters");
-        AccountCredentials account = jdbc.queryForObject("SELECT password_hash,dni_display,dni_normalized FROM accounts WHERE id=? AND active=TRUE",
-                (rs, row) -> new AccountCredentials(rs.getString("password_hash"), rs.getString("dni_display"), rs.getString("dni_normalized")), accountId.toString());
-        throttle.reserveAttempt(account.dni());
-        if (!passwordEncoder.matches(currentPassword, account.passwordHash())) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "CURRENT_PASSWORD_INVALID", "Current password is incorrect");
+        AttemptState attempt = new AttemptState(null);
+        try {
+            AccountCredentials account = jdbc.queryForObject("SELECT password_hash,dni_display,dni_normalized FROM accounts WHERE id=? AND active=TRUE",
+                    (rs, row) -> new AccountCredentials(rs.getString("password_hash"), rs.getString("dni_display"), rs.getString("dni_normalized")), accountId.toString());
+            attempt.dni = account.dni();
+            throttle.reserveAttempt(account.dni());
+            attempt.held = true;
+            if (!passwordEncoder.matches(currentPassword, account.passwordHash())) {
+                attempt.held = false;
+                throw new ApiException(HttpStatus.UNAUTHORIZED, "CURRENT_PASSWORD_INVALID", "Current password is incorrect");
+            }
+            throttle.succeeded(account.dni());
+            attempt.held = false;
+            String newHash = passwordEncoder.encode(newPassword);
+            transactions.executeWithoutResult(status -> {
+                jdbc.update("UPDATE accounts SET password_hash=?, must_change_password=FALSE, updated_at=? WHERE id=?", newHash, Instant.now(), accountId.toString());
+                jdbc.update("DELETE FROM SPRING_SESSION WHERE PRINCIPAL_NAME=? AND SESSION_ID<>?", account.principalName(), currentSessionId);
+            });
+        } catch (EmptyResultDataAccessException ex) {
+            throw ex; // an inactive or missing account is not an outage; behaviour unchanged
+        } catch (DataAccessException | org.springframework.transaction.TransactionException ex) {
+            throw unavailable(attempt, ex);
         }
-        throttle.succeeded(account.dni());
-        String newHash = passwordEncoder.encode(newPassword);
-        transactions.executeWithoutResult(status -> {
-            jdbc.update("UPDATE accounts SET password_hash=?, must_change_password=FALSE, updated_at=? WHERE id=?", newHash, Instant.now(), accountId.toString());
-            jdbc.update("DELETE FROM SPRING_SESSION WHERE PRINCIPAL_NAME=? AND SESSION_ID<>?", account.principalName(), currentSessionId);
-        });
     }
 
-    private void releaseAttempt(String dni) {
-        try {
-            throttle.releaseAttempt(dni);
-        } catch (DataAccessException ex) {
-            LOGGER.warn("Could not release a login attempt reserved before an authentication failure", ex);
+    /**
+     * Returns a reservation whose check did not finish (best effort) and logs the cause once. The log carries no DNI,
+     * password or address; a failed release is attached to the cause as suppressed instead of logged separately.
+     */
+    private ApiException unavailable(AttemptState attempt, RuntimeException cause) {
+        boolean released = false;
+        if (attempt.held) {
+            try {
+                throttle.releaseAttempt(attempt.dni);
+                released = true;
+            } catch (RuntimeException releaseFailure) {
+                cause.addSuppressed(releaseFailure);
+            }
         }
+        LOGGER.warn("Authentication unavailable because of a database failure (reserved attempt released: {})", released, cause);
+        return new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "AUTHENTICATION_UNAVAILABLE", "Authentication is temporarily unavailable");
+    }
+
+    /** A 503 must not leave behind a session that was already authenticated before the failure. */
+    private static void clearSession(HttpServletRequest request, RuntimeException cause) {
+        SecurityContextHolder.clearContext();
+        try {
+            var session = request.getSession(false);
+            if (session != null) session.invalidate();
+        } catch (RuntimeException invalidateFailure) {
+            cause.addSuppressed(invalidateFailure);
+        }
+    }
+
+    /** What an infrastructure failure must undo: a DNI reservation still held, or a session already authenticated. */
+    private static final class AttemptState {
+        private String dni;
+        private boolean held;
+        private boolean sessionStarted;
+
+        private AttemptState(String dni) { this.dni = dni; }
     }
 
     private static ApiException invalidCredentials() {

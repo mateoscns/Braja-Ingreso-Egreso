@@ -5,9 +5,11 @@ import com.braja.fichaje.config.BrajaProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Component;
 
+import java.math.BigInteger;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -22,6 +24,26 @@ public final class ClientAddressResolver {
                 .filter(value -> value != null && !value.isBlank())
                 .map(Network::parse)
                 .toList();
+        rejectRangesCoveringEveryAddress(trustedProxies);
+    }
+
+    /**
+     * 2026-10-27: only a literal {@code /0} was rejected, so {@code 0.0.0.0/1} plus {@code 128.0.0.0/1} still trusted
+     * every peer and let any client choose its throttled address. Merges the ranges of each family, sorted by start.
+     */
+    private static void rejectRangesCoveringEveryAddress(List<Network> networks) {
+        for (int bits : new int[] {32, 128}) {
+            List<BigInteger[]> ranges = networks.stream().filter(network -> network.address().length * 8 == bits)
+                    .map(Network::range).sorted(Comparator.comparing(range -> range[0])).toList();
+            BigInteger firstUncovered = BigInteger.ZERO;
+            for (BigInteger[] range : ranges) {
+                if (range[0].compareTo(firstUncovered) > 0) break;
+                firstUncovered = firstUncovered.max(range[1].add(BigInteger.ONE));
+            }
+            if (firstUncovered.equals(BigInteger.ONE.shiftLeft(bits))) {
+                throw new IllegalStateException("BRAJA_TRUSTED_PROXY_CIDRS must not trust every address, even across several ranges");
+            }
+        }
     }
 
     public String resolve(HttpServletRequest request) {
@@ -168,6 +190,13 @@ public final class ClientAddressResolver {
             int prefix = pieces.length == 1 ? bitLength : Integer.parseInt(pieces[1]);
             if (prefix < 0 || prefix > bitLength) throw new IllegalStateException("Invalid trusted proxy CIDR prefix");
             return new Network(address.getAddress(), prefix);
+        }
+
+        /** First and last address of the network as unsigned integers. */
+        private BigInteger[] range() {
+            int hostBits = address.length * 8 - prefixLength;
+            BigInteger first = new BigInteger(1, address).shiftRight(hostBits).shiftLeft(hostBits);
+            return new BigInteger[] {first, first.add(BigInteger.ONE.shiftLeft(hostBits)).subtract(BigInteger.ONE)};
         }
 
         private boolean contains(InetAddress candidate) {
