@@ -122,7 +122,10 @@ class PasswordChangeSessionInvalidationMySqlTest {
                         .content("{\"dni\":\"" + DNI + "\",\"password\":\"" + password + "\"}"))
                 .andExpect(status().isOk())
                 .andReturn();
-        return new HttpLogin(new Cookie("BRAJA_SESSION", cookieValue(setCookieHeader(loginResponse, "BRAJA_SESSION"))), csrfToken);
+        Cookie sessionCookie = new Cookie("BRAJA_SESSION", cookieValue(setCookieHeader(loginResponse, "BRAJA_SESSION")));
+        // Login rotates the CSRF token; the authenticated session fetches its own like the PWA does.
+        MvcResult authenticatedCsrf = mockMvc.perform(get("/api/v1/csrf").cookie(sessionCookie)).andExpect(status().isOk()).andReturn();
+        return new HttpLogin(sessionCookie, objectMapper.readTree(authenticatedCsrf.getResponse().getContentAsString()).get("token").asText());
     }
 
     private String setCookieHeader(MvcResult result, String cookieName) {
