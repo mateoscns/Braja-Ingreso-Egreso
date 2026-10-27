@@ -49,7 +49,7 @@ La definición de transiciones y errores está en el contrato [openapi.yaml](../
 - Ante un desvío, el empleado elige `SALUD`, `TRANSPORTE`, `EMERGENCIA` u `OTRA` y escribe el motivo. Puede completarlo después; mientras tanto queda `MOTIVO_PENDIENTE`. La vista del empleado muestra sus motivos pendientes de cualquier fecha, incluida la jornada nocturna del día anterior.
 - Mientras el `ADMIN` no clasificó el desvío, el empleado puede corregir su motivo; después queda fijo y un nuevo envío responde 409 `MOTIVE_LOCKED`. Si el `ADMIN` clasificó sin motivo y el motivo llega después, se acepta, la clasificación se borra y el desvío vuelve a revisión. Cada envío, corrección y vuelta a revisión queda en `deviation_audits` con autor y hora, sin el texto (D-20261027-02).
 - Solo el `ADMIN` de la empresa decide si un desvío está justificado o no justificado. La bandeja permite revisar y corregir esa clasificación con auditoría.
-- Si un desvío cambia de tipo (por ejemplo `SIN_INGRESO` a `LLEGADA_TARDE`, o `MARCA_FALTANTE` a `EGRESO_TARDIO`) o un desvío retirado vuelve a activarse, su clasificación se borra y vuelve a revisión; el motivo se conserva y el cambio queda auditado (D-20261027-01).
+- Si un desvío cambia de tipo (por ejemplo `SIN_INGRESO` a `LLEGADA_TARDE`, o `MARCA_FALTANTE` a `EGRESO_TARDIO`), su clasificación se borra y vuelve a revisión; el motivo se conserva y el cambio queda auditado (D-20261027-01). Un desvío retirado que vuelve a activarse es un hecho nuevo: empieza sin motivo ni clasificación, y la clasificación borrada queda auditada.
 - La llegada tardía que reemplaza `SIN_INGRESO` actualiza el mismo desvío y su aviso; no crea un segundo evento visible.
 
 ## Ubicación y privacidad

@@ -225,8 +225,8 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
 5. **Solo `ADMIN` cambia el estado de justificación** (D-20261014-08):
    `requireAdmin` en `PUT /admin/deviations/{id}/classification`; cambiar una
    clasificación exige motivo y escribe `deviation_audits`. Si el desvío
-   cambia de tipo o se reactiva, la clasificación se borra y vuelve a
-   revisión (D-20261027-01). Guarda: `chk_deviation_classification` (V4),
+   cambia de tipo, la clasificación se borra y vuelve a revisión
+   (D-20261027-01); si se reactiva, empieza sin motivo ni clasificación. Guarda: `chk_deviation_classification` (V4),
    `DeviationRulesMySqlTest.classificationStillAuditsAndCorrectionStillNeedsAReason`
    (incluye el 403 a un empleado) y
    `DeviationRulesMySqlTest.classifiedAbsenceReplacedByLateArrivalGoesBackToReviewKeepingTheMotive`.

@@ -189,7 +189,7 @@ class DeviationRulesMySqlTest {
     }
 
     @Test
-    void reactivatedDeviationKeepsItsMotiveAndGoesBackToReview() throws Exception {
+    void reactivatedDeviationStartsWithoutMotiveAndAuditsTheClearedClassification() throws Exception {
         Instant start = Instant.now().truncatedTo(ChronoUnit.MICROS).minusSeconds(2 * 3600);
         UUID j = jornadaAt(company, employee, site, template, LocalDate.now(), start, start.plusSeconds(8 * 3600));
         UUID markId = marks.recordEmployeeMark(employeeScope, j, MarkAction.INGRESO, UUID.randomUUID(), start.plusSeconds(20 * 60)).mark().id();
@@ -204,8 +204,9 @@ class DeviationRulesMySqlTest {
         Map<String, Object> row = jdbc.queryForMap("SELECT * FROM deviations WHERE id=?", deviationId.toString());
         assertEquals(Boolean.TRUE, row.get("active"));
         assertNull(row.get("classification"));
-        assertEquals("OTRA", row.get("motive_category"));
-        assertEquals("Turno médico", row.get("motive_text"));
+        assertNull(row.get("motive_category"));
+        assertNull(row.get("motive_text"));
+        assertNull(row.get("motive_created_at"));
         assertEquals(1, count("SELECT COUNT(*) FROM deviation_audits WHERE deviation_id=? AND change_type='CLASSIFICATION_RESET' " +
                 "AND before_classification='NO_JUSTIFICADO' AND after_classification IS NULL", deviationId));
     }

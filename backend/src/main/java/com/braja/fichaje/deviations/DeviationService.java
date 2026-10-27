@@ -130,8 +130,9 @@ public class DeviationService {
                             deviationId.toString(), companyId.toString(), jornadaId.toString(), fact.markId() == null ? null : fact.markId().toString(),
                             siteId.toString(), employeeId.toString(), wanted.name(), timestamp(now), timestamp(now));
                 } else {
-                    // Reactivation follows the type-change rule (D-20261027-01): the motive stays, the classification goes back to review.
-                    jdbc.update("UPDATE deviations SET active=TRUE,source_mark_id=?,site_id=?,employee_id=?,type=?,classification=NULL,created_at=?,updated_at=? WHERE id=? AND company_id=?",
+                    // A reactivated deviation is a new fact: it starts without motive or classification, as before 2026-10-27;
+                    // the cleared classification is still audited.
+                    jdbc.update("UPDATE deviations SET active=TRUE,source_mark_id=?,site_id=?,employee_id=?,type=?,motive_category=NULL,motive_text=NULL,motive_ciphertext=NULL,motive_iv=NULL,motive_cipher_key_id=NULL,motive_author_account_id=NULL,motive_created_at=NULL,motive_purged_at=NULL,classification=NULL,created_at=?,updated_at=? WHERE id=? AND company_id=?",
                             fact.markId() == null ? null : fact.markId().toString(), siteId.toString(), employeeId.toString(), wanted.name(), timestamp(now), timestamp(now), deviationId.toString(), companyId.toString());
                 }
                 jdbc.update("INSERT INTO deviation_audits(id,company_id,deviation_id,change_type,after_type,created_at) VALUES(?,?,?,'CREATED',?,?)",
@@ -245,6 +246,9 @@ public class DeviationService {
         UUID employeeId = scopes.employeeIdFor(scope);
         if (employeeId == null || !"EMPLOYEE".equals(scope.role())) throw ApiException.forbidden();
         if (text == null || text.isBlank() || text.length() > 4000) throw ApiException.invalid("Motive text must contain 1 to 4000 characters");
+        // Lock order (CLAUDE.md §5.11): the account before the deviation, so the audit FK check on the account cannot
+        // invert the order used by recordEmployeeMark.
+        jdbc.queryForObject("SELECT id FROM accounts WHERE id=? FOR UPDATE", String.class, scope.accountId().toString());
         DeviationRow deviation = getForUpdate(scope.companyId(), deviationId);
         if (deviation == null) throw ApiException.notFound();
         if (!deviation.employeeId().equals(employeeId)) throw ApiException.notFound();
