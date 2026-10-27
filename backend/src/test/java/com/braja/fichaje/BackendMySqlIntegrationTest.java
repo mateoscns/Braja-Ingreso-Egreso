@@ -209,7 +209,9 @@ class BackendMySqlIntegrationTest {
         assertNotEquals(a.replay(), b.replay());
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM mark_events WHERE jornada_id=?", Integer.class, jornadaId.toString()));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM mark_idempotency WHERE account_id=? AND idempotency_key=?", Integer.class, accountId.toString(), key.toString()));
-        assertEquals(receivedAt, a.mark().acceptedAt());
+        // Responses carry the stored DATETIME(6) precision, so the first response and the replay agree.
+        assertEquals(receivedAt.truncatedTo(ChronoUnit.MICROS), a.mark().acceptedAt());
+        assertEquals(a.mark().acceptedAt(), b.mark().acceptedAt());
     }
 
     @Test
@@ -389,7 +391,7 @@ class BackendMySqlIntegrationTest {
 
         var late = marks.recordEmployeeMark(employeeScope, jornadaId, MarkAction.INGRESO, UUID.randomUUID(), now);
 
-        assertEquals(now, late.mark().acceptedAt());
+        assertEquals(now.truncatedTo(ChronoUnit.MICROS), late.mark().acceptedAt());
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='LLEGADA_TARDE' AND active=TRUE", Integer.class, jornadaId.toString()));
     }
 

@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -26,8 +27,8 @@ public class MarkController {
     @PostMapping("/jornadas/{jornadaId}/marks")
     public ResponseEntity<JornadaController.MarkView> record(Authentication auth, HttpSession session, @PathVariable UUID jornadaId,
             @RequestHeader("Idempotency-Key") UUID idempotencyKey, @Valid @RequestBody MarkInput input) {
-        Instant receivedAt = Instant.now();
-        var result = marks.recordEmployeeMark(scopes.require(auth, session), jornadaId, MarkAction.valueOf(input.action()), idempotencyKey, receivedAt);
+        // The service reads the server clock once the account, membership and jornada locks are held (rule 1, D-20261015-06).
+        var result = marks.recordEmployeeMark(scopes.require(auth, session), jornadaId, MarkAction.valueOf(input.action()), idempotencyKey, Clock.systemUTC());
         return ResponseEntity.status(result.replay() ? HttpStatus.OK : HttpStatus.CREATED).body(result.mark());
     }
 
@@ -60,9 +61,9 @@ public class MarkController {
     }
 
     public record MarkInput(@NotBlank String action) { }
-    public record LocationInput(@DecimalMin("-90.0") @DecimalMax("90.0") double latitude,
-                                @DecimalMin("-180.0") @DecimalMax("180.0") double longitude,
-                                @DecimalMin("0.0") @DecimalMax("100000.0") double accuracyMeters) { }
+    public record LocationInput(@NotNull @DecimalMin("-90.0") @DecimalMax("90.0") Double latitude,
+                                @NotNull @DecimalMin("-180.0") @DecimalMax("180.0") Double longitude,
+                                @NotNull @DecimalMin("0.0") @DecimalMax("100000.0") Double accuracyMeters) { }
     public record ForgottenMarkInput(@NotBlank String action, @NotNull Instant occurredAt, @NotBlank @Size(max=2000) String auditReason) { }
     public record CorrectionInput(@NotBlank String correctedAction, @NotNull Instant correctedOccurredAt, @NotBlank @Size(max=2000) String auditReason) { }
 }

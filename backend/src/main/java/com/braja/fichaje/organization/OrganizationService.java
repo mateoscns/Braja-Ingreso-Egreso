@@ -108,6 +108,14 @@ public class OrganizationService {
         validateTemplate(input);
         if (!scopes.companyHasSite(companyId, input.siteId())) throw ApiException.notFound();
         if (update) {
+            // Declared jornadas reference (template, site): moving a used template would break fk_jornada_template.
+            String currentSite = jdbc.query("SELECT site_id FROM schedule_templates WHERE id=? AND company_id=? FOR UPDATE",
+                    rs -> rs.next() ? rs.getString(1) : null, id.toString(), companyId.toString());
+            if (currentSite == null) throw ApiException.notFound();
+            if (!currentSite.equals(input.siteId().toString()) && !jdbc.queryForList("SELECT id FROM jornadas WHERE company_id=? AND template_id=? LIMIT 1",
+                    companyId.toString(), id.toString()).isEmpty()) {
+                throw ApiException.conflict("TEMPLATE_IN_USE", "A template already used by jornadas cannot move to another site; create a new template for that site");
+            }
             jdbc.update("UPDATE schedule_templates SET site_id=?,name=?,breakfast_limit_minutes=?,lunch_limit_minutes=?,active=TRUE,updated_at=? WHERE id=? AND company_id=?",
                     input.siteId().toString(), input.name().trim(), input.breakfastLimitMinutes(), input.lunchLimitMinutes(), now(), id.toString(), companyId.toString());
             jdbc.update("DELETE FROM template_blocks WHERE template_id=? AND company_id=?", id.toString(), companyId.toString());
@@ -126,6 +134,9 @@ public class OrganizationService {
     private void validateTemplate(TemplateInput input) {
         if (input.blocks() == null || input.blocks().isEmpty() || input.blocks().size() > 4) throw ApiException.invalid("A template needs one to four work blocks");
         if (input.breakfastLimitMinutes() < 0 || input.breakfastLimitMinutes() > 240 || input.lunchLimitMinutes() < 0 || input.lunchLimitMinutes() > 240) throw ApiException.invalid("Break limits must be between 0 and 240 minutes");
+        if (input.blocks().stream().anyMatch(block -> block == null || block.start() == null || block.end() == null)) throw ApiException.invalid("Every block needs a start and an end");
+        // The jornada date is the local date of its first block (openapi.yaml TemplateInput).
+        if (input.blocks().getFirst().startDayOffset() != 0) throw ApiException.invalid("The first block must start on day offset 0");
         int previousEndDay = -1;
         java.time.LocalTime previousEnd = null;
         for (BlockInput block : input.blocks()) {
@@ -156,7 +167,7 @@ public class OrganizationService {
     }
 
     private void validateSites(UUID companyId, List<UUID> siteIds, boolean requireOne) {
-        if (siteIds == null || (requireOne && siteIds.isEmpty()) || new HashSet<>(siteIds).size() != siteIds.size()) throw ApiException.invalid("At least one unique site is required");
+        if (siteIds == null || (requireOne && siteIds.isEmpty()) || siteIds.stream().anyMatch(java.util.Objects::isNull) || new HashSet<>(siteIds).size() != siteIds.size()) throw ApiException.invalid("At least one unique site is required");
         for (UUID siteId : siteIds) if (!scopes.companyHasSite(companyId, siteId)) throw ApiException.notFound();
     }
 
