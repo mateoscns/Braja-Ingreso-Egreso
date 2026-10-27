@@ -247,6 +247,12 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
    `MARCA_FALTANTE` no notifican. Guarda: `chk_notification_event_type` (V8),
    `NotificationWindowPolicyTest`, `SafePushPayloadFactoryTest`,
    `Outbox.groupsByFirstEventForFiveMinutesAndReplacementKeepsOneOutboxEvent`.
+   Un desvío retirado que se reactiva vuelve a avisar; el reemplazo
+   `SIN_INGRESO` → `LLEGADA_TARDE` no (2026-10-27: el reactivado no avisaba).
+   Las alertas se activan por empresa y abrir otra empresa no suscribe el
+   dispositivo (D-20261027-04). Guarda:
+   `Outbox.reactivatedDeviationAfterSentWindowNotifiesAgainButReplacementDoesNot`,
+   `AdminPushControl.test.tsx`.
 
 ### Concurrencia y estado
 
@@ -269,7 +275,8 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     `IT.ingresoCommittedAfterRepeatableReadSnapshotWinsAgainstAbsenceWorker`.
     **Brecha**: falta la ráfaga de N acciones distintas sobre un empleado.
 11. **Orden único de locks**, el real: cuenta → membresía → (empleado) →
-    jornada → marcas → desvíos → estado de notificación de la empresa. Todo
+    jornada → marcas → desvíos → estado de notificación de la empresa →
+    ventana de aviso (`FOR UPDATE`; el reclamo solo toma ventanas). Todo
     camino nuevo lo respeta. `ApiExceptionHandlerTest` solo prueba que un
     fallo de lock da 409 reintentable. `[sin guarda: implementado, sin test]`
 12. **El envío de push va fuera de la transacción** (D-20261014-14). El desvío
@@ -279,11 +286,19 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     (timeout de 5 s en `VapidWebPushGateway`) y registra el resultado aparte.
     Reintento exponencial de 5 s a 1 h, `DEAD` tras 12 intentos. Garantía:
     **al menos una vez**. (Shifty, 2026-09-04: una llamada al proveedor dentro
-    del lock agotaba el pool.) Guarda: `chk_notification_window_status` (V8),
-    `NotificationRetryPolicyTest`,
+    del lock agotaba el pool.) Un evento solo se suma a una ventana `PENDING`
+    bloqueada `FOR UPDATE` hasta el commit; el `SKIP LOCKED` del reclamo la
+    saltea mientras tanto y, ya reclamada, el evento abre otra ventana
+    (2026-10-27: un evento que commiteaba tras el reclamo quedaba en una ventana
+    `SENT`). Solo 404 y 410 borran la suscripción; otro rechazo es intento
+    fallido, con WARN de estado y host; `DEAD` deja un ERROR. Guarda:
+    `chk_notification_window_status` (V8), `NotificationRetryPolicyTest`,
     `Outbox.concurrentEventsForOneCompanyShareTheFirstOpenWindow`,
-    `Outbox.partialDeliverySchedulesRetryWithStableTagAndTopic`. El
-    `SKIP LOCKED` `[sin guarda: implementado, sin test]`.
+    `Outbox.partialDeliverySchedulesRetryWithStableTagAndTopic`,
+    `Outbox.eventEnqueuedAfterItsWindowWasClaimedIsDeliveredInANewWindow`,
+    `Outbox.claimSkipsAWindowWhileAnEnqueueIntoItIsUncommittedAndThenCountsTheEvent`,
+    `Outbox.rejectedSubscriptionsAreKeptAndRetriedWhileGoneSubscriptionsAreRemoved`,
+    `Outbox.windowThatExhaustsItsAttemptsBecomesDeadAndIsLoggedOnce`.
 13. **Idempotencia de marcas en un solo lugar**: header `Idempotency-Key`
     (UUID) obligatorio; PK `(account_id, idempotency_key)` en
     `mark_idempotency`: **única por cuenta, no por empresa**, porque la cuenta
