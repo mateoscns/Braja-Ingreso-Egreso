@@ -855,8 +855,8 @@ components:
         displayName:
           type: string
           description: >-
-            Name of the person in the active company (employees.display_name). Omitted when none is stored, which is the case for
-            an ADMIN without an employee row: ADMIN accounts and memberships persist no name.
+            Name of the person in the active company: employees.display_name, else the name stored on the ADMIN membership
+            (set by the first-admin bootstrap). Omitted when neither is stored.
     Membership:
       type: object
       required: [companyId, companyName, role]
