@@ -13,7 +13,7 @@ function report(...advisories) {
   }
   // A dependent package lists the vulnerable one by name only; it must not count as a second advisory.
   vulnerabilities['workbox-build'] = { severity: 'low', via: ['@rollup/plugin-node-resolve'] }
-  return { vulnerabilities }
+  return { auditReportVersion: 2, vulnerabilities, metadata: { vulnerabilities: { total: Object.keys(vulnerabilities).length } } }
 }
 
 describe('evaluateAudit', () => {
@@ -36,13 +36,27 @@ describe('evaluateAudit', () => {
     expect(result.failures).toHaveLength(1)
   })
 
+  it('does not let the allowed package hide the same advisory on another package', () => {
+    const result = evaluateAudit(report(
+      { id: 'GHSA-gcqx-w48m-w2h4', name: 'deepmerge', severity: 'low', title: 'prototype poisoning' },
+      { id: 'GHSA-gcqx-w48m-w2h4', name: 'zz-merge', severity: 'high', title: 'copy' }
+    ), '2026-10-27', allowed)
+    expect(result.failures.map((failure) => failure.packageName)).toEqual(['zz-merge'])
+  })
+
+  it('fails closed on an unknown report format or unreadable advisories', () => {
+    expect(evaluateAudit({ advisories: { 1: {} } }, '2026-10-27', allowed).failures).toHaveLength(1)
+    const onlyNames = { auditReportVersion: 2, vulnerabilities: { x: { via: ['y'] } }, metadata: { vulnerabilities: { total: 1 } } }
+    expect(evaluateAudit(onlyNames, '2026-10-27', allowed).failures[0].id).toBe('unparsed-advisories')
+  })
+
   it('fails once the allowance has expired', () => {
     const result = evaluateAudit(report({ id: 'GHSA-gcqx-w48m-w2h4', name: 'deepmerge', severity: 'low', title: 'prototype poisoning' }), '2027-02-01', allowed)
     expect(result.failures[0].why).toBe('allowance expired on 2027-01-31')
   })
 
   it('passes a clean report and lists the allowance as no longer needed', () => {
-    const result = evaluateAudit({ vulnerabilities: {} }, '2026-10-27', allowed)
+    const result = evaluateAudit({ auditReportVersion: 2, vulnerabilities: {}, metadata: { vulnerabilities: { total: 0 } } }, '2026-10-27', allowed)
     expect(result.failures).toEqual([])
     expect(result.unused).toEqual(['GHSA-gcqx-w48m-w2h4'])
   })
