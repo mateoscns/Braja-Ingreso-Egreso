@@ -129,12 +129,14 @@ class BootstrapAdminNameMySqlTest {
         String csrf = json(csrfResponse).get("token").asText();
         String anonymous = csrfResponse.getResponse().getHeaders("Set-Cookie").stream().filter(h -> h.startsWith("BRAJA_SESSION=")).findFirst().orElseThrow()
                 .split(";", 2)[0].substring("BRAJA_SESSION=".length());
-        lastCsrf = csrf;
-        return mockMvc.perform(post("/api/v1/session")
+        MvcResult login = mockMvc.perform(post("/api/v1/session")
                         .cookie(new Cookie("BRAJA_SESSION", anonymous), new Cookie("BRAJA_CSRF", csrf))
                         .header("X-CSRF-TOKEN", csrf).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"dni\":\"" + dni + "\",\"password\":\"" + PASSWORD + "\"}"))
                 .andExpect(status().isOk()).andReturn();
+        // Login rotates the CSRF token; the authenticated session fetches its own like the PWA does.
+        lastCsrf = json(mockMvc.perform(get("/api/v1/csrf").cookie(sessionCookie(login))).andExpect(status().isOk()).andReturn()).get("token").asText();
+        return login;
     }
 
     private Cookie sessionCookie(MvcResult login) {

@@ -45,6 +45,19 @@ class BrajaPropertiesValidationTest {
         assertDoesNotThrow(() -> properties.validate(productionProfile));
     }
 
+    /** 2026-10-27: 0.0.0.0/0 was accepted, trusting X-Forwarded-For from every peer and voiding the IP throttle. */
+    @Test
+    void trustedProxyCidrsWithAZeroPrefixAreRejected() {
+        for (String everything : List.of("0.0.0.0/0", "::/0", " 10.0.0.0/0 ", "192.0.2.0/00")) {
+            BrajaProperties properties = validProperties();
+            properties.setTrustedProxyCidrs(List.of("192.0.2.10/32", everything));
+            assertThrows(IllegalStateException.class, properties::validate, everything);
+        }
+        BrajaProperties properties = validProperties();
+        properties.setTrustedProxyCidrs(List.of("10.0.0.0/8", "192.0.2.10", "fd00::/8"));
+        assertDoesNotThrow(() -> properties.validate());
+    }
+
     @Test
     void loginIpThrottleKeyMustBeConfiguredSeparatelyFromHealthEncryptionKey() {
         BrajaProperties properties = validProperties();
