@@ -204,7 +204,7 @@ public class MarkService {
     }
 
     /**
-     * D-20261027-07: cancels a declared jornada that has no mark at all (a voided mark still counts as a mark). The jornada lock
+     * D-20261027-07: cancels a declared jornada that has no valid mark (voided marks do not count and stay visible). The jornada lock
      * is taken first, then its marks and deviations (CLAUDE.md §5.11); its active deviations are retracted and audited.
      */
     @Transactional

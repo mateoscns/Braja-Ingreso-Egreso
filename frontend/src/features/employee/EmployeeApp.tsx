@@ -2,14 +2,14 @@ import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent } from '
 import { AppHeader, CompanySwitcher, Empty, FormField, Loading, PageMessage, Panel } from '../../app/ui'
 import { useSession } from '../../app/session'
 import { ApiError, api } from '../../shared/api/client'
-import type { Deviation, Jornada, JornadaStatus, Site } from '../../shared/api/types'
+import type { Deviation, Jornada, Site } from '../../shared/api/types'
 import { createMarkAttempt, submitMark, type MarkAction, type MarkAttempt, type MarkReceipt } from './markFlow'
 import { loadEmployeeDayData } from './dayData'
 import { InstallControl } from '../../device/pwa/InstallControl'
 import { formatBlock, formatDateTime, formatLocalDate, jornadaStateLabel } from '../../shared/format'
 
 const localTime = formatDateTime
-const stateLabel = (state: JornadaStatus) => state === 'CANCELADA' ? 'Cancelada' : jornadaStateLabel(state)
+const stateLabel = jornadaStateLabel
 const actionLabel: Record<MarkAction, string> = {
   INGRESO: 'Registrar ingreso', EGRESO: 'Registrar egreso', SALIDA_DESAYUNO: 'Salir a desayuno', VUELTA_DESAYUNO: 'Volver de desayuno',
   SALIDA_ALMUERZO: 'Salir a almuerzo', VUELTA_ALMUERZO: 'Volver de almuerzo'

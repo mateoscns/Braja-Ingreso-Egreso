@@ -1,13 +1,14 @@
-import type { JornadaState, TemplateBlock } from './api/types'
+import type { JornadaStatus, TemplateBlock } from './api/types'
 
-const STATE_LABELS: Record<JornadaState, string> = {
+const STATE_LABELS: Record<JornadaStatus, string> = {
   NO_INGRESO: 'Sin ingreso',
   EN_CURSO: 'En curso',
   PAUSA_ABIERTA: 'En pausa',
-  EGRESADA: 'Finalizada'
+  EGRESADA: 'Finalizada',
+  CANCELADA: 'Cancelada'
 }
 
-export function jornadaStateLabel(state: JornadaState): string {
+export function jornadaStateLabel(state: JornadaStatus): string {
   return STATE_LABELS[state] ?? state
 }
 

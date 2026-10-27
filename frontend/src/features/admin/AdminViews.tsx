@@ -403,6 +403,11 @@ export function JourneysView() {
       await api.post<Mark>(`/admin/marks/${encodeURIComponent(mark.id)}/void`, { reason: voidReason.trim() })
       setVoidingMarkId(''); setVoidReason(''); setNotice('Marca anulada.'); await showDetail(detail.id)
     } catch (reason) {
+      // A retry whose first attempt committed (response lost) answers MARK_VOIDED: the void is done, show it as done.
+      if ((reason as { code?: string } | null)?.code === 'MARK_VOIDED') {
+        setVoidingMarkId(''); setVoidReason(''); setNotice('La marca ya estaba anulada.'); await showDetail(detail.id)
+        return
+      }
       // The server reuses INVALID_MARK_HISTORY; for a void it means the marks left would not form a valid jornada.
       setError((reason as { code?: string } | null)?.code === 'INVALID_MARK_HISTORY'
         ? 'No se puede anular esa marca: las marcas que quedan no forman una jornada válida (por ejemplo, un ingreso con marcas posteriores). Anulá o corregí antes las posteriores.'
@@ -419,7 +424,13 @@ export function JourneysView() {
       await api.post(`/admin/jornadas/${encodeURIComponent(jornadaId)}/cancellation`, { reason: cancelReason.trim() })
       setCancelOpen(false); setCancelReason(''); setNotice('Jornada cancelada.')
       await loadJourneys(date, true); await showDetail(jornadaId)
-    } catch (reason) { setError(errText(reason)) } finally { setMarkBusy('') }
+    } catch (reason) {
+      // A retry whose first attempt committed answers JORNADA_CANCELLED: the cancellation is done, show it as done.
+      if ((reason as { code?: string } | null)?.code === 'JORNADA_CANCELLED') {
+        setCancelOpen(false); setCancelReason(''); setNotice('La jornada ya estaba cancelada.')
+        await loadJourneys(date, true); await showDetail(jornadaId)
+      } else setError(errText(reason))
+    } finally { setMarkBusy('') }
   }
   function changeDate(value: string) {
     setDate(value)

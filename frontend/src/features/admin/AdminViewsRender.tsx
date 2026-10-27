@@ -1,9 +1,9 @@
 import { Fragment, type FormEvent } from 'react'
 import { Empty, FormField, Loading, PageMessage, Panel } from '../../app/ui'
-import type { Deviation, Employee, Jornada, JornadaStatus, JornadaSummary, Mark, MarkAction, Site, Template, TemplateBlock } from '../../shared/api/types'
+import type { Deviation, Employee, Jornada, JornadaSummary, Mark, MarkAction, Site, Template, TemplateBlock } from '../../shared/api/types'
 import { formatBlock, formatDateTime, formatLocalDate, jornadaStateLabel } from '../../shared/format'
 
-const stateLabel = (state: JornadaStatus) => state === 'CANCELADA' ? 'Cancelada' : jornadaStateLabel(state)
+const stateLabel = jornadaStateLabel
 
 export type DeviationClassification = 'JUSTIFICADO' | 'NO_JUSTIFICADO'
 export type JourneyRow = Pick<Jornada, 'id' | 'employeeId' | 'siteId' | 'localDate' | 'state'>

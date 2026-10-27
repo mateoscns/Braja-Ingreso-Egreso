@@ -661,6 +661,32 @@ describe('administración de desvíos y marcas', () => {
       expect(await screen.findByText('Marca anulada.')).toBeInTheDocument()
     })
 
+    it('un reintento de anulación ya aplicada se muestra como hecho y recarga el detalle', async () => {
+      apiMocks.post.mockRejectedValue(Object.assign(new Error('conflict'), { status: 409, code: 'MARK_VOIDED' }))
+      render(<JourneysView />)
+      fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
+      const markRow = await screen.findByRole('row', { name: /Ingreso/ })
+      fireEvent.click(within(markRow).getByRole('button', { name: /^Anular marca Ingreso de/ }))
+      fireEvent.change(screen.getByLabelText('Motivo de anulación'), { target: { value: 'Tocó por error.' } })
+      const detailCalls = apiMocks.get.mock.calls.filter(([path]) => path === '/jornadas/j-1').length
+      fireEvent.click(screen.getByRole('button', { name: 'Confirmar anulación' }))
+
+      expect(await screen.findByText('La marca ya estaba anulada.')).toBeInTheDocument()
+      await waitFor(() => expect(apiMocks.get.mock.calls.filter(([path]) => path === '/jornadas/j-1').length).toBeGreaterThan(detailCalls))
+    })
+
+    it('un reintento de cancelación ya aplicada se muestra como hecho', async () => {
+      withDetail({ state: 'NO_INGRESO', marks: [] })
+      apiMocks.post.mockRejectedValue(Object.assign(new Error('conflict'), { status: 409, code: 'JORNADA_CANCELLED' }))
+      render(<JourneysView />)
+      fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancelar jornada' }))
+      fireEvent.change(screen.getByLabelText('Motivo de cancelación'), { target: { value: 'Feriado' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirmar cancelación' }))
+
+      expect(await screen.findByText('La jornada ya estaba cancelada.')).toBeInTheDocument()
+    })
+
     it('muestra una marca anulada como Anulada, con su motivo y sin acciones', async () => {
       withDetail({ marks: [{ ...jornada.marks[0], voided: true, voidedAt: '2026-10-16T13:00:00Z', voidReason: 'Tocó por error.' }] })
       render(<JourneysView />)

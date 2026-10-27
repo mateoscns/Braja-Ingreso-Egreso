@@ -30,7 +30,7 @@ export type Mark = {
   voided?: boolean; voidedAt?: string | null; voidReason?: string | null
 }
 export type JornadaState = 'NO_INGRESO' | 'EN_CURSO' | 'PAUSA_ABIERTA' | 'EGRESADA'
-/** JornadaState plus CANCELADA (D-20261027-07): a cancelled jornada never had marks and accepts none. */
+/** JornadaState plus CANCELADA (D-20261027-07): a cancelled jornada has no valid marks (voided ones may remain) and accepts none. */
 export type JornadaStatus = JornadaState | 'CANCELADA'
 export type Jornada = {
   id: Id; employeeId: Id; siteId: Id; localDate: string; state: JornadaStatus; scheduleSnapshot: TemplateInput;
