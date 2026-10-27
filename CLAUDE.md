@@ -498,8 +498,13 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     Nunca se probó en un iPhone real (`docs/PENDIENTES.md`).
     `[sin guarda: destino]`
 39. **Cobertura con trinquete por capa**: hoy no se mide. `npm audit
-    --omit=dev` corre en CI; no hay `mvn dependency-check`.
-    `[sin guarda: destino]`
+    --omit=dev` corre en CI a través de `npm run audit:prod`
+    (`frontend/scripts/audit-check.mjs`): falla ante todo aviso salvo las
+    excepciones fechadas de `frontend/scripts/audit-policy.mjs`, que vencen
+    solas. Al 2026-10-27 hay una: `GHSA-gcqx-w48m-w2h4` (`deepmerge`, baja,
+    sin versión corregida, solo en la compilación), vence el 2027-01-31
+    (D-20261027-10). Guarda: `frontend/scripts/audit-policy.test.mjs`. No hay
+    `mvn dependency-check`. La cobertura `[sin guarda: destino]`.
 
 ### Tamaño y forma
 
@@ -528,7 +533,7 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
 - **Gate antes de cada push**, sin pipes: `cd backend && ./mvnw verify`
   (Windows: `.\mvnw.cmd verify`) y
   `cd frontend && npm ci && npm run lint && npm run typecheck && npm test &&
-  npm run build && npm audit --omit=dev`. `npm run build` también ejecuta
+  npm run build && npm run audit:prod`. `npm run build` también ejecuta
   `tsc -b`. No hay Spotless.
 - **CI es la verdad.** Si local pasa y CI falla, la diferencia es el bug.
   `.github/workflows/ci.yml` corre en `pull_request` y en `push` a `main`
@@ -536,7 +541,7 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
   Jobs: `backend` (Temurin 21, `./mvnw verify -B`; Testcontainers levanta
   MySQL 8.4 con el Docker del runner; 20 min) y `frontend` (Node 24: `npm ci`,
   `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`,
-  `npm audit --omit=dev`; 15 min). **Es un
+  `npm run audit:prod`; 15 min). **Es un
   check requerido**: `main` tiene protección de rama con `backend` y
   `frontend` obligatorios (D-20261019-06), sin costo porque el repo es
   público (D-20261019-02).
