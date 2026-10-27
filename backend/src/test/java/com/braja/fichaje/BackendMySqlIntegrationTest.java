@@ -1216,7 +1216,12 @@ class BackendMySqlIntegrationTest {
         assertTrue(sessionCookieHeader.toLowerCase().contains("httponly"),
                 "Authenticated session cookie must be HttpOnly");
         String sessionId = cookieValue(sessionCookieHeader);
-        return new HttpLogin(new Cookie("BRAJA_SESSION", sessionId), csrfToken);
+        Cookie sessionCookie = new Cookie("BRAJA_SESSION", sessionId);
+        // Login rotates the CSRF token, so the authenticated session fetches a new one like the PWA does.
+        MvcResult authenticatedCsrf = mockMvc.perform(get("/api/v1/csrf").cookie(sessionCookie)).andExpect(status().isOk()).andReturn();
+        String authenticatedToken = objectMapper.readTree(authenticatedCsrf.getResponse().getContentAsString()).get("token").asText();
+        assertNotEquals(csrfToken, authenticatedToken, "Login must rotate the CSRF token");
+        return new HttpLogin(sessionCookie, authenticatedToken);
     }
 
     private MvcResult adminWrite(HttpLogin login, MockHttpServletRequestBuilder request, String body) throws Exception {

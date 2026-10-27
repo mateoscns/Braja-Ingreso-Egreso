@@ -94,6 +94,21 @@ public class BrajaProperties {
                 throw new IllegalStateException("BRAJA_PUSH_SUBSCRIPTION_ENCRYPTION_KEY_BASE64 must decode to 32 bytes when push is enabled");
             }
         }
+        // 2026-10-27: 0.0.0.0/0 was accepted; trusting every peer lets any client choose its throttled address.
+        if (trustedProxyCidrs != null && trustedProxyCidrs.stream().filter(BrajaProperties::nonBlank).anyMatch(BrajaProperties::hasZeroPrefix)) {
+            throw new IllegalStateException("BRAJA_TRUSTED_PROXY_CIDRS must not trust every address (prefix length 0)");
+        }
+    }
+
+    private static boolean hasZeroPrefix(String cidr) {
+        int slash = cidr.indexOf('/');
+        if (slash < 0) return false;
+        String prefix = cidr.substring(slash + 1).trim();
+        try {
+            return Integer.parseInt(prefix) <= 0;
+        } catch (NumberFormatException ex) {
+            return false;
+        }
     }
 
     public void validate(Environment environment) {

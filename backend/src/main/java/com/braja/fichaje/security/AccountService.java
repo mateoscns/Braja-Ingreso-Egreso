@@ -4,9 +4,13 @@ import com.braja.fichaje.api.ApiException;
 import com.braja.fichaje.config.BrajaProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.AuthenticationServiceException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
@@ -16,15 +20,17 @@ import org.springframework.security.web.authentication.session.SessionAuthentica
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 
 @Service
 public class AccountService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(AccountService.class);
     private final JdbcTemplate jdbc;
+    private final TransactionTemplate transactions;
     private final AuthenticationManager authenticationManager;
     private final PasswordEncoder passwordEncoder;
     private final CurrentActor currentActor;
@@ -38,8 +44,10 @@ public class AccountService {
     public AccountService(JdbcTemplate jdbc, AuthenticationManager authenticationManager, PasswordEncoder passwordEncoder,
                           CurrentActor currentActor, SessionAuthenticationStrategy sessionStrategy,
                           SecurityContextRepository contextRepository, CsrfTokenRepository csrfRepository,
-                          BrajaProperties properties, LoginThrottleService throttle, ClientAddressResolver clientAddressResolver) {
+                          BrajaProperties properties, LoginThrottleService throttle, ClientAddressResolver clientAddressResolver,
+                          PlatformTransactionManager transactionManager) {
         this.jdbc = jdbc;
+        this.transactions = new TransactionTemplate(transactionManager);
         this.authenticationManager = authenticationManager;
         this.passwordEncoder = passwordEncoder;
         this.currentActor = currentActor;
@@ -51,23 +59,30 @@ public class AccountService {
         this.clientAddressResolver = clientAddressResolver;
     }
 
-    @Transactional
+    /**
+     * Deliberately not {@code @Transactional}: each step takes one pooled connection and returns it before the next,
+     * and BCrypt runs without holding any (2026-10-27: an outer transaction plus the user lookup's own connection
+     * starved the pool under 12 concurrent logins). The DNI attempt is reserved before the password is verified.
+     */
     public SessionView login(String rawDni, String password, HttpServletRequest request, HttpServletResponse response) {
         String dni = DniNormalizer.normalize(rawDni);
         String clientAddress = clientAddressResolver.resolve(request);
         throttle.assertNotLocked(dni, clientAddress);
+        throttle.reserveAttempt(dni);
         Authentication authentication;
         try {
             authentication = authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(dni, password));
+        } catch (AuthenticationServiceException ex) {
+            // 2026-10-27: a database failure was counted as a wrong password and answered "Invalid DNI or password".
+            releaseAttempt(dni);
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "AUTHENTICATION_UNAVAILABLE", "Authentication is temporarily unavailable");
         } catch (org.springframework.security.core.AuthenticationException ex) {
-            throttle.failed(dni, clientAddress);
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Invalid DNI or password");
+            throttle.failedFromAddress(clientAddress);
+            throw invalidCredentials();
         }
         UUID accountId = ((BrajaUserDetails) authentication.getPrincipal()).accountId();
         List<MembershipView> activeMemberships = memberships(accountId);
-        if (activeMemberships.isEmpty()) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Invalid DNI or password");
-        }
+        if (activeMemberships.isEmpty()) throw invalidCredentials(); // the reserved DNI attempt stays counted
         throttle.succeeded(dni);
         sessionStrategy.onAuthentication(authentication, request, response);
         SecurityContext context = SecurityContextHolder.createEmptyContext();
@@ -112,14 +127,37 @@ public class AccountService {
                 (rs, row) -> new MembershipView(UUID.fromString(rs.getString("company_id")), rs.getString("name"), rs.getString("role")), accountId.toString());
     }
 
-    @Transactional
+    /**
+     * The current password counts against the same DNI throttle as login (2026-10-27: it had no attempt limit), and a
+     * wrong one answers {@code CURRENT_PASSWORD_INVALID} so the client does not mistake it for an expired session.
+     * Like login, the throttle and BCrypt run outside the transaction that writes the new password.
+     */
     public void changePassword(UUID accountId, String currentPassword, String newPassword, String currentSessionId) {
         if (newPassword == null || newPassword.length() < 12 || newPassword.length() > 256) throw ApiException.invalid("New password must contain between 12 and 256 characters");
-        AccountCredentials account = jdbc.queryForObject("SELECT password_hash,dni_display FROM accounts WHERE id=? AND active=TRUE",
-                (rs, row) -> new AccountCredentials(rs.getString("password_hash"), rs.getString("dni_display")), accountId.toString());
-        if (!passwordEncoder.matches(currentPassword, account.passwordHash())) throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Current password is incorrect");
-        jdbc.update("UPDATE accounts SET password_hash=?, must_change_password=FALSE, updated_at=? WHERE id=?", passwordEncoder.encode(newPassword), Instant.now(), accountId.toString());
-        jdbc.update("DELETE FROM SPRING_SESSION WHERE PRINCIPAL_NAME=? AND SESSION_ID<>?", account.principalName(), currentSessionId);
+        AccountCredentials account = jdbc.queryForObject("SELECT password_hash,dni_display,dni_normalized FROM accounts WHERE id=? AND active=TRUE",
+                (rs, row) -> new AccountCredentials(rs.getString("password_hash"), rs.getString("dni_display"), rs.getString("dni_normalized")), accountId.toString());
+        throttle.reserveAttempt(account.dni());
+        if (!passwordEncoder.matches(currentPassword, account.passwordHash())) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "CURRENT_PASSWORD_INVALID", "Current password is incorrect");
+        }
+        throttle.succeeded(account.dni());
+        String newHash = passwordEncoder.encode(newPassword);
+        transactions.executeWithoutResult(status -> {
+            jdbc.update("UPDATE accounts SET password_hash=?, must_change_password=FALSE, updated_at=? WHERE id=?", newHash, Instant.now(), accountId.toString());
+            jdbc.update("DELETE FROM SPRING_SESSION WHERE PRINCIPAL_NAME=? AND SESSION_ID<>?", account.principalName(), currentSessionId);
+        });
+    }
+
+    private void releaseAttempt(String dni) {
+        try {
+            throttle.releaseAttempt(dni);
+        } catch (DataAccessException ex) {
+            LOGGER.warn("Could not release a login attempt reserved before an authentication failure", ex);
+        }
+    }
+
+    private static ApiException invalidCredentials() {
+        return new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Invalid DNI or password");
     }
 
     public void invalidateSession(HttpServletRequest request, HttpServletResponse response) {
@@ -133,5 +171,5 @@ public class AccountService {
     public record MembershipView(UUID companyId, String companyName, String role) { }
     public record SessionView(UUID accountId, String dni, List<MembershipView> memberships, UUID activeCompanyId, boolean mustChangePassword, String displayName) { }
     private record AccountRow(UUID id, String dni, boolean mustChangePassword) { }
-    private record AccountCredentials(String passwordHash, String principalName) { }
+    private record AccountCredentials(String passwordHash, String principalName, String dni) { }
 }
