@@ -33,7 +33,7 @@ function previousDate(localDate: string): string {
 }
 
 function isOpenOvernight(jornada: Jornada): boolean {
-  return jornada.state !== 'EGRESADA' && jornada.scheduleSnapshot.blocks.some((block) => block.endDayOffset === 1)
+  return jornada.state !== 'EGRESADA' && jornada.state !== 'CANCELADA' && jornada.scheduleSnapshot.blocks.some((block) => block.endDayOffset === 1)
 }
 
 export async function loadEmployeeDayData(

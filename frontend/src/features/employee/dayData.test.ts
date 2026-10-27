@@ -97,6 +97,21 @@ describe('motivos pendientes de cualquier fecha', () => {
     expect(data.pendingMotives.map((item) => item.id)).toEqual(['d-overnight', 'd-old'])
   })
 
+  it('no continúa una jornada nocturna de la víspera que fue cancelada', async () => {
+    const overnight = {
+      id: 'j-overnight', siteId: 's-east', localDate: '2026-10-15', state: 'CANCELADA',
+      scheduleSnapshot: { blocks: [{ startDayOffset: 0, start: '22:00', end: '06:00', endDayOffset: 1 }] }
+    } as Jornada
+    const get = vi.fn(async (path: string) => {
+      if (path === '/jornadas/mine?localDate=2026-10-15') return [overnight] as Jornada[]
+      if (path.startsWith('/jornadas/mine?')) return [] as Jornada[]
+      if (path.startsWith('/deviations?')) return [] as Deviation[]
+      throw new Error(`GET inesperado: ${path}`)
+    })
+    const data = await loadEmployeeDayData({ get: get as unknown as ApiClient['get'] }, sites, '', instant)
+    expect(data.jornadas).toEqual([])
+  })
+
   it('también los pide cuando se consulta una fecha elegida', async () => {
     const get = vi.fn(async (path: string) => {
       if (path.startsWith('/jornadas/mine?')) return [] as Jornada[]

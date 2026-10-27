@@ -76,6 +76,7 @@ public class MarkService {
         Optional<UUID> previous = findIdempotent(scope.accountId(), idempotencyKey, fingerprint);
         // A replay answers the current state of that mark (it may have been corrected by an ADMIN since).
         if (previous.isPresent()) return new MarkResult(getMark(scope, previous.get()), true);
+        requireNotCancelled(jornada);
 
         validateMarkTime(jornada, action, receivedAt);
 
@@ -113,18 +114,18 @@ public class MarkService {
         return new MarkResult(view, false);
     }
 
+    /** The current state of a mark, voided or not (same mapping as the jornada views); coordinates and void details are ADMIN-only. */
     @Transactional(readOnly = true)
     public JornadaController.MarkView getMark(ScopeService.Scope scope, UUID markId) {
-        MarkRow mark = jdbc.query("SELECT m.id,m.jornada_id,m.action,m.sequence_number,m.accepted_at,m.occurred_at,m.recorded_at,m.location_status,m.latitude,m.longitude,j.employee_id " +
-                        "FROM mark_events m JOIN jornadas j ON j.id=m.jornada_id AND j.company_id=m.company_id WHERE m.id=? AND m.company_id=?",
-                rs -> rs.next() ? new MarkRow(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("jornada_id")), UUID.fromString(rs.getString("employee_id")),
-                        MarkAction.valueOf(rs.getString("action")), rs.getLong("sequence_number"), rs.getTimestamp("accepted_at").toInstant(),
-                        rs.getTimestamp("occurred_at").toInstant(), rs.getTimestamp("recorded_at").toInstant(), apiLocationStatus(rs.getString("location_status")),
-                        rs.getBigDecimal("latitude"), rs.getBigDecimal("longitude")) : null, markId.toString(), scope.companyId().toString());
+        boolean admin = "ADMIN".equals(scope.role());
+        record Found(JornadaController.MarkView view, UUID employeeId) { }
+        Found mark = jdbc.query("SELECT m.id,m.jornada_id,m.action,m.sequence_number,m.accepted_at,m.occurred_at,m.recorded_at,m.location_status,m.latitude,m.longitude," +
+                        "m.voided_at,m.void_reason,j.employee_id FROM mark_events m JOIN jornadas j ON j.id=m.jornada_id AND j.company_id=m.company_id WHERE m.id=? AND m.company_id=?",
+                rs -> rs.next() ? new Found(JornadaController.markView(rs, admin), UUID.fromString(rs.getString("employee_id"))) : null,
+                markId.toString(), scope.companyId().toString());
         if (mark == null) throw ApiException.notFound();
         if ("EMPLOYEE".equals(scope.role()) && !mark.employeeId().equals(scopes.employeeIdFor(scope))) throw ApiException.notFound();
-        return toView(mark.id(), mark.jornadaId(), mark.action(), mark.sequence(), mark.acceptedAt(), mark.occurredAt(), mark.recordedAt(), mark.locationStatus(),
-                "ADMIN".equals(scope.role()) ? decimal(mark.latitude()) : null, "ADMIN".equals(scope.role()) ? decimal(mark.longitude()) : null);
+        return mark.view();
     }
 
     @Transactional
@@ -152,6 +153,7 @@ public class MarkService {
     @Transactional
     public JornadaController.MarkView forgottenMark(ScopeService.Scope scope, UUID jornadaId, MarkAction action, Instant occurredAt, String auditReason) {
         JornadaLock jornada = lockJornada(scope.companyId(), jornadaId);
+        requireNotCancelled(jornada);
         Instant now = Instant.now();
         validateAdminEventTime(jornada, occurredAt, now);
         List<HistoryRow> history = loadHistory(scope.companyId(), jornadaId);
@@ -177,12 +179,9 @@ public class MarkService {
         UUID jornadaId = jornadaIdForMark(scope.companyId(), markId);
         if (jornadaId == null) throw ApiException.notFound();
         JornadaLock jornada = lockJornada(scope.companyId(), jornadaId);
-        MarkRow mark = jdbc.query("SELECT m.id,m.jornada_id,m.action,m.occurred_at,m.original_action,m.original_occurred_at,j.employee_id,j.company_id " +
-                        "FROM mark_events m JOIN jornadas j ON j.id=m.jornada_id AND j.company_id=m.company_id WHERE m.id=? AND m.company_id=? FOR UPDATE",
-                rs -> rs.next() ? new MarkRow(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("jornada_id")), UUID.fromString(rs.getString("employee_id")),
-                        MarkAction.valueOf(rs.getString("action")), 0, null, rs.getTimestamp("occurred_at").toInstant(), null, null, null, null) : null,
-                markId.toString(), scope.companyId().toString());
+        LockedMark mark = lockMark(scope.companyId(), markId);
         if (mark == null) throw ApiException.notFound();
+        if (mark.voided()) throw markVoided();
         Instant now = Instant.now();
         // Only a new event time is bounded: keeping the stored time (an action-only fix) must stay possible even for an
         // employee mark recorded outside the window (2026-10-27 review finding).
@@ -204,6 +203,55 @@ public class MarkService {
         return getMark(scope, markId);
     }
 
+    /**
+     * D-20261027-07: cancels a declared jornada that has no mark at all (a voided mark still counts as a mark). The jornada lock
+     * is taken first, then its marks and deviations (CLAUDE.md §5.11); its active deviations are retracted and audited.
+     */
+    @Transactional
+    public CancellationResult cancelJornada(ScopeService.Scope scope, UUID jornadaId, String reason) {
+        if (!"ADMIN".equals(scope.role())) throw ApiException.forbidden();
+        JornadaLock jornada = lockJornada(scope.companyId(), jornadaId);
+        requireNotCancelled(jornada);
+        Integer marks = jdbc.queryForObject("SELECT COUNT(*) FROM mark_events WHERE company_id=? AND jornada_id=? FOR UPDATE",
+                Integer.class, scope.companyId().toString(), jornadaId.toString());
+        if (!"NO_INGRESO".equals(jornada.state()) || marks == null || marks > 0) {
+            throw ApiException.conflict("JORNADA_HAS_MARKS", "A jornada with marks cannot be cancelled; correct or void its marks instead");
+        }
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        jdbc.update("UPDATE jornadas SET state='CANCELADA',cancelled_at=?,cancelled_by=?,cancel_reason=? WHERE id=? AND company_id=? AND state='NO_INGRESO'",
+                timestamp(now), scope.accountId().toString(), reason, jornadaId.toString(), scope.companyId().toString());
+        deviations.retractAll(scope.companyId(), jornadaId, now);
+        return new CancellationResult(jornadaId, "CANCELADA", now, scope.accountId(), reason);
+    }
+
+    /**
+     * D-20261027-08: voids a wrong mark. The row and its sequence number stay; the mark stops counting for the state, the
+     * transitions and the deviations, which are recomputed in the same transaction. Only allowed when the remaining history is
+     * valid; the void is audited in mark_correction_audits (change_kind VOID).
+     */
+    @Transactional
+    public JornadaController.MarkView voidMark(ScopeService.Scope scope, UUID markId, String reason) {
+        if (!"ADMIN".equals(scope.role())) throw ApiException.forbidden();
+        UUID jornadaId = jornadaIdForMark(scope.companyId(), markId);
+        if (jornadaId == null) throw ApiException.notFound();
+        JornadaLock jornada = lockJornada(scope.companyId(), jornadaId);
+        LockedMark mark = lockMark(scope.companyId(), markId);
+        if (mark == null) throw ApiException.notFound();
+        if (mark.voided()) throw markVoided();
+        List<HistoryRow> remaining = loadHistory(scope.companyId(), jornadaId).stream().filter(row -> !row.id().equals(markId)).toList();
+        validateHistory(remaining, "INVALID_MARK_HISTORY");
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        jdbc.update("INSERT INTO mark_correction_audits(id,company_id,mark_id,before_action,after_action,before_occurred_at,after_occurred_at,actor_account_id,audit_reason,corrected_at,change_kind) VALUES(?,?,?,?,?,?,?,?,?,?,'VOID')",
+                UUID.randomUUID().toString(), scope.companyId().toString(), markId.toString(), mark.action().name(), mark.action().name(), timestamp(mark.occurredAt()),
+                timestamp(mark.occurredAt()), scope.accountId().toString(), reason, timestamp(now));
+        jdbc.update("UPDATE mark_events SET voided_at=?,voided_by=?,void_reason=? WHERE id=? AND company_id=? AND voided_at IS NULL",
+                timestamp(now), scope.accountId().toString(), reason, markId.toString(), scope.companyId().toString());
+        jdbc.update("UPDATE jornadas SET state=? WHERE id=? AND company_id=?",
+                MarkState.from(remaining.stream().map(HistoryRow::action).toList()), jornadaId.toString(), scope.companyId().toString());
+        reconcile(scope.companyId(), jornada, remaining, now);
+        return getMark(scope, markId);
+    }
+
     public void createDueAbsences(Instant now, int batchSize) {
         if (batchSize < 1) return;
         String activeJoins = "FROM jornadas j " +
@@ -213,7 +261,7 @@ public class MarkService {
         List<Candidate> candidates = new ArrayList<>(isolatedTransaction.execute(status -> jdbc.query("SELECT j.id,j.company_id,j.deviation_worker_failure_count " + activeJoins +
                         "WHERE j.state='NO_INGRESO' AND DATE_ADD(j.scheduled_start_at, INTERVAL j.tolerance_minutes MINUTE) < ? " +
                         "AND (j.deviation_worker_retry_at IS NULL OR j.deviation_worker_retry_at<=?) " +
-                        "AND NOT EXISTS (SELECT 1 FROM mark_events m WHERE m.jornada_id=j.id AND m.action='INGRESO') " +
+                        "AND NOT EXISTS (SELECT 1 FROM mark_events m WHERE m.jornada_id=j.id AND m.action='INGRESO' AND m.voided_at IS NULL) " +
                         "AND NOT EXISTS (SELECT 1 FROM deviations d WHERE d.jornada_id=j.id AND d.type='SIN_INGRESO' AND d.active=TRUE) " +
                         "ORDER BY j.scheduled_start_at,j.id LIMIT ?",
                 (rs, row) -> new Candidate(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("company_id")), rs.getInt("deviation_worker_failure_count")),
@@ -222,8 +270,8 @@ public class MarkService {
         candidates.addAll(isolatedTransaction.execute(status -> jdbc.query("SELECT j.id,j.company_id,j.deviation_worker_failure_count " + activeJoins +
                         "WHERE j.state IN ('EN_CURSO','PAUSA_ABIERTA') AND DATE_ADD(j.scheduled_end_at, INTERVAL j.tolerance_minutes MINUTE) < ? " +
                         "AND (j.deviation_worker_retry_at IS NULL OR j.deviation_worker_retry_at<=?) " +
-                        "AND EXISTS (SELECT 1 FROM mark_events m WHERE m.jornada_id=j.id AND m.company_id=j.company_id AND m.action='INGRESO') " +
-                        "AND NOT EXISTS (SELECT 1 FROM mark_events m WHERE m.jornada_id=j.id AND m.company_id=j.company_id AND m.action='EGRESO') " +
+                        "AND EXISTS (SELECT 1 FROM mark_events m WHERE m.jornada_id=j.id AND m.company_id=j.company_id AND m.action='INGRESO' AND m.voided_at IS NULL) " +
+                        "AND NOT EXISTS (SELECT 1 FROM mark_events m WHERE m.jornada_id=j.id AND m.company_id=j.company_id AND m.action='EGRESO' AND m.voided_at IS NULL) " +
                         "AND NOT EXISTS (SELECT 1 FROM deviations d WHERE d.jornada_id=j.id AND d.company_id=j.company_id AND d.type='MARCA_FALTANTE' AND d.active=TRUE) " +
                         "ORDER BY j.scheduled_end_at,j.id LIMIT ?",
                 (rs, row) -> new Candidate(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("company_id")), rs.getInt("deviation_worker_failure_count")),
@@ -288,8 +336,23 @@ public class MarkService {
                 rs -> rs.next() ? rs.getString("id") : null, jornadaId.toString(), companyId.toString(), companyId.toString(), accountId.toString());
         if (activeEmployee == null) return;
         JornadaLock jornada = lockJornada(companyId, jornadaId);
+        // Picked before an ADMIN cancelled it (D-20261027-07): a cancelled jornada never gets a deviation again.
+        if (CANCELADA.equals(jornada.state())) return;
         List<HistoryRow> history = loadHistory(companyId, jornadaId);
         reconcile(companyId, jornada, history, now);
+    }
+
+    private static void requireNotCancelled(JornadaLock jornada) {
+        if (CANCELADA.equals(jornada.state())) throw ApiException.conflict("JORNADA_CANCELLED", "The jornada was cancelled by an ADMIN");
+    }
+
+    private static ApiException markVoided() { return ApiException.conflict("MARK_VOIDED", "The mark was voided by an ADMIN"); }
+
+    private LockedMark lockMark(UUID companyId, UUID markId) {
+        return jdbc.query("SELECT id,jornada_id,action,occurred_at,voided_at FROM mark_events WHERE id=? AND company_id=? FOR UPDATE",
+                rs -> rs.next() ? new LockedMark(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("jornada_id")),
+                        MarkAction.valueOf(rs.getString("action")), rs.getTimestamp("occurred_at").toInstant(), rs.getTimestamp("voided_at") != null) : null,
+                markId.toString(), companyId.toString());
     }
 
     private UUID jornadaIdForMark(UUID companyId, UUID markId) {
@@ -325,10 +388,10 @@ public class MarkService {
     }
 
     private JornadaLock lockJornada(UUID companyId, UUID jornadaId) {
-        JornadaLock row = jdbc.query("SELECT id,employee_id,site_id,schedule_snapshot,tolerance_minutes,scheduled_start_at,scheduled_end_at,next_sequence FROM jornadas WHERE id=? AND company_id=? FOR UPDATE",
+        JornadaLock row = jdbc.query("SELECT id,employee_id,site_id,schedule_snapshot,tolerance_minutes,scheduled_start_at,scheduled_end_at,next_sequence,state FROM jornadas WHERE id=? AND company_id=? FOR UPDATE",
                 rs -> rs.next() ? new JornadaLock(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("employee_id")), UUID.fromString(rs.getString("site_id")),
                         rs.getString("schedule_snapshot"), rs.getInt("tolerance_minutes"), rs.getTimestamp("scheduled_start_at").toInstant(),
-                        rs.getTimestamp("scheduled_end_at").toInstant(), rs.getLong("next_sequence")) : null, jornadaId.toString(), companyId.toString());
+                        rs.getTimestamp("scheduled_end_at").toInstant(), rs.getLong("next_sequence"), rs.getString("state")) : null, jornadaId.toString(), companyId.toString());
         if (row == null) throw ApiException.notFound();
         return row;
     }
@@ -341,8 +404,9 @@ public class MarkService {
         }
     }
 
+    /** The marks that count (voided ones excluded, D-20261027-08), in timeline order, locked. */
     private List<HistoryRow> loadHistory(UUID companyId, UUID jornadaId) {
-        return jdbc.query("SELECT id,sequence_number,timeline_order,action,occurred_at FROM mark_events WHERE company_id=? AND jornada_id=? ORDER BY timeline_order,sequence_number FOR UPDATE",
+        return jdbc.query("SELECT id,sequence_number,timeline_order,action,occurred_at FROM mark_events WHERE company_id=? AND jornada_id=? AND voided_at IS NULL ORDER BY timeline_order,sequence_number FOR UPDATE",
                 (rs, row) -> new HistoryRow(UUID.fromString(rs.getString("id")), rs.getLong("sequence_number"), rs.getLong("timeline_order"), MarkAction.valueOf(rs.getString("action")), rs.getTimestamp("occurred_at").toInstant()),
                 companyId.toString(), jornadaId.toString());
     }
@@ -396,26 +460,34 @@ public class MarkService {
     }
 
     private void validateWholeHistory(List<HistoryRow> history) {
+        validateHistory(history, "INVALID_MARK_TRANSITION");
+    }
+
+    private void validateHistory(List<HistoryRow> history, String conflictCode) {
         List<MarkAction> actions = new ArrayList<>();
         for (HistoryRow row : history) {
             try { transitions.validate(actions, row.action()); actions.add(row.action()); }
-            catch (InvalidStateTransitionException ex) { throw ApiException.conflict("INVALID_MARK_TRANSITION", ex.getMessage()); }
+            catch (InvalidStateTransitionException ex) { throw ApiException.conflict(conflictCode, ex.getMessage()); }
         }
     }
 
+    /** A just-written mark: never voided. */
     private JornadaController.MarkView toView(UUID id, UUID jornadaId, MarkAction action, long sequence, Instant acceptedAt, Instant occurredAt,
                                                Instant recordedAt, String status, Double lat, Double lon) {
-        return new JornadaController.MarkView(id, jornadaId, action.name(), sequence, acceptedAt, occurredAt, recordedAt, apiLocationStatus(status), lat, lon, List.of());
+        return new JornadaController.MarkView(id, jornadaId, action.name(), sequence, acceptedAt, occurredAt, recordedAt, status, lat, lon, false, null, null, List.of());
     }
 
-    private static String apiLocationStatus(String status) { return "PURGADA".equals(status) ? "PURGADA" : status; }
-    private static Double decimal(BigDecimal value) { return value == null ? null : value.doubleValue(); }
     private static java.sql.Timestamp timestamp(Instant instant) { return java.sql.Timestamp.from(instant); }
+
+    private static final String CANCELADA = "CANCELADA";
 
     public record MarkResult(JornadaController.MarkView mark, boolean replay) { }
     public record LocationResult(UUID markId, String locationStatus) { }
+    public record CancellationResult(UUID jornadaId, String state, Instant cancelledAt, UUID cancelledBy, String cancelReason) { }
     private record HistoryRow(UUID id, long sequence, long timelineOrder, MarkAction action, Instant occurredAt) { }
-    private record JornadaLock(UUID id, UUID employeeId, UUID siteId, String snapshot, int toleranceMinutes, Instant scheduledStart, Instant scheduledEnd, long nextSequence) { }
+    private record JornadaLock(UUID id, UUID employeeId, UUID siteId, String snapshot, int toleranceMinutes, Instant scheduledStart, Instant scheduledEnd, long nextSequence,
+                               String state) { }
+    private record LockedMark(UUID id, UUID jornadaId, MarkAction action, Instant occurredAt, boolean voided) { }
     private record Candidate(UUID jornadaId, UUID companyId, int failureCount) { }
     private record RetrySchedule(int failureCount, Instant retryAt) { }
     private record MarkRow(UUID id, UUID jornadaId, UUID employeeId, MarkAction action, long sequence, Instant acceptedAt, Instant occurredAt, Instant recordedAt,

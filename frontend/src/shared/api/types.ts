@@ -24,16 +24,22 @@ export type MarkAction = 'INGRESO' | 'EGRESO' | 'SALIDA_DESAYUNO' | 'VUELTA_DESA
 export type Mark = {
   id: Id; jornadaId: Id; action: MarkAction; sequence: number; acceptedAt: string; occurredAt?: string | null;
   recordedAt?: string | null; locationStatus: 'PENDIENTE' | 'RECIBIDA' | 'SIN_UBICACION' | 'PURGADA' | 'NO_APLICA';
-  latitude?: number | null; longitude?: number | null; deviations?: Deviation[]
+  latitude?: number | null; longitude?: number | null; deviations?: Deviation[];
+  /** D-20261027-08: a voided mark stays listed and stops counting; voidedAt and voidReason reach only the ADMIN. */
+  voided?: boolean; voidedAt?: string | null; voidReason?: string | null
 }
 export type JornadaState = 'NO_INGRESO' | 'EN_CURSO' | 'PAUSA_ABIERTA' | 'EGRESADA'
+/** JornadaState plus CANCELADA (D-20261027-07): a cancelled jornada never had marks and accepts none. */
+export type JornadaStatus = JornadaState | 'CANCELADA'
 export type Jornada = {
-  id: Id; employeeId: Id; siteId: Id; localDate: string; state: JornadaState; scheduleSnapshot: TemplateInput;
-  toleranceMinutes: number; sequence: number; marks: Mark[]
+  id: Id; employeeId: Id; siteId: Id; localDate: string; state: JornadaStatus; scheduleSnapshot: TemplateInput;
+  toleranceMinutes: number; sequence: number; marks: Mark[];
+  /** Set only for CANCELADA; cancelReason reaches only the ADMIN. */
+  cancelledAt?: string | null; cancelReason?: string | null
 }
 /** GET /jornadas; marks and deviations only with includeDetail=true. */
 export type JornadaSummary = {
-  id: Id; employeeId: Id; siteId: Id; localDate: string; state: JornadaState; employeeDisplayName?: string;
+  id: Id; employeeId: Id; siteId: Id; localDate: string; state: JornadaStatus; employeeDisplayName?: string;
   marks?: Mark[]; deviations?: Deviation[]
 }
 export type Deviation = {

@@ -314,6 +314,9 @@ export function JourneysView() {
   const detailRequest = useRef(0)
   const [forgotAction, setForgotAction] = useState<MarkAction>('INGRESO'); const [forgotOccurredAt, setForgotOccurredAt] = useState(''); const [forgotReason, setForgotReason] = useState('')
   const [editingMarkId, setEditingMarkId] = useState(''); const [correctedAction, setCorrectedAction] = useState<MarkAction>('INGRESO'); const [correctedOccurredAt, setCorrectedOccurredAt] = useState(''); const [correctionReason, setCorrectionReason] = useState('')
+  // Cancelling a jornada (D-20261027-07) and voiding a mark (D-20261027-08) both ask for a reason in a second, confirming step.
+  const [cancelOpen, setCancelOpen] = useState(false); const [cancelReason, setCancelReason] = useState('')
+  const [voidingMarkId, setVoidingMarkId] = useState(''); const [voidReason, setVoidReason] = useState('')
   async function loadJourneys(requestedDate = date, preserveNotice = false) {
     const requestId = ++journeyRequest.current
     detailRequest.current += 1
@@ -350,7 +353,7 @@ export function JourneysView() {
   }
   async function showDetail(jornadaId: string) {
     const requestId = ++detailRequest.current
-    setDetail(null)
+    setDetail(null); setCancelOpen(false); setCancelReason(''); setVoidingMarkId(''); setVoidReason('')
     setDetailLoading(true); setError('')
     try {
       const jornada = await api.get<Jornada>(`/jornadas/${encodeURIComponent(jornadaId)}`)
@@ -376,7 +379,7 @@ export function JourneysView() {
   }
   function beginMarkCorrection(mark: Mark) {
     if (!detailTimeZone) return
-    setEditingMarkId(mark.id); setCorrectedAction(mark.action); setCorrectedOccurredAt(siteTimeInput(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)); setCorrectionReason('')
+    setVoidingMarkId(''); setEditingMarkId(mark.id); setCorrectedAction(mark.action); setCorrectedOccurredAt(siteTimeInput(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)); setCorrectionReason('')
   }
   async function correctMark(event: FormEvent<HTMLFormElement>, mark: Mark) {
     event.preventDefault()
@@ -388,6 +391,34 @@ export function JourneysView() {
     try {
       await api.post<Mark>(`/admin/marks/${encodeURIComponent(mark.id)}/correction`, { correctedAction, correctedOccurredAt: correctedAt, auditReason: correctionReason.trim() })
       setEditingMarkId(''); setCorrectionReason(''); setNotice('Marca corregida.'); await showDetail(detail.id)
+    } catch (reason) { setError(errText(reason)) } finally { setMarkBusy('') }
+  }
+  function beginVoid(mark: Mark) { setEditingMarkId(''); setVoidingMarkId(mark.id); setVoidReason('') }
+  async function voidMark(event: FormEvent<HTMLFormElement>, mark: Mark) {
+    event.preventDefault()
+    if (!detail) return
+    if (!voidReason.trim()) { setError('Escribí el motivo de anulación.'); return }
+    setMarkBusy(mark.id); setError(''); setNotice('')
+    try {
+      await api.post<Mark>(`/admin/marks/${encodeURIComponent(mark.id)}/void`, { reason: voidReason.trim() })
+      setVoidingMarkId(''); setVoidReason(''); setNotice('Marca anulada.'); await showDetail(detail.id)
+    } catch (reason) {
+      // The server reuses INVALID_MARK_HISTORY; for a void it means the marks left would not form a valid jornada.
+      setError((reason as { code?: string } | null)?.code === 'INVALID_MARK_HISTORY'
+        ? 'No se puede anular esa marca: las marcas que quedan no forman una jornada válida (por ejemplo, un ingreso con marcas posteriores). Anulá o corregí antes las posteriores.'
+        : errText(reason))
+    } finally { setMarkBusy('') }
+  }
+  async function cancelJornada(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!detail) return
+    if (!cancelReason.trim()) { setError('Escribí el motivo de cancelación.'); return }
+    const jornadaId = detail.id
+    setMarkBusy('cancel'); setError(''); setNotice('')
+    try {
+      await api.post(`/admin/jornadas/${encodeURIComponent(jornadaId)}/cancellation`, { reason: cancelReason.trim() })
+      setCancelOpen(false); setCancelReason(''); setNotice('Jornada cancelada.')
+      await loadJourneys(date, true); await showDetail(jornadaId)
     } catch (reason) { setError(errText(reason)) } finally { setMarkBusy('') }
   }
   function changeDate(value: string) {
@@ -403,6 +434,9 @@ export function JourneysView() {
   const peopleById = useMemo(() => new Map(employees.map((person) => [person.id, person.displayName])), [employees])
   const siteTemplates = templates.filter((template) => template.siteId === siteId)
   return <JourneysViewRender sites={sites} eligibleEmployees={eligibleEmployees} siteTemplates={siteTemplates} jornadas={jornadas} loading={loading} journeysLoading={journeysLoading} journeysDate={journeysDate} journeysError={journeysError} dependencyError={dependencyError} error={error} notice={notice} busy={busy} detail={detail} detailLoading={detailLoading} markBusy={markBusy} date={date} employeeId={employeeId} siteId={siteId} templateId={templateId} peopleById={peopleById} dateError={dateError} detailSite={detailSite} detailTimeZone={detailTimeZone} forgotAction={forgotAction} forgotOccurredAt={forgotOccurredAt} forgotReason={forgotReason} editingMarkId={editingMarkId} correctedAction={correctedAction} correctedOccurredAt={correctedOccurredAt} correctionReason={correctionReason}
+    cancelOpen={cancelOpen} cancelReason={cancelReason} voidingMarkId={voidingMarkId} voidReason={voidReason}
+    onBeginCancel={() => { setCancelOpen(true); setCancelReason('') }} onCancelReasonChange={setCancelReason} onConfirmCancel={(event) => void cancelJornada(event)} onAbortCancel={() => { setCancelOpen(false); setCancelReason('') }}
+    onBeginVoid={beginVoid} onVoidReasonChange={setVoidReason} onConfirmVoid={(event, mark) => void voidMark(event, mark)} onAbortVoid={() => { setVoidingMarkId(''); setVoidReason('') }}
     onDateChange={changeDate} onEmployeeChange={setEmployeeId} onSiteChange={setSiteId} onTemplateChange={setTemplateId} onDeclare={declare} onRetryDependencies={() => void loadDependencies(date)} onReloadJourneys={() => void loadJourneys(date)} onShowDetail={(id) => void showDetail(id)}
     onForgotActionChange={setForgotAction} onForgotOccurredAtChange={setForgotOccurredAt} onForgotReasonChange={setForgotReason} onAddForgottenMark={(event) => void addForgottenMark(event)} onBeginMarkCorrection={beginMarkCorrection} onCorrectedActionChange={setCorrectedAction} onCorrectedOccurredAtChange={setCorrectedOccurredAt} onCorrectionReasonChange={setCorrectionReason} onCorrectMark={(event, mark) => void correctMark(event, mark)} onCancelMarkCorrection={() => setEditingMarkId('')} />
 }
