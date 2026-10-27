@@ -54,8 +54,15 @@ deploy, backup, Dockerfile ni VPS. Cada regla de §5 está en un estado:
   concreto; (4) pide la aprobación de Mateo. Mateo responde sí o no; la IA
   existe para mostrar lo que se pasó por alto. Si Mateo dice que algo está
   aprobado, ya fue leído: no se cuestiona, se señalan problemas concretos.
+- **Asignate el issue antes de empezar** (acordado con Mateo el 2026-10-26):
+  quien lo va a implementar se asigna el issue en GitHub con
+  `gh issue edit <N> --add-assignee @me` y comprueba que la asignación quedó
+  visible. Si el issue ya tiene a otra persona asignada, no se empieza: se
+  consulta con Mateo. (2026-10-26: el #35 se implementó dos veces en paralelo,
+  en la rama `fix/admin-display-name-35` y en el PR #36.)
 - **Flujo de entrega** (verificado 2026-10-19 con `gh`): issue aprobado
-  (labels `status:approved` + un `type:*`) → rama `tipo/descripcion` → PR con
+  (labels `status:approved` + un `type:*`) → asignado a quien implementa →
+  rama `tipo/descripcion` → PR con
   `Closes #N` → CI verde → merge commit, sin squash, fijado al commit head
   verificado (`gh pr merge --merge --match-head-commit <sha>`). Así entraron
   el PR #2 (v1), el #4 (CI) y el #6 (`MARCA_FALTANTE`).
