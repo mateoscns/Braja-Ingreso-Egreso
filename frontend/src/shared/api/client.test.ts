@@ -114,6 +114,8 @@ describe('ApiClient: códigos de error conocidos', () => {
     [409, 'JORNADA_EXISTS', 'Ya hay una jornada declarada para ese empleado, sede y fecha.'],
     [409, 'MEMBERSHIP_EXISTS', 'Esa persona ya tiene un rol en esta empresa.'],
     [409, 'ACCOUNT_INACTIVE', 'La cuenta de ese DNI no está habilitada y no se puede agregar a la empresa.'],
+    [409, 'ACCOUNT_SHARED', 'Esta persona también tiene acceso en otra empresa o como ADMIN; su contraseña la restablece el operador.'],
+    [409, 'EMPLOYEE_INACTIVE', 'El empleado está dado de baja; reactivalo antes de restablecer la contraseña.'],
     [403, 'PASSWORD_CHANGE_REQUIRED', 'Tenés que cambiar tu contraseña provisoria antes de continuar.']
   ])('un %i %s tiene un mensaje específico', async (status, code, message) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(coded(status, code)))

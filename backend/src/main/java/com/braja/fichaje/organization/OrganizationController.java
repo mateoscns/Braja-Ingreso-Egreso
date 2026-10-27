@@ -1,11 +1,14 @@
 package com.braja.fichaje.organization;
 
 import com.braja.fichaje.api.ApiException;
+import com.braja.fichaje.security.PasswordResetService;
 import com.braja.fichaje.security.ScopeService;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -20,11 +23,13 @@ public class OrganizationController {
     private final JdbcTemplate jdbc;
     private final ScopeService scopes;
     private final OrganizationService service;
+    private final PasswordResetService passwordResets;
 
-    public OrganizationController(JdbcTemplate jdbc, ScopeService scopes, OrganizationService service) {
+    public OrganizationController(JdbcTemplate jdbc, ScopeService scopes, OrganizationService service, PasswordResetService passwordResets) {
         this.jdbc = jdbc;
         this.scopes = scopes;
         this.service = service;
+        this.passwordResets = passwordResets;
     }
 
     @GetMapping("/sites")
@@ -68,6 +73,14 @@ public class OrganizationController {
     public EmployeeView updateEmployee(Authentication auth, HttpSession session, @PathVariable UUID employeeId, @Valid @RequestBody EmployeePatch input) {
         var scope = scopes.requireAdmin(auth, session);
         return service.updateEmployee(scope.companyId(), employeeId, input);
+    }
+
+    /** D-20261027-09: the temporary password travels only in this no-store response. */
+    @PostMapping("/employees/{employeeId}/password-reset")
+    public ResponseEntity<PasswordResetView> resetEmployeePassword(Authentication auth, HttpSession session, @PathVariable UUID employeeId) {
+        var scope = scopes.requireAdmin(auth, session);
+        String temporaryPassword = passwordResets.resetEmployeePassword(scope.companyId(), scope.accountId(), employeeId);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(new PasswordResetView(temporaryPassword));
     }
 
     @GetMapping("/templates")
@@ -127,6 +140,9 @@ public class OrganizationController {
     public record EmployeePatch(@Size(min=1,max=160) String displayName, List<@NotNull UUID> siteIds,
                                 @Min(0) @Max(240) Integer toleranceMinutes, Boolean active) { }
     public record EmployeeView(UUID id, String displayName, String dni, List<UUID> siteIds, int toleranceMinutes, boolean active, boolean mustChangePassword) { }
+    public record PasswordResetView(String temporaryPassword) {
+        @Override public String toString() { return "PasswordResetView[temporaryPassword=<redacted>]"; }
+    }
     public record BlockInput(@Min(0) @Max(1) int startDayOffset, @NotNull java.time.LocalTime start, @NotNull java.time.LocalTime end, @Min(0) @Max(1) int endDayOffset) { }
     public record TemplateInput(@NotNull UUID siteId, @NotBlank @Size(max=120) String name, @NotEmpty @Size(max=4) List<@NotNull @Valid BlockInput> blocks,
                                 @Min(0) @Max(240) int breakfastLimitMinutes, @Min(0) @Max(240) int lunchLimitMinutes) { }
