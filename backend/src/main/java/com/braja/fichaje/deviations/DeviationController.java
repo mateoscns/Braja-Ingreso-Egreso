@@ -25,10 +25,11 @@ public class DeviationController {
 
     @GetMapping("/deviations")
     public List<DeviationService.DeviationView> list(Authentication authentication, HttpSession session,
+            @RequestParam(required=false) String status,
             @RequestParam(required=false) LocalDate from, @RequestParam(required=false) LocalDate to,
-            @RequestParam(required=false) UUID siteId) {
+            @RequestParam(required=false) UUID siteId, @RequestParam(defaultValue="100") int limit) {
         var scope = scopes.require(authentication, session);
-        return deviations.list(authentication, scope, from, to, siteId);
+        return deviations.list(scope, new DeviationService.ListFilter(status, from, to, siteId, limit));
     }
 
     @PutMapping("/deviations/{deviationId}/motive")
