@@ -75,7 +75,7 @@ public class AccountService {
             return authenticate(dni, password, clientAddress, attempt, request, response);
         } catch (EmptyResultDataAccessException ex) {
             throw ex; // a missing row is not an outage; the reservation, if any, was already settled
-        } catch (DataAccessException | AuthenticationServiceException ex) {
+        } catch (DataAccessException | org.springframework.transaction.TransactionException | AuthenticationServiceException ex) {
             if (attempt.sessionStarted) clearSession(request, ex);
             throw unavailable(attempt, ex);
         }
@@ -175,7 +175,7 @@ public class AccountService {
             });
         } catch (EmptyResultDataAccessException ex) {
             throw ex; // an inactive or missing account is not an outage; behaviour unchanged
-        } catch (DataAccessException ex) {
+        } catch (DataAccessException | org.springframework.transaction.TransactionException ex) {
             throw unavailable(attempt, ex);
         }
     }
