@@ -6,6 +6,7 @@ import { createHandlerBoundToURL } from 'workbox-precaching'
 import { NetworkOnly } from 'workbox-strategies'
 import { API_PATH_PATTERN, isApiPath } from './shared/pwa/routePolicy'
 import { safeDeviationNotification } from './device/push/safeNotification'
+import { focusOrOpenAdmin } from './device/push/notificationClick'
 
 declare let self: ServiceWorkerGlobalScope & { __WB_MANIFEST: Array<{ url: string; revision?: string | null }> }
 
@@ -33,14 +34,7 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close()
   const target = new URL(typeof event.notification.data?.url === 'string' ? event.notification.data.url : '/admin', self.location.origin)
   const safeUrl = target.origin === self.location.origin && target.pathname === '/admin' ? `${target.pathname}${target.search}` : '/admin'
-  event.waitUntil((async () => {
-    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-    const existing = windows.find((client) => new URL(client.url).origin === self.location.origin)
-    if (existing) {
-      await existing.navigate(safeUrl)
-      await existing.focus()
-    } else await self.clients.openWindow(safeUrl)
-  })())
+  event.waitUntil(focusOrOpenAdmin(self.clients, self.location.origin, safeUrl))
 })
 
 self.addEventListener('message', (event) => {

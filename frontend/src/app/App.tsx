@@ -1,14 +1,16 @@
-import { useEffect } from 'react'
 import { registerSW } from 'virtual:pwa-register'
 import { Loading } from './ui'
 import { SessionProvider, useSession } from './session'
 import { LoginScreen, CompanyScreen, PasswordChangeScreen } from '../features/auth/AuthScreens'
 import { AdminApp } from '../features/admin/AdminApp'
 import { EmployeeApp } from '../features/employee/EmployeeApp'
+import { ServiceWorkerUpdate } from '../device/pwa/ServiceWorkerUpdate'
 
 export function App() {
-  useEffect(() => { registerSW({ immediate: true }) }, [])
-  return <SessionProvider><Application /></SessionProvider>
+  return <>
+    <ServiceWorkerUpdate register={registerSW} />
+    <SessionProvider><Application /></SessionProvider>
+  </>
 }
 
 function Application() {
