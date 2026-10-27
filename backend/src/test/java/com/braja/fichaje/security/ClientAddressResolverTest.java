@@ -81,6 +81,23 @@ class ClientAddressResolverTest {
         }
     }
 
+    /** 2026-10-27: only a literal /0 was rejected, so 0.0.0.0/1 plus 128.0.0.0/1 still trusted every peer. */
+    @Test
+    void rejectsTrustedProxyRangesThatTogetherCoverAWholeAddressFamily() {
+        for (List<String> covering : List.of(
+                List.of("0.0.0.0/1", "128.0.0.0/1"),
+                List.of("192.0.0.0/2", "10.0.0.0/8", "0.0.0.0/1", "128.0.0.0/2"),
+                List.of("10.0.0.0/8", "::/1", "8000::/1"),
+                List.of("0.0.0.0/0"))) {
+            BrajaProperties properties = new BrajaProperties();
+            properties.setTrustedProxyCidrs(covering);
+            assertThrows(IllegalStateException.class, () -> new ClientAddressResolver(properties), covering.toString());
+        }
+        BrajaProperties partial = new BrajaProperties();
+        partial.setTrustedProxyCidrs(List.of("0.0.0.0/1", "128.0.0.0/2", "::/1", "10.0.0.0/8"));
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> new ClientAddressResolver(partial));
+    }
+
     private MockHttpServletRequest request(String remoteAddress, String forwardedFor) {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setRemoteAddr(remoteAddress);

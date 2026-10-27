@@ -15,7 +15,7 @@ public class BrajaProperties {
     private String vapidPublicKey;
     private String vapidPrivateKey;
     private String vapidSubject;
-    private int loginIpThrottleMaxFailures = 30;
+    private int loginIpThrottleMaxFailures = 100;
     private Duration loginIpThrottleWindow = Duration.ofMinutes(15);
     private Duration loginIpThrottleLockDuration = Duration.ofMinutes(15);
     private List<String> trustedProxyCidrs = List.of();

@@ -42,7 +42,7 @@ braja:
   vapid-public-key: ${BRAJA_VAPID_PUBLIC_KEY:}
   vapid-private-key: ${BRAJA_VAPID_PRIVATE_KEY:}
   vapid-subject: ${BRAJA_VAPID_SUBJECT:}
-  login-ip-throttle-max-failures: ${BRAJA_LOGIN_IP_THROTTLE_MAX_FAILURES:30}
+  login-ip-throttle-max-failures: ${BRAJA_LOGIN_IP_THROTTLE_MAX_FAILURES:100}
   login-ip-throttle-window: ${BRAJA_LOGIN_IP_THROTTLE_WINDOW:15m}
   login-ip-throttle-lock-duration: ${BRAJA_LOGIN_IP_THROTTLE_LOCK_DURATION:15m}
   trusted-proxy-cidrs: ${BRAJA_TRUSTED_PROXY_CIDRS:}

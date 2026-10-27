@@ -70,6 +70,7 @@ paths:
       description: >-
         Wrong DNI, wrong password, and an account without active memberships all answer the same 401 UNAUTHORIZED.
         Every attempt counts against the DNI throttle before the password is verified (five per 15-minute window).
+        Wrong passwords also count against the client address (100 per 15-minute window by default, configurable).
         A successful login changes the session id and discards the pre-login CSRF token; the client fetches a new
         token from /csrf before its next unsafe request.
       security: []
@@ -137,6 +138,7 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/AuthenticationUnavailable' }
   /companies:
     get:
       tags: [Company]
@@ -1102,8 +1104,9 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     AuthenticationUnavailable:
       description: >-
-        Credentials could not be checked because of an infrastructure failure (code AUTHENTICATION_UNAVAILABLE).
-        The attempt is not counted against the DNI or address throttles; the client may retry later.
+        Credentials could not be checked or the result could not be stored because of a database failure at any step
+        (throttles, account lookup, memberships, password update) (code AUTHENTICATION_UNAVAILABLE). An attempt whose
+        check did not finish is not counted against the DNI or address throttles; the client may retry later.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
