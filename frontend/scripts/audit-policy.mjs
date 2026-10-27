@@ -6,6 +6,7 @@ export const ALLOWED_ADVISORIES = [
   {
     id: 'GHSA-gcqx-w48m-w2h4',
     packageName: 'deepmerge',
+    maxSeverity: 'low',
     decision: 'D-20261027-10',
     added: '2026-10-27',
     expires: '2027-01-31',
@@ -13,6 +14,8 @@ export const ALLOWED_ADVISORIES = [
       '@rollup/plugin-node-resolve) and merges our own build configuration; it never ships to the browser or the server.'
   }
 ]
+
+const SEVERITY_RANK = { info: 0, low: 1, moderate: 2, high: 3, critical: 4 }
 
 function advisoryId(via) {
   const match = /GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}/i.exec(via.url ?? '')
@@ -49,6 +52,9 @@ export function evaluateAudit(report, today, allowed = ALLOWED_ADVISORIES) {
     const allowance = allowed.find((entry) => entry.id === advisory.id && entry.packageName === advisory.packageName)
     if (!allowance) failures.push({ ...advisory, why: 'not allowed' })
     else if (today > allowance.expires) failures.push({ ...advisory, why: `allowance expired on ${allowance.expires}` })
+    else if ((SEVERITY_RANK[advisory.severity] ?? 99) > (SEVERITY_RANK[allowance.maxSeverity ?? 'low'] ?? 0)) {
+      failures.push({ ...advisory, why: `severity ${advisory.severity} is above the allowed ${allowance.maxSeverity ?? 'low'}` })
+    }
     else allowedHits.push({ ...advisory, expires: allowance.expires })
   }
   const unused = allowed.filter((entry) => !found.has(`${entry.id}|${entry.packageName}`)).map((entry) => entry.id)

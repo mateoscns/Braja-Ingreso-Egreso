@@ -11,6 +11,7 @@ const result = npmCli
 let report
 try {
   report = JSON.parse(result.stdout)
+  if (report === null || typeof report !== 'object') throw new Error('empty report')
 } catch {
   console.error('npm audit did not return JSON; failing closed.')
   console.error(result.stderr || result.stdout)

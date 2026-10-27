@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { evaluateAudit } from './audit-policy.mjs'
 
-const allowed = [{ id: 'GHSA-gcqx-w48m-w2h4', packageName: 'deepmerge', expires: '2027-01-31' }]
+const allowed = [{ id: 'GHSA-gcqx-w48m-w2h4', packageName: 'deepmerge', maxSeverity: 'low', expires: '2027-01-31' }]
 
 function report(...advisories) {
   const vulnerabilities = {}
@@ -48,6 +48,16 @@ describe('evaluateAudit', () => {
     expect(evaluateAudit({ advisories: { 1: {} } }, '2026-10-27', allowed).failures).toHaveLength(1)
     const onlyNames = { auditReportVersion: 2, vulnerabilities: { x: { via: ['y'] } }, metadata: { vulnerabilities: { total: 1 } } }
     expect(evaluateAudit(onlyNames, '2026-10-27', allowed).failures[0].id).toBe('unparsed-advisories')
+  })
+
+  it('still allows the advisory on its expiry day', () => {
+    const result = evaluateAudit(report({ id: 'GHSA-gcqx-w48m-w2h4', name: 'deepmerge', severity: 'low', title: 'prototype poisoning' }), '2027-01-31', allowed)
+    expect(result.failures).toEqual([])
+  })
+
+  it('fails when the advisory is raised above the allowed severity', () => {
+    const result = evaluateAudit(report({ id: 'GHSA-gcqx-w48m-w2h4', name: 'deepmerge', severity: 'moderate', title: 'prototype poisoning' }), '2026-10-27', allowed)
+    expect(result.failures[0].why).toBe('severity moderate is above the allowed low')
   })
 
   it('fails once the allowance has expired', () => {
