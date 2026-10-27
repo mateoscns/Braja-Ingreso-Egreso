@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { AppHeader, CompanySwitcher, Empty, FormField, Loading, PageMessage, Panel } from '../../app/ui'
 import { useSession } from '../../app/session'
-import { api } from '../../shared/api/client'
+import { ApiError, api } from '../../shared/api/client'
 import type { Deviation, Jornada, Site } from '../../shared/api/types'
 import { createMarkAttempt, submitMark, type MarkAction, type MarkAttempt, type MarkReceipt } from './markFlow'
 import { loadEmployeeDayData } from './dayData'
@@ -12,6 +12,17 @@ const localTime = formatDateTime
 const actionLabel: Record<MarkAction, string> = {
   INGRESO: 'Registrar ingreso', EGRESO: 'Registrar egreso', SALIDA_DESAYUNO: 'Salir a desayuno', VUELTA_DESAYUNO: 'Volver de desayuno',
   SALIDA_ALMUERZO: 'Salir a almuerzo', VUELTA_ALMUERZO: 'Volver de almuerzo'
+}
+const STALE_MARK_CODES = new Set(['INVALID_MARK_TRANSITION', 'INVALID_MARK_ORDER', 'INVALID_MARK_HISTORY'])
+
+function markFailureMessage(reason: unknown): string {
+  if (reason instanceof Error && reason.name === 'TimeoutError') {
+    return 'El servidor no respondió a tiempo. La marca puede no haberse registrado: tocá Actualizar para ver el estado o reintentá la misma acción.'
+  }
+  if (reason instanceof Error && reason.name === 'NetworkError') return `${reason.message} La marca no fue confirmada; podés reintentar.`
+  if (reason instanceof ApiError && reason.code === 'RETRYABLE_TRANSACTION_CONFLICT') return 'La marca no se registró porque el servidor estaba ocupado. Reintentá la misma acción.'
+  if (reason instanceof ApiError && reason.code && STALE_MARK_CODES.has(reason.code)) return 'La jornada cambió y esa marca ya no corresponde. Te mostramos el estado actual del servidor.'
+  return reason instanceof Error ? reason.message : 'La marca no fue confirmada. Reintentá la misma acción.'
 }
 
 export function EmployeeApp() {
@@ -31,12 +42,18 @@ export function EmployeeApp() {
   const [pendingAttempt, setPendingAttempt] = useState<MarkAttempt | null>(null)
   const [motiveValues, setMotiveValues] = useState<Record<string, { category: string; text: string }>>({})
   const [savingMotive, setSavingMotive] = useState('')
+  const [markFailed, setMarkFailed] = useState(false)
+  const [feedbackFocus, setFeedbackFocus] = useState(0)
   const loadSequence = useRef(0)
+  const markSequence = useRef(0)
   const markInFlight = useRef(false)
+  const feedbackRef = useRef<HTMLDivElement>(null)
+  // Buttons are disabled while a mark is in flight, so focus moves to the outcome once it is known.
+  useEffect(() => { if (feedbackFocus) feedbackRef.current?.focus() }, [feedbackFocus])
 
   async function load() {
     const requestId = ++loadSequence.current
-    setLoading(true); setLoadFailed(false); setError(''); setReceipt(null)
+    setLoading(true); setLoadFailed(false); setError(''); setReceipt(null); setMarkFailed(false)
     try {
       const availableSites = await api.get<Site[]>('/sites')
       const dayData = await loadEmployeeDayData(api, availableSites, date)
@@ -64,14 +81,16 @@ export function EmployeeApp() {
   async function mark(action: MarkAction) {
     if (markInFlight.current) return
     markInFlight.current = true
-    setBusy(true); setError(''); setReceipt(null)
-    const attempt = pendingAttempt?.jornadaId === selectedId && pendingAttempt.action === action ? pendingAttempt : createMarkAttempt(selectedId, action)
+    const jornadaId = selectedId
+    const markRequest = ++markSequence.current
+    setBusy(true); setError(''); setReceipt(null); setMarkFailed(false)
+    const attempt = pendingAttempt?.jornadaId === jornadaId && pendingAttempt.action === action ? pendingAttempt : createMarkAttempt(jornadaId, action)
     setPendingAttempt(attempt)
     try {
       const serverReceipt = await submitMark(api, attempt)
       setReceipt(serverReceipt); setPendingAttempt(null)
       try {
-        const refreshed = await api.get<Jornada>(`/jornadas/${encodeURIComponent(selectedId)}`)
+        const refreshed = await api.get<Jornada>(`/jornadas/${encodeURIComponent(jornadaId)}`)
         setJornadas((current) => current.map((item) => item.id === refreshed.id ? refreshed : item))
       } catch { /* El recibo confirmado sigue siendo válido aunque falle la actualización de pantalla. */ }
       try {
@@ -79,10 +98,22 @@ export function EmployeeApp() {
         setSiteDates(refreshedDay.siteDates); setDeviations(refreshedDay.deviations)
       } catch { /* La marca no depende de actualizar la bandeja. */ }
     } catch (reason) {
-      if (reason instanceof Error && reason.name === 'NetworkError') setError(`${reason.message} La marca no fue confirmada; podés reintentar.`)
-      else setError(reason instanceof Error ? reason.message : 'La marca no fue confirmada. Reintentá la misma acción.')
+      setError(markFailureMessage(reason)); setMarkFailed(true)
+      // That key is bound to other content on the server; the next try needs a new one.
+      if (reason instanceof ApiError && reason.code === 'IDEMPOTENCY_CONFLICT') setPendingAttempt(null)
+      void refreshAfterFailedMark(jornadaId, markRequest)
     }
-    finally { markInFlight.current = false; setBusy(false) }
+    finally { markInFlight.current = false; setBusy(false); setFeedbackFocus((count) => count + 1) }
+  }
+
+  /** Not awaited: buttons are released right away and the next action follows the server state when it arrives. */
+  async function refreshAfterFailedMark(jornadaId: string, markRequest: number) {
+    const loadRequest = loadSequence.current
+    try {
+      const refreshed = await api.get<Jornada>(`/jornadas/${encodeURIComponent(jornadaId)}`)
+      if (markRequest !== markSequence.current || loadRequest !== loadSequence.current) return
+      setJornadas((current) => current.map((item) => item.id === refreshed.id ? refreshed : item))
+    } catch { /* "Actualizar" queda disponible para reintentar la consulta. */ }
   }
 
   function updateMotive(id: string, patch: Partial<{ category: string; text: string }>) {
@@ -102,24 +133,27 @@ export function EmployeeApp() {
   return <div className="app-frame employee-frame">
     <AppHeader companyName={active.companyName} name={session.displayName?.trim() || (session.dni ? `DNI ${session.dni}` : 'Empleado')} onSignOut={() => void signOut()}>
       <InstallControl />
-      <CompanySwitcher memberships={session.memberships} activeCompanyId={active.companyId} onSelect={activateCompany} />
+      <CompanySwitcher memberships={session.memberships} activeCompanyId={active.companyId} onSelect={activateCompany} disabled={busy} />
     </AppHeader>
     <main className="employee-main">
       <div className="page-title-row employee-title"><div><p className="eyebrow">MI JORNADA</p><h1>Hola, {session.displayName?.trim() || (session.dni ? `DNI ${session.dni}` : 'bienvenido')}</h1><p className="muted">Tus marcas se registran con hora oficial del servidor.</p></div>
-        <FormField label="Fecha de consulta" hint="Sin elegir fecha se consulta hoy según cada sede. Si elegís una fecha, se usa ese mismo día local en todas las sedes."><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></FormField>
+        <FormField label="Fecha de consulta" hint="Sin elegir fecha se consulta hoy según cada sede. Si elegís una fecha, se usa ese mismo día local en todas las sedes."><input type="date" value={date} disabled={busy} onChange={(e) => setDate(e.target.value)} /></FormField>
       </div>
       {!loading && !loadFailed && sites.length > 0 && <p className="muted small-copy date-semantics">{date ? `Fecha seleccionada: ${formatLocalDate(date)} en todas tus sedes.` : `Hoy según la sede: ${sites.map((site) => `${site.name}, ${siteDates.get(site.id) ? formatLocalDate(siteDates.get(site.id)!) : '…'}`).join(' · ')}.`}</p>}
-      {error && <PageMessage kind="error">{error}</PageMessage>}
-      {receipt && <PageMessage kind="success">Marca confirmada por el servidor (<strong>{localTime(receipt.acceptedAt, selectedSite?.timeZone)}</strong>). Guardá el comprobante si lo necesitás.</PageMessage>}
+      <div className="mark-feedback" ref={feedbackRef} tabIndex={-1}>
+        {error && <PageMessage kind="error">{error}</PageMessage>}
+        {markFailed && !loading && <button type="button" className="button button-quiet button-small" onClick={() => void load()}>Actualizar</button>}
+        {receipt && <PageMessage kind="success">Marca confirmada por el servidor (<strong>{localTime(receipt.acceptedAt, selectedSite?.timeZone)}</strong>). Guardá el comprobante si lo necesitás.</PageMessage>}
+      </div>
       {loading ? <Loading label="Consultando tu jornada…" /> : loadFailed ? <Panel title="No se pudo consultar tu jornada"><Empty>Revisá el error y volvé a intentar.</Empty><button className="button button-quiet" onClick={() => void load()}>Reintentar</button></Panel> : jornadas.length === 0 ? <Panel title="Sin jornada declarada"><Empty>{date ? `El administrador todavía no declaró una jornada para el ${formatLocalDate(date)}. No hay una marca que completar.` : 'El administrador todavía no declaró una jornada para el día local actual de tus sedes. No hay una marca que completar.'}</Empty></Panel> : <>
-        {jornadas.length > 1 && <Panel title="Elegí una jornada"><div className="journey-picker" role="group" aria-label="Jornadas disponibles">{jornadas.map((jornada) => <button key={jornada.id} aria-pressed={selectedId === jornada.id} onClick={() => { setSelectedId(jornada.id); setPendingAttempt(null); setReceipt(null) }} className={`journey-option ${selectedId === jornada.id ? 'journey-option-active' : ''}`}><strong>{jornada.scheduleSnapshot.name}</strong><small>{formatLocalDate(jornada.localDate)} · {sites.find((site) => site.id === jornada.siteId)?.name ?? 'Sede'} · {jornadaStateLabel(jornada.state)}</small></button>)}</div></Panel>}
+        {jornadas.length > 1 && <Panel title="Elegí una jornada"><div className="journey-picker" role="group" aria-label="Jornadas disponibles">{jornadas.map((jornada) => <button key={jornada.id} aria-pressed={selectedId === jornada.id} disabled={busy} onClick={() => { setSelectedId(jornada.id); setPendingAttempt(null); setReceipt(null) }} className={`journey-option ${selectedId === jornada.id ? 'journey-option-active' : ''}`}><strong>{jornada.scheduleSnapshot.name}</strong><small>{formatLocalDate(jornada.localDate)} · {sites.find((site) => site.id === jornada.siteId)?.name ?? 'Sede'} · {jornadaStateLabel(jornada.state)}</small></button>)}</div></Panel>}
         {selected && <>
           <Panel title="Horario de la jornada" action={<span className={`status-chip status-${selected.state.toLowerCase()}`}>{jornadaStateLabel(selected.state)}</span>}>
-            <div className="schedule-summary"><div className="schedule-icon">◷</div><div><strong>{selected.scheduleSnapshot.name}</strong><p>{selected.scheduleSnapshot.blocks.map((block, index) => <span className="schedule-block" key={`${block.start}-${index}`}>{formatBlock(block)}</span>)}</p><small>Jornada del {formatLocalDate(selected.localDate)} · {selectedSite ? `${selectedSite.name} · ` : ''}Tolerancia individual: {selected.toleranceMinutes} minutos</small></div></div>
+            <div className="schedule-summary"><div className="schedule-icon" aria-hidden="true">◷</div><div><strong>{selected.scheduleSnapshot.name}</strong><p>{selected.scheduleSnapshot.blocks.map((block, index) => <span className="schedule-block" key={`${block.start}-${index}`}>{formatBlock(block)}</span>)}</p><small>Jornada del {formatLocalDate(selected.localDate)} · {selectedSite ? `${selectedSite.name} · ` : ''}Tolerancia individual: {selected.toleranceMinutes} minutos</small></div></div>
             <div className="mark-timeline"><div className="timeline-title">Marcas de la jornada</div>{selected.marks.length ? selected.marks.map((mark) => <div className="mark-row" key={mark.id}><span className="timeline-point" /><strong>{actionLabel[mark.action]}</strong><time>{localTime(mark.acceptedAt, selectedSite?.timeZone)}</time></div>) : <p className="muted">Todavía no hay marcas en esta jornada.</p>}</div>
           </Panel>
           <Panel title="Registrar una marca"><p className="muted small-copy">La marca se envía ahora. Necesitás conexión; no se guarda para enviar más tarde. La ubicación, si está disponible, se adjunta aparte.</p>
-            <div className="mark-actions" aria-busy={busy}>{actions.map((action) => <button key={action} className={`mark-action ${action === 'INGRESO' || action === 'EGRESO' ? 'mark-action-primary' : ''}`} disabled={busy} onClick={() => void mark(action)}><span>{action === 'INGRESO' ? '→' : action === 'EGRESO' ? '←' : '◷'}</span><strong>{actionLabel[action]}</strong><small>{busy && pendingAttempt?.action === action ? 'Enviando al servidor…' : 'Enviar marca'}</small></button>)}</div>
+            <div className="mark-actions" aria-busy={busy}>{actions.map((action) => <button key={action} className={`mark-action ${action === 'INGRESO' || action === 'EGRESO' ? 'mark-action-primary' : ''}`} disabled={busy} onClick={() => void mark(action)}><span aria-hidden="true">{action === 'INGRESO' ? '→' : action === 'EGRESO' ? '←' : '◷'}</span><strong>{actionLabel[action]}</strong><small>{busy && pendingAttempt?.action === action ? 'Enviando al servidor…' : 'Enviar marca'}</small></button>)}</div>
             {busy && pendingAttempt && !receipt && <p role="status" aria-live="polite" aria-atomic="true">Enviando {actionLabel[pendingAttempt.action]} al servidor. La marca todavía no está confirmada.</p>}
             {selected.state === 'EGRESADA' && <PageMessage>Esta jornada ya fue cerrada.</PageMessage>}
           </Panel>

@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EmployeeApp } from './EmployeeApp'
 import type { Deviation, Jornada, Site } from '../../shared/api/types'
+import { ApiError, TimeoutError } from '../../shared/api/client'
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
@@ -11,7 +12,8 @@ const mocks = vi.hoisted(() => ({
   submitMark: vi.fn()
 }))
 
-vi.mock('../../shared/api/client', () => ({
+vi.mock('../../shared/api/client', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../shared/api/client')>(),
   api: { get: mocks.apiGet, put: mocks.apiPut },
   queryString: (values: Record<string, string | number | null | undefined>) => {
     const params = new URLSearchParams()
@@ -294,5 +296,101 @@ describe('EmployeeApp', () => {
     render(<EmployeeApp />)
     fireEvent.click(await screen.findByRole('button', { name: /Registrar egreso/ }))
     expect(await screen.findByRole('alert')).toHaveTextContent('La marca no fue confirmada')
+  })
+
+  describe('después de una marca fallida', () => {
+    it('vuelve a consultar la jornada al servidor y muestra la próxima acción que corresponde', async () => {
+      const closed: Jornada = { ...jornadas[0], state: 'EGRESADA' }
+      const previous = mocks.apiGet.getMockImplementation()!
+      mocks.apiGet.mockImplementation((path: string) => path === '/jornadas/jornada-center' ? Promise.resolve(closed) : previous(path))
+      mocks.submitMark.mockRejectedValueOnce(new ApiError(409, { status: 409, code: 'INVALID_MARK_TRANSITION' }))
+      render(<EmployeeApp />)
+
+      fireEvent.click(await screen.findByRole('button', { name: /Registrar egreso/ }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('La jornada cambió y esa marca ya no corresponde. Te mostramos el estado actual del servidor.')
+      expect(await screen.findByText('Esta jornada ya fue cerrada.')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /Registrar egreso/ })).not.toBeInTheDocument()
+      expect(mocks.apiGet).toHaveBeenCalledWith('/jornadas/jornada-center')
+    })
+
+    it('ofrece Actualizar para volver a cargar el estado desde el servidor', async () => {
+      mocks.submitMark.mockRejectedValueOnce(new Error('Falló.'))
+      render(<EmployeeApp />)
+      fireEvent.click(await screen.findByRole('button', { name: /Registrar egreso/ }))
+      await screen.findByRole('alert')
+      const sitesBefore = mocks.apiGet.mock.calls.filter(([path]) => path === '/sites').length
+
+      fireEvent.click(screen.getByRole('button', { name: 'Actualizar' }))
+
+      await waitFor(() => expect(mocks.apiGet.mock.calls.filter(([path]) => path === '/sites').length).toBe(sitesBefore + 1))
+      expect(await screen.findByRole('button', { name: /Registrar egreso/ })).toBeEnabled()
+    })
+
+    it('un conflicto que persiste tras el reintento dice que la marca no se registró', async () => {
+      mocks.submitMark.mockRejectedValueOnce(new ApiError(409, { status: 409, code: 'RETRYABLE_TRANSACTION_CONFLICT' }, { retryAfterSeconds: 1 }))
+      render(<EmployeeApp />)
+      fireEvent.click(await screen.findByRole('button', { name: /Registrar egreso/ }))
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('La marca no se registró porque el servidor estaba ocupado. Reintentá la misma acción.')
+      expect(alert).not.toHaveTextContent(/ya fue procesada/)
+    })
+
+    it('conserva el aviso de horario temprano', async () => {
+      mocks.submitMark.mockRejectedValueOnce(new ApiError(409, { status: 409, code: 'MARK_TOO_EARLY' }))
+      render(<EmployeeApp />)
+      fireEvent.click(await screen.findByRole('button', { name: /Registrar egreso/ }))
+      expect(await screen.findByRole('alert')).toHaveTextContent('Todavía no es horario para registrar esta marca.')
+    })
+
+    it('una espera agotada avisa que la marca puede no estar registrada, libera los botones y reintenta con la misma clave', async () => {
+      mocks.submitMark.mockRejectedValueOnce(new TimeoutError())
+      render(<EmployeeApp />)
+      const egreso = await screen.findByRole('button', { name: /Registrar egreso/ })
+      fireEvent.click(egreso)
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('El servidor no respondió a tiempo. La marca puede no haberse registrado')
+      await waitFor(() => expect(egreso).toBeEnabled())
+      fireEvent.click(egreso)
+
+      expect(await screen.findByText(/Marca confirmada por el servidor/)).toBeInTheDocument()
+      expect(mocks.createMarkAttempt).toHaveBeenCalledTimes(1)
+      expect(mocks.submitMark.mock.calls[1][1]).toBe(mocks.submitMark.mock.calls[0][1])
+    })
+  })
+
+  it('bloquea la elección de jornada, la fecha y la empresa mientras una marca está en vuelo', async () => {
+    mocks.useSession.mockReturnValue({
+      session: {
+        accountId: 'account-1', dni: '30123456', activeCompanyId: 'company-1', mustChangePassword: false,
+        memberships: [{ companyId: 'company-1', companyName: 'Braja', role: 'EMPLOYEE' }, { companyId: 'company-2', companyName: 'Otra', role: 'EMPLOYEE' }]
+      },
+      signOut: vi.fn(), activateCompany: vi.fn()
+    })
+    let resolveMark!: (value: { id: string; acceptedAt: string }) => void
+    mocks.submitMark.mockReturnValueOnce(new Promise((resolve) => { resolveMark = resolve }))
+    render(<EmployeeApp />)
+    const options = await screen.findAllByRole('button', { name: /Mañana/ })
+
+    fireEvent.click(screen.getByRole('button', { name: /Registrar egreso/ }))
+
+    options.forEach((option) => expect(option).toBeDisabled())
+    expect(screen.getByLabelText('Fecha de consulta')).toBeDisabled()
+    expect(screen.getByRole('combobox', { name: 'Empresa activa' })).toBeDisabled()
+    await act(async () => { resolveMark({ id: 'mark-new', acceptedAt: '2026-10-20T13:05:00Z' }) })
+    await waitFor(() => options.forEach((option) => expect(option).toBeEnabled()))
+    expect(screen.getByRole('combobox', { name: 'Empresa activa' })).toBeEnabled()
+  })
+
+  it('oculta los símbolos decorativos de los botones de marca y lleva el foco al resultado', async () => {
+    render(<EmployeeApp />)
+    const egreso = await screen.findByRole('button', { name: /Registrar egreso/ })
+    expect(egreso).toHaveAccessibleName(/^Registrar egreso\s*Enviar marca$/)
+    egreso.querySelectorAll('span').forEach((glyph) => expect(glyph).toHaveAttribute('aria-hidden', 'true'))
+
+    fireEvent.click(egreso)
+
+    const confirmation = await screen.findByText(/Marca confirmada por el servidor/)
+    await waitFor(() => expect(document.activeElement).toContainElement(confirmation))
   })
 })

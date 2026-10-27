@@ -1,16 +1,18 @@
 export type ApiProblem = { status?: number; code?: string }
 
-export type ApiErrorContext = { retryAfterSeconds?: number; login?: boolean }
+export type ApiErrorContext = { retryAfterSeconds?: number; login?: boolean; passwordChange?: boolean }
 
 export class ApiError extends Error {
   readonly status: number
   readonly code?: string
+  readonly retryAfterSeconds?: number
 
   constructor(status: number, problem?: ApiProblem, context: ApiErrorContext = {}) {
     super(messageForStatus(status, problem?.code, context))
     this.name = 'ApiError'
     this.status = status
     this.code = problem?.code
+    this.retryAfterSeconds = context.retryAfterSeconds
   }
 }
 
@@ -22,6 +24,14 @@ export class NetworkError extends Error {
   }
 }
 
+/** The caller's deadline expired before a response arrived; the server may or may not have applied the request. */
+export class TimeoutError extends Error {
+  constructor() {
+    super('El servidor tardó demasiado en responder.')
+    this.name = 'TimeoutError'
+  }
+}
+
 function waitText(seconds?: number): string {
   if (seconds === undefined || !Number.isFinite(seconds) || seconds <= 0) return 'unos minutos'
   if (seconds < 90) return 'un minuto'
@@ -29,11 +39,28 @@ function waitText(seconds?: number): string {
   return `${minutes} minutos`
 }
 
+const STALE_MARK = 'El estado de la jornada cambió y esa marca ya no corresponde. Revisá el estado actualizado.'
+const CONFLICT_MESSAGES: Record<string, string> = {
+  MARK_TOO_EARLY: 'Todavía no es horario para registrar esta marca. El ingreso se habilita 30 minutos antes; las demás marcas, desde el inicio de la jornada.',
+  RETRYABLE_TRANSACTION_CONFLICT: 'El servidor estaba ocupado y no completó la operación. Reintentá en unos segundos.',
+  INVALID_MARK_TRANSITION: STALE_MARK,
+  INVALID_MARK_ORDER: STALE_MARK,
+  INVALID_MARK_HISTORY: STALE_MARK,
+  IDEMPOTENCY_CONFLICT: 'Esta solicitud ya se usó para otra acción. Actualizá la vista y volvé a intentar.',
+  MOTIVE_ALREADY_SUBMITTED: 'El motivo de este desvío ya fue enviado. Actualizá la vista para ver su estado.',
+  JORNADA_EXISTS: 'Ya hay una jornada declarada para ese empleado, sede y fecha.',
+  MEMBERSHIP_EXISTS: 'Esa persona ya tiene un rol en esta empresa.',
+  ACCOUNT_INACTIVE: 'La cuenta de ese DNI no está habilitada y no se puede agregar a la empresa.'
+}
+
 function messageForStatus(status: number, code?: string, context: ApiErrorContext = {}): string {
-  if (status === 401 && context.login) return 'El DNI o la contraseña son incorrectos.'
+  if (status === 401 && context.login && code !== 'SESSION_EXPIRED') return 'El DNI o la contraseña son incorrectos.'
+  if (status === 401 && context.login) return 'No se pudo iniciar sesión. Reintentá.'
+  if (status === 401 && context.passwordChange && code === 'CURRENT_PASSWORD_INVALID') return 'La contraseña actual no es correcta.'
   if (status === 401) return 'Tu sesión venció. Iniciá sesión nuevamente.'
+  if (status === 403 && code === 'PASSWORD_CHANGE_REQUIRED') return 'Tenés que cambiar tu contraseña provisoria antes de continuar.'
   if (status === 403) return 'No tenés permiso para realizar esta acción.'
-  if (status === 409 && code === 'MARK_TOO_EARLY') return 'Todavía no es horario para registrar esta marca. El ingreso se habilita 30 minutos antes; las demás marcas, desde el inicio de la jornada.'
+  if (status === 409 && code && Object.hasOwn(CONFLICT_MESSAGES, code)) return CONFLICT_MESSAGES[code]
   if (status === 409) return 'La información cambió o la acción ya fue procesada. Actualizá la vista.'
   if (status === 422) return 'Revisá los datos ingresados.'
   if (status === 429) return `Hubo demasiados intentos. Esperá ${waitText(context.retryAfterSeconds)} y probá otra vez.`
@@ -41,17 +68,25 @@ function messageForStatus(status: number, code?: string, context: ApiErrorContex
 }
 
 type RequestOptions = { headers?: Record<string, string>; signal?: AbortSignal }
+export type MutationOptions = { signal?: AbortSignal }
+/** Called when an authenticated request gets 401: the server no longer has a live session for this browser. */
+export type SessionExpiredListener = () => void
+
+const LOGIN_URL = '/api/v1/session'
+const PASSWORD_URL = '/api/v1/session/password'
 
 export class ApiClient {
   private csrfToken?: string
   private csrfPromise?: Promise<string>
+  private readonly sessionExpiredListeners = new Set<SessionExpiredListener>()
+  private readonly passwordChangeListeners = new Set<SessionExpiredListener>()
 
   async get<T>(path: string, options: RequestOptions = {}): Promise<T> {
     return this.request<T>('GET', path, undefined, options)
   }
 
-  async post<T>(path: string, body?: unknown, headers: Record<string, string> = {}): Promise<T> {
-    return this.request<T>('POST', path, body, { headers })
+  async post<T>(path: string, body?: unknown, headers: Record<string, string> = {}, options: MutationOptions = {}): Promise<T> {
+    return this.request<T>('POST', path, body, { headers, signal: options.signal })
   }
 
   async put<T>(path: string, body?: unknown, headers: Record<string, string> = {}): Promise<T> {
@@ -79,7 +114,32 @@ export class ApiClient {
     this.csrfPromise = undefined
   }
 
+  /** Subscribes to session expiry; returns the unsubscribe function. */
+  onSessionExpired(listener: SessionExpiredListener): () => void {
+    this.sessionExpiredListeners.add(listener)
+    return () => { this.sessionExpiredListeners.delete(listener) }
+  }
+
+  /** Subscribes to 403 PASSWORD_CHANGE_REQUIRED; returns the unsubscribe function. */
+  onPasswordChangeRequired(listener: () => void): () => void {
+    this.passwordChangeListeners.add(listener)
+    return () => { this.passwordChangeListeners.delete(listener) }
+  }
+
   private async request<T>(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
+    try {
+      return await this.requestOnce<T>(method, path, body, options)
+    } catch (reason) {
+      // An expired anonymous session invalidates the CSRF token; login retries once with a fresh token.
+      const login = method === 'POST' && `/api/v1${path.startsWith('/') ? path : `/${path}`}` === LOGIN_URL
+      if (login && reason instanceof ApiError && reason.status === 401 && reason.code === 'SESSION_EXPIRED') {
+        return this.requestOnce<T>(method, path, body, options)
+      }
+      throw reason
+    }
+  }
+
+  private async requestOnce<T>(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
     const url = `/api/v1${path.startsWith('/') ? path : `/${path}`}`
     const headers = new Headers(options.headers)
     if (body !== undefined) headers.set('Content-Type', 'application/json')
@@ -117,6 +177,8 @@ export class ApiClient {
     try {
       response = await fetch(url, init)
     } catch {
+      const reason: unknown = init.signal?.aborted ? init.signal.reason : undefined
+      if (reason instanceof DOMException && reason.name === 'TimeoutError') throw new TimeoutError()
       throw new NetworkError()
     }
     if (!response.ok) {
@@ -128,12 +190,21 @@ export class ApiClient {
           problem = { status: response.status, code: typeof candidate.code === 'string' ? candidate.code : undefined }
         }
       } catch { /* La respuesta HTTP conserva el estado aunque no incluya un problema parseable. */ }
-      if (response.status === 401) this.clearCsrf()
+      const login = init.method === 'POST' && url === LOGIN_URL
+      const passwordChange = init.method === 'PUT' && url === PASSWORD_URL
       const retryAfter = Number(response.headers.get('Retry-After'))
-      throw new ApiError(response.status, problem, {
+      const error = new ApiError(response.status, problem, {
         retryAfterSeconds: Number.isFinite(retryAfter) && response.headers.get('Retry-After') ? retryAfter : undefined,
-        login: init.method === 'POST' && url === '/api/v1/session'
+        login,
+        passwordChange
       })
+      const wrongCurrentPassword = passwordChange && error.code === 'CURRENT_PASSWORD_INVALID'
+      if (response.status === 401 && !wrongCurrentPassword) {
+        this.clearCsrf()
+        if (!login) this.sessionExpiredListeners.forEach((listener) => listener())
+      }
+      if (response.status === 403 && error.code === 'PASSWORD_CHANGE_REQUIRED') this.passwordChangeListeners.forEach((listener) => listener())
+      throw error
     }
     if (response.status === 204 || response.headers.get('content-length') === '0') return undefined as T
     const contentType = response.headers.get('content-type') ?? ''
