@@ -112,7 +112,7 @@ public class OrganizationService {
             String currentSite = jdbc.query("SELECT site_id FROM schedule_templates WHERE id=? AND company_id=? FOR UPDATE",
                     rs -> rs.next() ? rs.getString(1) : null, id.toString(), companyId.toString());
             if (currentSite == null) throw ApiException.notFound();
-            if (!currentSite.equals(input.siteId().toString()) && !jdbc.queryForList("SELECT id FROM jornadas WHERE company_id=? AND template_id=? LIMIT 1",
+            if (!currentSite.equals(input.siteId().toString()) && !jdbc.queryForList("SELECT id FROM jornadas WHERE company_id=? AND template_id=? LIMIT 1 FOR SHARE",
                     companyId.toString(), id.toString()).isEmpty()) {
                 throw ApiException.conflict("TEMPLATE_IN_USE", "A template already used by jornadas cannot move to another site; create a new template for that site");
             }
