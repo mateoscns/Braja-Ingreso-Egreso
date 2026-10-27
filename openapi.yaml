@@ -130,8 +130,8 @@ paths:
         '204': { description: Password changed; temporary-password requirement cleared }
         '401':
           description: >-
-            CURRENT_PASSWORD_INVALID when the current password is wrong (the session stays valid), or UNAUTHORIZED
-            when the session is missing or expired.
+            CURRENT_PASSWORD_INVALID when the current password is wrong (the session stays valid), or SESSION_EXPIRED
+            when the session is missing or expired (the CSRF check fails first).
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }

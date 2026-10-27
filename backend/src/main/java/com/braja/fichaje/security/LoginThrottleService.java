@@ -94,7 +94,10 @@ public class LoginThrottleService {
     public void succeeded(String dni) { jdbc.update("DELETE FROM " + DNI_TABLE + " WHERE " + DNI_COLUMN + "=?", dniHash(dni)); }
 
     private ThrottleRow lockRow(String table, String keyColumn, String keyValue, Instant now) {
-        jdbc.update("INSERT IGNORE INTO " + table + "(" + keyColumn + ",window_started_at,failed_attempts,locked_until,updated_at) VALUES(?,?,0,NULL,?)",
+        // ON DUPLICATE KEY UPDATE takes an exclusive lock on an existing row; INSERT IGNORE takes a shared one that
+        // concurrent attempts then upgrade, which deadlocks (2026-10-27 verifier finding).
+        jdbc.update("INSERT INTO " + table + "(" + keyColumn + ",window_started_at,failed_attempts,locked_until,updated_at) VALUES(?,?,0,NULL,?) "
+                        + "ON DUPLICATE KEY UPDATE " + keyColumn + "=" + keyColumn,
                 keyValue, timestamp(now), timestamp(now));
         return jdbc.queryForObject("SELECT window_started_at,failed_attempts,locked_until FROM " + table + " WHERE " + keyColumn + "=? FOR UPDATE",
                 LoginThrottleService::row, keyValue);

@@ -104,7 +104,11 @@ public class BrajaProperties {
         int slash = cidr.indexOf('/');
         if (slash < 0) return false;
         String prefix = cidr.substring(slash + 1).trim();
-        return !prefix.isEmpty() && prefix.chars().allMatch(c -> c == '0');
+        try {
+            return Integer.parseInt(prefix) <= 0;
+        } catch (NumberFormatException ex) {
+            return false;
+        }
     }
 
     public void validate(Environment environment) {

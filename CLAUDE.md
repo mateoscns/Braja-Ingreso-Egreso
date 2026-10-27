@@ -354,7 +354,7 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
 24. **Anti-CSRF**: toda mutación exige `X-CSRF-TOKEN`; cookie de sesión
     `HttpOnly`, `SameSite=Lax`. El login rota el token (2026-10-27: el token
     previo al login seguía valiendo). Sin sesión autenticada (vencida o
-    ausente) el rechazo de CSRF da 401 `UNAUTHORIZED`; con sesión viva, 403.
+    ausente) el rechazo de CSRF da 401 `SESSION_EXPIRED`; con sesión viva, 403.
     Guarda:
     `IT.httpLoginCreatesHttpOnlySessionCookieAndCsrfProtectsMutableRoutes`,
     `LoginHardeningMySqlTest.loginRotatesTheCsrfTokenSoThePreLoginTokenIsRejected`,
