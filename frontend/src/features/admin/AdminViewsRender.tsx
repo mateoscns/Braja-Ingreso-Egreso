@@ -92,24 +92,27 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, name
   </>
 }
 
-export function EmployeesViewRender({ employees, sites, loading, loadError, error, notice, busy, dni, displayName, siteIds, tolerance, temporaryPassword, editingId, onReload, onCreate, onDniChange, onDisplayNameChange, onToggleSite, onToleranceChange, onTemporaryPasswordChange, onSave, onUpdateEmployee, onStartEditing }: {
+export function EmployeesViewRender({ employees, sites, loading, loadError, error, notice, busy, dni, displayName, siteIds, tolerance, temporaryPassword, draft, onReload, onCreate, onDniChange, onDisplayNameChange, onToggleSite, onToleranceChange, onTemporaryPasswordChange, onSave, onDraftChange, onStartEditing, onCancelEditing }: {
   employees: Employee[]; sites: Site[]; loading: boolean; loadError: string; error: string; notice: string; busy: boolean
-  dni: string; displayName: string; siteIds: string[]; tolerance: string; temporaryPassword: string; editingId: string
+  dni: string; displayName: string; siteIds: string[]; tolerance: string; temporaryPassword: string; draft: Employee | null
   onReload: () => void; onCreate: (event: FormEvent<HTMLFormElement>) => void; onDniChange: (value: string) => void; onDisplayNameChange: (value: string) => void
   onToggleSite: (id: string) => void; onToleranceChange: (value: string) => void; onTemporaryPasswordChange: (value: string) => void
-  onSave: (person: Employee) => void; onUpdateEmployee: (id: string, patch: Partial<Employee>) => void; onStartEditing: (id: string) => void
+  onSave: () => void; onDraftChange: (patch: Partial<Employee>) => void; onStartEditing: (id: string) => void; onCancelEditing: () => void
 }) {
   return <>
     <PageHeading eyebrow="EQUIPO" title="Empleados" subtitle="Las cuentas se identifican por DNI. La tolerancia se guarda por empleado." />
     {error && <PageMessage kind="error">{error}</PageMessage>}
     {notice && <PageMessage kind="success">{notice}</PageMessage>}
-    <Panel title={loading || loadError ? 'Empleados' : `Empleados (${employees.length})`}>{loading ? <Loading /> : loadError ? <LoadFailure message={loadError} onRetry={onReload} /> : employees.length ? <div className="table-scroll"><table><thead><tr><th>Nombre</th><th>DNI</th><th>Sedes</th><th>Tolerancia</th><th>Estado</th><th /></tr></thead><tbody>{employees.map((person) => <tr key={person.id}>
-      <td>{editingId === person.id ? <input aria-label={`Nombre del empleado con ${who(person)}`} value={person.displayName} onChange={(event) => onUpdateEmployee(person.id, { displayName: event.target.value })} /> : <strong>{person.displayName}</strong>}</td><td>{person.dni ?? '—'}</td>
-      <td>{editingId === person.id ? <div className="inline-checks">{sites.map((site) => <label key={site.id}><input type="checkbox" aria-label={`${site.name} (${who(person)})`} checked={person.siteIds.includes(site.id)} onChange={() => onUpdateEmployee(person.id, { siteIds: person.siteIds.includes(site.id) ? person.siteIds.filter((id) => id !== site.id) : [...person.siteIds, site.id] })} />{site.name}</label>)}</div> : person.siteIds.map((id) => sites.find((site) => site.id === id)?.name ?? 'Sede').join(', ')}</td>
-      <td>{editingId === person.id ? <input className="short-input" aria-label={`Tolerancia en minutos del empleado con ${who(person)}`} type="number" min="0" max="240" value={person.toleranceMinutes} onChange={(event) => onUpdateEmployee(person.id, { toleranceMinutes: Number(event.target.value) })} /> : `${person.toleranceMinutes} min`}</td>
-      <td>{editingId === person.id ? <label><input type="checkbox" aria-label={`Activo (${who(person)})`} checked={person.active} onChange={(event) => onUpdateEmployee(person.id, { active: event.target.checked })} /> Activo</label> : person.active ? 'Activo' : 'Inactivo'}</td>
-      <td>{editingId === person.id ? <button className="button button-small button-primary" disabled={busy || person.siteIds.length === 0} onClick={() => onSave(person)}>{busy ? 'Guardando…' : 'Guardar'}</button> : <button className="button button-small button-quiet" aria-label={`Editar empleado ${person.displayName}`} onClick={() => onStartEditing(person.id)}>Editar</button>}</td>
-    </tr>)}</tbody></table></div> : <Empty>No hay empleados cargados.</Empty>}</Panel>
+    <Panel title={loading || loadError ? 'Empleados' : `Empleados (${employees.length})`}>{loading ? <Loading /> : loadError ? <LoadFailure message={loadError} onRetry={onReload} /> : employees.length ? <div className="table-scroll"><table><thead><tr><th>Nombre</th><th>DNI</th><th>Sedes</th><th>Tolerancia</th><th>Estado</th><th /></tr></thead><tbody>{employees.map((saved) => {
+      const edit = draft?.id === saved.id ? draft : null
+      return <tr key={saved.id}>
+        <td>{edit ? <input aria-label={`Nombre del empleado con ${who(saved)}`} value={edit.displayName} onChange={(event) => onDraftChange({ displayName: event.target.value })} /> : <strong>{saved.displayName}</strong>}</td><td>{saved.dni ?? '—'}</td>
+        <td>{edit ? <div className="inline-checks">{sites.map((site) => <label key={site.id}><input type="checkbox" aria-label={`${site.name} (${who(saved)})`} checked={edit.siteIds.includes(site.id)} onChange={() => onDraftChange({ siteIds: edit.siteIds.includes(site.id) ? edit.siteIds.filter((id) => id !== site.id) : [...edit.siteIds, site.id] })} />{site.name}</label>)}</div> : saved.siteIds.map((id) => sites.find((site) => site.id === id)?.name ?? 'Sede').join(', ')}</td>
+        <td>{edit ? <input className="short-input" aria-label={`Tolerancia en minutos del empleado con ${who(saved)}`} type="number" min="0" max="240" value={edit.toleranceMinutes} onChange={(event) => onDraftChange({ toleranceMinutes: Number(event.target.value) })} /> : `${saved.toleranceMinutes} min`}</td>
+        <td>{edit ? <label><input type="checkbox" aria-label={`Activo (${who(saved)})`} checked={edit.active} onChange={(event) => onDraftChange({ active: event.target.checked })} /> Activo</label> : saved.active ? 'Activo' : 'Inactivo'}</td>
+        <td>{edit ? <div className="button-row"><button className="button button-small button-primary" disabled={busy || edit.siteIds.length === 0} onClick={onSave}>{busy ? 'Guardando…' : 'Guardar'}</button><button type="button" className="button button-small button-quiet" disabled={busy} onClick={onCancelEditing}>Cancelar</button></div> : <button className="button button-small button-quiet" aria-label={`Editar empleado ${saved.displayName}`} disabled={busy} onClick={() => onStartEditing(saved.id)}>Editar</button>}</td>
+      </tr>
+    })}</tbody></table></div> : <Empty>No hay empleados cargados.</Empty>}</Panel>
     <Panel title="Dar de alta un empleado"><form className="form-grid" onSubmit={onCreate}>
       <FormField label="Nombre y apellido"><input required maxLength={160} value={displayName} onChange={(event) => onDisplayNameChange(event.target.value)} /></FormField>
       <FormField label="DNI"><input required minLength={7} maxLength={12} inputMode="numeric" value={dni} onChange={(event) => onDniChange(event.target.value)} /></FormField>
@@ -155,7 +158,7 @@ export function JourneysViewRender({ sites, eligibleEmployees, siteTemplates, jo
   sites: Site[]; eligibleEmployees: Employee[]; siteTemplates: Template[]; jornadas: JourneyRow[]
   loading: boolean; journeysLoading: boolean; journeysDate: string; journeysError: string; dependencyError: string; error: string; notice: string; busy: boolean
   detail: Jornada | null; detailLoading: boolean; markBusy: string; date: string; dateError: string; employeeId: string; siteId: string; templateId: string; peopleById: Map<string, string>
-  detailSite?: Site; detailTimeZone: string; forgotAction: MarkAction; forgotOccurredAt: string; forgotReason: string; editingMarkId: string
+  detailSite?: Site; detailTimeZone?: string; forgotAction: MarkAction; forgotOccurredAt: string; forgotReason: string; editingMarkId: string
   correctedAction: MarkAction; correctedOccurredAt: string; correctionReason: string
   onDateChange: (value: string) => void; onEmployeeChange: (value: string) => void; onSiteChange: (value: string) => void; onTemplateChange: (value: string) => void
   onDeclare: (event: FormEvent<HTMLFormElement>) => void; onRetryDependencies: () => void; onReloadJourneys: () => void; onShowDetail: (id: string) => void
@@ -181,8 +184,9 @@ export function JourneysViewRender({ sites, eligibleEmployees, siteTemplates, jo
     {detailLoading && <Panel title="Detalle"><Loading label="Consultando marcas…" /></Panel>}
     {detail && !detailLoading && <Panel title={`Marcas de ${peopleById.get(detail.employeeId) ?? 'empleado'}`}>
       <p className="muted">Horario asignado: {detail.scheduleSnapshot.name} · tolerancia {detail.toleranceMinutes} min</p>
+      {!detailTimeZone && <PageMessage kind="error">No se pudo cargar la zona horaria de la sede. Reintentá los datos de la jornada antes de incorporar o corregir marcas.</PageMessage>}
       {detail.marks.length ? <div className="table-scroll"><table><thead><tr><th>Marca</th><th>Hora del evento</th><th>Alta en servidor</th><th>Ubicación</th><th>Acciones</th></tr></thead><tbody>{detail.marks.map((mark) => <Fragment key={mark.id}>
-        <tr><td>{actionName(mark.action)}</td><td>{dateTime(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)}</td><td>{dateTime(mark.recordedAt ?? mark.acceptedAt, detailTimeZone)}</td><td>{typeof mark.latitude === 'number' && typeof mark.longitude === 'number' ? `${mark.latitude.toFixed(5)}, ${mark.longitude.toFixed(5)}` : locationName(mark.locationStatus)}</td><td><button className="button button-small button-quiet" aria-label={`Corregir marca ${actionName(mark.action)} de ${dateTime(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)}`} disabled={markBusy !== ''} onClick={() => onBeginMarkCorrection(mark)}>Corregir</button></td></tr>
+        <tr><td>{actionName(mark.action)}</td><td>{dateTime(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)}</td><td>{dateTime(mark.recordedAt ?? mark.acceptedAt, detailTimeZone)}</td><td>{typeof mark.latitude === 'number' && typeof mark.longitude === 'number' ? `${mark.latitude.toFixed(5)}, ${mark.longitude.toFixed(5)}` : locationName(mark.locationStatus)}</td><td><button className="button button-small button-quiet" aria-label={`Corregir marca ${actionName(mark.action)} de ${dateTime(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)}`} disabled={markBusy !== '' || !detailTimeZone} onClick={() => onBeginMarkCorrection(mark)}>Corregir</button></td></tr>
         {editingMarkId === mark.id && <tr><td colSpan={5}><form className="form-stack correction-form" onSubmit={(event) => onCorrectMark(event, mark)}>
           <FormField label="Tipo de marca corregida"><select value={correctedAction} onChange={(event) => onCorrectedActionChange(event.target.value as MarkAction)}>{MARK_ACTIONS.map((action) => <option key={action} value={action}>{actionName(action)}</option>)}</select></FormField>
           <FormField label={`Hora corregida (${detailSite?.name ?? 'zona horaria de la sede'})`}><input type="datetime-local" step="1" required value={correctedOccurredAt} onChange={(event) => onCorrectedOccurredAtChange(event.target.value)} /></FormField>
@@ -190,13 +194,13 @@ export function JourneysViewRender({ sites, eligibleEmployees, siteTemplates, jo
           <div className="button-row"><button className="button button-small button-primary" disabled={markBusy === mark.id || !correctionReason.trim()}>{markBusy === mark.id ? 'Guardando…' : 'Guardar corrección de marca'}</button><button type="button" className="button button-small button-quiet" disabled={markBusy === mark.id} onClick={onCancelMarkCorrection}>Cancelar</button></div>
         </form></td></tr>}
       </Fragment>)}</tbody></table></div> : <Empty>Esta jornada todavía no tiene marcas.</Empty>}
-      <form className="form-grid forgotten-mark-form" onSubmit={onAddForgottenMark}>
+      <form className="forgotten-mark-form" onSubmit={onAddForgottenMark}><fieldset className="form-grid fieldset-plain" disabled={!detailTimeZone}>
         <div className="field-wide"><h3>Incorporar una marca olvidada</h3><p className="field-hint">La hora del evento se interpreta en la zona horaria de {detailSite?.name ?? 'la sede'}; el alta queda auditada por separado.</p></div>
         <FormField label="Tipo de marca olvidada"><select value={forgotAction} onChange={(event) => onForgotActionChange(event.target.value as MarkAction)}>{MARK_ACTIONS.map((action) => <option key={action} value={action}>{actionName(action)}</option>)}</select></FormField>
         <FormField label={`Hora del evento (${detailSite?.name ?? 'sede'})`}><input type="datetime-local" step="1" required value={forgotOccurredAt} onChange={(event) => onForgotOccurredAtChange(event.target.value)} /></FormField>
         <FormField label="Motivo de incorporación"><textarea required maxLength={2000} value={forgotReason} onChange={(event) => onForgotReasonChange(event.target.value)} /></FormField>
         <div className="field-wide"><button className="button button-primary" disabled={markBusy !== '' || !forgotReason.trim()}>{markBusy === 'forgotten' ? 'Guardando…' : 'Registrar marca olvidada'}</button></div>
-      </form>
+      </fieldset></form>
     </Panel>}
   </>
 }
