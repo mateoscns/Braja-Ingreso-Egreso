@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ApiError, api } from '../shared/api/client'
 import type { Session } from '../shared/api/types'
 
@@ -32,6 +32,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { void refresh() }, [refresh])
 
+  const sessionRef = useRef<Session | null>(null)
+  useEffect(() => { sessionRef.current = session }, [session])
+
+  // Any 401 outside login and password change means the server session is gone: return to the login screen.
+  useEffect(() => api.onSessionExpired(() => {
+    if (sessionRef.current) setError('Tu sesión venció. Iniciá sesión nuevamente.')
+    setSession(null)
+  }), [])
+
+  useEffect(() => api.onPasswordChangeRequired(() => {
+    setSession((current) => current ? { ...current, mustChangePassword: true } : current)
+  }), [])
+
   const signIn = useCallback(async (dni: string, password: string) => {
     const current = await api.post<Session>('/session', { dni, password })
     api.clearCsrf()
@@ -41,8 +54,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     let failure = ''
-    try { await api.delete('/session') } catch {
-      failure = 'No se pudo confirmar el cierre de sesión con el servidor. Cerrá también esta pestaña si terminaste.'
+    try { await api.delete('/session') } catch (reason) {
+      // A 401 means the server session was already gone, which is what signing out wants.
+      if (!(reason instanceof ApiError && reason.status === 401)) {
+        failure = 'No se pudo confirmar el cierre de sesión con el servidor. Cerrá también esta pestaña si terminaste.'
+      }
     } finally {
       api.clearCsrf()
       setSession(null)

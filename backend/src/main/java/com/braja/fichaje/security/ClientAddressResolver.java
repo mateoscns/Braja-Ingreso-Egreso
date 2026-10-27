@@ -13,7 +13,8 @@ import java.util.regex.Pattern;
 
 @Component
 public final class ClientAddressResolver {
-    private static final Pattern NUMERIC_ADDRESS = Pattern.compile("[0-9a-fA-F:.]+");
+    private static final Pattern DECIMAL_OCTET = Pattern.compile("[0-9]{1,3}");
+    private static final Pattern HEX_GROUP = Pattern.compile("[0-9a-fA-F]{1,4}");
     private final List<Network> trustedProxies;
 
     public ClientAddressResolver(BrajaProperties properties) {
@@ -84,12 +85,66 @@ public final class ClientAddressResolver {
         }
         int zone = value.indexOf('%');
         if (zone >= 0) value = value.substring(0, zone);
-        if (!NUMERIC_ADDRESS.matcher(value).matches()) return null;
+        byte[] bytes = value.indexOf(':') >= 0 ? parseIpv6(value) : parseIpv4(value);
+        if (bytes == null) return null;
         try {
-            return normalize(InetAddress.getByName(value));
-        } catch (UnknownHostException ex) {
+            return normalize(InetAddress.getByAddress(bytes));
+        } catch (UnknownHostException impossible) {
             return null;
         }
+    }
+
+    /**
+     * Literal parsing only: {@code InetAddress.getByName} resolves anything that is not a literal with DNS
+     * (2026-10-27: "dead.beef.cafe" matched the old hex pattern and was resolved). Leading zeros are rejected
+     * because they are ambiguous (octal in some parsers).
+     */
+    private static byte[] parseIpv4(String value) {
+        String[] parts = value.split("\\.", -1);
+        if (parts.length != 4) return null;
+        byte[] bytes = new byte[4];
+        for (int index = 0; index < 4; index++) {
+            String part = parts[index];
+            if (!DECIMAL_OCTET.matcher(part).matches() || (part.length() > 1 && part.charAt(0) == '0')) return null;
+            int octet = Integer.parseInt(part);
+            if (octet > 255) return null;
+            bytes[index] = (byte) octet;
+        }
+        return bytes;
+    }
+
+    private static byte[] parseIpv6(String value) {
+        String hex = value;
+        int lastColon = value.lastIndexOf(':');
+        if (value.indexOf('.', lastColon) >= 0) {
+            byte[] ipv4 = parseIpv4(value.substring(lastColon + 1));
+            if (ipv4 == null) return null;
+            hex = value.substring(0, lastColon + 1) + Integer.toHexString(((ipv4[0] & 0xff) << 8) | (ipv4[1] & 0xff))
+                    + ":" + Integer.toHexString(((ipv4[2] & 0xff) << 8) | (ipv4[3] & 0xff));
+        }
+        int compressed = hex.indexOf("::");
+        if (compressed >= 0 && hex.indexOf("::", compressed + 1) >= 0) return null;
+        List<String> head = groups(compressed >= 0 ? hex.substring(0, compressed) : hex);
+        List<String> tail = compressed >= 0 ? groups(hex.substring(compressed + 2)) : List.of();
+        if (head == null || tail == null) return null;
+        int groupCount = head.size() + tail.size();
+        if (compressed >= 0 ? groupCount > 7 : groupCount != 8) return null;
+        byte[] bytes = new byte[16];
+        for (int index = 0; index < head.size(); index++) putGroup(bytes, index, head.get(index));
+        for (int index = 0; index < tail.size(); index++) putGroup(bytes, 8 - tail.size() + index, tail.get(index));
+        return bytes;
+    }
+
+    private static List<String> groups(String value) {
+        if (value.isEmpty()) return List.of();
+        List<String> groups = List.of(value.split(":", -1));
+        return groups.stream().allMatch(group -> HEX_GROUP.matcher(group).matches()) ? groups : null;
+    }
+
+    private static void putGroup(byte[] bytes, int group, String hex) {
+        int value = Integer.parseInt(hex, 16);
+        bytes[group * 2] = (byte) (value >> 8);
+        bytes[group * 2 + 1] = (byte) value;
     }
 
     private static InetAddress normalize(InetAddress address) throws UnknownHostException {

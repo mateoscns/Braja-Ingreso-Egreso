@@ -67,6 +67,11 @@ paths:
     post:
       tags: [Session]
       summary: Sign in with DNI and password
+      description: >-
+        Wrong DNI, wrong password, and an account without active memberships all answer the same 401 UNAUTHORIZED.
+        Every attempt counts against the DNI throttle before the password is verified (five per 15-minute window).
+        A successful login changes the session id and discards the pre-login CSRF token; the client fetches a new
+        token from /csrf before its next unsafe request.
       security: []
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
@@ -93,6 +98,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/AuthenticationUnavailable' }
     delete:
       tags: [Session]
       summary: End the current session
@@ -105,7 +111,9 @@ paths:
     put:
       tags: [Session]
       summary: Change the current account password
-      description: Required after the first ADMIN provisions an employee with a temporary password.
+      description: >-
+        Required after the first ADMIN provisions an employee with a temporary password. A wrong current password
+        counts against the same DNI throttle as login; once the DNI is locked the request answers 429.
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
       requestBody:
@@ -120,8 +128,15 @@ paths:
                 newPassword: { type: string, minLength: 12, maxLength: 256, writeOnly: true }
       responses:
         '204': { description: Password changed; temporary-password requirement cleared }
-        '401': { $ref: '#/components/responses/Unauthorized' }
+        '401':
+          description: >-
+            CURRENT_PASSWORD_INVALID when the current password is wrong (the session stays valid), or SESSION_EXPIRED
+            when the session is missing or expired (the CSRF check fails first).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
   /companies:
     get:
       tags: [Company]
@@ -1059,12 +1074,16 @@ components:
         traceId: { type: string, description: Opaque correlation ID; never contains personal data. }
   responses:
     Unauthorized:
-      description: Missing, expired, or invalid session
+      description: >-
+        Missing, expired, or invalid session (code UNAUTHORIZED); the client signs in again. An unsafe request whose
+        CSRF token cannot be validated because it carries no authenticated session answers 401 SESSION_EXPIRED; the client fetches a new CSRF token and, for login, retries once.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     Forbidden:
-      description: Authenticated but not authorized for the requested resource or action
+      description: >-
+        Authenticated but not authorized for the requested resource or action, or an unsafe request on a live
+        authenticated session with a missing or mismatched CSRF token (code FORBIDDEN).
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
@@ -1102,10 +1121,17 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     TooManyRequests:
-      description: Authentication throttling limit reached
+      description: Authentication throttling limit reached (code TOO_MANY_REQUESTS)
       headers:
         Retry-After:
           schema: { type: integer, minimum: 1 }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    AuthenticationUnavailable:
+      description: >-
+        Credentials could not be checked because of an infrastructure failure (code AUTHENTICATION_UNAVAILABLE).
+        The attempt is not counted against the DNI or address throttles; the client may retry later.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
