@@ -19,12 +19,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.*;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 @Service
 public class MarkService {
     private static final Logger LOGGER = LoggerFactory.getLogger(MarkService.class);
     private static final Duration EARLY_INGRESS_WINDOW = Duration.ofMinutes(30);
+    private static final Duration ADMIN_EVENT_MARGIN = Duration.ofHours(24);
     private static final DeviationWorkerRetryPolicy DEVIATION_WORKER_RETRY_POLICY = new DeviationWorkerRetryPolicy();
 
     private final JdbcTemplate jdbc;
@@ -45,25 +47,44 @@ public class MarkService {
         this.isolatedTransaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
     }
 
+    /** Records with a fixed server instant; for callers that already hold it (tests). The HTTP path passes the system clock. */
     @Transactional
     public MarkResult recordEmployeeMark(ScopeService.Scope scope, UUID jornadaId, MarkAction action, UUID idempotencyKey, Instant receivedAt) {
+        return recordEmployeeMark(scope, jornadaId, action, idempotencyKey, Clock.fixed(receivedAt, ZoneOffset.UTC));
+    }
+
+    /**
+     * The server instant is read from {@code serverClock} only after the account, membership and jornada locks are held
+     * (D-20261015-06), so a higher sequence never carries an earlier time than a mark committed while this request waited.
+     */
+    @Transactional
+    public MarkResult recordEmployeeMark(ScopeService.Scope scope, UUID jornadaId, MarkAction action, UUID idempotencyKey, Clock serverClock) {
         if (!"EMPLOYEE".equals(scope.role())) throw ApiException.forbidden();
         String fingerprint = MarkRequestFingerprint.sha256(jornadaId, action);
-        jdbc.queryForObject("SELECT id FROM accounts WHERE id=? AND active=TRUE FOR UPDATE", String.class, scope.accountId().toString());
+        // The account may be deactivated between the scope check and this lock: same answer as a deactivated session (rule 7).
+        String lockedAccount = jdbc.query("SELECT id FROM accounts WHERE id=? AND active=TRUE FOR UPDATE",
+                rs -> rs.next() ? rs.getString(1) : null, scope.accountId().toString());
+        if (lockedAccount == null) throw ApiException.forbidden();
         String membershipRole = jdbc.query("SELECT role FROM company_memberships WHERE account_id=? AND company_id=? AND active=TRUE FOR UPDATE",
                 rs -> rs.next() ? rs.getString("role") : null, scope.accountId().toString(), scope.companyId().toString());
         if (!"EMPLOYEE".equals(membershipRole)) throw ApiException.forbidden();
         JornadaLock jornada = lockJornada(scope.companyId(), jornadaId);
+        Instant receivedAt = serverClock.instant().truncatedTo(ChronoUnit.MICROS); // DATETIME(6): the response equals the stored value
         UUID employeeId = scopes.employeeIdFor(scope);
         if (employeeId == null || !jornada.employeeId().equals(employeeId)) throw ApiException.notFound();
 
-        Optional<MarkResult> previous = findIdempotent(scope.accountId(), idempotencyKey, fingerprint);
-        if (previous.isPresent()) return previous.get().asReplay();
+        Optional<UUID> previous = findIdempotent(scope.accountId(), idempotencyKey, fingerprint);
+        // A replay answers the current state of that mark (it may have been corrected by an ADMIN since).
+        if (previous.isPresent()) return new MarkResult(getMark(scope, previous.get()), true);
 
         validateMarkTime(jornada, action, receivedAt);
 
         List<HistoryRow> history = loadHistory(scope.companyId(), jornadaId);
         validateAppend(history, action);
+        // ADMIN paths keep the history chronological (retroactiveTimeline); an appended mark must not precede it either.
+        if (history.stream().anyMatch(row -> row.occurredAt().isAfter(receivedAt))) {
+            throw ApiException.conflict("INVALID_MARK_ORDER", "A stored mark of this jornada is later than the current server time");
+        }
         UUID markId = UUID.randomUUID();
         long sequence = jornada.nextSequence();
         long timelineOrder = history.isEmpty() ? 1000 : history.getLast().timelineOrder() + 1000;
@@ -131,8 +152,9 @@ public class MarkService {
     @Transactional
     public JornadaController.MarkView forgottenMark(ScopeService.Scope scope, UUID jornadaId, MarkAction action, Instant occurredAt, String auditReason) {
         JornadaLock jornada = lockJornada(scope.companyId(), jornadaId);
-        List<HistoryRow> history = loadHistory(scope.companyId(), jornadaId);
         Instant now = Instant.now();
+        validateAdminEventTime(jornada, occurredAt, now);
+        List<HistoryRow> history = loadHistory(scope.companyId(), jornadaId);
         UUID markId = UUID.randomUUID();
         long sequence = jornada.nextSequence();
         List<HistoryRow> updated = retroactiveTimeline(history, new HistoryRow(markId, sequence, 0, action, occurredAt));
@@ -161,12 +183,15 @@ public class MarkService {
                         MarkAction.valueOf(rs.getString("action")), 0, null, rs.getTimestamp("occurred_at").toInstant(), null, null, null, null) : null,
                 markId.toString(), scope.companyId().toString());
         if (mark == null) throw ApiException.notFound();
+        Instant now = Instant.now();
+        // Only a new event time is bounded: keeping the stored time (an action-only fix) must stay possible even for an
+        // employee mark recorded outside the window (2026-10-27 review finding).
+        if (!newOccurredAt.equals(mark.occurredAt())) validateAdminEventTime(jornada, newOccurredAt, now);
         List<HistoryRow> history = loadHistory(scope.companyId(), mark.jornadaId());
         List<HistoryRow> corrected = retroactiveTimeline(history, history.stream()
                 .filter(row -> row.id().equals(markId))
                 .map(row -> new HistoryRow(row.id(), row.sequence(), row.timelineOrder(), newAction, newOccurredAt))
                 .findFirst().orElseThrow());
-        Instant now = Instant.now();
         jdbc.update("INSERT INTO mark_correction_audits(id,company_id,mark_id,before_action,after_action,before_occurred_at,after_occurred_at,actor_account_id,audit_reason,corrected_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
                 UUID.randomUUID().toString(), scope.companyId().toString(), markId.toString(), mark.action().name(), newAction.name(), timestamp(mark.occurredAt()),
                 timestamp(newOccurredAt), scope.accountId().toString(), reason, timestamp(now));
@@ -281,14 +306,22 @@ public class MarkService {
                 jornada.toleranceMinutes(), snapshot.breakfastLimitMinutes(), snapshot.lunchLimitMinutes(), marks, now);
     }
 
-    private Optional<MarkResult> findIdempotent(UUID accountId, UUID key, String fingerprint) {
-        return jdbc.query("SELECT request_hash,response_body FROM mark_idempotency WHERE account_id=? AND idempotency_key=?",
+    /** The id of the mark already recorded with this key and payload; a different payload under the same key conflicts. */
+    private Optional<UUID> findIdempotent(UUID accountId, UUID key, String fingerprint) {
+        return jdbc.query("SELECT request_hash,mark_id FROM mark_idempotency WHERE account_id=? AND idempotency_key=?",
                 rs -> {
                     if (!rs.next()) return Optional.empty();
                     if (!fingerprint.equals(rs.getString("request_hash"))) throw ApiException.conflict("IDEMPOTENCY_CONFLICT", "This idempotency key was used for a different mark request");
-                    try { return Optional.of(new MarkResult(objectMapper.readValue(rs.getString("response_body"), JornadaController.MarkView.class), true)); }
-                    catch (Exception ex) { throw new IllegalStateException("Stored idempotent response is invalid", ex); }
+                    return Optional.of(UUID.fromString(rs.getString("mark_id")));
                 }, accountId.toString(), key.toString());
+    }
+
+    /** ADMIN event times are bounded (rule 15): never after the server time, and within 24 h of the jornada schedule. */
+    private static void validateAdminEventTime(JornadaLock jornada, Instant occurredAt, Instant now) {
+        if (occurredAt.isAfter(now) || occurredAt.isBefore(jornada.scheduledStart().minus(ADMIN_EVENT_MARGIN))
+                || occurredAt.isAfter(jornada.scheduledEnd().plus(ADMIN_EVENT_MARGIN))) {
+            throw ApiException.invalid("The event time cannot be in the future and must be within 24 hours of the jornada schedule");
+        }
     }
 
     private JornadaLock lockJornada(UUID companyId, UUID jornadaId) {
@@ -379,9 +412,7 @@ public class MarkService {
     private static Double decimal(BigDecimal value) { return value == null ? null : value.doubleValue(); }
     private static java.sql.Timestamp timestamp(Instant instant) { return java.sql.Timestamp.from(instant); }
 
-    public record MarkResult(JornadaController.MarkView mark, boolean replay) {
-        public MarkResult asReplay() { return new MarkResult(mark, true); }
-    }
+    public record MarkResult(JornadaController.MarkView mark, boolean replay) { }
     public record LocationResult(UUID markId, String locationStatus) { }
     private record HistoryRow(UUID id, long sequence, long timelineOrder, MarkAction action, Instant occurredAt) { }
     private record JornadaLock(UUID id, UUID employeeId, UUID siteId, String snapshot, int toleranceMinutes, Instant scheduledStart, Instant scheduledEnd, long nextSequence) { }

@@ -57,7 +57,7 @@ describe('fechas de jornada según la zona de sede', () => {
     })
     const apiClient = { get: get as unknown as ApiClient['get'] }
     const data = await loadEmployeeDayData(apiClient, sites, '2026-10-12', instant)
-    expect(get).toHaveBeenCalledTimes(3)
+    expect(get).toHaveBeenCalledTimes(4)
     expect(get).toHaveBeenCalledWith('/jornadas/mine?localDate=2026-10-12')
     expect(get).toHaveBeenCalledWith('/deviations?from=2026-10-12&to=2026-10-12&siteId=s-east')
     expect(get).toHaveBeenCalledWith('/deviations?from=2026-10-12&to=2026-10-12&siteId=s-west')
@@ -71,8 +71,40 @@ describe('fechas de jornada según la zona de sede', () => {
       throw new Error(`GET inesperado: ${path}`)
     })
     const data = await loadEmployeeDayData({ get: get as unknown as ApiClient['get'] }, sites, '2026-10-16', instant)
-    expect(get).toHaveBeenCalledTimes(3)
+    expect(get).toHaveBeenCalledTimes(4)
     expect(get).toHaveBeenCalledWith('/jornadas/mine?localDate=2026-10-16')
     expect(data.jornadas).toEqual([])
+  })
+})
+
+describe('motivos pendientes de cualquier fecha', () => {
+  const pending = (id: string, jornadaId: string): Deviation => ({
+    id, jornadaId, siteId: 's-east', type: 'MARCA_FALTANTE', status: 'MOTIVO_PENDIENTE', createdAt: '2026-10-15T09:00:00Z', pushEligible: false
+  })
+
+  it('pide los MOTIVO_PENDIENTE sin fecha y los devuelve aparte de los desvíos de la fecha consultada', async () => {
+    const overnightPending = pending('d-overnight', 'j-previous-night')
+    const oldPending = pending('d-old', 'j-last-month')
+    const get = vi.fn(async (path: string) => {
+      if (path.startsWith('/jornadas/mine?')) return [] as Jornada[]
+      if (path === '/deviations?status=MOTIVO_PENDIENTE&limit=100') return [overnightPending, oldPending]
+      if (path.startsWith('/deviations?from=')) return [] as Deviation[]
+      throw new Error(`GET inesperado: ${path}`)
+    })
+    const data = await loadEmployeeDayData({ get: get as unknown as ApiClient['get'] }, sites, '', instant)
+    expect(get).toHaveBeenCalledWith('/deviations?status=MOTIVO_PENDIENTE&limit=100')
+    expect(data.deviations).toEqual([])
+    expect(data.pendingMotives.map((item) => item.id)).toEqual(['d-overnight', 'd-old'])
+  })
+
+  it('también los pide cuando se consulta una fecha elegida', async () => {
+    const get = vi.fn(async (path: string) => {
+      if (path.startsWith('/jornadas/mine?')) return [] as Jornada[]
+      if (path === '/deviations?status=MOTIVO_PENDIENTE&limit=100') return [pending('d-1', 'j-1')]
+      if (path.startsWith('/deviations?from=')) return [] as Deviation[]
+      throw new Error(`GET inesperado: ${path}`)
+    })
+    const data = await loadEmployeeDayData({ get: get as unknown as ApiClient['get'] }, sites, '2026-10-01', instant)
+    expect(data.pendingMotives.map((item) => item.id)).toEqual(['d-1'])
   })
 })

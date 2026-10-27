@@ -335,7 +335,9 @@ paths:
     patch:
       tags: [Templates]
       summary: Update a reusable template
-      description: ADMIN only. Already-declared jornadas are immutable snapshots and are not changed.
+      description: >-
+        ADMIN only. Already-declared jornadas are immutable snapshots and are not changed. A template already used by
+        jornadas cannot move to another site (409 TEMPLATE_IN_USE); create a new template for that site.
       parameters:
         - name: templateId
           in: path
@@ -355,6 +357,14 @@ paths:
               schema: { $ref: '#/components/schemas/Template' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The template is used by declared jornadas and cannot move to another site.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                TEMPLATE_IN_USE:
+                  value: { type: about:blank, title: Conflict, status: 409, code: TEMPLATE_IN_USE, detail: A template already used by jornadas cannot move to another site; create a new template for that site }
         '422': { $ref: '#/components/responses/ValidationError' }
   /jornadas:
     get:
@@ -363,7 +373,7 @@ paths:
       description: >-
         Employees may query only their own jornadas; ADMIN may query employees in the active company. Optional siteId narrows to one site.
         With includeDetail=true each jornada also carries its marks and active deviations (history of an employee or site); the range is
-        at most 366 days and a detailed answer at most 500 jornadas (422 VALIDATION_ERROR beyond that). Marks and deviations are loaded in bulk, never per row.
+        at most 366 days inclusive (to - from <= 365) and a detailed answer at most 500 jornadas (422 VALIDATION_ERROR beyond that). Marks and deviations are loaded in bulk, never per row.
       parameters:
         - name: from
           in: query
@@ -399,7 +409,10 @@ paths:
     post:
       tags: [Jornadas]
       summary: Declare a jornada for an employee, site, and local date
-      description: ADMIN only. Unique by employee, site, and local date. The server snapshots the template and employee tolerance.
+      description: >-
+        ADMIN only. Unique by employee, site, and local date. The server snapshots the template and employee tolerance.
+        localDate is the local date of the first block and must be within years 2000-2100; a template whose first block
+        does not start on day offset 0 (saved before that rule) answers 422 VALIDATION_ERROR until it is updated.
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
       requestBody:
@@ -412,7 +425,7 @@ paths:
               properties:
                 employeeId: { $ref: '#/components/schemas/Id' }
                 siteId: { $ref: '#/components/schemas/Id' }
-                localDate: { type: string, format: date }
+                localDate: { type: string, format: date, description: Years 2000-2100. }
                 templateId: { $ref: '#/components/schemas/Id' }
       responses:
         '201':
@@ -460,10 +473,12 @@ paths:
       tags: [Marks]
       summary: Record one employee mark immediately
       description: >-
-        The server captures receivedAt before lock acquisition, then locks the jornada,
-        validates the latest state, assigns a monotonic sequence, and persists the mark.
+        The server locks the account, membership and jornada, then captures receivedAt
+        (server time), validates the latest state, assigns a monotonic sequence, and persists the mark.
+        A mark earlier than an already stored mark of the jornada answers 409 INVALID_MARK_ORDER.
         GPS capture runs in parallel and never delays this response. Retrying an identical
-        Idempotency-Key and payload returns the original mark. Reusing the key with a
+        Idempotency-Key and payload returns 200 with the current state of the original mark
+        (including any later ADMIN correction). Reusing the key with a
         different payload returns 409. INGRESO is accepted from 30 minutes before the
         scheduled start; late ingress remains accepted. Other actions are not accepted
         before the scheduled start. No offline action is accepted.
@@ -491,7 +506,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Mark' }
         '200':
-          description: Exact idempotent retry; returns the previously persisted mark
+          description: Exact idempotent retry; returns the previously persisted mark in its current state
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Mark' }
@@ -511,6 +526,9 @@ paths:
                 MARK_TOO_EARLY:
                   summary: The mark was attempted before its allowed time.
                   value: { type: about:blank, title: Conflict, status: 409, code: MARK_TOO_EARLY, detail: The mark is earlier than the allowed window for this jornada. }
+                INVALID_MARK_ORDER:
+                  summary: A stored mark of the jornada is later than the current server time.
+                  value: { type: about:blank, title: Conflict, status: 409, code: INVALID_MARK_ORDER, detail: A stored mark of this jornada is later than the current server time }
                 RETRYABLE_TRANSACTION_CONFLICT:
                   summary: A concurrent transaction caused a retryable lock conflict.
                   value: { type: about:blank, title: Conflict, status: 409, code: RETRYABLE_TRANSACTION_CONFLICT, detail: The operation conflicted with another transaction; retry the request. }
@@ -536,7 +554,8 @@ paths:
       description: >-
         The server uses its receipt time to enforce the 30-second window. A late,
         duplicate, or unauthorized attachment cannot change the mark timestamp.
-        The response never echoes coordinates to an employee client.
+        The response never echoes coordinates to an employee client. latitude, longitude and accuracyMeters
+        are all required: a missing or null field answers 422 VALIDATION_ERROR and the location stays pending.
       parameters:
         - $ref: '#/components/parameters/MarkId'
         - $ref: '#/components/parameters/CsrfToken'
@@ -570,7 +589,10 @@ paths:
     post:
       tags: [Marks]
       summary: Add a forgotten mark with separate event and entry times
-      description: ADMIN only. The server records the stated event time, the current server entry time, author, and audit reason separately.
+      description: >-
+        ADMIN only. The server records the stated event time, the current server entry time, author, and audit reason separately.
+        occurredAt cannot be later than the server time and must be within 24 hours before the scheduled start or after
+        the scheduled end of the jornada (422 VALIDATION_ERROR otherwise).
       parameters:
         - $ref: '#/components/parameters/JornadaId'
         - $ref: '#/components/parameters/CsrfToken'
@@ -599,7 +621,10 @@ paths:
     post:
       tags: [Marks]
       summary: Correct a mark without overwriting its original value
-      description: ADMIN only. The original value, corrected value, actor, server correction time, and audit reason remain available to authorized reviewers.
+      description: >-
+        ADMIN only. The original value, corrected value, actor, server correction time, and audit reason remain available to authorized reviewers.
+        correctedOccurredAt follows the same bounds as a forgotten mark: not later than the server time and within 24 hours
+        of the jornada schedule (422 VALIDATION_ERROR otherwise).
       parameters:
         - $ref: '#/components/parameters/MarkId'
         - $ref: '#/components/parameters/CsrfToken'
@@ -628,21 +653,32 @@ paths:
     get:
       tags: [Deviations]
       summary: List deviations in the caller's authorized scope
+      description: >-
+        Active deviations of the active company, newest detection first; an EMPLOYEE only sees their own. Filters combine with AND.
+        from and to (local jornada dates, inclusive) must be given together, at most 366 days apart and within years 2000-2100;
+        without them every date is included (for example GET /deviations?status=MOTIVO_PENDIENTE lists pending motives of every date).
+        At most limit items are returned. An unknown status, a limit outside 1-200 or an invalid range answers 422 VALIDATION_ERROR.
       parameters:
         - name: status
           in: query
+          description: Review status as exposed in Deviation.status.
           schema:
             type: string
             enum: [MOTIVO_PENDIENTE, PENDIENTE_REVISION, JUSTIFICADO, NO_JUSTIFICADO]
         - name: from
           in: query
+          description: First local jornada date to include; requires to.
           schema: { type: string, format: date }
         - name: to
           in: query
+          description: Last local jornada date to include; requires from.
           schema: { type: string, format: date }
         - name: siteId
           in: query
           schema: { $ref: '#/components/schemas/Id' }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 100 }
       responses:
         '200':
           description: Deviation summaries. Health text is omitted unless caller is its author or the company's ADMIN.
@@ -650,13 +686,21 @@ paths:
             application/json:
               schema:
                 type: array
+                maxItems: 200
                 items: { $ref: '#/components/schemas/Deviation' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /deviations/{deviationId}/motive:
     put:
       tags: [Deviations]
-      summary: Submit or complete the employee's reason for a deviation
-      description: Only the employee who owns the deviation may submit their reason. Health text is encrypted and omitted from logs and push payloads.
+      summary: Submit, complete or correct the employee's reason for a deviation
+      description: >-
+        Only the employee who owns the deviation may submit their reason. Health text is encrypted and omitted from logs and push payloads.
+        While the deviation is not classified, a new reason replaces the previous one (D-20261027-02). Once an ADMIN classified it, the reason
+        is fixed and a new one answers 409 MOTIVE_LOCKED. Exception: if it was classified while it had no reason, the first reason is accepted
+        and the classification is cleared, so the deviation goes back to review (PENDIENTE_REVISION). Every submission, correction and
+        reset is audited with author and time; the audit names categories, never the text.
       parameters:
         - $ref: '#/components/parameters/DeviationId'
         - $ref: '#/components/parameters/CsrfToken'
@@ -678,7 +722,14 @@ paths:
               schema: { $ref: '#/components/schemas/Deviation' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '409':
+          description: The deviation is already classified and its reason is fixed
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                MOTIVE_LOCKED:
+                  value: { type: about:blank, title: Conflict, status: 409, code: MOTIVE_LOCKED, detail: The reason is fixed once the deviation is classified }
         '422': { $ref: '#/components/responses/ValidationError' }
   /admin/deviations/{deviationId}/classification:
     put:
@@ -714,9 +765,11 @@ paths:
       summary: List in-app deviations and their review state
       description: >-
         Optional filters employeeId, siteId, from and to (local jornada dates, inclusive) combine with AND. from and to must be given together
-        (one without the other answers 422), at most 366 days apart and within years 2000-2100.
+        (one without the other answers 422), spanning at most 366 days inclusive (to - from <= 365) and within years 2000-2100.
         An employee or site of another company answers 404 and never returns data; an EMPLOYEE may only name themselves (403 otherwise).
         nextCursor is bound to the filters of the request that issued it: reusing it with different filters answers 422 VALIDATION_ERROR.
+        Items are ordered by occurredAt (time of the fact), newest first, then by id (D-20261027-03). The cursor is a keyset on that
+        order, so classifying a row or saving a motive between pages neither repeats nor skips rows.
       parameters:
         - name: cursor
           in: query
@@ -765,7 +818,7 @@ paths:
                         createdAt: '2026-03-10T11:25:01Z'
                         updatedAt: '2026-03-10T11:25:01Z'
                         pushEligible: true
-                    nextCursor: MjAyNi0wMy0xMFQxMToyNTowMS4wMDAwMDBafDNhOWYxYzJlZGY0YTcxMGJ8NWYwYzNiMWUtOGQ1Ny00YTUyLTliMGMtNmEwZjZjN2QxZTEx
+                    nextCursor: MjAyNi0wMy0xMFQxMToyNTowMFp8M2E5ZjFjMmVkZjRhNzEwYnw1ZjBjM2IxZS04ZDU3LTRhNTItOWIwYy02YTBmNmM3ZDFlMTE
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
@@ -773,7 +826,7 @@ paths:
     put:
       tags: [Push]
       summary: Register or update this ADMIN account's browser push subscription
-      description: ADMIN only. The subscription is scoped to the active company and user. Push content contains no reason, coordinates, or health category.
+      description: ADMIN only. The subscription is scoped to the active company and user; alerts are enabled per company and opening another company does not subscribe the device (D-20261027-04). Push content contains no reason, coordinates, or health category.
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
       requestBody:
@@ -800,6 +853,35 @@ paths:
                 type: object
                 required: [id]
                 properties:
+                  id: { $ref: '#/components/schemas/Id' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /push/subscriptions/current:
+    post:
+      tags: [Push]
+      summary: Tell whether this device is subscribed in the active company
+      description: ADMIN only. Read-only lookup of this account's subscription for the given browser endpoint in the active company. POST keeps the endpoint, a capability URL, out of URLs and access logs. It never registers the device.
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [endpoint]
+              properties:
+                endpoint: { type: string, format: uri, maxLength: 2048, writeOnly: true }
+      responses:
+        '200':
+          description: Subscription state for the active company; id is present only when subscribed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [subscribed]
+                properties:
+                  subscribed: { type: boolean }
                   id: { $ref: '#/components/schemas/Id' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }

@@ -106,6 +106,7 @@ class BackendMySqlIntegrationTest {
         jdbc.update("DELETE FROM notification_outbox_events");
         jdbc.update("DELETE FROM notification_company_state");
         jdbc.update("DELETE FROM notification_windows");
+        jdbc.update("DELETE FROM push_subscriptions");
         jdbc.update("DELETE FROM deviation_audits");
         jdbc.update("DELETE FROM forgotten_mark_audits");
         jdbc.update("DELETE FROM mark_correction_audits");
@@ -209,7 +210,9 @@ class BackendMySqlIntegrationTest {
         assertNotEquals(a.replay(), b.replay());
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM mark_events WHERE jornada_id=?", Integer.class, jornadaId.toString()));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM mark_idempotency WHERE account_id=? AND idempotency_key=?", Integer.class, accountId.toString(), key.toString()));
-        assertEquals(receivedAt, a.mark().acceptedAt());
+        // Responses carry the stored DATETIME(6) precision, so the first response and the replay agree.
+        assertEquals(receivedAt.truncatedTo(ChronoUnit.MICROS), a.mark().acceptedAt());
+        assertEquals(a.mark().acceptedAt(), b.mark().acceptedAt());
     }
 
     @Test
@@ -389,7 +392,7 @@ class BackendMySqlIntegrationTest {
 
         var late = marks.recordEmployeeMark(employeeScope, jornadaId, MarkAction.INGRESO, UUID.randomUUID(), now);
 
-        assertEquals(now, late.mark().acceptedAt());
+        assertEquals(now.truncatedTo(ChronoUnit.MICROS), late.mark().acceptedAt());
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='LLEGADA_TARDE' AND active=TRUE", Integer.class, jornadaId.toString()));
     }
 
@@ -464,6 +467,41 @@ class BackendMySqlIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"companyId\":\"" + unknownCompany + "\"}"))
                 .andExpect(status().isNotFound());
+    }
+
+    // 2026-10-27 (issue #47, D-20261027-04): alerts are per company, so the PWA asks whether this device is
+    // subscribed in the active company instead of re-registering it whenever a company is opened.
+    @Test
+    void pushSubscriptionLookupIsAdminOnlyCsrfProtectedAndScopedToTheActiveCompany() throws Exception {
+        String endpoint = "https://fcm.googleapis.com/fcm/send/it-device";
+        String endpointHash = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(endpoint.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        UUID subscriptionId = UUID.randomUUID();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
+        jdbc.update("INSERT INTO push_subscriptions(id,company_id,account_id,endpoint_hash,secret_ciphertext,secret_iv,active,created_at,updated_at) VALUES(?,?,?,?,?,?,TRUE,?,?)",
+                subscriptionId.toString(), companyId.toString(), adminAccountId.toString(), endpointHash,
+                new byte[]{1, 2, 3}, new byte[12], now, now);
+        HttpLogin admin = loginOverHttp(adminAccountId, "30.123.457", "CorrectHorseBattery9!");
+
+        MvcResult subscribed = adminWrite(admin, post("/api/v1/push/subscriptions/current"), "{\"endpoint\":\"" + endpoint + "\"}");
+        assertEquals(200, subscribed.getResponse().getStatus());
+        JsonNode subscribedBody = objectMapper.readTree(subscribed.getResponse().getContentAsString());
+        assertTrue(subscribedBody.get("subscribed").asBoolean());
+        assertEquals(subscriptionId.toString(), subscribedBody.get("id").asText());
+
+        MvcResult otherDevice = adminWrite(admin, post("/api/v1/push/subscriptions/current"), "{\"endpoint\":\"" + endpoint + "-other\"}");
+        assertEquals(200, otherDevice.getResponse().getStatus());
+        JsonNode otherBody = objectMapper.readTree(otherDevice.getResponse().getContentAsString());
+        assertFalse(otherBody.get("subscribed").asBoolean());
+        assertFalse(otherBody.has("id"));
+
+        mockMvc.perform(post("/api/v1/push/subscriptions/current").cookie(admin.sessionCookie())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"endpoint\":\"" + endpoint + "\"}"))
+                .andExpect(status().isForbidden());
+        HttpLogin employee = loginOverHttp(accountId, "30.123.456", "CorrectHorseBattery9!");
+        assertEquals(403, adminWrite(employee, post("/api/v1/push/subscriptions/current"),
+                "{\"endpoint\":\"" + endpoint + "\"}").getResponse().getStatus());
+        assertEquals(1, count("SELECT COUNT(*) FROM push_subscriptions WHERE company_id=?", companyId.toString()));
     }
 
     @Test
@@ -870,7 +908,9 @@ class BackendMySqlIntegrationTest {
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=?", Integer.class, jornadaId.toString()));
         assertEquals(deviationId, jdbc.queryForObject("SELECT id FROM deviations WHERE jornada_id=? AND type='EGRESO_TARDIO' AND active=TRUE", String.class, jornadaId.toString()));
         assertEquals("Me olvide de fichar", jdbc.queryForObject("SELECT motive_text FROM deviations WHERE id=?", String.class, deviationId));
-        assertEquals("JUSTIFICADO", jdbc.queryForObject("SELECT classification FROM deviations WHERE id=?", String.class, deviationId));
+        // D-20261027-01: the type changed, so the classification goes back to review (the motive above stays).
+        assertNull(jdbc.queryForObject("SELECT classification FROM deviations WHERE id=?", String.class, deviationId));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviation_audits WHERE deviation_id=? AND change_type='CLASSIFICATION_RESET' AND before_classification='JUSTIFICADO' AND after_classification IS NULL", Integer.class, deviationId));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviation_audits WHERE deviation_id=? AND change_type='TYPE_REPLACED' AND before_type='MARCA_FALTANTE' AND after_type='EGRESO_TARDIO'", Integer.class, deviationId));
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM notification_outbox_events", Integer.class));
     }
@@ -1096,7 +1136,7 @@ class BackendMySqlIntegrationTest {
         jdbc.update("UPDATE employees SET active=FALSE WHERE id=?", employeeId.toString());
 
         assertEquals(403, assertThrows(ApiException.class,
-                () -> deviationController.list(authentication, session, null, null, null)).status().value());
+                () -> deviationController.list(authentication, session, null, null, null, null, 100)).status().value());
         assertEquals(403, assertThrows(ApiException.class,
                 () -> deviationController.inbox(authentication, session, null, 50, null, null, null, null)).status().value());
     }
@@ -1131,11 +1171,11 @@ class BackendMySqlIntegrationTest {
 
         assertEquals("SALUD", authorView.category());
         assertEquals("Consulta médica privada", authorView.motiveText());
-        assertEquals("Persona de prueba", deviations.list(employeeAuth, employeeScope, null, null, null).getFirst().employeeDisplayName());
+        assertEquals("Persona de prueba", deviations.list(employeeScope, new DeviationService.ListFilter(null, null, null, null, 100)).getFirst().employeeDisplayName());
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE id=? AND motive_text IS NULL AND motive_ciphertext IS NOT NULL",
                 Integer.class, deviationId.toString()));
-        assertTrue(deviations.list(authentication(secondEmployeeScope.accountId(), "30123458"), secondEmployeeScope,
-                null, null, null).stream().noneMatch(item -> item.id().equals(deviationId)));
+        assertTrue(deviations.list(secondEmployeeScope,
+                new DeviationService.ListFilter(null, null, null, null, 100)).stream().noneMatch(item -> item.id().equals(deviationId)));
         assertEquals(404, assertThrows(ApiException.class,
                 () -> deviations.loadView(secondEmployeeScope, deviationId)).status().value());
         var adminView = deviations.loadView(adminScope, deviationId);
@@ -1159,7 +1199,7 @@ class BackendMySqlIntegrationTest {
 
         assertEquals("PURGADA", jdbc.queryForObject("SELECT location_status FROM mark_events WHERE id=?", String.class, markId.toString()));
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM mark_events WHERE id=? AND (latitude IS NOT NULL OR longitude IS NOT NULL)", Integer.class, markId.toString()));
-        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE id=? AND motive_category IS NULL AND motive_ciphertext IS NULL AND motive_purged_at IS NOT NULL",
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE id=? AND motive_category='SALUD' AND motive_ciphertext IS NULL AND motive_iv IS NULL AND motive_cipher_key_id IS NULL AND motive_purged_at IS NOT NULL",
                 Integer.class, deviationId.toString()));
         assertNull(deviations.loadView(adminScope, deviationId).motiveText());
     }

@@ -122,13 +122,13 @@ public class OrganizationController {
     public record SiteInput(@NotBlank @Size(max=120) String name, @NotBlank @Size(max=64) String timeZone) { }
     public record SiteView(UUID id, String name, String timeZone) { }
     public record EmployeeInput(@NotBlank @Size(min=7,max=12) String dni, @NotBlank @Size(max=160) String displayName,
-                                @NotEmpty List<UUID> siteIds, @Min(0) @Max(240) int toleranceMinutes,
+                                @NotEmpty List<@NotNull UUID> siteIds, @Min(0) @Max(240) int toleranceMinutes,
                                 @Size(min=12,max=256) String temporaryPassword) { }
-    public record EmployeePatch(@Size(min=1,max=160) String displayName, List<UUID> siteIds,
+    public record EmployeePatch(@Size(min=1,max=160) String displayName, List<@NotNull UUID> siteIds,
                                 @Min(0) @Max(240) Integer toleranceMinutes, Boolean active) { }
     public record EmployeeView(UUID id, String displayName, String dni, List<UUID> siteIds, int toleranceMinutes, boolean active, boolean mustChangePassword) { }
-    public record BlockInput(@Min(0) @Max(1) int startDayOffset, java.time.LocalTime start, java.time.LocalTime end, @Min(0) @Max(1) int endDayOffset) { }
-    public record TemplateInput(@NotNull UUID siteId, @NotBlank @Size(max=120) String name, @NotEmpty @Size(max=4) List<@Valid BlockInput> blocks,
+    public record BlockInput(@Min(0) @Max(1) int startDayOffset, @NotNull java.time.LocalTime start, @NotNull java.time.LocalTime end, @Min(0) @Max(1) int endDayOffset) { }
+    public record TemplateInput(@NotNull UUID siteId, @NotBlank @Size(max=120) String name, @NotEmpty @Size(max=4) List<@NotNull @Valid BlockInput> blocks,
                                 @Min(0) @Max(240) int breakfastLimitMinutes, @Min(0) @Max(240) int lunchLimitMinutes) { }
     public record TemplateView(UUID id, UUID siteId, String name, List<BlockInput> blocks, int breakfastLimitMinutes, int lunchLimitMinutes, boolean active) { }
 }

@@ -207,10 +207,15 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
 ### Dominio (propias de este proyecto)
 
 1. **La hora de cada marca la pone el servidor** (D-20261015-03).
-   `MarkController.MarkInput` solo trae `action`. El instante se toma en el
-   controlador antes de esperar los locks (§7). Guarda parcial:
+   `MarkController.MarkInput` solo trae `action`. El instante se toma en
+   `MarkService.recordEmployeeMark` con los locks de cuenta, membresía y jornada
+   ya tomados, y una marca anterior a otra ya guardada da 409
+   `INVALID_MARK_ORDER` (2026-10-27, #46: antes se tomaba en el controlador y una
+   marca con secuencia mayor podía tener hora menor). Guarda:
+   `TimekeepingBoundsMySqlTest.employeeMarkTimeIsTakenAfterTheJornadaLockIsReleasedByAnotherTransaction`
+   y `.employeeMarkEarlierThanTheLastStoredMarkIsRejected` (HTTP);
    `IT.identicalConcurrentRetriesPersistOneMarkAndReturnTheOriginalResponse`
-   aserta `acceptedAt`. El controlador `[sin guarda: implementado, sin test]`.
+   aserta `acceptedAt`.
 2. **La ubicación es informativa y nunca bloquea una marca**
    (D-20261014-12). Llega después (`POST /marks/{id}/location`): la marca nace
    `PENDIENTE` y pasa a `RECIBIDA` o, a los 30 s, a `SIN_UBICACION`. Guarda:
@@ -224,13 +229,21 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
 4. **Todo desvío exige motivo y categoría, pero después de guardar la
    marca** (D-20261014-07, D-20261015-04): queda `MOTIVO_PENDIENTE` hasta
    `PUT /deviations/{id}/motive` (categoría `SALUD`, `TRANSPORTE`,
-   `EMERGENCIA` u `OTRA`; texto de 1 a 4000). Guarda: `chk_deviation_type`,
-   `chk_deviation_motive_category`, `chk_deviation_motive_storage` (V4, V11).
+   `EMERGENCIA` u `OTRA`; texto de 1 a 4000). El empleado lo corrige hasta
+   que se clasifica; después responde 409 `MOTIVE_LOCKED`, salvo el primer
+   motivo de un desvío clasificado sin motivo, que lo devuelve a revisión
+   (D-20261027-02). Cada envío queda en `deviation_audits` (V16). Guarda:
+   `chk_deviation_type`, `chk_deviation_motive_category`,
+   `chk_deviation_motive_storage` (V4, V11), `chk_deviation_audit_change`
+   (V16), `DeviationRulesMySqlTest` (corrección, bloqueo, validación).
 5. **Solo `ADMIN` cambia el estado de justificación** (D-20261014-08):
    `requireAdmin` en `PUT /admin/deviations/{id}/classification`; cambiar una
-   clasificación exige motivo y escribe `deviation_audits`. Guarda:
-   `chk_deviation_classification` (V4). El rechazo a un empleado
-   `[sin guarda: implementado, sin test]`.
+   clasificación exige motivo y escribe `deviation_audits`. Si el desvío
+   cambia de tipo, la clasificación se borra y vuelve a revisión
+   (D-20261027-01); si se reactiva, empieza sin motivo ni clasificación. Guarda: `chk_deviation_classification` (V4),
+   `DeviationRulesMySqlTest.classificationStillAuditsAndCorrectionStillNeedsAReason`
+   (incluye el 403 a un empleado) y
+   `DeviationRulesMySqlTest.classifiedAbsenceReplacedByLateArrivalGoesBackToReviewKeepingTheMotive`.
 6. **Toda corrección de `ADMIN` sobre una marca escribe auditoría** (valor
    anterior, nuevo, autor, hora) en la misma transacción (D-20261015-03, -05):
    `forgotten_mark_audits` y `mark_correction_audits`. Guarda en marcas
@@ -247,6 +260,12 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
    `MARCA_FALTANTE` no notifican. Guarda: `chk_notification_event_type` (V8),
    `NotificationWindowPolicyTest`, `SafePushPayloadFactoryTest`,
    `Outbox.groupsByFirstEventForFiveMinutesAndReplacementKeepsOneOutboxEvent`.
+   Un desvío retirado que se reactiva vuelve a avisar; el reemplazo
+   `SIN_INGRESO` → `LLEGADA_TARDE` no (2026-10-27: el reactivado no avisaba).
+   Las alertas se activan por empresa y abrir otra empresa no suscribe el
+   dispositivo (D-20261027-04). Guarda:
+   `Outbox.reactivatedDeviationAfterSentWindowNotifiesAgainButReplacementDoesNot`,
+   `AdminPushControl.test.tsx`.
 
 ### Concurrencia y estado
 
@@ -269,7 +288,8 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     `IT.ingresoCommittedAfterRepeatableReadSnapshotWinsAgainstAbsenceWorker`.
     **Brecha**: falta la ráfaga de N acciones distintas sobre un empleado.
 11. **Orden único de locks**, el real: cuenta → membresía → (empleado) →
-    jornada → marcas → desvíos → estado de notificación de la empresa. Todo
+    jornada → marcas → desvíos → estado de notificación de la empresa →
+    ventana de aviso (`FOR UPDATE`; el reclamo solo toma ventanas). Todo
     camino nuevo lo respeta. `ApiExceptionHandlerTest` solo prueba que un
     fallo de lock da 409 reintentable. `[sin guarda: implementado, sin test]`
 12. **El envío de push va fuera de la transacción** (D-20261014-14). El desvío
@@ -279,11 +299,19 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     (timeout de 5 s en `VapidWebPushGateway`) y registra el resultado aparte.
     Reintento exponencial de 5 s a 1 h, `DEAD` tras 12 intentos. Garantía:
     **al menos una vez**. (Shifty, 2026-09-04: una llamada al proveedor dentro
-    del lock agotaba el pool.) Guarda: `chk_notification_window_status` (V8),
-    `NotificationRetryPolicyTest`,
+    del lock agotaba el pool.) Un evento solo se suma a una ventana `PENDING`
+    bloqueada `FOR UPDATE` hasta el commit; el `SKIP LOCKED` del reclamo la
+    saltea mientras tanto y, ya reclamada, el evento abre otra ventana
+    (2026-10-27: un evento que commiteaba tras el reclamo quedaba en una ventana
+    `SENT`). Solo 404 y 410 borran la suscripción; otro rechazo es intento
+    fallido, con WARN de estado y host; `DEAD` deja un ERROR. Guarda:
+    `chk_notification_window_status` (V8), `NotificationRetryPolicyTest`,
     `Outbox.concurrentEventsForOneCompanyShareTheFirstOpenWindow`,
-    `Outbox.partialDeliverySchedulesRetryWithStableTagAndTopic`. El
-    `SKIP LOCKED` `[sin guarda: implementado, sin test]`.
+    `Outbox.partialDeliverySchedulesRetryWithStableTagAndTopic`,
+    `Outbox.eventEnqueuedAfterItsWindowWasClaimedIsDeliveredInANewWindow`,
+    `Outbox.claimSkipsAWindowWhileAnEnqueueIntoItIsUncommittedAndThenCountsTheEvent`,
+    `Outbox.rejectedSubscriptionsAreKeptAndRetriedWhileGoneSubscriptionsAreRemoved`,
+    `Outbox.windowThatExhaustsItsAttemptsBecomesDeadAndIsLoggedOnce`.
 13. **Idempotencia de marcas en un solo lugar**: header `Idempotency-Key`
     (UUID) obligatorio; PK `(account_id, idempotency_key)` en
     `mark_idempotency`: **única por cuenta, no por empresa**, porque la cuenta
@@ -302,11 +330,15 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
 
 15. **Todo parámetro numérico de la API lleva cota inferior Y superior**:
     tolerancia y pausas (`@Min/@Max`), ubicación (`@DecimalMin/@DecimalMax`),
-    `limit` de bandeja 1–100 y rangos de fechas ≤ 366 días (a mano),
-    contraseña 12–256. Un solo lado deja un 500 alcanzable (Shifty,
-    2026-09-04: desborde con `offset`). Guarda de base: `chk_employee_tolerance`,
-    `chk_jornada_tolerance`. En la API `[sin guarda: implementado, sin test]`;
-    el `occurredAt` de marcas olvidadas o corregidas no tiene cota (§7).
+    `limit` de bandeja 1–100 y rangos de fechas de 366 días inclusive como
+    máximo en años 2000–2100 (`api/DateRanges`), contraseña 12–256. Un solo lado
+    deja un 500 alcanzable (Shifty, 2026-09-04: desborde con `offset`). Guarda de
+    base: `chk_employee_tolerance`, `chk_jornada_tolerance`. Desde 2026-10-27
+    (#46; antes se aceptaban 367 días, fechas de jornada sin año acotado y horas
+    a futuro): `DateRangesTest`; la `localDate` de una jornada declarada y el
+    `occurredAt` de marcas olvidadas o corregidas (nunca a futuro, a ≤ 24 h del
+    horario de la jornada) tienen guarda en `TimekeepingBoundsMySqlTest`. El resto
+    en la API `[sin guarda: implementado, sin test]`.
 16. **Agregados en la base**: los conteos del push salen de `GROUP BY`
     (`NotificationWindowRepository.loadSiteCounts`). No hay otros totales.
     `[sin guarda: implementado, sin test]`
@@ -547,10 +579,6 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     `OrganizationService.createEmployee` responde `ACCOUNT_INACTIVE` para una
     cuenta inactiva; al agregar una cuenta activa ya existente, devuelve su DNI
     y `mustChangePassword`. `OrganizationController` delega la operación.
-  - `occurredAt` de marcas olvidadas y corregidas por el `ADMIN` sin cota (ni
-    futuro ni ventana de la jornada).
-  - `receivedAt` se toma antes de los locks (`MarkController`): una marca con
-    secuencia mayor puede tener hora menor (D-20261015-06).
   - `rs.getDate("local_date")` en `JornadaController` depende de la zona de la
     JVM, que no está fijada.
   - Job de ausencias: un candidato que falla siempre se vuelve a elegir en
@@ -566,7 +594,8 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
   - Web Push en un iPhone real; dominio y hosting (D-20261014-16,
     `docs/PENDIENTES.md`); deploy, backup, Dockerfile, Caddy, VPS y RTO;
     acuerdo escrito con Braja sobre reuso del código con otros clientes.
-- **Cerrado**: nada todavía.
+- **Cerrado** (2026-10-27, #46): `occurredAt` de marcas olvidadas y corregidas
+  sin cota (regla 15); `receivedAt` tomado antes de los locks (regla 1).
 
 Hueco que se repite en todos los proyectos: **el pre-commit hook solo corre
 si cada clon hace `git config core.hooksPath .githooks`**. Hoy no existe

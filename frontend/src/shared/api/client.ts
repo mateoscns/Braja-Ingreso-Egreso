@@ -47,7 +47,7 @@ const CONFLICT_MESSAGES: Record<string, string> = {
   INVALID_MARK_ORDER: STALE_MARK,
   INVALID_MARK_HISTORY: STALE_MARK,
   IDEMPOTENCY_CONFLICT: 'Esta solicitud ya se usó para otra acción. Actualizá la vista y volvé a intentar.',
-  MOTIVE_ALREADY_SUBMITTED: 'El motivo de este desvío ya fue enviado. Actualizá la vista para ver su estado.',
+  MOTIVE_LOCKED: 'El administrador ya revisó este desvío; el motivo ya no se puede cambiar.',
   JORNADA_EXISTS: 'Ya hay una jornada declarada para ese empleado, sede y fecha.',
   MEMBERSHIP_EXISTS: 'Esa persona ya tiene un rol en esta empresa.',
   ACCOUNT_INACTIVE: 'La cuenta de ese DNI no está habilitada y no se puede agregar a la empresa.'

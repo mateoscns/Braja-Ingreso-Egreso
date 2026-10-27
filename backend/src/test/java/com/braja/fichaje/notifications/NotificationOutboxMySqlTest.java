@@ -2,15 +2,22 @@ package com.braja.fichaje.notifications;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.braja.fichaje.config.BrajaProperties;
 import com.braja.fichaje.deviations.DeviationService;
 import com.braja.fichaje.security.CurrentActor;
 import com.braja.fichaje.security.EncryptionService;
 import com.braja.fichaje.security.ScopeService;
 import com.braja.fichaje.timekeeping.MarkAction;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
@@ -18,6 +25,7 @@ import java.time.ZoneOffset;
 import java.util.UUID;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -25,6 +33,7 @@ import java.util.concurrent.TimeUnit;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -266,6 +275,311 @@ class NotificationOutboxMySqlTest {
         assertEquals(2, jdbc.queryForObject("SELECT attempt_count FROM notification_windows WHERE id=?", Integer.class, windowId));
         assertEquals(1, tags.stream().distinct().count());
         assertEquals(1, topics.stream().distinct().count());
+    }
+
+    // 2026-10-27 (issue #47): an event committed after the dispatcher claimed its window at the boundary
+    // landed in that window and was never sent, because the window was already SENT.
+    @Test
+    void eventEnqueuedAfterItsWindowWasClaimedIsDeliveredInANewWindow() {
+        Fixture fixture = createFixture();
+        BrajaProperties properties = pushPropertiesWithEncryptionKeys();
+        DeviationNotificationPort port = new JdbcDeviationNotificationOutbox(jdbc, properties,
+                new NotificationWindowPolicy());
+        NotificationWindowRepository repository = new NotificationWindowRepository(jdbc);
+        UUID first = createDeviation(fixture, fixture.siteOne(), fixture.employeeOne(), "SIN_INGRESO");
+        UUID late = createDeviation(fixture, fixture.siteTwo(), fixture.employeeTwo(), "SIN_INGRESO");
+        inTransaction(() -> port.enqueue(fixture.company(), fixture.siteOne(), first, "SIN_INGRESO", Instant.now()));
+        String claimedWindow = windowOf(first);
+        NotificationWindowLease lease = claim(repository, claimedWindow);
+        repository.markDelivered(lease, Instant.now());
+
+        inTransaction(() -> port.enqueue(fixture.company(), fixture.siteTwo(), late, "SIN_INGRESO", Instant.now()));
+
+        String lateWindow = windowOf(late);
+        assertNotEquals(claimedWindow, lateWindow, "the late event joined a window that was already claimed");
+        assertEquals("PENDING", statusOf(lateWindow));
+        makeDue(lateWindow);
+        PushSubscriptionCipher cipher = new PushSubscriptionCipher(properties);
+        insertSubscriptionFor(cipher, fixture, "late");
+        List<JsonNode> sent = new ArrayList<>();
+        dispatcher(properties, cipher, recordingGateway(fixture, sent, endpoint -> 201)).dispatchDueWindows();
+
+        assertEquals(1, sent.size());
+        assertEquals(1, sent.get(0).get("totalCount").asLong());
+        assertEquals("Sede 2", sent.get(0).get("siteCounts").get(0).get("siteName").asText());
+        assertEquals("SENT", statusOf(lateWindow));
+    }
+
+    @Test
+    void claimSkipsAWindowWhileAnEnqueueIntoItIsUncommittedAndThenCountsTheEvent() throws Exception {
+        Fixture fixture = createFixture();
+        DeviationNotificationPort port = new JdbcDeviationNotificationOutbox(jdbc, enabledPushProperties(),
+                new NotificationWindowPolicy());
+        NotificationWindowRepository repository = new NotificationWindowRepository(jdbc);
+        UUID first = createDeviation(fixture, fixture.siteOne(), fixture.employeeOne(), "SIN_INGRESO");
+        UUID second = createDeviation(fixture, fixture.siteTwo(), fixture.employeeTwo(), "LLEGADA_TARDE");
+        inTransaction(() -> port.enqueue(fixture.company(), fixture.siteOne(), first, "SIN_INGRESO", Instant.now()));
+        String windowId = windowOf(first);
+        CountDownLatch enqueued = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+
+        try (var executor = Executors.newSingleThreadExecutor()) {
+            var pending = executor.submit(() -> inTransaction(() -> {
+                port.enqueue(fixture.company(), fixture.siteTwo(), second, "LLEGADA_TARDE", Instant.now());
+                enqueued.countDown();
+                await(release);
+            }));
+            await(enqueued);
+            boolean claimedWhileOpen = claimDue(repository).stream().anyMatch(l -> l.id().toString().equals(windowId));
+            release.countDown();
+            pending.get(15, TimeUnit.SECONDS);
+            assertFalse(claimedWhileOpen, "a window was claimed while an enqueue into it was uncommitted");
+        }
+
+        NotificationWindowLease lease = claim(repository, windowId);
+        assertEquals(2, repository.loadSiteCounts(lease).stream().mapToLong(SiteCount::count).sum());
+    }
+
+    // 2026-10-27 (issue #47): any 4xx other than 429 deleted the subscription and marked the window SENT.
+    @Test
+    void rejectedSubscriptionsAreKeptAndRetriedWhileGoneSubscriptionsAreRemoved() {
+        Fixture fixture = createFixture();
+        BrajaProperties properties = pushPropertiesWithEncryptionKeys();
+        PushSubscriptionCipher cipher = new PushSubscriptionCipher(properties);
+        String windowId = dueWindowWithOneEvent(fixture, properties);
+        for (String label : List.of("s404", "s410", "s400", "s401", "s403", "s413")) {
+            insertSubscriptionFor(cipher, fixture, label);
+        }
+        List<JsonNode> sent = new ArrayList<>();
+        ListAppender<ILoggingEvent> logs = captureDispatcherLogs();
+        try {
+            dispatcher(properties, cipher, recordingGateway(fixture, sent,
+                    endpoint -> Integer.parseInt(endpoint.substring(endpoint.lastIndexOf("-s") + 2)))).dispatchDueWindows();
+        } finally {
+            releaseDispatcherLogs(logs);
+        }
+
+        assertEquals(6, sent.size());
+        assertEquals(4, count("SELECT COUNT(*) FROM push_subscriptions WHERE company_id = ?", fixture.company()));
+        assertEquals(0, count("""
+                SELECT COUNT(*) FROM push_subscriptions WHERE company_id = ? AND endpoint_hash IN (?, ?)
+                """, fixture.company(), hash(fixture, "s404"), hash(fixture, "s410")));
+        assertEquals("RETRY", statusOf(windowId));
+        assertEquals(1, jdbc.queryForObject("SELECT attempt_count FROM notification_windows WHERE id=?", Integer.class, windowId));
+        for (String status : List.of("400", "401", "403", "413")) {
+            assertTrue(logs.list.stream().anyMatch(event -> event.getLevel() == Level.WARN
+                            && event.getFormattedMessage().contains("status=" + status)
+                            && event.getFormattedMessage().contains("host=fcm.googleapis.com")),
+                    () -> "missing WARN for status " + status + ": " + messages(logs));
+        }
+        assertTrue(logs.list.stream().noneMatch(event -> event.getFormattedMessage().contains("/fcm/send/")),
+                () -> "a log line exposed the endpoint path: " + messages(logs));
+    }
+
+    @Test
+    void windowThatExhaustsItsAttemptsBecomesDeadAndIsLoggedOnce() {
+        Fixture fixture = createFixture();
+        BrajaProperties properties = pushPropertiesWithEncryptionKeys();
+        PushSubscriptionCipher cipher = new PushSubscriptionCipher(properties);
+        String windowId = dueWindowWithOneEvent(fixture, properties);
+        jdbc.update("UPDATE notification_windows SET attempt_count = ? WHERE id = ?",
+                NotificationRetryPolicy.MAX_ATTEMPTS - 1, windowId);
+        insertSubscriptionFor(cipher, fixture, "dead");
+        List<JsonNode> sent = new ArrayList<>();
+        NotificationOutboxDispatcher dispatcher = dispatcher(properties, cipher, recordingGateway(fixture, sent, endpoint -> 503));
+        ListAppender<ILoggingEvent> logs = captureDispatcherLogs();
+        try {
+            dispatcher.dispatchDueWindows();
+            jdbc.update("UPDATE notification_windows SET next_attempt_at = ? WHERE id = ?",
+                    sqlTime(Instant.now().minusSeconds(1)), windowId);
+            dispatcher.dispatchDueWindows();
+        } finally {
+            releaseDispatcherLogs(logs);
+        }
+
+        assertEquals(1, sent.size());
+        assertEquals("DEAD", statusOf(windowId));
+        assertEquals(NotificationRetryPolicy.MAX_ATTEMPTS,
+                jdbc.queryForObject("SELECT attempt_count FROM notification_windows WHERE id=?", Integer.class, windowId));
+        List<ILoggingEvent> errors = logs.list.stream().filter(event -> event.getLevel() == Level.ERROR).toList();
+        assertEquals(1, errors.size(), () -> messages(logs));
+        assertTrue(errors.get(0).getFormattedMessage().contains(fixture.company().toString()));
+        assertTrue(errors.get(0).getFormattedMessage().contains(windowId));
+        assertTrue(logs.list.stream().anyMatch(event -> event.getLevel() == Level.WARN
+                && event.getFormattedMessage().contains("status=503")), () -> messages(logs));
+    }
+
+    // 2026-10-27 (issue #47): a deviation retracted and later re-activated never notified again.
+    @Test
+    void reactivatedDeviationAfterSentWindowNotifiesAgainButReplacementDoesNot() {
+        Fixture fixture = createFixture();
+        BrajaProperties properties = pushPropertiesWithEncryptionKeys();
+        DeviationNotificationPort port = new JdbcDeviationNotificationOutbox(jdbc, properties,
+                new NotificationWindowPolicy());
+        org.springframework.mock.env.MockEnvironment localEnvironment = new org.springframework.mock.env.MockEnvironment();
+        localEnvironment.setActiveProfiles("local");
+        DeviationService deviations = new DeviationService(jdbc,
+                new ScopeService(jdbc, new CurrentActor()), new EncryptionService(properties, localEnvironment), port);
+        UUID seedDeviation = createDeviation(fixture, fixture.siteOne(), fixture.employeeOne(), "SIN_INGRESO");
+        UUID jornada = UUID.fromString(jdbc.queryForObject("SELECT jornada_id FROM deviations WHERE id=?", String.class, seedDeviation.toString()));
+        jdbc.update("DELETE FROM deviations WHERE id=?", seedDeviation.toString());
+        Instant scheduledStart = Instant.parse("2026-10-16T08:00:00Z");
+        Instant scheduledEnd = Instant.parse("2026-10-16T16:00:00Z");
+        Instant absenceDue = scheduledStart.plusSeconds(5 * 60L);
+        Instant lateAt = absenceDue.plusSeconds(60);
+        List<DeviationService.MarkFact> lateIngress = List.of(new DeviationService.MarkFact(null, MarkAction.INGRESO, lateAt));
+        List<DeviationService.MarkFact> onTimeIngress = List.of(new DeviationService.MarkFact(null, MarkAction.INGRESO, scheduledStart));
+        deviations.reconcile(fixture.company(), jornada, fixture.siteOne(), fixture.employeeOne(), scheduledStart,
+                scheduledEnd, 5, 15, 30, List.of(), absenceDue.plusSeconds(1));
+        UUID deviation = UUID.fromString(jdbc.queryForObject("SELECT id FROM deviations WHERE jornada_id=? AND active=TRUE", String.class, jornada.toString()));
+        String sentWindow = windowOf(deviation);
+        NotificationWindowRepository repository = new NotificationWindowRepository(jdbc);
+        repository.markDelivered(claim(repository, sentWindow), Instant.now());
+
+        deviations.reconcile(fixture.company(), jornada, fixture.siteOne(), fixture.employeeOne(), scheduledStart,
+                scheduledEnd, 5, 15, 30, lateIngress, lateAt);
+        assertEquals(sentWindow, windowOf(deviation), "replacing SIN_INGRESO with LLEGADA_TARDE must not notify again");
+        assertEquals(1, count("SELECT COUNT(*) FROM notification_windows WHERE company_id = ?", fixture.company()));
+
+        deviations.reconcile(fixture.company(), jornada, fixture.siteOne(), fixture.employeeOne(), scheduledStart,
+                scheduledEnd, 5, 15, 30, onTimeIngress, lateAt.plusSeconds(60));
+        deviations.reconcile(fixture.company(), jornada, fixture.siteOne(), fixture.employeeOne(), scheduledStart,
+                scheduledEnd, 5, 15, 30, lateIngress, lateAt.plusSeconds(120));
+
+        String reactivatedWindow = windowOf(deviation);
+        assertNotEquals(sentWindow, reactivatedWindow, "the re-activated deviation stayed in the sent window");
+        assertEquals("PENDING", statusOf(reactivatedWindow));
+        assertEquals(1, count("SELECT COUNT(*) FROM notification_outbox_events WHERE deviation_id = ?", deviation));
+        NotificationWindowLease lease = claim(repository, reactivatedWindow);
+        assertEquals(1, repository.loadSiteCounts(lease).stream().mapToLong(SiteCount::count).sum());
+    }
+
+    @Test
+    void subscriptionLookupIsScopedToTheActiveCompanyAndRequiresAnAdmin() {
+        Fixture fixture = createFixture();
+        BrajaProperties properties = pushPropertiesWithEncryptionKeys();
+        UUID otherCompany = UUID.randomUUID();
+        java.sql.Timestamp now = sqlTime(Instant.now());
+        jdbc.update("INSERT INTO companies(id,name,created_at) VALUES(?,?,?)",
+                otherCompany.toString(), "Braja otra " + otherCompany, now);
+        insertMembership(otherCompany, fixture.admin(), "ADMIN", now);
+        AdminPushSubscriptionService service = new AdminPushSubscriptionService(
+                new JdbcPushSubscriptionRepository(jdbc), new PushSubscriptionCipher(properties),
+                new PushEndpointValidator(), properties);
+        String endpoint = endpointFor(fixture, "lookup");
+        byte[] publicKey = new byte[65];
+        publicKey[0] = 0x04;
+        java.util.Base64.Encoder base64 = java.util.Base64.getUrlEncoder().withoutPadding();
+        UUID id = service.register(fixture.company(), fixture.admin(), new PushSubscriptionRequest(endpoint,
+                new PushSubscriptionRequest.Keys(base64.encodeToString(publicKey), base64.encodeToString(new byte[16]))));
+
+        assertEquals(Optional.of(id), service.findSubscription(fixture.company(), fixture.admin(), endpoint));
+        assertEquals(Optional.empty(), service.findSubscription(otherCompany, fixture.admin(), endpoint));
+        assertEquals(Optional.empty(), service.findSubscription(fixture.company(), fixture.admin(), endpoint + "x"));
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> service.findSubscription(fixture.company(), UUID.randomUUID(), endpoint));
+    }
+
+    private static String dueWindowWithOneEvent(Fixture fixture, BrajaProperties properties) {
+        DeviationNotificationPort port = new JdbcDeviationNotificationOutbox(jdbc, properties, new NotificationWindowPolicy());
+        UUID deviation = createDeviation(fixture, fixture.siteOne(), fixture.employeeOne(), "SIN_INGRESO");
+        inTransaction(() -> port.enqueue(fixture.company(), fixture.siteOne(), deviation, "SIN_INGRESO", Instant.now()));
+        String windowId = windowOf(deviation);
+        makeDue(windowId);
+        return windowId;
+    }
+
+    private static NotificationOutboxDispatcher dispatcher(BrajaProperties properties, PushSubscriptionCipher cipher,
+                                                           WebPushGateway gateway) {
+        return new NotificationOutboxDispatcher(properties, new NotificationWindowRepository(jdbc), cipher,
+                new SafePushPayloadFactory(new ObjectMapper()), gateway);
+    }
+
+    /** Records payloads sent to this fixture's endpoints; other companies' leftover windows get a 201. */
+    private static WebPushGateway recordingGateway(Fixture fixture, List<JsonNode> sent,
+                                                   java.util.function.ToIntFunction<String> statusForEndpoint) {
+        ObjectMapper mapper = new ObjectMapper();
+        return (subscription, payload, topic) -> {
+            if (!subscription.endpoint().contains(fixture.company().toString())) {
+                return 201;
+            }
+            try {
+                sent.add(mapper.readTree(payload));
+            } catch (Exception ex) {
+                throw new IllegalStateException(ex);
+            }
+            return statusForEndpoint.applyAsInt(subscription.endpoint());
+        };
+    }
+
+    private static ListAppender<ILoggingEvent> captureDispatcherLogs() {
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        ((ch.qos.logback.classic.Logger) LoggerFactory.getLogger(NotificationOutboxDispatcher.class)).addAppender(appender);
+        return appender;
+    }
+
+    private static void releaseDispatcherLogs(ListAppender<ILoggingEvent> appender) {
+        ((ch.qos.logback.classic.Logger) LoggerFactory.getLogger(NotificationOutboxDispatcher.class)).detachAppender(appender);
+    }
+
+    private static String messages(ListAppender<ILoggingEvent> appender) {
+        return appender.list.stream().map(event -> event.getLevel() + " " + event.getFormattedMessage()).toList().toString();
+    }
+
+    private static NotificationWindowLease claim(NotificationWindowRepository repository, String windowId) {
+        return claimDue(repository).stream().filter(l -> l.id().toString().equals(windowId)).findFirst()
+                .orElseThrow(() -> new AssertionError("window " + windowId + " was not claimable"));
+    }
+
+    /** Claims as the dispatcher would at a later tick, once every open window has ended. */
+    private static List<NotificationWindowLease> claimDue(NotificationWindowRepository repository) {
+        return repository.claimDueWindows(Instant.now().plus(Duration.ofMinutes(10)), 100);
+    }
+
+    private static void makeDue(String windowId) {
+        Instant startedAt = Instant.now().minusSeconds(6 * 60L);
+        Instant endedAt = startedAt.plusSeconds(5 * 60L);
+        jdbc.update("UPDATE notification_windows SET window_started_at=?,window_ends_at=?,next_attempt_at=? WHERE id=?",
+                sqlTime(startedAt), sqlTime(endedAt), sqlTime(endedAt), windowId);
+    }
+
+    private static String windowOf(UUID deviationId) {
+        return jdbc.queryForObject("SELECT window_id FROM notification_outbox_events WHERE deviation_id=?",
+                String.class, deviationId.toString());
+    }
+
+    private static String statusOf(String windowId) {
+        return jdbc.queryForObject("SELECT status FROM notification_windows WHERE id=?", String.class, windowId);
+    }
+
+    private static void insertSubscriptionFor(PushSubscriptionCipher cipher, Fixture fixture, String label) {
+        String endpointHash = hash(fixture, label);
+        EncryptedPushSecret secret = cipher.encrypt(fixture.company(), fixture.admin(), endpointHash,
+                new PushSubscriptionMaterial(endpointFor(fixture, label), "public-key-" + label, "auth-" + label));
+        java.sql.Timestamp now = sqlTime(Instant.now());
+        jdbc.update("INSERT INTO push_subscriptions(id,company_id,account_id,endpoint_hash,secret_ciphertext,secret_iv,active,created_at,updated_at) VALUES(?,?,?,?,?,?,TRUE,?,?)",
+                UUID.randomUUID().toString(), fixture.company().toString(), fixture.admin().toString(), endpointHash,
+                secret.ciphertext(), secret.iv(), now, now);
+    }
+
+    private static String endpointFor(Fixture fixture, String label) {
+        return "https://fcm.googleapis.com/fcm/send/" + fixture.company() + "-" + label;
+    }
+
+    private static String hash(Fixture fixture, String label) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(
+                    endpointFor(fixture, label).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(digest);
+        } catch (java.security.NoSuchAlgorithmException ex) {
+            throw new IllegalStateException(ex);
+        }
+    }
+
+    private static int count(String sql, UUID value, String first, String second) {
+        Integer count = jdbc.queryForObject(sql, Integer.class, value.toString(), first, second);
+        return count == null ? 0 : count;
     }
 
     private static void await(CountDownLatch latch) {

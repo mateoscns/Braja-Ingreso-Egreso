@@ -32,6 +32,16 @@ public class PushController {
         return new SubscriptionView(subscriptions.register(scope.companyId(), scope.accountId(), request));
     }
 
+    /** POST so the endpoint (a capability URL) never travels in a URL or an access log. */
+    @PostMapping("/current")
+    public CurrentSubscriptionView current(Authentication auth, HttpSession session,
+                                           @Valid @RequestBody EndpointInput input) {
+        var scope = scopes.requireAdmin(auth, session);
+        return subscriptions.findSubscription(scope.companyId(), scope.accountId(), input.endpoint())
+                .map(id -> new CurrentSubscriptionView(true, id))
+                .orElseGet(() -> new CurrentSubscriptionView(false, null));
+    }
+
     @DeleteMapping("/{subscriptionId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void remove(Authentication auth, HttpSession session, @PathVariable UUID subscriptionId) {
@@ -42,4 +52,6 @@ public class PushController {
     public record SubscriptionInput(@NotBlank @Size(max=2048) String endpoint, @NotNull @Valid KeysInput keys) { }
     public record KeysInput(@NotBlank @Size(max=256) String p256dh, @NotBlank @Size(max=128) String auth) { }
     public record SubscriptionView(UUID id) { }
+    public record EndpointInput(@NotBlank @Size(max=2048) String endpoint) { }
+    public record CurrentSubscriptionView(boolean subscribed, UUID id) { }
 }
