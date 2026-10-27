@@ -23,6 +23,8 @@ export function EmployeeApp() {
   const [siteDates, setSiteDates] = useState<Map<string, string>>(new Map())
   const [selectedId, setSelectedId] = useState('')
   const [deviations, setDeviations] = useState<Deviation[]>([])
+  const [pendingMotives, setPendingMotives] = useState<Deviation[]>([])
+  const [editingMotives, setEditingMotives] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [loadFailed, setLoadFailed] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -43,7 +45,7 @@ export function EmployeeApp() {
       if (requestId !== loadSequence.current) return
       setSites(availableSites); setSiteDates(dayData.siteDates); setJornadas(dayData.jornadas)
       setSelectedId((current) => dayData.jornadas.some((jornada) => jornada.id === current) ? current : dayData.jornadas[0]?.id ?? '')
-      setDeviations(dayData.deviations)
+      setDeviations(dayData.deviations); setPendingMotives(dayData.pendingMotives); setEditingMotives([])
     } catch (reason) {
       if (requestId === loadSequence.current) {
         setLoadFailed(true)
@@ -76,7 +78,7 @@ export function EmployeeApp() {
       } catch { /* El recibo confirmado sigue siendo válido aunque falle la actualización de pantalla. */ }
       try {
         const refreshedDay = await loadEmployeeDayData(api, sites, date)
-        setSiteDates(refreshedDay.siteDates); setDeviations(refreshedDay.deviations)
+        setSiteDates(refreshedDay.siteDates); setDeviations(refreshedDay.deviations); setPendingMotives(refreshedDay.pendingMotives)
       } catch { /* La marca no depende de actualizar la bandeja. */ }
     } catch (reason) {
       if (reason instanceof Error && reason.name === 'NetworkError') setError(`${reason.message} La marca no fue confirmada; podés reintentar.`)
@@ -94,10 +96,23 @@ export function EmployeeApp() {
     try {
       const updated = await api.put<Deviation>(`/deviations/${encodeURIComponent(item.id)}/motive`, { category: values.category, text: values.text.trim() })
       setDeviations((current) => current.map((entry) => entry.id === updated.id ? updated : entry))
+      setPendingMotives((current) => current.filter((entry) => entry.id !== item.id))
+      setEditingMotives((current) => current.filter((id) => id !== item.id))
       setMotiveValues((current) => { const next = { ...current }; delete next[item.id]; return next })
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'No se pudo guardar el motivo.') }
     finally { setSavingMotive('') }
   }
+  /** D-20261027-02: a motive can be corrected until the ADMIN classifies; a deviation classified without motive accepts its first one. */
+  function startMotiveEdit(item: Deviation) {
+    setMotiveValues((current) => ({ ...current, [item.id]: { category: item.category ?? 'OTRA', text: item.motiveText ?? '' } }))
+    setEditingMotives((current) => current.includes(item.id) ? current : [...current, item.id])
+  }
+  function cancelMotiveEdit(id: string) {
+    setEditingMotives((current) => current.filter((entry) => entry !== id))
+    setMotiveValues((current) => { const next = { ...current }; delete next[id]; return next })
+  }
+  const motiveForms = [...pendingMotives, ...deviations.filter((item) => editingMotives.includes(item.id) && !pendingMotives.some((pending) => pending.id === item.id))]
+  const canAddFirstMotive = (item: Deviation) => (item.status === 'JUSTIFICADO' || item.status === 'NO_JUSTIFICADO') && !item.category
 
   return <div className="app-frame employee-frame">
     <AppHeader companyName={active.companyName} name={session.displayName?.trim() || (session.dni ? `DNI ${session.dni}` : 'Empleado')} onSignOut={() => void signOut()}>
@@ -125,16 +140,20 @@ export function EmployeeApp() {
           </Panel>
         </>}
       </>}
-      <Panel title="Motivos pendientes"><p className="muted small-copy">Completá el motivo del desvío. El texto solo aparece para vos y el administrador de tu empresa.</p>
-        {loading ? <Loading label="Consultando motivos…" /> : loadFailed ? <Empty>No se pudieron consultar los motivos.</Empty> : deviations.filter((item) => item.status === 'MOTIVO_PENDIENTE').length === 0 ? <Empty>No tenés motivos pendientes para esta fecha.</Empty> : <div className="motive-list">{deviations.filter((item) => item.status === 'MOTIVO_PENDIENTE').map((item) => {
+      <Panel title="Motivos pendientes"><p className="muted small-copy">Completá el motivo del desvío, de cualquier fecha. Podés corregirlo hasta que el administrador lo revise. El texto solo aparece para vos y el administrador de tu empresa.</p>
+        {loading ? <Loading label="Consultando motivos…" /> : loadFailed ? <Empty>No se pudieron consultar los motivos.</Empty> : motiveForms.length === 0 ? <Empty>No tenés motivos pendientes.</Empty> : <div className="motive-list">{motiveForms.map((item) => {
           const values = motiveValues[item.id] ?? { category: 'OTRA', text: '' }
+          const editing = editingMotives.includes(item.id)
           return <Fragment key={item.id}><form className="motive-card" aria-busy={savingMotive === item.id} onSubmit={(event) => void saveMotive(event, item)}><div><strong>{deviationName(item.type)}</strong><span className="status-chip">{localTime(item.occurredAt ?? item.createdAt, item.siteId ? sites.find((site) => site.id === item.siteId)?.timeZone : undefined)}</span></div>
             <div className="form-grid"><FormField label="Categoría"><select required value={values.category} onChange={(e) => updateMotive(item.id, { category: e.target.value })}><option value="SALUD">Salud</option><option value="TRANSPORTE">Transporte</option><option value="EMERGENCIA">Emergencia</option><option value="OTRA">Otra</option></select></FormField><FormField label="Motivo"><textarea required maxLength={4000} rows={3} value={values.text} onChange={(e) => updateMotive(item.id, { text: e.target.value })} placeholder="Contanos qué pasó…" /></FormField></div>
-            <button className="button button-primary button-small" disabled={savingMotive === item.id || !values.text.trim()}>{savingMotive === item.id ? 'Guardando…' : 'Enviar motivo'}</button>
+            <button className="button button-primary button-small" disabled={savingMotive === item.id || !values.text.trim()}>{savingMotive === item.id ? 'Guardando…' : item.status === 'PENDIENTE_REVISION' ? 'Guardar corrección' : 'Enviar motivo'}</button>
+            {editing && <button type="button" className="button button-quiet button-small" disabled={savingMotive === item.id} onClick={() => cancelMotiveEdit(item.id)}>Cancelar</button>}
           </form>{savingMotive === item.id && <p role="status" aria-live="polite">Enviando el motivo al servidor…</p>}</Fragment>
         })}</div>}
       </Panel>
-      <Panel title="Desvíos de esta fecha">{loading ? <Loading label="Consultando desvíos…" /> : loadFailed ? <Empty>No se pudieron consultar los desvíos.</Empty> : deviations.length ? <div className="deviation-list">{deviations.map((item) => <article className="deviation-card" key={item.id}><div className="deviation-symbol">!</div><div className="deviation-main"><div className="deviation-title"><strong>{deviationName(item.type)}</strong><span className="status-chip">{statusName(item.status)}</span></div>{item.category && <p className="reason-line"><b>Motivo:</b> {categoryName(item.category)}{item.motiveText ? ` · ${item.motiveText}` : ''}</p>}</div></article>)}</div> : <Empty>No hay desvíos para esta fecha.</Empty>}</Panel>
+      <Panel title="Desvíos de esta fecha">{loading ? <Loading label="Consultando desvíos…" /> : loadFailed ? <Empty>No se pudieron consultar los desvíos.</Empty> : deviations.length ? <div className="deviation-list">{deviations.map((item) => <article className="deviation-card" key={item.id}><div className="deviation-symbol">!</div><div className="deviation-main"><div className="deviation-title"><strong>{deviationName(item.type)}</strong><span className="status-chip">{statusName(item.status)}</span></div>{item.category && <p className="reason-line"><b>Motivo:</b> {categoryName(item.category)}{item.motiveText ? ` · ${item.motiveText}` : ''}</p>}
+        {!editingMotives.includes(item.id) && item.status === 'PENDIENTE_REVISION' && <button type="button" className="button button-quiet button-small" onClick={() => startMotiveEdit(item)}>Corregir motivo</button>}
+        {!editingMotives.includes(item.id) && canAddFirstMotive(item) && <button type="button" className="button button-quiet button-small" onClick={() => startMotiveEdit(item)}>Agregar motivo</button>}</div></article>)}</div> : <Empty>No hay desvíos para esta fecha.</Empty>}</Panel>
     </main>
   </div>
 }

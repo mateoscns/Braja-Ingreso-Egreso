@@ -870,7 +870,9 @@ class BackendMySqlIntegrationTest {
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=?", Integer.class, jornadaId.toString()));
         assertEquals(deviationId, jdbc.queryForObject("SELECT id FROM deviations WHERE jornada_id=? AND type='EGRESO_TARDIO' AND active=TRUE", String.class, jornadaId.toString()));
         assertEquals("Me olvide de fichar", jdbc.queryForObject("SELECT motive_text FROM deviations WHERE id=?", String.class, deviationId));
-        assertEquals("JUSTIFICADO", jdbc.queryForObject("SELECT classification FROM deviations WHERE id=?", String.class, deviationId));
+        // D-20261027-01: the type changed, so the classification goes back to review (the motive above stays).
+        assertNull(jdbc.queryForObject("SELECT classification FROM deviations WHERE id=?", String.class, deviationId));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviation_audits WHERE deviation_id=? AND change_type='CLASSIFICATION_RESET' AND before_classification='JUSTIFICADO' AND after_classification IS NULL", Integer.class, deviationId));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviation_audits WHERE deviation_id=? AND change_type='TYPE_REPLACED' AND before_type='MARCA_FALTANTE' AND after_type='EGRESO_TARDIO'", Integer.class, deviationId));
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM notification_outbox_events", Integer.class));
     }
@@ -1096,7 +1098,7 @@ class BackendMySqlIntegrationTest {
         jdbc.update("UPDATE employees SET active=FALSE WHERE id=?", employeeId.toString());
 
         assertEquals(403, assertThrows(ApiException.class,
-                () -> deviationController.list(authentication, session, null, null, null)).status().value());
+                () -> deviationController.list(authentication, session, null, null, null, null, 100)).status().value());
         assertEquals(403, assertThrows(ApiException.class,
                 () -> deviationController.inbox(authentication, session, null, 50, null, null, null, null)).status().value());
     }
@@ -1131,11 +1133,11 @@ class BackendMySqlIntegrationTest {
 
         assertEquals("SALUD", authorView.category());
         assertEquals("Consulta médica privada", authorView.motiveText());
-        assertEquals("Persona de prueba", deviations.list(employeeAuth, employeeScope, null, null, null).getFirst().employeeDisplayName());
+        assertEquals("Persona de prueba", deviations.list(employeeScope, new DeviationService.ListFilter(null, null, null, null, 100)).getFirst().employeeDisplayName());
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE id=? AND motive_text IS NULL AND motive_ciphertext IS NOT NULL",
                 Integer.class, deviationId.toString()));
-        assertTrue(deviations.list(authentication(secondEmployeeScope.accountId(), "30123458"), secondEmployeeScope,
-                null, null, null).stream().noneMatch(item -> item.id().equals(deviationId)));
+        assertTrue(deviations.list(secondEmployeeScope,
+                new DeviationService.ListFilter(null, null, null, null, 100)).stream().noneMatch(item -> item.id().equals(deviationId)));
         assertEquals(404, assertThrows(ApiException.class,
                 () -> deviations.loadView(secondEmployeeScope, deviationId)).status().value());
         var adminView = deviations.loadView(adminScope, deviationId);
@@ -1159,7 +1161,7 @@ class BackendMySqlIntegrationTest {
 
         assertEquals("PURGADA", jdbc.queryForObject("SELECT location_status FROM mark_events WHERE id=?", String.class, markId.toString()));
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM mark_events WHERE id=? AND (latitude IS NOT NULL OR longitude IS NOT NULL)", Integer.class, markId.toString()));
-        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE id=? AND motive_category IS NULL AND motive_ciphertext IS NULL AND motive_purged_at IS NOT NULL",
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE id=? AND motive_category='SALUD' AND motive_ciphertext IS NULL AND motive_iv IS NULL AND motive_cipher_key_id IS NULL AND motive_purged_at IS NOT NULL",
                 Integer.class, deviationId.toString()));
         assertNull(deviations.loadView(adminScope, deviationId).motiveText());
     }

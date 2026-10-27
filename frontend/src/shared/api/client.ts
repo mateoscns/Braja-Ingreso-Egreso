@@ -34,6 +34,7 @@ function messageForStatus(status: number, code?: string, context: ApiErrorContex
   if (status === 401) return 'Tu sesión venció. Iniciá sesión nuevamente.'
   if (status === 403) return 'No tenés permiso para realizar esta acción.'
   if (status === 409 && code === 'MARK_TOO_EARLY') return 'Todavía no es horario para registrar esta marca. El ingreso se habilita 30 minutos antes; las demás marcas, desde el inicio de la jornada.'
+  if (status === 409 && code === 'MOTIVE_LOCKED') return 'El administrador ya revisó este desvío; el motivo ya no se puede cambiar.'
   if (status === 409) return 'La información cambió o la acción ya fue procesada. Actualizá la vista.'
   if (status === 422) return 'Revisá los datos ingresados.'
   if (status === 429) return `Hubo demasiados intentos. Esperá ${waitText(context.retryAfterSeconds)} y probá otra vez.`

@@ -20,14 +20,17 @@ public class DeviationService {
     /**
      * Shared read model. occurred_at is the time of the fact: the source mark's time, or the due time for deviations that have no mark
      * (SIN_INGRESO: scheduled start + tolerance; MARCA_FALTANTE: scheduled end + tolerance), matching what reconcile() derives them from.
+     * Falls back to the detection time so the inbox order (D-20261027-03) is total.
      */
-    private static final String VIEW_SQL = "SELECT d.*,j.local_date,e.display_name AS employee_display_name," +
-            " CASE WHEN d.source_mark_id IS NOT NULL THEN m.occurred_at" +
+    private static final String OCCURRED_AT_SQL = "COALESCE(CASE WHEN d.source_mark_id IS NOT NULL THEN m.occurred_at" +
             " WHEN d.type='SIN_INGRESO' THEN DATE_ADD(j.scheduled_start_at, INTERVAL j.tolerance_minutes MINUTE)" +
-            " WHEN d.type='MARCA_FALTANTE' THEN DATE_ADD(j.scheduled_end_at, INTERVAL j.tolerance_minutes MINUTE) END AS occurred_at" +
+            " WHEN d.type='MARCA_FALTANTE' THEN DATE_ADD(j.scheduled_end_at, INTERVAL j.tolerance_minutes MINUTE) END, d.created_at)";
+    private static final String VIEW_SQL = "SELECT d.*,j.local_date,e.display_name AS employee_display_name," + OCCURRED_AT_SQL + " AS occurred_at" +
             " FROM deviations d JOIN jornadas j ON j.id=d.jornada_id AND j.company_id=d.company_id" +
             " JOIN employees e ON e.id=d.employee_id AND e.company_id=d.company_id" +
             " LEFT JOIN mark_events m ON m.id=d.source_mark_id AND m.company_id=d.company_id";
+    static final int LIST_MAX_LIMIT = 200;
+    private static final Set<String> STATUSES = Set.of("MOTIVO_PENDIENTE", "PENDIENTE_REVISION", "JUSTIFICADO", "NO_JUSTIFICADO");
     private final DeviationPolicy policy = new DeviationPolicy();
     private final JdbcTemplate jdbc;
     private final ScopeService scopes;
@@ -80,8 +83,9 @@ public class DeviationService {
             }
         }
 
-        List<ExistingDeviation> existing = jdbc.query("SELECT id,type,active FROM deviations WHERE company_id=? AND jornada_id=? ORDER BY created_at,id FOR UPDATE",
-                (rs, row) -> new ExistingDeviation(UUID.fromString(rs.getString("id")), DeviationType.valueOf(rs.getString("type")), rs.getBoolean("active")),
+        List<ExistingDeviation> existing = jdbc.query("SELECT id,type,active,source_mark_id,classification FROM deviations WHERE company_id=? AND jornada_id=? ORDER BY created_at,id FOR UPDATE",
+                (rs, row) -> new ExistingDeviation(UUID.fromString(rs.getString("id")), DeviationType.valueOf(rs.getString("type")), rs.getBoolean("active"),
+                        rs.getString("source_mark_id") == null ? null : UUID.fromString(rs.getString("source_mark_id")), rs.getString("classification")),
                 companyId.toString(), jornadaId.toString());
         Map<DeviationType, ExistingDeviation> active = new EnumMap<>(DeviationType.class);
         List<ExistingDeviation> activeRows = existing.stream().filter(ExistingDeviation::active).toList();
@@ -105,16 +109,19 @@ public class DeviationService {
             }
             if (current != null) {
                 if (current.type() != wanted) {
-                    jdbc.update("UPDATE deviations SET type=?,source_mark_id=?,updated_at=? WHERE id=? AND company_id=?",
+                    // D-20261027-01: a classification decided for another fact does not survive the type change; the motive does.
+                    jdbc.update("UPDATE deviations SET type=?,source_mark_id=?,classification=NULL,updated_at=? WHERE id=? AND company_id=?",
                             wanted.name(), fact.markId() == null ? null : fact.markId().toString(), timestamp(now), current.id().toString(), companyId.toString());
                     jdbc.update("INSERT INTO deviation_audits(id,company_id,deviation_id,change_type,before_type,after_type,actor_account_id,audit_reason,created_at) VALUES(?,?,?,'TYPE_REPLACED',?,?,NULL,'Corrected event reconciliation',?)",
                             UUID.randomUUID().toString(), companyId.toString(), current.id().toString(), current.type().name(), wanted.name(), timestamp(now));
+                    auditClassificationReset(companyId, current.id(), current.classification(), current.type(), wanted, null, "Deviation type changed", now);
                     if (wanted.isPushEligible()) notifications.enqueue(companyId, siteId, current.id(), wanted.name(), fact.occurredAt());
-                } else {
+                } else if (!Objects.equals(current.sourceMarkId(), fact.markId())) {
+                    // Only a real change touches the row: a no-op reconcile must not move updated_at.
                     jdbc.update("UPDATE deviations SET source_mark_id=?,updated_at=? WHERE id=? AND company_id=?",
                             fact.markId() == null ? null : fact.markId().toString(), timestamp(now), current.id().toString(), companyId.toString());
                 }
-                active.put(wanted, new ExistingDeviation(current.id(), wanted, true));
+                active.put(wanted, new ExistingDeviation(current.id(), wanted, true, fact.markId(), null));
             } else {
                 ExistingDeviation historical = existing.stream().filter(d -> d.type() == wanted && !d.active()).findFirst().orElse(null);
                 UUID deviationId = historical == null ? UUID.randomUUID() : historical.id();
@@ -123,12 +130,14 @@ public class DeviationService {
                             deviationId.toString(), companyId.toString(), jornadaId.toString(), fact.markId() == null ? null : fact.markId().toString(),
                             siteId.toString(), employeeId.toString(), wanted.name(), timestamp(now), timestamp(now));
                 } else {
-                    jdbc.update("UPDATE deviations SET active=TRUE,source_mark_id=?,site_id=?,employee_id=?,type=?,motive_category=NULL,motive_text=NULL,motive_ciphertext=NULL,motive_iv=NULL,motive_cipher_key_id=NULL,motive_author_account_id=NULL,motive_created_at=NULL,motive_purged_at=NULL,classification=NULL,created_at=?,updated_at=? WHERE id=? AND company_id=?",
+                    // Reactivation follows the type-change rule (D-20261027-01): the motive stays, the classification goes back to review.
+                    jdbc.update("UPDATE deviations SET active=TRUE,source_mark_id=?,site_id=?,employee_id=?,type=?,classification=NULL,created_at=?,updated_at=? WHERE id=? AND company_id=?",
                             fact.markId() == null ? null : fact.markId().toString(), siteId.toString(), employeeId.toString(), wanted.name(), timestamp(now), timestamp(now), deviationId.toString(), companyId.toString());
                 }
                 jdbc.update("INSERT INTO deviation_audits(id,company_id,deviation_id,change_type,after_type,created_at) VALUES(?,?,?,'CREATED',?,?)",
                         UUID.randomUUID().toString(), companyId.toString(), deviationId.toString(), wanted.name(), timestamp(now));
-                active.put(wanted, new ExistingDeviation(deviationId, wanted, true));
+                if (historical != null) auditClassificationReset(companyId, deviationId, historical.classification(), historical.type(), wanted, null, "Deviation reactivated", now);
+                active.put(wanted, new ExistingDeviation(deviationId, wanted, true, fact.markId(), null));
                 if (wanted.isPushEligible()) notifications.enqueue(companyId, siteId, deviationId, wanted.name(), fact.occurredAt());
             }
         }
@@ -146,7 +155,12 @@ public class DeviationService {
     }
 
     @Transactional
-    public List<DeviationView> list(Authentication auth, ScopeService.Scope scope, LocalDate from, LocalDate to, UUID siteId) {
+    public List<DeviationView> list(ScopeService.Scope scope, ListFilter filter) {
+        if (filter.limit() < 1 || filter.limit() > LIST_MAX_LIMIT) throw ApiException.invalid("Deviation limit must be between 1 and " + LIST_MAX_LIMIT);
+        if ((filter.from() == null) != (filter.to() == null)) throw ApiException.invalid("from and to must be given together");
+        if (filter.status() != null && !STATUSES.contains(filter.status())) throw ApiException.invalid("Unknown deviation status");
+        LocalDate from = filter.from(), to = filter.to();
+        UUID siteId = filter.siteId();
         DateRanges.validate(from, to);
         if (siteId != null && !scopes.companyHasSite(scope.companyId(), siteId)) throw ApiException.notFound();
         UUID employeeId = "EMPLOYEE".equals(scope.role()) ? scopes.employeeIdFor(scope) : null;
@@ -158,7 +172,12 @@ public class DeviationService {
         if (siteId != null) { sql.append(" AND d.site_id=?"); args.add(siteId.toString()); }
         if (from != null) { sql.append(" AND j.local_date>=?"); args.add(from); }
         if (to != null) { sql.append(" AND j.local_date<=?"); args.add(to); }
-        sql.append(" ORDER BY d.created_at DESC,d.id DESC");
+        // Same derivation as deviationView(): a classification wins, then a stored motive means "under review".
+        if ("MOTIVO_PENDIENTE".equals(filter.status())) sql.append(" AND d.classification IS NULL AND d.motive_created_at IS NULL");
+        else if ("PENDIENTE_REVISION".equals(filter.status())) sql.append(" AND d.classification IS NULL AND d.motive_created_at IS NOT NULL");
+        else if (filter.status() != null) { sql.append(" AND d.classification=?"); args.add(filter.status()); }
+        sql.append(" ORDER BY d.created_at DESC,d.id DESC LIMIT ?");
+        args.add(filter.limit());
         return jdbc.query(sql.toString(), (rs, row) -> deviationView(scope, rs), args.toArray());
     }
 
@@ -187,16 +206,17 @@ public class DeviationService {
             Cursor decoded = decodeCursor(cursor);
             // The cursor is bound to the filters it was issued for, so a page of one filter set never continues another.
             if (!decoded.filters().equals(filter.fingerprint())) throw ApiException.invalid("Inbox cursor does not match the active filters");
-            sql.append(" AND (d.updated_at<? OR (d.updated_at=? AND d.id<?))");
-            args.add(timestamp(decoded.updatedAt())); args.add(timestamp(decoded.updatedAt())); args.add(decoded.id().toString());
+            // D-20261027-03: keyset on the fact time, which a review or a motive does not move (updated_at did, and pages skipped rows).
+            sql.append(" AND (").append(OCCURRED_AT_SQL).append("<? OR (").append(OCCURRED_AT_SQL).append("=? AND d.id<?))");
+            args.add(timestamp(decoded.occurredAt())); args.add(timestamp(decoded.occurredAt())); args.add(decoded.id().toString());
         }
-        sql.append(" ORDER BY d.updated_at DESC,d.id DESC LIMIT ?");
+        sql.append(" ORDER BY occurred_at DESC,d.id DESC LIMIT ?");
         args.add(limit + 1);
-        List<InboxRow> rows = jdbc.query(sql.toString(), (rs, row) -> new InboxRow(deviationView(scope, rs), rs.getTimestamp("updated_at").toInstant()), args.toArray());
+        List<DeviationView> rows = jdbc.query(sql.toString(), (rs, row) -> deviationView(scope, rs), args.toArray());
         boolean hasMore = rows.size() > limit;
         if (hasMore) rows = rows.subList(0, limit);
         String nextCursor = hasMore ? encodeCursor(rows.getLast(), filter.fingerprint()) : null;
-        return new InboxPage(rows.stream().map(InboxRow::deviation).toList(), nextCursor);
+        return new InboxPage(rows, nextCursor);
     }
 
     /** Active deviations of the given jornadas of the caller's company, grouped by jornada (one query, no per-row lookups). */
@@ -228,16 +248,25 @@ public class DeviationService {
         DeviationRow deviation = getForUpdate(scope.companyId(), deviationId);
         if (deviation == null) throw ApiException.notFound();
         if (!deviation.employeeId().equals(employeeId)) throw ApiException.notFound();
-        if (deviation.motiveCreatedAt() != null && deviation.motivePurgedAt() == null) throw ApiException.conflict("MOTIVE_ALREADY_SUBMITTED", "The reason for this deviation was already submitted");
+        // D-20261027-02: editable until the ADMIN classifies; a deviation classified without any motive accepts its first one.
+        boolean hadMotive = deviation.motiveCreatedAt() != null;
+        if (deviation.classification() != null && hadMotive) throw ApiException.conflict("MOTIVE_LOCKED", "The reason is fixed once the deviation is classified");
+        boolean health = "SALUD".equals(category);
+        if (!health && !Set.of("TRANSPORTE", "EMERGENCIA", "OTRA").contains(category)) throw ApiException.invalid("Unknown motive category");
         Instant now = Instant.now();
-        if ("SALUD".equals(category)) {
+        if (health) {
             var encrypted = encryption.encryptHealth(text);
-            jdbc.update("UPDATE deviations SET motive_category=?,motive_text=NULL,motive_ciphertext=?,motive_iv=?,motive_cipher_key_id=?,motive_author_account_id=?,motive_created_at=?,motive_purged_at=NULL,updated_at=? WHERE id=? AND company_id=?",
+            jdbc.update("UPDATE deviations SET motive_category=?,motive_text=NULL,motive_ciphertext=?,motive_iv=?,motive_cipher_key_id=?,motive_author_account_id=?,motive_created_at=?,motive_purged_at=NULL,classification=NULL,updated_at=? WHERE id=? AND company_id=?",
                     category, encrypted.ciphertext(), encrypted.iv(), encrypted.keyId(), scope.accountId().toString(), timestamp(now), timestamp(now), deviationId.toString(), scope.companyId().toString());
-        } else if (Set.of("TRANSPORTE", "EMERGENCIA", "OTRA").contains(category)) {
-            jdbc.update("UPDATE deviations SET motive_category=?,motive_text=?,motive_ciphertext=NULL,motive_iv=NULL,motive_cipher_key_id=NULL,motive_author_account_id=?,motive_created_at=?,motive_purged_at=NULL,updated_at=? WHERE id=? AND company_id=?",
+        } else {
+            jdbc.update("UPDATE deviations SET motive_category=?,motive_text=?,motive_ciphertext=NULL,motive_iv=NULL,motive_cipher_key_id=NULL,motive_author_account_id=?,motive_created_at=?,motive_purged_at=NULL,classification=NULL,updated_at=? WHERE id=? AND company_id=?",
                     category, text, scope.accountId().toString(), timestamp(now), timestamp(now), deviationId.toString(), scope.companyId().toString());
-        } else throw ApiException.invalid("Unknown motive category");
+        }
+        // The audit names categories only: the free text (SALUD above all) never leaves the deviation row.
+        jdbc.update("INSERT INTO deviation_audits(id,company_id,deviation_id,change_type,actor_account_id,audit_reason,created_at) VALUES(?,?,?,?,?,?,?)",
+                UUID.randomUUID().toString(), scope.companyId().toString(), deviationId.toString(), hadMotive ? "MOTIVE_CORRECTED" : "MOTIVE_SUBMITTED",
+                scope.accountId().toString(), hadMotive ? "Motive category " + deviation.motiveCategory() + " -> " + category : "Motive category " + category, timestamp(now));
+        auditClassificationReset(scope.companyId(), deviationId, deviation.classification(), null, null, scope.accountId(), "First motive submitted after classification", now);
         return loadView(scope, deviationId);
     }
 
@@ -266,11 +295,19 @@ public class DeviationService {
     }
 
     private DeviationRow getForUpdate(UUID companyId, UUID deviationId) {
-        return jdbc.query("SELECT id,employee_id,classification,motive_created_at,motive_purged_at FROM deviations WHERE id=? AND company_id=? AND active=TRUE FOR UPDATE",
+        return jdbc.query("SELECT id,employee_id,classification,motive_category,motive_created_at FROM deviations WHERE id=? AND company_id=? AND active=TRUE FOR UPDATE",
                 rs -> rs.next() ? new DeviationRow(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("employee_id")), rs.getString("classification"),
-                        rs.getTimestamp("motive_created_at") == null ? null : rs.getTimestamp("motive_created_at").toInstant(),
-                        rs.getTimestamp("motive_purged_at") == null ? null : rs.getTimestamp("motive_purged_at").toInstant()) : null,
+                        rs.getString("motive_category"), rs.getTimestamp("motive_created_at") == null ? null : rs.getTimestamp("motive_created_at").toInstant()) : null,
                 deviationId.toString(), companyId.toString());
+    }
+
+    /** Writes the CLASSIFICATION_RESET audit row when a classification was cleared; no-op when there was none. */
+    private void auditClassificationReset(UUID companyId, UUID deviationId, String before, DeviationType beforeType, DeviationType afterType,
+                                          UUID actor, String reason, Instant now) {
+        if (before == null) return;
+        jdbc.update("INSERT INTO deviation_audits(id,company_id,deviation_id,change_type,before_type,after_type,before_classification,after_classification,actor_account_id,audit_reason,created_at) VALUES(?,?,?,'CLASSIFICATION_RESET',?,?,?,NULL,?,?,?)",
+                UUID.randomUUID().toString(), companyId.toString(), deviationId.toString(), beforeType == null ? null : beforeType.name(),
+                afterType == null ? null : afterType.name(), before, actor == null ? null : actor.toString(), reason, timestamp(now));
     }
 
     private DeviationView deviationView(ScopeService.Scope scope, java.sql.ResultSet rs) throws java.sql.SQLException {
@@ -300,21 +337,23 @@ public class DeviationService {
     private static Cursor decodeCursor(String raw) {
         try {
             String decoded = new String(Base64.getUrlDecoder().decode(raw), StandardCharsets.UTF_8);
-            // Format: updatedAt|filterFingerprint|id. Cursors issued before filters existed (updatedAt|id) mean "no filters".
+            // Format: occurredAt|filterFingerprint|id. Two-part cursors (instant|id) mean "no filters".
             int first = decoded.indexOf('|');
             int last = decoded.lastIndexOf('|');
             String filters = first == last ? "" : decoded.substring(first + 1, last);
             return new Cursor(Instant.parse(decoded.substring(0, first)), filters, UUID.fromString(decoded.substring(last + 1)));
         } catch (Exception ex) { throw ApiException.invalid("Inbox cursor is invalid"); }
     }
-    private static String encodeCursor(InboxRow row, String filters) {
-        String value = row.updatedAt().toString() + "|" + filters + "|" + row.deviation().id();
+    private static String encodeCursor(DeviationView row, String filters) {
+        String value = row.occurredAt().toString() + "|" + filters + "|" + row.id();
         return Base64.getUrlEncoder().withoutPadding().encodeToString(value.getBytes(StandardCharsets.UTF_8));
     }
     private record DesiredDeviation(UUID markId, Instant occurredAt) { }
-    private record ExistingDeviation(UUID id, DeviationType type, boolean active) { }
-    private record DeviationRow(UUID id, UUID employeeId, String classification, Instant motiveCreatedAt, Instant motivePurgedAt) { }
-    private record Cursor(Instant updatedAt, String filters, UUID id) { }
+    private record ExistingDeviation(UUID id, DeviationType type, boolean active, UUID sourceMarkId, String classification) { }
+    private record DeviationRow(UUID id, UUID employeeId, String classification, String motiveCategory, Instant motiveCreatedAt) { }
+    private record Cursor(Instant occurredAt, String filters, UUID id) { }
+    /** GET /deviations filters: local jornada dates (inclusive, both or neither), derived review status, page size. */
+    public record ListFilter(String status, LocalDate from, LocalDate to, UUID siteId, int limit) { }
     /** Optional inbox filters; from/to are local jornada dates (inclusive). */
     public record InboxFilter(UUID employeeId, UUID siteId, LocalDate from, LocalDate to) {
         /** Empty without filters; otherwise a short digest, so the cursor can only continue the filter set it was issued for. */
@@ -327,7 +366,6 @@ public class DeviationService {
             } catch (java.security.NoSuchAlgorithmException ex) { throw new IllegalStateException(ex); }
         }
     }
-    private record InboxRow(DeviationView deviation, Instant updatedAt) { }
     public record InboxPage(List<DeviationView> items, String nextCursor) { }
     public record MarkFact(UUID id, MarkAction action, Instant occurredAt) { }
     public record DeviationView(UUID id, UUID jornadaId, UUID siteId, UUID employeeId, String employeeDisplayName, String type, String status,

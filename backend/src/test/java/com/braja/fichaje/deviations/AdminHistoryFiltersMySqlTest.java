@@ -120,9 +120,13 @@ class AdminHistoryFiltersMySqlTest {
 
     private record Seed(UUID a, UUID b, UUID c, UUID d, UUID foreign) { }
 
-    /** a: e1/S1/D1 tardia, b: e1/S1/D2 almuerzo, c: e2/S2/D1 sin ingreso, d: e2/S2/D2 egreso temprano; updated order a<b<c<d. */
+    /**
+     * a: e1/S1/D1 tardia, b: e1/S1/D2 almuerzo, c: e2/S2/D1 sin ingreso, d: e2/S2/D2 egreso temprano; updated order a<b<c<d.
+     * The inbox orders by fact time (D-20261027-03): a, b, d have no source mark (detection time), c is due at D1 11:10Z,
+     * so the fact-time order is also a<b<c<d. DeviationRulesMySqlTest covers fact time against update time.
+     */
     private Seed seedInbox() {
-        Instant base = Instant.parse("2026-03-20T10:00:00Z");
+        Instant base = Instant.parse("2026-03-01T10:00:00Z");
         UUID ja = jornada(companyA, employee1, siteS1, templateS1, D1);
         UUID jb = jornada(companyA, employee1, siteS1, templateS1, D2);
         UUID jc = jornada(companyA, employee2, siteS2, templateS2, D1);
@@ -132,8 +136,8 @@ class AdminHistoryFiltersMySqlTest {
                 deviation(companyA, ja, siteS1, employee1, "LLEGADA_TARDE", null, base),
                 deviation(companyA, jb, siteS1, employee1, "EXCESO_ALMUERZO", null, base.plusSeconds(60)),
                 deviation(companyA, jc, siteS2, employee2, "SIN_INGRESO", null, base.plusSeconds(120)),
-                deviation(companyA, jd, siteS2, employee2, "EGRESO_TEMPRANO", null, base.plusSeconds(180)),
-                deviation(companyB, jf, siteB, employeeB, "SIN_INGRESO", null, base.plusSeconds(240)));
+                deviation(companyA, jd, siteS2, employee2, "EGRESO_TEMPRANO", null, base.plusSeconds(2 * 86400)),
+                deviation(companyB, jf, siteB, employeeB, "SIN_INGRESO", null, base.plusSeconds(2 * 86400 + 60)));
     }
 
     @Test
