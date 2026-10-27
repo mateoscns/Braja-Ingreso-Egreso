@@ -250,6 +250,25 @@ class TimekeepingBoundsMySqlTest {
         assertEquals(0, count("SELECT COUNT(*) FROM mark_correction_audits WHERE mark_id=?", markId.toString()));
     }
 
+    @Test
+    void correctionKeepingTheStoredTimeIsNotBoundByTheWindow() throws Exception {
+        Login admin = login(adminDni);
+        MvcResult forgotten = send(admin, post("/api/v1/admin/jornadas/{id}/forgotten-marks", jornadaId), forgottenBody("INGRESO", scheduledStart.plusSeconds(60)));
+        assertEquals(201, forgotten.getResponse().getStatus());
+        UUID markId = UUID.fromString(json(forgotten).get("id").asText());
+        // A mark already stored outside the window (an employee mark has no upper bound).
+        Instant outside = scheduledStart.minus(25, ChronoUnit.HOURS);
+        jdbc.update("UPDATE mark_events SET occurred_at=? WHERE id=?", Timestamp.from(outside), markId.toString());
+
+        MvcResult kept = send(admin, post("/api/v1/admin/marks/{id}/correction", markId), correctionBody("INGRESO", outside));
+
+        assertEquals(2, kept.getResponse().getStatus() / 100, kept.getResponse().getContentAsString());
+        assertEquals(1, count("SELECT COUNT(*) FROM mark_correction_audits WHERE mark_id=?", markId.toString()));
+        // A new time outside the window is still rejected.
+        assertProblem(send(admin, post("/api/v1/admin/marks/{id}/correction", markId),
+                correctionBody("INGRESO", outside.minusSeconds(60))), 422, "VALIDATION_ERROR");
+    }
+
     // S7: reachable 500s become stable Problem Details.
 
     @Test

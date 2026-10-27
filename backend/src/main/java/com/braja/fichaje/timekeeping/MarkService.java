@@ -184,7 +184,9 @@ public class MarkService {
                 markId.toString(), scope.companyId().toString());
         if (mark == null) throw ApiException.notFound();
         Instant now = Instant.now();
-        validateAdminEventTime(jornada, newOccurredAt, now);
+        // Only a new event time is bounded: keeping the stored time (an action-only fix) must stay possible even for an
+        // employee mark recorded outside the window (2026-10-27 review finding).
+        if (!newOccurredAt.equals(mark.occurredAt())) validateAdminEventTime(jornada, newOccurredAt, now);
         List<HistoryRow> history = loadHistory(scope.companyId(), mark.jornadaId());
         List<HistoryRow> corrected = retroactiveTimeline(history, history.stream()
                 .filter(row -> row.id().equals(markId))
