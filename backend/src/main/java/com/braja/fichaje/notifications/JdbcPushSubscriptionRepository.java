@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -86,6 +87,14 @@ class JdbcPushSubscriptionRepository {
                 DELETE FROM push_subscriptions
                 WHERE id = ? AND company_id = ? AND account_id = ?
                 """, subscriptionId.toString(), companyId.toString(), accountId.toString());
+    }
+
+    Optional<UUID> findOwnedActive(UUID companyId, UUID accountId, String endpoint) {
+        return jdbcTemplate.query("""
+                SELECT id FROM push_subscriptions
+                WHERE company_id = ? AND account_id = ? AND endpoint_hash = ? AND active = TRUE
+                """, (rs, rowNum) -> UUID.fromString(rs.getString("id")),
+                companyId.toString(), accountId.toString(), endpointHash(endpoint)).stream().findFirst();
     }
 
     void removeExpired(UUID companyId, UUID subscriptionId) {

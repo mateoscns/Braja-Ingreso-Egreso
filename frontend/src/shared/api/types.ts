@@ -11,6 +11,7 @@ export type Session = {
   mustChangePassword: boolean
 }
 export type PublicConfig = { pushEnabled: boolean; vapidPublicKey: string | null }
+export type CurrentPushSubscription = { subscribed: boolean; id?: Id }
 export type Site = { id: Id; name: string; timeZone: string }
 export type Employee = {
   id: Id; displayName: string; dni?: string; siteIds: Id[]; toleranceMinutes: number; active: boolean; mustChangePassword?: boolean

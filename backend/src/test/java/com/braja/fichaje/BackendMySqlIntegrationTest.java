@@ -106,6 +106,7 @@ class BackendMySqlIntegrationTest {
         jdbc.update("DELETE FROM notification_outbox_events");
         jdbc.update("DELETE FROM notification_company_state");
         jdbc.update("DELETE FROM notification_windows");
+        jdbc.update("DELETE FROM push_subscriptions");
         jdbc.update("DELETE FROM deviation_audits");
         jdbc.update("DELETE FROM forgotten_mark_audits");
         jdbc.update("DELETE FROM mark_correction_audits");
@@ -466,6 +467,41 @@ class BackendMySqlIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"companyId\":\"" + unknownCompany + "\"}"))
                 .andExpect(status().isNotFound());
+    }
+
+    // 2026-10-27 (issue #47, D-20261027-04): alerts are per company, so the PWA asks whether this device is
+    // subscribed in the active company instead of re-registering it whenever a company is opened.
+    @Test
+    void pushSubscriptionLookupIsAdminOnlyCsrfProtectedAndScopedToTheActiveCompany() throws Exception {
+        String endpoint = "https://fcm.googleapis.com/fcm/send/it-device";
+        String endpointHash = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(endpoint.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        UUID subscriptionId = UUID.randomUUID();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now());
+        jdbc.update("INSERT INTO push_subscriptions(id,company_id,account_id,endpoint_hash,secret_ciphertext,secret_iv,active,created_at,updated_at) VALUES(?,?,?,?,?,?,TRUE,?,?)",
+                subscriptionId.toString(), companyId.toString(), adminAccountId.toString(), endpointHash,
+                new byte[]{1, 2, 3}, new byte[12], now, now);
+        HttpLogin admin = loginOverHttp(adminAccountId, "30.123.457", "CorrectHorseBattery9!");
+
+        MvcResult subscribed = adminWrite(admin, post("/api/v1/push/subscriptions/current"), "{\"endpoint\":\"" + endpoint + "\"}");
+        assertEquals(200, subscribed.getResponse().getStatus());
+        JsonNode subscribedBody = objectMapper.readTree(subscribed.getResponse().getContentAsString());
+        assertTrue(subscribedBody.get("subscribed").asBoolean());
+        assertEquals(subscriptionId.toString(), subscribedBody.get("id").asText());
+
+        MvcResult otherDevice = adminWrite(admin, post("/api/v1/push/subscriptions/current"), "{\"endpoint\":\"" + endpoint + "-other\"}");
+        assertEquals(200, otherDevice.getResponse().getStatus());
+        JsonNode otherBody = objectMapper.readTree(otherDevice.getResponse().getContentAsString());
+        assertFalse(otherBody.get("subscribed").asBoolean());
+        assertFalse(otherBody.has("id"));
+
+        mockMvc.perform(post("/api/v1/push/subscriptions/current").cookie(admin.sessionCookie())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"endpoint\":\"" + endpoint + "\"}"))
+                .andExpect(status().isForbidden());
+        HttpLogin employee = loginOverHttp(accountId, "30.123.456", "CorrectHorseBattery9!");
+        assertEquals(403, adminWrite(employee, post("/api/v1/push/subscriptions/current"),
+                "{\"endpoint\":\"" + endpoint + "\"}").getResponse().getStatus());
+        assertEquals(1, count("SELECT COUNT(*) FROM push_subscriptions WHERE company_id=?", companyId.toString()));
     }
 
     @Test
