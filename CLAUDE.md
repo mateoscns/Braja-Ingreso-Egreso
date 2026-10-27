@@ -229,13 +229,21 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
 4. **Todo desvío exige motivo y categoría, pero después de guardar la
    marca** (D-20261014-07, D-20261015-04): queda `MOTIVO_PENDIENTE` hasta
    `PUT /deviations/{id}/motive` (categoría `SALUD`, `TRANSPORTE`,
-   `EMERGENCIA` u `OTRA`; texto de 1 a 4000). Guarda: `chk_deviation_type`,
-   `chk_deviation_motive_category`, `chk_deviation_motive_storage` (V4, V11).
+   `EMERGENCIA` u `OTRA`; texto de 1 a 4000). El empleado lo corrige hasta
+   que se clasifica; después responde 409 `MOTIVE_LOCKED`, salvo el primer
+   motivo de un desvío clasificado sin motivo, que lo devuelve a revisión
+   (D-20261027-02). Cada envío queda en `deviation_audits` (V16). Guarda:
+   `chk_deviation_type`, `chk_deviation_motive_category`,
+   `chk_deviation_motive_storage` (V4, V11), `chk_deviation_audit_change`
+   (V16), `DeviationRulesMySqlTest` (corrección, bloqueo, validación).
 5. **Solo `ADMIN` cambia el estado de justificación** (D-20261014-08):
    `requireAdmin` en `PUT /admin/deviations/{id}/classification`; cambiar una
-   clasificación exige motivo y escribe `deviation_audits`. Guarda:
-   `chk_deviation_classification` (V4). El rechazo a un empleado
-   `[sin guarda: implementado, sin test]`.
+   clasificación exige motivo y escribe `deviation_audits`. Si el desvío
+   cambia de tipo, la clasificación se borra y vuelve a revisión
+   (D-20261027-01); si se reactiva, empieza sin motivo ni clasificación. Guarda: `chk_deviation_classification` (V4),
+   `DeviationRulesMySqlTest.classificationStillAuditsAndCorrectionStillNeedsAReason`
+   (incluye el 403 a un empleado) y
+   `DeviationRulesMySqlTest.classifiedAbsenceReplacedByLateArrivalGoesBackToReviewKeepingTheMotive`.
 6. **Toda corrección de `ADMIN` sobre una marca escribe auditoría** (valor
    anterior, nuevo, autor, hora) en la misma transacción (D-20261015-03, -05):
    `forgotten_mark_audits` y `mark_correction_audits`. Guarda en marcas

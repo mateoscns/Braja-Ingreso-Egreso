@@ -110,7 +110,7 @@ describe('ApiClient: códigos de error conocidos', () => {
     [409, 'INVALID_MARK_TRANSITION', 'El estado de la jornada cambió y esa marca ya no corresponde. Revisá el estado actualizado.'],
     [409, 'INVALID_MARK_ORDER', 'El estado de la jornada cambió y esa marca ya no corresponde. Revisá el estado actualizado.'],
     [409, 'IDEMPOTENCY_CONFLICT', 'Esta solicitud ya se usó para otra acción. Actualizá la vista y volvé a intentar.'],
-    [409, 'MOTIVE_ALREADY_SUBMITTED', 'El motivo de este desvío ya fue enviado. Actualizá la vista para ver su estado.'],
+    [409, 'MOTIVE_LOCKED', 'El administrador ya revisó este desvío; el motivo ya no se puede cambiar.'],
     [409, 'JORNADA_EXISTS', 'Ya hay una jornada declarada para ese empleado, sede y fecha.'],
     [409, 'MEMBERSHIP_EXISTS', 'Esa persona ya tiene un rol en esta empresa.'],
     [409, 'ACCOUNT_INACTIVE', 'La cuenta de ese DNI no está habilitada y no se puede agregar a la empresa.'],

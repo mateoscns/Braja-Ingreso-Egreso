@@ -46,15 +46,17 @@ La definición de transiciones y errores está en el contrato [openapi.yaml](../
 - Si una jornada tiene `INGRESO` y no tiene `EGRESO` al superar la hora prevista de fin más la tolerancia individual guardada en la jornada, el job de ausencias genera `MARCA_FALTANTE` (D-20261018-01). Aparece solo en la bandeja interna; no genera push. Una pausa abierta no lo impide.
 - Si el `EGRESO` llega después (marca del empleado, marca olvidada del `ADMIN` o corrección), dentro de la tolerancia el `MARCA_FALTANTE` se cierra y no queda desvío; fuera de la tolerancia el mismo desvío pasa a `EGRESO_TARDIO` con la hora real, conservando su motivo (D-20261019-01).
 - La duración de desayuno y almuerzo se compara con el límite configurado en la plantilla congelada en la jornada. El exceso genera un desvío en la bandeja.
-- Ante un desvío, el empleado elige `SALUD`, `TRANSPORTE`, `EMERGENCIA` u `OTRA` y escribe el motivo. Puede completarlo después; mientras tanto queda `MOTIVO_PENDIENTE`.
+- Ante un desvío, el empleado elige `SALUD`, `TRANSPORTE`, `EMERGENCIA` u `OTRA` y escribe el motivo. Puede completarlo después; mientras tanto queda `MOTIVO_PENDIENTE`. La vista del empleado muestra sus motivos pendientes de cualquier fecha, incluida la jornada nocturna del día anterior.
+- Mientras el `ADMIN` no clasificó el desvío, el empleado puede corregir su motivo; después queda fijo y un nuevo envío responde 409 `MOTIVE_LOCKED`. Si el `ADMIN` clasificó sin motivo y el motivo llega después, se acepta, la clasificación se borra y el desvío vuelve a revisión. Cada envío, corrección y vuelta a revisión queda en `deviation_audits` con autor y hora, sin el texto (D-20261027-02).
 - Solo el `ADMIN` de la empresa decide si un desvío está justificado o no justificado. La bandeja permite revisar y corregir esa clasificación con auditoría.
+- Si un desvío cambia de tipo (por ejemplo `SIN_INGRESO` a `LLEGADA_TARDE`, o `MARCA_FALTANTE` a `EGRESO_TARDIO`), su clasificación se borra y vuelve a revisión; el motivo se conserva y el cambio queda auditado (D-20261027-01). Un desvío retirado que vuelve a activarse es un hecho nuevo: empieza sin motivo ni clasificación, y la clasificación borrada queda auditada.
 - La llegada tardía que reemplaza `SIN_INGRESO` actualiza el mismo desvío y su aviso; no crea un segundo evento visible.
 
 ## Ubicación y privacidad
 
 - La captura de ubicación empieza en paralelo al envío de la marca. La marca nunca espera la geolocalización ni la usa para bloquear el fichaje. Si la ubicación está disponible, se asocia después a la marca. Si no llega dentro de 30 segundos desde la aceptación de la marca, el servidor cierra el estado como `SIN_UBICACION`; una ubicación fuera de esa ventana se rechaza.
 - Solo el `ADMIN` de la empresa puede consultar coordenadas exactas. Se purgan a los 90 días. La ubicación no se usa como geocerca ni como prueba de identidad.
-- El texto libre de categoría `SALUD` se cifra en reposo y solo lo pueden leer el empleado autor y el `ADMIN` de esa empresa. Se purga a los 90 días.
+- El texto libre de categoría `SALUD` se cifra en reposo y solo lo pueden leer el empleado autor y el `ADMIN` de esa empresa. Se purga a los 90 días: se borra solo ese texto; la categoría queda y los motivos de otras categorías no se purgan (D-20261016-04).
 - Los motivos y las coordenadas no aparecen en logs, eventos de monitoreo, cachés de la PWA ni payloads push. La categoría de salud tampoco aparece en push.
 - La PWA solo cachea archivos estáticos versionados; nunca cachea API autenticada, marcas pendientes, coordenadas o motivos.
 
@@ -69,9 +71,9 @@ La bandeja interna es la fuente de verdad y muestra todos los desvíos. En la vi
 | `MARCA_FALTANTE` | Sí | No, solo bandeja interna |
 | Exceso de desayuno o almuerzo | Sí | No, apagado por defecto |
 | Otros tipos | Sí | No hasta que Mateo los habilite en la matriz |
-| Completar o corregir motivo | Actualiza el desvío | No genera push |
+| Completar o corregir motivo (mientras no esté clasificado) | Actualiza el desvío | No genera push |
 
-La bandeja del `ADMIN` se filtra por empleado, sede y rango de fechas locales de jornada (hasta 366 días; el cursor de paginación solo continúa el mismo conjunto de filtros; un empleado o sede de otra empresa responde 404) y el `ADMIN` consulta el historial de jornadas, marcas y desvíos de un empleado o sede en un rango acotado (D-20261023-01). Cada desvío expone `occurredAt`, la hora del hecho: la de la marca que lo originó, o el vencimiento (inicio o fin programado más tolerancia) en `SIN_INGRESO` y `MARCA_FALTANTE`; la sesión expone el nombre visible de la persona en la empresa activa, que no existe para un `ADMIN` sin ficha de empleado (D-20261023-02).
+La bandeja del `ADMIN` se ordena por la hora del hecho (`occurredAt`), de la más reciente a la más antigua, con un cursor estable que no saltea ni repite filas aunque un desvío se clasifique entre páginas (D-20261027-03). Se filtra por empleado, sede y rango de fechas locales de jornada (hasta 366 días; el cursor de paginación solo continúa el mismo conjunto de filtros; un empleado o sede de otra empresa responde 404) y el `ADMIN` consulta el historial de jornadas, marcas y desvíos de un empleado o sede en un rango acotado (D-20261023-01). Cada desvío expone `occurredAt`, la hora del hecho: la de la marca que lo originó, o el vencimiento (inicio o fin programado más tolerancia) en `SIN_INGRESO` y `MARCA_FALTANTE`; la sesión expone el nombre visible de la persona en la empresa activa, que no existe para un `ADMIN` sin ficha de empleado (D-20261023-02).
 
 El agrupador, los intentos de entrega y el estado se guardan en MySQL. Un lease evita dos dispatchers simultáneos; reintentos usan una clave estable para actualizar el aviso correspondiente. Los payloads solo contienen conteos y datos de navegación no sensibles, nunca motivos, coordenadas ni categorías de salud. No se usan Redis ni brokers externos.
 

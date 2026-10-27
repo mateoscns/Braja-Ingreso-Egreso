@@ -651,21 +651,32 @@ paths:
     get:
       tags: [Deviations]
       summary: List deviations in the caller's authorized scope
+      description: >-
+        Active deviations of the active company, newest detection first; an EMPLOYEE only sees their own. Filters combine with AND.
+        from and to (local jornada dates, inclusive) must be given together, at most 366 days apart and within years 2000-2100;
+        without them every date is included (for example GET /deviations?status=MOTIVO_PENDIENTE lists pending motives of every date).
+        At most limit items are returned. An unknown status, a limit outside 1-200 or an invalid range answers 422 VALIDATION_ERROR.
       parameters:
         - name: status
           in: query
+          description: Review status as exposed in Deviation.status.
           schema:
             type: string
             enum: [MOTIVO_PENDIENTE, PENDIENTE_REVISION, JUSTIFICADO, NO_JUSTIFICADO]
         - name: from
           in: query
+          description: First local jornada date to include; requires to.
           schema: { type: string, format: date }
         - name: to
           in: query
+          description: Last local jornada date to include; requires from.
           schema: { type: string, format: date }
         - name: siteId
           in: query
           schema: { $ref: '#/components/schemas/Id' }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 100 }
       responses:
         '200':
           description: Deviation summaries. Health text is omitted unless caller is its author or the company's ADMIN.
@@ -673,13 +684,21 @@ paths:
             application/json:
               schema:
                 type: array
+                maxItems: 200
                 items: { $ref: '#/components/schemas/Deviation' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /deviations/{deviationId}/motive:
     put:
       tags: [Deviations]
-      summary: Submit or complete the employee's reason for a deviation
-      description: Only the employee who owns the deviation may submit their reason. Health text is encrypted and omitted from logs and push payloads.
+      summary: Submit, complete or correct the employee's reason for a deviation
+      description: >-
+        Only the employee who owns the deviation may submit their reason. Health text is encrypted and omitted from logs and push payloads.
+        While the deviation is not classified, a new reason replaces the previous one (D-20261027-02). Once an ADMIN classified it, the reason
+        is fixed and a new one answers 409 MOTIVE_LOCKED. Exception: if it was classified while it had no reason, the first reason is accepted
+        and the classification is cleared, so the deviation goes back to review (PENDIENTE_REVISION). Every submission, correction and
+        reset is audited with author and time; the audit names categories, never the text.
       parameters:
         - $ref: '#/components/parameters/DeviationId'
         - $ref: '#/components/parameters/CsrfToken'
@@ -701,7 +720,14 @@ paths:
               schema: { $ref: '#/components/schemas/Deviation' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '409':
+          description: The deviation is already classified and its reason is fixed
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                MOTIVE_LOCKED:
+                  value: { type: about:blank, title: Conflict, status: 409, code: MOTIVE_LOCKED, detail: The reason is fixed once the deviation is classified }
         '422': { $ref: '#/components/responses/ValidationError' }
   /admin/deviations/{deviationId}/classification:
     put:
@@ -740,6 +766,8 @@ paths:
         (one without the other answers 422), spanning at most 366 days inclusive (to - from <= 365) and within years 2000-2100.
         An employee or site of another company answers 404 and never returns data; an EMPLOYEE may only name themselves (403 otherwise).
         nextCursor is bound to the filters of the request that issued it: reusing it with different filters answers 422 VALIDATION_ERROR.
+        Items are ordered by occurredAt (time of the fact), newest first, then by id (D-20261027-03). The cursor is a keyset on that
+        order, so classifying a row or saving a motive between pages neither repeats nor skips rows.
       parameters:
         - name: cursor
           in: query
@@ -788,7 +816,7 @@ paths:
                         createdAt: '2026-03-10T11:25:01Z'
                         updatedAt: '2026-03-10T11:25:01Z'
                         pushEligible: true
-                    nextCursor: MjAyNi0wMy0xMFQxMToyNTowMS4wMDAwMDBafDNhOWYxYzJlZGY0YTcxMGJ8NWYwYzNiMWUtOGQ1Ny00YTUyLTliMGMtNmEwZjZjN2QxZTEx
+                    nextCursor: MjAyNi0wMy0xMFQxMToyNTowMFp8M2E5ZjFjMmVkZjRhNzEwYnw1ZjBjM2IxZS04ZDU3LTRhNTItOWIwYy02YTBmNmM3ZDFlMTE
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
