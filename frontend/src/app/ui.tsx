@@ -28,8 +28,8 @@ export function AppHeader({ companyName, name, onSignOut, children }: {
   </header>
 }
 
-export function CompanySwitcher({ memberships, activeCompanyId, onSelect }: {
-  memberships: Membership[]; activeCompanyId: string; onSelect: (companyId: string) => Promise<void>
+export function CompanySwitcher({ memberships, activeCompanyId, onSelect, disabled = false }: {
+  memberships: Membership[]; activeCompanyId: string; onSelect: (companyId: string) => Promise<void>; disabled?: boolean
 }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -37,7 +37,7 @@ export function CompanySwitcher({ memberships, activeCompanyId, onSelect }: {
   const requestPending = useRef(false)
   if (memberships.length < 2) return null
   async function change(companyId: string) {
-    if (requestPending.current || companyId === activeCompanyId) return
+    if (disabled || requestPending.current || companyId === activeCompanyId) return
     requestPending.current = true
     setError('')
     setPendingCompanyId(companyId)
@@ -52,7 +52,7 @@ export function CompanySwitcher({ memberships, activeCompanyId, onSelect }: {
   }
   const pendingCompanyName = memberships.find((membership) => membership.companyId === pendingCompanyId)?.companyName ?? 'la empresa'
   return <div className="company-switch-wrap">
-    <select className="company-switch" aria-label="Empresa activa" aria-busy={busy} disabled={busy} value={activeCompanyId} onChange={(event) => void change(event.target.value)}>
+    <select className="company-switch" aria-label="Empresa activa" aria-busy={busy} disabled={busy || disabled} value={activeCompanyId} onChange={(event) => void change(event.target.value)}>
       {memberships.map((membership) => <option key={membership.companyId} value={membership.companyId}>{membership.companyName}</option>)}
     </select>
     {busy && <span className="company-switch-status" role="status" aria-atomic="true">Esperando la activación de {pendingCompanyName}…</span>}

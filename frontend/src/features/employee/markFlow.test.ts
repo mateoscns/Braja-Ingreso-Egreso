@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { submitMark } from './markFlow'
-import type { ApiClient } from '../../shared/api/client'
+import { ApiError, TimeoutError, type ApiClient } from '../../shared/api/client'
 
 describe('submitMark', () => {
   it('no confirma hasta obtener respuesta del servidor y conserva la clave al reintentar', async () => {
@@ -12,7 +12,7 @@ describe('submitMark', () => {
     const gps = vi.fn(() => Promise.resolve(null))
     const first = submitMark(api, attempt, gps)
 
-    expect(post).toHaveBeenCalledWith('/jornadas/j-1/marks', { action: 'INGRESO' }, { 'Idempotency-Key': 'same-key' })
+    expect(post).toHaveBeenCalledWith('/jornadas/j-1/marks', { action: 'INGRESO' }, { 'Idempotency-Key': 'same-key' }, { signal: expect.any(AbortSignal) })
     expect(await Promise.race([first.then(() => 'resolved'), Promise.resolve('pending')])).toBe('pending')
     resolvePost({ id: 'mark-1', acceptedAt: '2026-10-16T12:00:00Z' })
     await expect(first).resolves.toMatchObject({ id: 'mark-1', acceptedAt: '2026-10-16T12:00:00Z' })
@@ -80,5 +80,58 @@ describe('submitMark', () => {
       await Promise.resolve(); await Promise.resolve()
       expect(attachLocation).not.toHaveBeenCalled()
     } finally { clock.mockRestore() }
+  })
+
+  describe('conflicto reintentable y espera agotada', () => {
+    afterEach(() => vi.useRealTimers())
+    const retryable = () => new ApiError(409, { status: 409, code: 'RETRYABLE_TRANSACTION_CONFLICT' }, { retryAfterSeconds: 1 })
+
+    it('reintenta una sola vez con la misma clave después de Retry-After', async () => {
+      vi.useFakeTimers()
+      const post = vi.fn().mockRejectedValueOnce(retryable()).mockResolvedValueOnce({ id: 'mark-r', acceptedAt: '2026-10-16T12:00:00Z' })
+      const api = { post, attachLocation: vi.fn() } as unknown as ApiClient
+      const submission = submitMark(api, { jornadaId: 'j-1', action: 'EGRESO', idempotencyKey: 'retry-key' }, () => Promise.resolve(null))
+
+      await vi.advanceTimersByTimeAsync(999)
+      expect(post).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      await expect(submission).resolves.toMatchObject({ id: 'mark-r' })
+      expect(post).toHaveBeenCalledTimes(2)
+      expect(post.mock.calls[1][2]).toEqual({ 'Idempotency-Key': 'retry-key' })
+    })
+
+    it('si el reintento vuelve a chocar, informa el conflicto sin un tercer intento', async () => {
+      vi.useFakeTimers()
+      const post = vi.fn().mockRejectedValueOnce(retryable()).mockRejectedValueOnce(retryable())
+      const api = { post, attachLocation: vi.fn() } as unknown as ApiClient
+      const submission = submitMark(api, { jornadaId: 'j-1', action: 'EGRESO', idempotencyKey: 'k' }, () => Promise.resolve(null)).catch((reason: unknown) => reason)
+
+      await vi.advanceTimersByTimeAsync(1000)
+      const failure = await submission
+      expect(failure).toBeInstanceOf(ApiError)
+      expect((failure as ApiError).code).toBe('RETRYABLE_TRANSACTION_CONFLICT')
+      expect(post).toHaveBeenCalledTimes(2)
+    })
+
+    it('no reintenta otros conflictos', async () => {
+      const post = vi.fn().mockRejectedValueOnce(new ApiError(409, { status: 409, code: 'MARK_TOO_EARLY' }))
+      const api = { post, attachLocation: vi.fn() } as unknown as ApiClient
+      await expect(submitMark(api, { jornadaId: 'j-1', action: 'INGRESO', idempotencyKey: 'k' }, () => Promise.resolve(null))).rejects.toMatchObject({ code: 'MARK_TOO_EARLY' })
+      expect(post).toHaveBeenCalledTimes(1)
+    })
+
+    it('corta la marca a los 15 segundos sin respuesta y lo informa como espera agotada', async () => {
+      vi.useFakeTimers()
+      const post = vi.fn((_path: string, _body: unknown, _headers: unknown, options: { signal: AbortSignal }) => new Promise((_, reject) => {
+        options.signal.addEventListener('abort', () => reject(new TimeoutError()))
+      }))
+      const api = { post, attachLocation: vi.fn() } as unknown as ApiClient
+      const submission = submitMark(api, { jornadaId: 'j-1', action: 'INGRESO', idempotencyKey: 'k' }, () => Promise.resolve(null)).catch((reason: unknown) => reason)
+
+      await vi.advanceTimersByTimeAsync(14_999)
+      expect(post.mock.calls[0][3].signal.aborted).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(await submission).toBeInstanceOf(TimeoutError)
+    })
   })
 })

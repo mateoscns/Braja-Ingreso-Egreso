@@ -312,3 +312,6 @@ td .short-input { width: 74px; }
   .status-chip { border: 1px solid CanvasText; }
   .spinner { border-color: CanvasText; border-top-color: Highlight; }
 }
+.mark-feedback:focus { outline: none; }
+.fieldset-plain { min-width: 0; margin: 0; border: 0; padding: 0; }
+.update-banner { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 50; display: flex; align-items: center; gap: 12px; width: max-content; max-width: calc(100% - 32px); padding: 10px 14px; border: 1px solid #d2e7d7; border-radius: 12px; color: var(--green); background: #fff; box-shadow: var(--shadow); font-size: .9rem; }
