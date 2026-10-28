@@ -114,6 +114,8 @@ describe('ApiClient: códigos de error conocidos', () => {
     [409, 'JORNADA_EXISTS', 'Ya hay una jornada declarada para ese empleado, sede y fecha.'],
     [409, 'MEMBERSHIP_EXISTS', 'Esa persona ya tiene un rol en esta empresa.'],
     [409, 'ACCOUNT_INACTIVE', 'La cuenta de ese DNI no está habilitada y no se puede agregar a la empresa.'],
+    [409, 'ACCOUNT_SHARED', 'Esta persona también tiene acceso en otra empresa o como ADMIN; su contraseña la restablece el operador.'],
+    [409, 'EMPLOYEE_INACTIVE', 'El empleado está dado de baja; reactivalo antes de restablecer la contraseña.'],
     [409, 'JORNADA_HAS_MARKS', 'La jornada ya tiene marcas y no se puede cancelar. Corregí o anulá sus marcas.'],
     [409, 'JORNADA_CANCELLED', 'Esta jornada fue cancelada por el administrador y no admite marcas.'],
     [409, 'MARK_VOIDED', 'Esa marca ya fue anulada y no se puede modificar.'],

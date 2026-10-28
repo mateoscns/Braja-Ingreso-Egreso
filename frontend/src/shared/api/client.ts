@@ -51,6 +51,8 @@ const CONFLICT_MESSAGES: Record<string, string> = {
   JORNADA_EXISTS: 'Ya hay una jornada declarada para ese empleado, sede y fecha.',
   MEMBERSHIP_EXISTS: 'Esa persona ya tiene un rol en esta empresa.',
   ACCOUNT_INACTIVE: 'La cuenta de ese DNI no está habilitada y no se puede agregar a la empresa.',
+  ACCOUNT_SHARED: 'Esta persona también tiene acceso en otra empresa o como ADMIN; su contraseña la restablece el operador.',
+  EMPLOYEE_INACTIVE: 'El empleado está dado de baja; reactivalo antes de restablecer la contraseña.',
   JORNADA_HAS_MARKS: 'La jornada ya tiene marcas y no se puede cancelar. Corregí o anulá sus marcas.',
   JORNADA_CANCELLED: 'Esta jornada fue cancelada por el administrador y no admite marcas.',
   MARK_VOIDED: 'Esa marca ya fue anulada y no se puede modificar.'

@@ -15,7 +15,7 @@ Las 22 decisiones base están adoptadas, incluidas D-20261014-12 a D-20261014-15
 | 2 | Elegir proveedor de hosting y dominio HTTPS para la prueba real de Web Push en el iPhone del ADMIN. | D-20261014-16 excluye el dominio actual de Braja; la prueba de push necesita un origen HTTPS. |
 | 2 | Ejecutar la prueba de Web Push en el iPhone real del ADMIN y, si falla, decidir la activación del plan B Capacitor. | La compatibilidad no se certifica solo con pruebas automatizadas. |
 | 1 | Definir el proceso seguro para incorporar nuevas empresas y sus primeros ADMIN después del bootstrap inicial. | El bootstrap crea la primera empresa, sede y cuenta ADMIN una sola vez en una base vacía; no hay una pantalla ni endpoint para dar de alta otros tenants. |
-| 2 | Definir un canal seguro de recuperación de contraseña. | No existe un mecanismo aprobado para restablecer credenciales sin intervención manual del operador. |
+| 2 | Definir un canal seguro de recuperación de contraseña sin intervención de una persona (autoservicio). | Desde D-20261027-09 el ADMIN restablece la contraseña de un empleado que pertenece solo a su empresa (`POST /employees/{employeeId}/password-reset`). Las cuentas que están en otra empresa o tienen rol ADMIN siguen dependiendo del operador, y no existe recuperación por autoservicio. |
 
 ## Criterio de implementación
 

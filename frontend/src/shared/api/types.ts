@@ -16,6 +16,8 @@ export type Site = { id: Id; name: string; timeZone: string }
 export type Employee = {
   id: Id; displayName: string; dni?: string; siteIds: Id[]; toleranceMinutes: number; active: boolean; mustChangePassword?: boolean
 }
+/** Returned once by POST /employees/{id}/password-reset; keep it only in component memory. */
+export type PasswordReset = { temporaryPassword: string }
 export type TemplateBlock = { startDayOffset: 0 | 1; start: string; end: string; endDayOffset: 0 | 1 }
 export type TemplateInput = {
   siteId: Id; name: string; blocks: TemplateBlock[]; breakfastLimitMinutes: number; lunchLimitMinutes: number
