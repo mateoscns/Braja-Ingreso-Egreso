@@ -21,6 +21,14 @@ export type TemplateInput = {
   siteId: Id; name: string; blocks: TemplateBlock[]; breakfastLimitMinutes: number; lunchLimitMinutes: number
 }
 export type Template = TemplateInput & { id: Id; active: boolean }
+/** D-20261015-02: a template per employee and site from validFrom on; rows are never edited, newest validFrom first. */
+export type TemplateAssignment = { id: Id; employeeId: Id; siteId: Id; templateId: Id; templateName: string; validFrom: string; createdAt: string }
+export type BulkSkipReason = 'JORNADA_EXISTS' | 'TEMPLATE_REQUIRED' | 'TEMPLATE_INVALID'
+/** POST /jornadas/bulk (D-20261027-11): jornadas created once, and the dates skipped with their reason. */
+export type BulkDeclarationResult = {
+  created: { id: Id; employeeId: Id; siteId: Id; localDate: string; state: JornadaStatus }[]
+  skipped: { employeeId: Id; localDate: string; reason: BulkSkipReason }[]
+}
 export type MarkAction = 'INGRESO' | 'EGRESO' | 'SALIDA_DESAYUNO' | 'VUELTA_DESAYUNO' | 'SALIDA_ALMUERZO' | 'VUELTA_ALMUERZO'
 export type Mark = {
   id: Id; jornadaId: Id; action: MarkAction; sequence: number; acceptedAt: string; occurredAt?: string | null;

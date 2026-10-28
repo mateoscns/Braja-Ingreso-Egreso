@@ -295,6 +295,63 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /employees/{employeeId}/template-assignments:
+    get:
+      tags: [Employees]
+      summary: Template assignment history of an employee, newest start date first
+      description: >-
+        ADMIN only (D-20261015-02). Assignments are never edited or deleted; a later validFrom at the same site supersedes.
+        An employee of another company answers 404.
+      parameters:
+        - $ref: '#/components/parameters/EmployeeId'
+      responses:
+        '200':
+          description: Every assignment of the employee at every site, ordered by validFrom descending
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TemplateAssignment' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Employees]
+      summary: Assign a template to an employee from a start date
+      description: >-
+        ADMIN only (D-20261015-02). The template's site is the assignment's site; the employee must be assigned to that site
+        (422 VALIDATION_ERROR otherwise). validFrom must be within years 2000-2100. An employee has at most one assignment per
+        site and start date (409 ASSIGNMENT_EXISTS). From validFrom on, POST /jornadas without templateId uses this template at
+        that site; already declared jornadas keep their snapshot.
+      parameters:
+        - $ref: '#/components/parameters/EmployeeId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [templateId, validFrom]
+              properties:
+                templateId: { $ref: '#/components/schemas/Id' }
+                validFrom: { type: string, format: date, description: Years 2000-2100. }
+      responses:
+        '201':
+          description: Assignment stored
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TemplateAssignment' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The employee already has an assignment at this site from that date.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                ASSIGNMENT_EXISTS:
+                  value: { type: about:blank, title: Conflict, status: 409, code: ASSIGNMENT_EXISTS, detail: The employee already has a template assigned at this site from that date }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /templates:
     get:
       tags: [Templates]
@@ -337,7 +394,7 @@ paths:
       summary: Update a reusable template
       description: >-
         ADMIN only. Already-declared jornadas are immutable snapshots and are not changed. A template already used by
-        jornadas cannot move to another site (409 TEMPLATE_IN_USE); create a new template for that site.
+        jornadas or assigned to employees cannot move to another site (409 TEMPLATE_IN_USE); create a new template for that site.
       parameters:
         - name: templateId
           in: path
@@ -413,6 +470,9 @@ paths:
         ADMIN only. Unique by employee, site, and local date. The server snapshots the template and employee tolerance.
         localDate is the local date of the first block and must be within years 2000-2100; a template whose first block
         does not start on day offset 0 (saved before that rule) answers 422 VALIDATION_ERROR until it is updated.
+        templateId is optional (D-20261015-02): without it, the employee's assignment in force at the site on localDate
+        (latest validFrom on or before it) is used, and none answers 422 TEMPLATE_REQUIRED; with it, that template is used
+        for this day only.
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
       requestBody:
@@ -421,7 +481,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [employeeId, siteId, localDate, templateId]
+              required: [employeeId, siteId, localDate]
               properties:
                 employeeId: { $ref: '#/components/schemas/Id' }
                 siteId: { $ref: '#/components/schemas/Id' }
@@ -434,6 +494,62 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Jornada' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422':
+          description: Field or domain constraint violated (VALIDATION_ERROR), or no templateId and no assignment in force (TEMPLATE_REQUIRED).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                TEMPLATE_REQUIRED:
+                  value: { type: about:blank, title: Unprocessable Entity, status: 422, code: TEMPLATE_REQUIRED, detail: The employee has no template assigned at this site on that date; choose a template }
+  /jornadas/bulk:
+    post:
+      tags: [Jornadas]
+      summary: Declare jornadas by lot for several employees, a date range and weekdays
+      description: >-
+        ADMIN only (D-20261027-11). For each employee and each date from..to (inclusive, at most 31 days) whose ISO weekday
+        (1 = Monday ... 7 = Sunday) is in weekdays, creates the jornada once, exactly as POST /jornadas would (snapshot,
+        tolerance, scheduled start and end), with templateId if given or else the employee's assignment in force on that date.
+        No rule is stored (D-20261015-01). Dates with a non-cancelled jornada are skipped as JORNADA_EXISTS (also when a
+        concurrent declaration wins the date), dates without an assignment in force as TEMPLATE_REQUIRED and dates whose
+        assigned template cannot be declared as TEMPLATE_INVALID. An employee of another company answers 404, and an inactive
+        employee or one not assigned to the site answers 422 for the whole request; nothing is written in either case. One
+        transaction; created and skipped are ordered by employee id, then date.
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employeeIds, siteId, from, to, weekdays]
+              properties:
+                employeeIds:
+                  type: array
+                  minItems: 1
+                  maxItems: 200
+                  uniqueItems: true
+                  items: { $ref: '#/components/schemas/Id' }
+                siteId: { $ref: '#/components/schemas/Id' }
+                from: { type: string, format: date, description: Years 2000-2100. }
+                to: { type: string, format: date, description: Years 2000-2100; from <= to <= from + 30 days. }
+                weekdays:
+                  type: array
+                  minItems: 1
+                  maxItems: 7
+                  items: { type: integer, minimum: 1, maximum: 7 }
+                templateId: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: What was created and what was skipped, with the reason
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BulkDeclarationResult' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /jornadas/mine:
@@ -1063,6 +1179,33 @@ components:
           description: Local-time work blocks; the last block end is the scheduled jornada end.
         breakfastLimitMinutes: { type: integer, minimum: 0, maximum: 240 }
         lunchLimitMinutes: { type: integer, minimum: 0, maximum: 240 }
+    TemplateAssignment:
+      type: object
+      required: [id, employeeId, siteId, templateId, templateName, validFrom, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        employeeId: { $ref: '#/components/schemas/Id' }
+        siteId: { $ref: '#/components/schemas/Id' }
+        templateId: { $ref: '#/components/schemas/Id' }
+        templateName: { type: string }
+        validFrom: { type: string, format: date }
+        createdAt: { type: string, format: date-time }
+    BulkDeclarationResult:
+      type: object
+      required: [created, skipped]
+      properties:
+        created:
+          type: array
+          items: { $ref: '#/components/schemas/JornadaBase' }
+        skipped:
+          type: array
+          items:
+            type: object
+            required: [employeeId, localDate, reason]
+            properties:
+              employeeId: { $ref: '#/components/schemas/Id' }
+              localDate: { type: string, format: date }
+              reason: { type: string, enum: [JORNADA_EXISTS, TEMPLATE_REQUIRED, TEMPLATE_INVALID] }
     Template:
       allOf:
         - $ref: '#/components/schemas/TemplateInput'
@@ -1236,7 +1379,7 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     Conflict:
-      description: Idempotency conflict, duplicate jornada, expired location window, invalid state transition or history, cancelled jornada (JORNADA_CANCELLED), jornada with marks (JORNADA_HAS_MARKS), voided mark (MARK_VOIDED), or retryable transaction conflict
+      description: Idempotency conflict, duplicate jornada, duplicate template assignment (ASSIGNMENT_EXISTS), expired location window, invalid state transition or history, cancelled jornada (JORNADA_CANCELLED), jornada with marks (JORNADA_HAS_MARKS), voided mark (MARK_VOIDED), or retryable transaction conflict
       headers:
         Retry-After:
           description: Present when the conflict is retryable.

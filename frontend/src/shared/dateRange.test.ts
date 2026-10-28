@@ -13,4 +13,9 @@ describe('validateDateRange', () => {
   it('acepta un solo día', () => {
     expect(validateDateRange('2026-03-02', '2026-03-02')).toBe('')
   })
+
+  it('con un máximo propio acepta ese número de días contando desde y hasta y rechaza uno más', () => {
+    expect(validateDateRange('2026-11-01', '2026-12-01', 31)).toBe('')
+    expect(validateDateRange('2026-11-01', '2026-12-02', 31)).toBe('El rango no puede superar los 31 días.')
+  })
 })

@@ -1,7 +1,6 @@
 package com.braja.fichaje.timekeeping;
 
 import com.braja.fichaje.api.ApiException;
-import com.braja.fichaje.api.DateRanges;
 import com.braja.fichaje.deviations.DeviationService;
 import com.braja.fichaje.organization.OrganizationController;
 import com.braja.fichaje.security.ScopeService;
@@ -24,52 +23,29 @@ public class JornadaController {
     private final ScopeService scopes;
     private final ObjectMapper objectMapper;
     private final JornadaHistoryService history;
+    private final JornadaDeclarationService declarations;
 
-    public JornadaController(JdbcTemplate jdbc, ScopeService scopes, ObjectMapper objectMapper, JornadaHistoryService history) {
+    public JornadaController(JdbcTemplate jdbc, ScopeService scopes, ObjectMapper objectMapper, JornadaHistoryService history, JornadaDeclarationService declarations) {
         this.jdbc = jdbc;
         this.scopes = scopes;
         this.objectMapper = objectMapper;
         this.history = history;
+        this.declarations = declarations;
     }
 
+    /** Without templateId, the employee's assignment in force at the site on that date is used (D-20261015-02). */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public JornadaView declare(Authentication auth, HttpSession session, @Valid @RequestBody DeclareJornada input) {
         var scope = scopes.requireAdmin(auth, session);
-        DateRanges.validateDate(input.localDate());
-        if (!scopes.employeeHasSite(scope.companyId(), input.employeeId(), input.siteId())) throw ApiException.notFound();
-        ScheduleRow schedule = jdbc.query("SELECT t.id,t.site_id,t.name,t.breakfast_limit_minutes,t.lunch_limit_minutes,s.time_zone,e.tolerance_minutes " +
-                        "FROM schedule_templates t JOIN sites s ON s.id=t.site_id AND s.company_id=t.company_id " +
-                        "JOIN employees e ON e.company_id=t.company_id WHERE t.id=? AND t.company_id=? AND t.site_id=? AND t.active=TRUE AND e.id=? AND e.active=TRUE",
-                rs -> rs.next() ? new ScheduleRow(rs.getString("id"), rs.getString("site_id"), rs.getString("name"), rs.getInt("breakfast_limit_minutes"), rs.getInt("lunch_limit_minutes"), rs.getString("time_zone"), rs.getInt("tolerance_minutes")) : null,
-                input.templateId().toString(), scope.companyId().toString(), input.siteId().toString(), input.employeeId().toString());
-        if (schedule == null) throw ApiException.notFound();
-        List<OrganizationController.BlockInput> blocks = jdbc.query("SELECT start_day_offset,starts_at,ends_at,end_day_offset FROM template_blocks WHERE company_id=? AND template_id=? ORDER BY sequence_number",
-                (rs, row) -> new OrganizationController.BlockInput(rs.getInt("start_day_offset"), rs.getTime("starts_at").toLocalTime(), rs.getTime("ends_at").toLocalTime(), rs.getInt("end_day_offset")),
-                scope.companyId().toString(), input.templateId().toString());
-        if (blocks.isEmpty()) throw ApiException.invalid("The selected template has no work blocks");
-        // The jornada date is the local date of its first block; templates saved before that rule may still start on day 1.
-        if (blocks.getFirst().startDayOffset() != 0) throw ApiException.invalid("The selected template's first block must start on day offset 0; update the template");
-        ZoneId zone = ZoneId.of(schedule.timeZone());
-        Instant start = input.localDate().plusDays(blocks.getFirst().startDayOffset()).atTime(blocks.getFirst().start()).atZone(zone).toInstant();
-        OrganizationController.BlockInput last = blocks.getLast();
-        Instant end = input.localDate().plusDays(last.endDayOffset()).atTime(last.end()).atZone(zone).toInstant();
-        if (!end.isAfter(start)) throw ApiException.invalid("The template must end after it starts");
-        var snapshot = new OrganizationController.TemplateInput(input.siteId(), schedule.name(), blocks, schedule.breakfastLimit(), schedule.lunchLimit());
-        UUID jornadaId = UUID.randomUUID();
-        Instant createdAt = Instant.now();
-        try {
-            jdbc.update("INSERT INTO jornadas(id,company_id,employee_id,site_id,template_id,local_date,time_zone,schedule_snapshot,tolerance_minutes,scheduled_start_at,scheduled_end_at,state,next_sequence,created_by,created_at) " +
-                            "VALUES(?,?,?,?,?,?,?,?,?,?,?,'NO_INGRESO',1,?,?)",
-                    jornadaId.toString(), scope.companyId().toString(), input.employeeId().toString(), input.siteId().toString(), input.templateId().toString(),
-                    input.localDate(), schedule.timeZone(), objectMapper.writeValueAsString(snapshot), schedule.toleranceMinutes(),
-                    java.sql.Timestamp.from(start), java.sql.Timestamp.from(end), scope.accountId().toString(), java.sql.Timestamp.from(createdAt));
-        } catch (org.springframework.dao.DuplicateKeyException ex) {
-            throw ApiException.conflict("JORNADA_EXISTS", "A jornada already exists for this employee, site, and date");
-        } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
-            throw new IllegalStateException("Unable to save schedule snapshot", ex);
-        }
-        return getJornada(scope, jornadaId);
+        return getJornada(scope, declarations.declare(scope, input));
+    }
+
+    /** Declares by lot (D-20261027-11): each jornada once, no stored rule; existing ones and dates without template are reported. */
+    @PostMapping("/bulk")
+    public JornadaDeclarationService.BulkResult declareBulk(Authentication auth, HttpSession session,
+                                                            @Valid @RequestBody JornadaDeclarationService.BulkDeclaration input) {
+        return declarations.declareBulk(scopes.requireAdmin(auth, session), input);
     }
 
     @GetMapping
@@ -126,10 +102,10 @@ public class JornadaController {
 
     private static Double nullableDouble(Object value) { return value == null ? null : ((Number) value).doubleValue(); }
 
-    private record ScheduleRow(String templateId, String siteId, String name, int breakfastLimit, int lunchLimit, String timeZone, int toleranceMinutes) { }
     private record JornadaRow(UUID id, UUID employeeId, UUID siteId, LocalDate localDate, String state, long sequence, String snapshot, int toleranceMinutes,
                               Instant cancelledAt, String cancelReason) { }
-    public record DeclareJornada(@NotNull UUID employeeId, @NotNull UUID siteId, @NotNull LocalDate localDate, @NotNull UUID templateId) { }
+    /** templateId is optional: without it the assignment in force is used, or 422 TEMPLATE_REQUIRED. */
+    public record DeclareJornada(@NotNull UUID employeeId, @NotNull UUID siteId, @NotNull LocalDate localDate, UUID templateId) { }
     /** includeDetail=true adds marks and deviations (absent otherwise); employeeDisplayName is always present. */
     public record JornadaSummary(UUID id, UUID employeeId, UUID siteId, LocalDate localDate, String state, String employeeDisplayName,
                                  List<MarkView> marks, List<DeviationService.DeviationView> deviations) { }

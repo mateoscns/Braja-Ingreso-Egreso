@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { api, queryString } from '../../shared/api/client'
-import type { Deviation, Employee, Jornada, JornadaSummary, Mark, MarkAction, Site, Template, TemplateBlock, TemplateInput } from '../../shared/api/types'
+import type { BulkDeclarationResult, Deviation, Employee, Jornada, JornadaSummary, Mark, MarkAction, Site, Template, TemplateAssignment, TemplateBlock, TemplateInput } from '../../shared/api/types'
 import { deviceDate, validateDateRange, DATE_PAIR_MESSAGE } from '../../shared/dateRange'
+import { validateBulkDeclaration } from './bulkDeclaration'
 import {
   AdminHistoryRender,
   AdminInboxRender,
+  BulkDeclarationRender,
   EMPTY_INBOX_FILTERS,
   EmployeesViewRender,
   JourneysViewRender,
   SitesViewRender,
+  TemplateAssignmentsRender,
   TemplatesViewRender,
   type DeviationClassification,
   type HistoryFilterValues,
@@ -221,7 +224,35 @@ export function EmployeesView() {
   const [tolerance, setTolerance] = useState('5'); const [temporaryPassword, setTemporaryPassword] = useState('')
   // Edits live in a draft copy; the list only changes with what the server returns.
   const [draft, setDraft] = useState<Employee | null>(null)
+  // Template assignments of one employee (D-20261015-02), loaded when its panel opens.
+  const [assignmentsFor, setAssignmentsFor] = useState(''); const [assignments, setAssignments] = useState<TemplateAssignment[]>([]); const [assignmentTemplates, setAssignmentTemplates] = useState<Template[]>([])
+  const [assignmentsLoading, setAssignmentsLoading] = useState(false); const [assignmentsLoadError, setAssignmentsLoadError] = useState(''); const [assignmentError, setAssignmentError] = useState('')
+  const [assignmentTemplateId, setAssignmentTemplateId] = useState(''); const [assignmentValidFrom, setAssignmentValidFrom] = useState(''); const [assignmentBusy, setAssignmentBusy] = useState(false)
+  const assignmentRequest = useRef(0)
+  async function openAssignments(id: string) {
+    const requestId = ++assignmentRequest.current
+    setAssignmentsFor(id); setAssignments([]); setAssignmentsLoadError(''); setAssignmentError(''); setAssignmentTemplateId(''); setAssignmentValidFrom(''); setAssignmentsLoading(true)
+    try {
+      const [history, available] = await Promise.all([api.get<TemplateAssignment[]>(`/employees/${encodeURIComponent(id)}/template-assignments`), api.get<Template[]>('/templates')])
+      if (requestId !== assignmentRequest.current) return
+      setAssignments(history); setAssignmentTemplates(available.filter((template) => template.active))
+    } catch (reason) { if (requestId === assignmentRequest.current) setAssignmentsLoadError(errText(reason)) }
+    finally { if (requestId === assignmentRequest.current) setAssignmentsLoading(false) }
+  }
+  function closeAssignments() { assignmentRequest.current += 1; setAssignmentsFor(''); setAssignmentsLoading(false) }
+  async function assignTemplate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const employeeId = assignmentsFor
+    if (!employeeId || !assignmentTemplateId || !assignmentValidFrom) return
+    setAssignmentBusy(true); setAssignmentError(''); setNotice('')
+    try {
+      const created = await api.post<TemplateAssignment>(`/employees/${encodeURIComponent(employeeId)}/template-assignments`, { templateId: assignmentTemplateId, validFrom: assignmentValidFrom })
+      setAssignments((current) => [created, ...current].sort((a, b) => b.validFrom.localeCompare(a.validFrom) || b.createdAt.localeCompare(a.createdAt)))
+      setAssignmentTemplateId(''); setAssignmentValidFrom(''); setNotice('Plantilla asignada.')
+    } catch (reason) { setAssignmentError(errText(reason)) } finally { setAssignmentBusy(false) }
+  }
   async function reload() {
+    closeAssignments()
     setLoading(true); setLoadError(''); setError(''); setDraft(null)
     try {
       const [people, availableSites] = await Promise.all([api.get<Employee[]>('/employees'), api.get<Site[]>('/sites')])
@@ -250,7 +281,14 @@ export function EmployeesView() {
     setDraft(person ? { ...person, siteIds: [...person.siteIds] } : null); setError(''); setNotice('')
   }
   function updateDraft(patch: Partial<Employee>) { setDraft((current) => current ? { ...current, ...patch } : current) }
+  const assignmentsEmployee = employees.find((person) => person.id === assignmentsFor)
+  const assignmentsPanel = assignmentsEmployee ? <TemplateAssignmentsRender employee={assignmentsEmployee} sites={sites}
+    templates={assignmentTemplates.filter((template) => assignmentsEmployee.siteIds.includes(template.siteId))} assignments={assignments}
+    loading={assignmentsLoading} loadError={assignmentsLoadError} error={assignmentError} busy={assignmentBusy} templateId={assignmentTemplateId} validFrom={assignmentValidFrom}
+    onTemplateChange={setAssignmentTemplateId} onValidFromChange={setAssignmentValidFrom} onSubmit={(event) => void assignTemplate(event)}
+    onRetry={() => void openAssignments(assignmentsEmployee.id)} onClose={closeAssignments} /> : null
   return <EmployeesViewRender employees={employees} sites={sites} loading={loading} loadError={loadError} error={error} notice={notice} busy={busy} dni={dni} displayName={displayName} siteIds={siteIds} tolerance={tolerance} temporaryPassword={temporaryPassword} draft={draft}
+    assignmentsPanel={assignmentsPanel} onOpenAssignments={(id) => void openAssignments(id)}
     onReload={() => void reload()} onCreate={create} onDniChange={setDni} onDisplayNameChange={setDisplayName} onToggleSite={toggleSite} onToleranceChange={setTolerance} onTemporaryPasswordChange={setTemporaryPassword}
     onSave={() => void saveEmployee()} onDraftChange={updateDraft} onStartEditing={startEditing} onCancelEditing={() => { setDraft(null); setError('') }} />
 }
@@ -317,6 +355,10 @@ export function JourneysView() {
   // Cancelling a jornada (D-20261027-07) and voiding a mark (D-20261027-08) both ask for a reason in a second, confirming step.
   const [cancelOpen, setCancelOpen] = useState(false); const [cancelReason, setCancelReason] = useState('')
   const [voidingMarkId, setVoidingMarkId] = useState(''); const [voidReason, setVoidReason] = useState('')
+  // Bulk declaration (D-20261027-11): its own site, employees, range, weekdays (Monday to Friday by default) and optional template.
+  const [bulkSiteId, setBulkSiteId] = useState(''); const [bulkEmployeeIds, setBulkEmployeeIds] = useState<string[]>([]); const [bulkFrom, setBulkFrom] = useState(''); const [bulkTo, setBulkTo] = useState('')
+  const [bulkWeekdays, setBulkWeekdays] = useState<number[]>([1, 2, 3, 4, 5]); const [bulkTemplateId, setBulkTemplateId] = useState('')
+  const [bulkBusy, setBulkBusy] = useState(false); const [bulkError, setBulkError] = useState(''); const [bulkResult, setBulkResult] = useState<BulkDeclarationResult | null>(null)
   async function loadJourneys(requestedDate = date, preserveNotice = false) {
     const requestId = ++journeyRequest.current
     detailRequest.current += 1
@@ -337,19 +379,39 @@ export function JourneysView() {
         api.get<Employee[]>('/employees'), api.get<Site[]>('/sites'), api.get<Template[]>('/templates')
       ])
       setEmployees(people); setSites(availableSites); setTemplates(availableTemplates.filter((item) => item.active))
-      setEmployeeId(people[0]?.id ?? ''); setSiteId(availableSites[0]?.id ?? '')
+      setEmployeeId(people[0]?.id ?? ''); setSiteId(availableSites[0]?.id ?? ''); setBulkSiteId((current) => current || availableSites[0]?.id || '')
     } catch (reason) { setDependencyError(errText(reason)) }
     finally { setLoading(false) }
     await loadJourneys(requestedDate)
   }
   useEffect(() => { void loadDependencies(date) }, [])
-  useEffect(() => { setTemplateId(templates.find((item) => item.siteId === siteId)?.id ?? '') }, [siteId, templates])
+  // No template chosen means the employee's assignment in force (D-20261015-02); a site change drops a template of the old site.
+  useEffect(() => { setTemplateId('') }, [siteId])
   const eligibleEmployees = useMemo(() => employees.filter((person) => person.active && person.siteIds.includes(siteId)), [employees, siteId])
   useEffect(() => { setEmployeeId((current) => eligibleEmployees.some((person) => person.id === current) ? current : eligibleEmployees[0]?.id ?? '') }, [eligibleEmployees])
   async function declare(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError(''); setNotice(''); setBusy(true)
-    try { await api.post('/jornadas', { employeeId, siteId, localDate: date, templateId }); setNotice('Jornada declarada.'); await loadJourneys(date, true) }
+    try { await api.post('/jornadas', { employeeId, siteId, localDate: date, ...(templateId ? { templateId } : {}) }); setNotice('Jornada declarada.'); await loadJourneys(date, true) }
     catch (reason) { setError(errText(reason)) } finally { setBusy(false) }
+  }
+  const bulkEmployees = useMemo(() => employees.filter((person) => person.active && person.siteIds.includes(bulkSiteId)), [employees, bulkSiteId])
+  function changeBulkSite(id: string) {
+    setBulkSiteId(id); setBulkTemplateId(''); setBulkResult(null)
+    setBulkEmployeeIds((current) => current.filter((personId) => employees.some((person) => person.id === personId && person.active && person.siteIds.includes(id))))
+  }
+  async function declareBulk(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const problem = validateBulkDeclaration({ employeeIds: bulkEmployeeIds, from: bulkFrom, to: bulkTo, weekdays: bulkWeekdays })
+    setBulkResult(null)
+    if (problem) { setBulkError(problem); return }
+    setBulkError(''); setBulkBusy(true)
+    try {
+      const result = await api.post<BulkDeclarationResult>('/jornadas/bulk', {
+        employeeIds: bulkEmployeeIds, siteId: bulkSiteId, from: bulkFrom, to: bulkTo, weekdays: bulkWeekdays, ...(bulkTemplateId ? { templateId: bulkTemplateId } : {})
+      })
+      setBulkResult(result)
+      if (date) await loadJourneys(date, true)
+    } catch (reason) { setBulkError(errText(reason)) } finally { setBulkBusy(false) }
   }
   async function showDetail(jornadaId: string) {
     const requestId = ++detailRequest.current
@@ -444,7 +506,14 @@ export function JourneysView() {
   }
   const peopleById = useMemo(() => new Map(employees.map((person) => [person.id, person.displayName])), [employees])
   const siteTemplates = templates.filter((template) => template.siteId === siteId)
-  return <JourneysViewRender sites={sites} eligibleEmployees={eligibleEmployees} siteTemplates={siteTemplates} jornadas={jornadas} loading={loading} journeysLoading={journeysLoading} journeysDate={journeysDate} journeysError={journeysError} dependencyError={dependencyError} error={error} notice={notice} busy={busy} detail={detail} detailLoading={detailLoading} markBusy={markBusy} date={date} employeeId={employeeId} siteId={siteId} templateId={templateId} peopleById={peopleById} dateError={dateError} detailSite={detailSite} detailTimeZone={detailTimeZone} forgotAction={forgotAction} forgotOccurredAt={forgotOccurredAt} forgotReason={forgotReason} editingMarkId={editingMarkId} correctedAction={correctedAction} correctedOccurredAt={correctedOccurredAt} correctionReason={correctionReason}
+  const bulkPanel = <BulkDeclarationRender sites={sites} employees={bulkEmployees} templates={templates.filter((template) => template.siteId === bulkSiteId)}
+    siteId={bulkSiteId} employeeIds={bulkEmployeeIds} from={bulkFrom} to={bulkTo} weekdays={bulkWeekdays} templateId={bulkTemplateId}
+    busy={bulkBusy} disabled={loading || !bulkSiteId} error={bulkError} result={bulkResult} peopleById={peopleById}
+    onSiteChange={changeBulkSite} onToggleEmployee={(id) => setBulkEmployeeIds((current) => current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id])}
+    onSelectAll={() => setBulkEmployeeIds(bulkEmployees.map((person) => person.id))} onFromChange={setBulkFrom} onToChange={setBulkTo}
+    onToggleWeekday={(day) => setBulkWeekdays((current) => current.includes(day) ? current.filter((entry) => entry !== day) : [...current, day].sort((a, b) => a - b))}
+    onTemplateChange={setBulkTemplateId} onSubmit={(event) => void declareBulk(event)} />
+  return <JourneysViewRender bulkPanel={bulkPanel} sites={sites} eligibleEmployees={eligibleEmployees} siteTemplates={siteTemplates} jornadas={jornadas} loading={loading} journeysLoading={journeysLoading} journeysDate={journeysDate} journeysError={journeysError} dependencyError={dependencyError} error={error} notice={notice} busy={busy} detail={detail} detailLoading={detailLoading} markBusy={markBusy} date={date} employeeId={employeeId} siteId={siteId} templateId={templateId} peopleById={peopleById} dateError={dateError} detailSite={detailSite} detailTimeZone={detailTimeZone} forgotAction={forgotAction} forgotOccurredAt={forgotOccurredAt} forgotReason={forgotReason} editingMarkId={editingMarkId} correctedAction={correctedAction} correctedOccurredAt={correctedOccurredAt} correctionReason={correctionReason}
     cancelOpen={cancelOpen} cancelReason={cancelReason} voidingMarkId={voidingMarkId} voidReason={voidReason}
     onBeginCancel={() => { setCancelOpen(true); setCancelReason('') }} onCancelReasonChange={setCancelReason} onConfirmCancel={(event) => void cancelJornada(event)} onAbortCancel={() => { setCancelOpen(false); setCancelReason('') }}
     onBeginVoid={beginVoid} onVoidReasonChange={setVoidReason} onConfirmVoid={(event, mark) => void voidMark(event, mark)} onAbortVoid={() => { setVoidingMarkId(''); setVoidReason('') }}

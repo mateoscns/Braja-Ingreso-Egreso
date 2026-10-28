@@ -116,6 +116,11 @@ public class OrganizationService {
                     companyId.toString(), id.toString()).isEmpty()) {
                 throw ApiException.conflict("TEMPLATE_IN_USE", "A template already used by jornadas cannot move to another site; create a new template for that site");
             }
+            // Assignments reference (template, site) too (fk_assignment_template, V23).
+            if (!currentSite.equals(input.siteId().toString()) && !jdbc.queryForList("SELECT id FROM employee_template_assignments WHERE company_id=? AND template_id=? LIMIT 1 FOR SHARE",
+                    companyId.toString(), id.toString()).isEmpty()) {
+                throw ApiException.conflict("TEMPLATE_IN_USE", "A template assigned to employees cannot move to another site; create a new template for that site");
+            }
             jdbc.update("UPDATE schedule_templates SET site_id=?,name=?,breakfast_limit_minutes=?,lunch_limit_minutes=?,active=TRUE,updated_at=? WHERE id=? AND company_id=?",
                     input.siteId().toString(), input.name().trim(), input.breakfastLimitMinutes(), input.lunchLimitMinutes(), now(), id.toString(), companyId.toString());
             jdbc.update("DELETE FROM template_blocks WHERE template_id=? AND company_id=?", id.toString(), companyId.toString());

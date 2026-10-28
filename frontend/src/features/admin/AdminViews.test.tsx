@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AdminApp } from './AdminApp'
 import { AdminInbox, EmployeesView, JourneysView, SitesView, TemplatesView } from './AdminViews'
+import { formatLocalDate } from '../../shared/format'
 
 const apiMocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn() }))
 const adminSessionMocks = vi.hoisted(() => ({
@@ -40,6 +41,7 @@ const jornada = {
   toleranceMinutes: 5, sequence: 1,
   marks: [{ id: 'm-1', jornadaId: 'j-1', action: 'INGRESO' as const, sequence: 1, acceptedAt: '2026-10-16T12:00:00Z', locationStatus: 'SIN_UBICACION' as const }]
 }
+const assignment = { id: 'a-1', employeeId: 'e-1', siteId: 's-1', templateId: 't-1', templateName: 'Mañana', validFrom: '2026-11-01', createdAt: '2026-10-27T12:00:00Z' }
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -53,6 +55,7 @@ beforeEach(() => {
     }])
     if (path.startsWith('/jornadas?')) return Promise.resolve([{ id: 'j-1', employeeId: 'e-1', siteId: 's-1', localDate: '2026-10-16', state: 'EN_CURSO' }])
     if (path === '/jornadas/j-1') return Promise.resolve(jornada)
+    if (path === '/employees/e-1/template-assignments') return Promise.resolve([assignment])
     throw new Error(`GET inesperado: ${path}`)
   })
   apiMocks.post.mockResolvedValue({ ...jornada.marks[0], id: 'm-2', action: 'SALIDA_ALMUERZO', occurredAt: '2026-10-16T15:30:00Z' })
@@ -695,6 +698,113 @@ describe('administración de desvíos y marcas', () => {
       expect(markRow).toHaveTextContent('Anulada')
       expect(markRow).toHaveTextContent('Tocó por error.')
       expect(within(markRow).queryByRole('button')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('plantilla asignada por empleado (D-20261015-02)', () => {
+    it('muestra el historial de plantillas de un empleado y asigna una nueva desde una fecha', async () => {
+      apiMocks.post.mockResolvedValueOnce({ ...assignment, id: 'a-2', validFrom: '2026-11-10', createdAt: '2026-10-27T13:00:00Z' })
+      render(<EmployeesView />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Plantillas de Lucía Pérez' }))
+
+      const history = await screen.findByRole('list', { name: 'Historial de plantillas de Lucía Pérez' })
+      expect(history).toHaveTextContent(`Mañana · Local Centro · desde ${formatLocalDate('2026-11-01')}`)
+      const assign = screen.getByRole('button', { name: 'Asignar plantilla' })
+      expect(assign).toBeDisabled()
+      fireEvent.change(screen.getByLabelText('Plantilla'), { target: { value: 't-1' } })
+      fireEvent.change(screen.getByLabelText('Vigente desde'), { target: { value: '2026-11-10' } })
+      fireEvent.click(assign)
+
+      await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/employees/e-1/template-assignments', { templateId: 't-1', validFrom: '2026-11-10' }))
+      expect(await screen.findByText('Plantilla asignada.')).toBeInTheDocument()
+      const items = within(screen.getByRole('list', { name: 'Historial de plantillas de Lucía Pérez' })).getAllByRole('listitem')
+      expect(items.map((item) => item.textContent)).toEqual([
+        `Mañana · Local Centro · desde ${formatLocalDate('2026-11-10')}`, `Mañana · Local Centro · desde ${formatLocalDate('2026-11-01')}`
+      ])
+    })
+
+    it('un fallo al asignar deja el historial como estaba y muestra el error', async () => {
+      apiMocks.post.mockRejectedValueOnce(new Error('Ese empleado ya tiene una plantilla asignada en esa sede desde esa fecha. Elegí otra fecha de inicio.'))
+      render(<EmployeesView />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Plantillas de Lucía Pérez' }))
+      await screen.findByRole('list', { name: 'Historial de plantillas de Lucía Pérez' })
+      fireEvent.change(screen.getByLabelText('Plantilla'), { target: { value: 't-1' } })
+      fireEvent.change(screen.getByLabelText('Vigente desde'), { target: { value: '2026-11-01' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Asignar plantilla' }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Ese empleado ya tiene una plantilla asignada')
+      expect(within(screen.getByRole('list', { name: 'Historial de plantillas de Lucía Pérez' })).getAllByRole('listitem')).toHaveLength(1)
+    })
+  })
+
+  describe('declaración con plantilla vigente y por lote (D-20261027-11)', () => {
+    it('declara con la plantilla vigente sin enviar plantilla y con una plantilla elegida la envía', async () => {
+      apiMocks.post.mockResolvedValue(jornada)
+      render(<JourneysView />)
+      await screen.findByRole('row', { name: /Lucía Pérez/ })
+      const template = screen.getByLabelText('Plantilla horaria')
+      expect(template).toHaveValue('')
+      const localDate = (screen.getByLabelText('Fecha') as HTMLInputElement).value
+      fireEvent.click(screen.getByRole('button', { name: 'Declarar jornada' }))
+      await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/jornadas', { employeeId: 'e-1', siteId: 's-1', localDate }))
+
+      fireEvent.change(template, { target: { value: 't-1' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Declarar jornada' }))
+      await waitFor(() => expect(apiMocks.post).toHaveBeenLastCalledWith('/jornadas', { employeeId: 'e-1', siteId: 's-1', localDate, templateId: 't-1' }))
+    })
+
+    it('valida el lote como el servidor antes de enviarlo', async () => {
+      render(<JourneysView />)
+      const panel = within(await screen.findByRole('region', { name: 'Declarar por lote' }))
+      fireEvent.change(panel.getByLabelText('Desde'), { target: { value: '2026-11-01' } })
+      fireEvent.change(panel.getByLabelText('Hasta'), { target: { value: '2026-11-08' } })
+      fireEvent.click(panel.getByRole('button', { name: 'Declarar lote' }))
+      expect(await panel.findByText('Elegí al menos un empleado.')).toBeInTheDocument()
+
+      fireEvent.click(panel.getByRole('checkbox', { name: 'Lucía Pérez' }))
+      fireEvent.change(panel.getByLabelText('Hasta'), { target: { value: '2026-12-02' } })
+      fireEvent.click(panel.getByRole('button', { name: 'Declarar lote' }))
+      expect(await panel.findByText('El rango no puede superar los 31 días.')).toBeInTheDocument()
+
+      fireEvent.change(panel.getByLabelText('Hasta'), { target: { value: '2026-11-08' } })
+      for (const day of ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes']) fireEvent.click(panel.getByRole('checkbox', { name: day }))
+      fireEvent.click(panel.getByRole('button', { name: 'Declarar lote' }))
+      expect(await panel.findByText('Elegí al menos un día de la semana.')).toBeInTheDocument()
+      expect(apiMocks.post).not.toHaveBeenCalled()
+    })
+
+    it('declara un lote y muestra lo creado y lo salteado con su motivo', async () => {
+      apiMocks.post.mockResolvedValueOnce({
+        created: [{ id: 'j-2', employeeId: 'e-1', siteId: 's-1', localDate: '2026-11-02', state: 'NO_INGRESO' }],
+        skipped: [{ employeeId: 'e-1', localDate: '2026-11-03', reason: 'JORNADA_EXISTS' }, { employeeId: 'e-1', localDate: '2026-11-04', reason: 'TEMPLATE_REQUIRED' }]
+      })
+      render(<JourneysView />)
+      const panel = within(await screen.findByRole('region', { name: 'Declarar por lote' }))
+      fireEvent.click(panel.getByRole('checkbox', { name: 'Lucía Pérez' }))
+      fireEvent.change(panel.getByLabelText('Desde'), { target: { value: '2026-11-02' } })
+      fireEvent.change(panel.getByLabelText('Hasta'), { target: { value: '2026-11-04' } })
+      fireEvent.click(panel.getByRole('button', { name: 'Declarar lote' }))
+
+      await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/jornadas/bulk', { employeeIds: ['e-1'], siteId: 's-1', from: '2026-11-02', to: '2026-11-04', weekdays: [1, 2, 3, 4, 5] }))
+      expect(await panel.findByText('Jornadas creadas: 1. Salteadas: 2.')).toBeInTheDocument()
+      const skipped = panel.getByRole('list', { name: 'Fechas salteadas' })
+      expect(skipped).toHaveTextContent(`Lucía Pérez · ${formatLocalDate('2026-11-03')} · Ya tenía una jornada declarada`)
+      expect(skipped).toHaveTextContent(`Lucía Pérez · ${formatLocalDate('2026-11-04')} · Sin plantilla vigente en esa fecha`)
+    })
+
+    it('envía la plantilla del lote solo cuando se elige una', async () => {
+      apiMocks.post.mockResolvedValueOnce({ created: [], skipped: [] })
+      render(<JourneysView />)
+      const panel = within(await screen.findByRole('region', { name: 'Declarar por lote' }))
+      fireEvent.click(panel.getByRole('button', { name: 'Seleccionar todos' }))
+      fireEvent.change(panel.getByLabelText('Desde'), { target: { value: '2026-11-07' } })
+      fireEvent.change(panel.getByLabelText('Hasta'), { target: { value: '2026-11-08' } })
+      fireEvent.click(panel.getByRole('checkbox', { name: 'Sábado' }))
+      fireEvent.change(panel.getByLabelText('Plantilla del lote'), { target: { value: 't-1' } })
+      fireEvent.click(panel.getByRole('button', { name: 'Declarar lote' }))
+
+      await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/jornadas/bulk', { employeeIds: ['e-1'], siteId: 's-1', from: '2026-11-07', to: '2026-11-08', weekdays: [1, 2, 3, 4, 5, 6], templateId: 't-1' }))
+      expect(await panel.findByText('Jornadas creadas: 0. Salteadas: 0.')).toBeInTheDocument()
     })
   })
 

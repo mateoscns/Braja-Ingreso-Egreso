@@ -54,6 +54,25 @@ describe('ApiClient', () => {
       message: 'Todavía no es horario para registrar esta marca. El ingreso se habilita 30 minutos antes; las demás marcas, desde el inicio de la jornada.'
     })
   })
+
+  it('explica que falta una plantilla vigente al declarar sin plantilla (422 TEMPLATE_REQUIRED)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 422, code: 'TEMPLATE_REQUIRED', detail: 'internal' }),
+      { status: 422, headers: { 'Content-Type': 'application/problem+json' } })))
+
+    await expect(new ApiClient().get('/jornadas')).rejects.toMatchObject({
+      status: 422, code: 'TEMPLATE_REQUIRED',
+      message: 'El empleado no tiene una plantilla vigente en esa sede para esa fecha. Elegí una plantilla o asignale una desde Empleados.'
+    })
+  })
+
+  it('explica que ya hay una asignación de plantilla para esa sede y fecha (409 ASSIGNMENT_EXISTS)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 409, code: 'ASSIGNMENT_EXISTS' }),
+      { status: 409, headers: { 'Content-Type': 'application/problem+json' } })))
+
+    await expect(new ApiClient().get('/employees')).rejects.toMatchObject({
+      message: 'Ese empleado ya tiene una plantilla asignada en esa sede desde esa fecha. Elegí otra fecha de inicio.'
+    })
+  })
 })
 
 describe('ApiClient: mensajes de error', () => {
