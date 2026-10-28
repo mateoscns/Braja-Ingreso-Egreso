@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { api, queryString } from '../../shared/api/client'
-import type { Deviation, Employee, Jornada, JornadaSummary, Mark, MarkAction, Site, Template, TemplateBlock, TemplateInput } from '../../shared/api/types'
+import type { Deviation, Employee, Jornada, JornadaSummary, Mark, MarkAction, PasswordReset, Site, Template, TemplateBlock, TemplateInput } from '../../shared/api/types'
 import { deviceDate, validateDateRange, DATE_PAIR_MESSAGE } from '../../shared/dateRange'
 import {
   AdminHistoryRender,
@@ -250,9 +250,25 @@ export function EmployeesView() {
     setDraft(person ? { ...person, siteIds: [...person.siteIds] } : null); setError(''); setNotice('')
   }
   function updateDraft(patch: Partial<Employee>) { setDraft((current) => current ? { ...current, ...patch } : current) }
+  // D-20261027-09: the temporary password lives only in this state; it is never written to browser storage and is
+  // gone when the ADMIN dismisses the panel or leaves the view.
+  const [resetTarget, setResetTarget] = useState<string | null>(null)
+  const [issuedPassword, setIssuedPassword] = useState<{ displayName: string; temporaryPassword: string } | null>(null)
+  function askReset(id: string) { setResetTarget(id); setIssuedPassword(null); setError(''); setNotice('') }
+  async function confirmReset() {
+    const person = employees.find((entry) => entry.id === resetTarget)
+    if (!person) return
+    setBusy(true); setError(''); setNotice('')
+    try {
+      const { temporaryPassword: issued } = await api.post<PasswordReset>(`/employees/${encodeURIComponent(person.id)}/password-reset`)
+      setIssuedPassword({ displayName: person.displayName, temporaryPassword: issued })
+      setEmployees((current) => current.map((entry) => entry.id === person.id ? { ...entry, mustChangePassword: true } : entry))
+    } catch (reason) { setError(errText(reason)) } finally { setBusy(false); setResetTarget(null) }
+  }
   return <EmployeesViewRender employees={employees} sites={sites} loading={loading} loadError={loadError} error={error} notice={notice} busy={busy} dni={dni} displayName={displayName} siteIds={siteIds} tolerance={tolerance} temporaryPassword={temporaryPassword} draft={draft}
     onReload={() => void reload()} onCreate={create} onDniChange={setDni} onDisplayNameChange={setDisplayName} onToggleSite={toggleSite} onToleranceChange={setTolerance} onTemporaryPasswordChange={setTemporaryPassword}
-    onSave={() => void saveEmployee()} onDraftChange={updateDraft} onStartEditing={startEditing} onCancelEditing={() => { setDraft(null); setError('') }} />
+    onSave={() => void saveEmployee()} onDraftChange={updateDraft} onStartEditing={startEditing} onCancelEditing={() => { setDraft(null); setError('') }}
+    resetTarget={resetTarget} issuedPassword={issuedPassword} onAskReset={askReset} onConfirmReset={() => void confirmReset()} onCancelReset={() => setResetTarget(null)} onDismissIssuedPassword={() => setIssuedPassword(null)} />
 }
 
 export function TemplatesView() {

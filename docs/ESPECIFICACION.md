@@ -14,6 +14,7 @@ Registrar ingreso, egreso, desayuno y almuerzo, y mostrar los desvíos para que 
 - El DNI normalizado identifica una cuenta global. La cuenta puede tener membresías y roles diferentes por empresa. Después de iniciar sesión con DNI y contraseña, el servidor valida cada membresía y define el contexto de empresa activa. (D-20261016-01.)
 - El servidor deriva empresa, sede autorizada y permisos de la sesión y de las relaciones persistidas. No confía en un `companyId`, `siteId`, rol o usuario objetivo enviado por la interfaz para conceder acceso.
 - El primer `ADMIN` se provisiona con una operación segura de backend, sin contraseña o token por defecto. Luego el `ADMIN` administra las cuentas de empleados. Las contraseñas se almacenan con hash resistente; la sesión usa cookie `HttpOnly`, protección CSRF y transporte HTTPS en producción.
+- El `ADMIN` puede restablecer la contraseña de un empleado cuya cuenta pertenece únicamente a su empresa y no tiene rol `ADMIN`: el servidor genera una contraseña provisoria que se muestra una sola vez, exige cambiarla al ingresar, cierra todas las sesiones de la cuenta, libera el bloqueo de login del DNI y registra quién lo hizo y cuándo, sin guardar la contraseña. Si la persona está en otra empresa o es `ADMIN`, se rechaza sin decir dónde y lo resuelve el operador. (D-20261027-09.)
 
 ## Sedes, plantillas y jornadas
 

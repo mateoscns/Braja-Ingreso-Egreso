@@ -295,6 +295,38 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /employees/{employeeId}/password-reset:
+    post:
+      tags: [Employees]
+      summary: Reset the password of an employee that belongs only to the active company
+      description: >-
+        ADMIN only (D-20261027-09). The server generates a temporary password, stores only its
+        hash, requires a password change at the next login, deletes every session of the account,
+        clears the DNI login throttle and writes an audit row (without the password). The
+        temporary password is returned only in this response (`Cache-Control: no-store`) and must
+        never be logged or stored by the client. Rejected with 409 `ACCOUNT_SHARED` when the
+        account has a membership in another company (active or not) or an ADMIN role; the
+        response does not say which. Rejected with 409 `EMPLOYEE_INACTIVE` when the employee,
+        its membership or the account is inactive.
+      parameters:
+        - $ref: '#/components/parameters/EmployeeId'
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Temporary password issued
+          headers:
+            Cache-Control:
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [temporaryPassword]
+                properties:
+                  temporaryPassword: { type: string, minLength: 12, maxLength: 256 }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /templates:
     get:
       tags: [Templates]
