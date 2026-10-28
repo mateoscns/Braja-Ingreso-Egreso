@@ -60,10 +60,27 @@ public class MarkController {
         return marks.correctMark(scope, markId, MarkAction.valueOf(input.correctedAction()), input.correctedOccurredAt(), input.auditReason());
     }
 
+    /** D-20261027-08: the mark stays visible as voided and stops counting. */
+    @PostMapping("/admin/marks/{markId}/void")
+    public JornadaController.MarkView voidMark(Authentication auth, HttpSession session, @PathVariable UUID markId,
+            @Valid @RequestBody ReasonInput input) {
+        var scope = scopes.requireAdmin(auth, session);
+        return marks.voidMark(scope, markId, input.reason());
+    }
+
+    /** D-20261027-07: only a jornada without marks; its active deviations are retracted. */
+    @PostMapping("/admin/jornadas/{jornadaId}/cancellation")
+    public MarkService.CancellationResult cancel(Authentication auth, HttpSession session, @PathVariable UUID jornadaId,
+            @Valid @RequestBody ReasonInput input) {
+        var scope = scopes.requireAdmin(auth, session);
+        return marks.cancelJornada(scope, jornadaId, input.reason());
+    }
+
     public record MarkInput(@NotBlank String action) { }
     public record LocationInput(@NotNull @DecimalMin("-90.0") @DecimalMax("90.0") Double latitude,
                                 @NotNull @DecimalMin("-180.0") @DecimalMax("180.0") Double longitude,
                                 @NotNull @DecimalMin("0.0") @DecimalMax("100000.0") Double accuracyMeters) { }
     public record ForgottenMarkInput(@NotBlank String action, @NotNull Instant occurredAt, @NotBlank @Size(max=2000) String auditReason) { }
     public record CorrectionInput(@NotBlank String correctedAction, @NotNull Instant correctedOccurredAt, @NotBlank @Size(max=2000) String auditReason) { }
+    public record ReasonInput(@NotBlank @Size(max=2000) String reason) { }
 }

@@ -602,6 +602,102 @@ describe('administración de desvíos y marcas', () => {
     expect(card).not.toHaveTextContent(/0?9:00/)
   })
 
+  describe('cancelar jornadas y anular marcas (D-20261027-07, D-20261027-08)', () => {
+    function withDetail(detail: object, rowState = 'NO_INGRESO') {
+      const previousGet = apiMocks.get.getMockImplementation()!
+      apiMocks.get.mockImplementation((path: string) => {
+        if (path === '/jornadas/j-1') return Promise.resolve({ ...jornada, ...detail })
+        if (path.startsWith('/jornadas?')) return Promise.resolve([{ id: 'j-1', employeeId: 'e-1', siteId: 's-1', localDate: '2026-10-16', state: rowState }])
+        return previousGet(path)
+      })
+    }
+
+    it('cancela una jornada sin marcas solo con motivo y confirmación', async () => {
+      withDetail({ state: 'NO_INGRESO', marks: [] })
+      apiMocks.post.mockResolvedValue({ jornadaId: 'j-1', state: 'CANCELADA', cancelledAt: '2026-10-16T13:00:00Z', cancelReason: 'Feriado nacional' })
+      render(<JourneysView />)
+      fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancelar jornada' }))
+
+      const confirm = screen.getByRole('button', { name: 'Confirmar cancelación' })
+      expect(confirm).toBeDisabled()
+      fireEvent.change(screen.getByLabelText('Motivo de cancelación'), { target: { value: '  Feriado nacional ' } })
+      fireEvent.click(confirm)
+
+      await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/admin/jornadas/j-1/cancellation', { reason: 'Feriado nacional' }))
+      expect(await screen.findByText('Jornada cancelada.')).toBeInTheDocument()
+    })
+
+    it('no ofrece cancelar una jornada que ya tiene marcas', async () => {
+      render(<JourneysView />)
+      fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
+      await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
+      expect(screen.queryByRole('button', { name: 'Cancelar jornada' })).not.toBeInTheDocument()
+    })
+
+    it('muestra la jornada cancelada con su motivo y sin incorporar marcas', async () => {
+      withDetail({ state: 'CANCELADA', marks: [], cancelledAt: '2026-10-16T13:00:00Z', cancelReason: 'Feriado nacional' }, 'CANCELADA')
+      render(<JourneysView />)
+      expect(await screen.findByText('Cancelada')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: /^Ver marcas/ }))
+      expect(await screen.findByText(/Jornada cancelada el .* Motivo: Feriado nacional/)).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Registrar marca olvidada' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Cancelar jornada' })).not.toBeInTheDocument()
+    })
+
+    it('anula una marca solo con motivo y confirmación', async () => {
+      apiMocks.post.mockResolvedValue({ ...jornada.marks[0], voided: true, voidReason: 'Tocó por error.' })
+      render(<JourneysView />)
+      fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
+      const markRow = await screen.findByRole('row', { name: /Ingreso/ })
+      fireEvent.click(within(markRow).getByRole('button', { name: /^Anular marca Ingreso de/ }))
+
+      const confirm = screen.getByRole('button', { name: 'Confirmar anulación' })
+      expect(confirm).toBeDisabled()
+      fireEvent.change(screen.getByLabelText('Motivo de anulación'), { target: { value: 'Tocó por error.' } })
+      fireEvent.click(confirm)
+
+      await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/admin/marks/m-1/void', { reason: 'Tocó por error.' }))
+      expect(await screen.findByText('Marca anulada.')).toBeInTheDocument()
+    })
+
+    it('un reintento de anulación ya aplicada se muestra como hecho y recarga el detalle', async () => {
+      apiMocks.post.mockRejectedValue(Object.assign(new Error('conflict'), { status: 409, code: 'MARK_VOIDED' }))
+      render(<JourneysView />)
+      fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
+      const markRow = await screen.findByRole('row', { name: /Ingreso/ })
+      fireEvent.click(within(markRow).getByRole('button', { name: /^Anular marca Ingreso de/ }))
+      fireEvent.change(screen.getByLabelText('Motivo de anulación'), { target: { value: 'Tocó por error.' } })
+      const detailCalls = apiMocks.get.mock.calls.filter(([path]) => path === '/jornadas/j-1').length
+      fireEvent.click(screen.getByRole('button', { name: 'Confirmar anulación' }))
+
+      expect(await screen.findByText('La marca ya estaba anulada.')).toBeInTheDocument()
+      await waitFor(() => expect(apiMocks.get.mock.calls.filter(([path]) => path === '/jornadas/j-1').length).toBeGreaterThan(detailCalls))
+    })
+
+    it('un reintento de cancelación ya aplicada se muestra como hecho', async () => {
+      withDetail({ state: 'NO_INGRESO', marks: [] })
+      apiMocks.post.mockRejectedValue(Object.assign(new Error('conflict'), { status: 409, code: 'JORNADA_CANCELLED' }))
+      render(<JourneysView />)
+      fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancelar jornada' }))
+      fireEvent.change(screen.getByLabelText('Motivo de cancelación'), { target: { value: 'Feriado' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirmar cancelación' }))
+
+      expect(await screen.findByText('La jornada ya estaba cancelada.')).toBeInTheDocument()
+    })
+
+    it('muestra una marca anulada como Anulada, con su motivo y sin acciones', async () => {
+      withDetail({ marks: [{ ...jornada.marks[0], voided: true, voidedAt: '2026-10-16T13:00:00Z', voidReason: 'Tocó por error.' }] })
+      render(<JourneysView />)
+      fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
+      const markRow = await screen.findByRole('row', { name: /Ingreso/ })
+      expect(markRow).toHaveTextContent('Anulada')
+      expect(markRow).toHaveTextContent('Tocó por error.')
+      expect(within(markRow).queryByRole('button')).not.toBeInTheDocument()
+    })
+  })
+
   it('saluda con el nombre de la sesión y cae al DNI cuando no hay nombre', () => {
     const original = adminSessionMocks.session
     adminSessionMocks.session = { ...original, displayName: 'Mateo Scienza' } as typeof original

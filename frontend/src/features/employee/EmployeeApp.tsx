@@ -9,6 +9,7 @@ import { InstallControl } from '../../device/pwa/InstallControl'
 import { formatBlock, formatDateTime, formatLocalDate, jornadaStateLabel } from '../../shared/format'
 
 const localTime = formatDateTime
+const stateLabel = jornadaStateLabel
 const actionLabel: Record<MarkAction, string> = {
   INGRESO: 'Registrar ingreso', EGRESO: 'Registrar egreso', SALIDA_DESAYUNO: 'Salir a desayuno', VUELTA_DESAYUNO: 'Volver de desayuno',
   SALIDA_ALMUERZO: 'Salir a almuerzo', VUELTA_ALMUERZO: 'Volver de almuerzo'
@@ -61,7 +62,9 @@ export function EmployeeApp() {
       const dayData = await loadEmployeeDayData(api, availableSites, date)
       if (requestId !== loadSequence.current) return
       setSites(availableSites); setSiteDates(dayData.siteDates); setJornadas(dayData.jornadas)
-      setSelectedId((current) => dayData.jornadas.some((jornada) => jornada.id === current) ? current : dayData.jornadas[0]?.id ?? '')
+      // A cancelled jornada stays listed, but the first one that still accepts marks is selected by default.
+      setSelectedId((current) => dayData.jornadas.some((jornada) => jornada.id === current) ? current
+        : (dayData.jornadas.find((jornada) => jornada.state !== 'CANCELADA') ?? dayData.jornadas[0])?.id ?? '')
       setDeviations(dayData.deviations); setPendingMotives(dayData.pendingMotives); setEditingMotives([])
     } catch (reason) {
       if (requestId === loadSequence.current) {
@@ -161,16 +164,17 @@ export function EmployeeApp() {
         {receipt && <PageMessage kind="success">Marca confirmada por el servidor (<strong>{localTime(receipt.acceptedAt, selectedSite?.timeZone)}</strong>). Guardá el comprobante si lo necesitás.</PageMessage>}
       </div>
       {loading ? <Loading label="Consultando tu jornada…" /> : loadFailed ? <Panel title="No se pudo consultar tu jornada"><Empty>Revisá el error y volvé a intentar.</Empty><button className="button button-quiet" onClick={() => void load()}>Reintentar</button></Panel> : jornadas.length === 0 ? <Panel title="Sin jornada declarada"><Empty>{date ? `El administrador todavía no declaró una jornada para el ${formatLocalDate(date)}. No hay una marca que completar.` : 'El administrador todavía no declaró una jornada para el día local actual de tus sedes. No hay una marca que completar.'}</Empty></Panel> : <>
-        {jornadas.length > 1 && <Panel title="Elegí una jornada"><div className="journey-picker" role="group" aria-label="Jornadas disponibles">{jornadas.map((jornada) => <button key={jornada.id} aria-pressed={selectedId === jornada.id} disabled={busy} onClick={() => { setSelectedId(jornada.id); setPendingAttempt(null); setReceipt(null) }} className={`journey-option ${selectedId === jornada.id ? 'journey-option-active' : ''}`}><strong>{jornada.scheduleSnapshot.name}</strong><small>{formatLocalDate(jornada.localDate)} · {sites.find((site) => site.id === jornada.siteId)?.name ?? 'Sede'} · {jornadaStateLabel(jornada.state)}</small></button>)}</div></Panel>}
+        {jornadas.length > 1 && <Panel title="Elegí una jornada"><div className="journey-picker" role="group" aria-label="Jornadas disponibles">{jornadas.map((jornada) => <button key={jornada.id} aria-pressed={selectedId === jornada.id} disabled={busy} onClick={() => { setSelectedId(jornada.id); setPendingAttempt(null); setReceipt(null) }} className={`journey-option ${selectedId === jornada.id ? 'journey-option-active' : ''}`}><strong>{jornada.scheduleSnapshot.name}</strong><small>{formatLocalDate(jornada.localDate)} · {sites.find((site) => site.id === jornada.siteId)?.name ?? 'Sede'} · {stateLabel(jornada.state)}</small></button>)}</div></Panel>}
         {selected && <>
-          <Panel title="Horario de la jornada" action={<span className={`status-chip status-${selected.state.toLowerCase()}`}>{jornadaStateLabel(selected.state)}</span>}>
+          <Panel title="Horario de la jornada" action={<span className={`status-chip status-${selected.state.toLowerCase()}`}>{stateLabel(selected.state)}</span>}>
             <div className="schedule-summary"><div className="schedule-icon" aria-hidden="true">◷</div><div><strong>{selected.scheduleSnapshot.name}</strong><p>{selected.scheduleSnapshot.blocks.map((block, index) => <span className="schedule-block" key={`${block.start}-${index}`}>{formatBlock(block)}</span>)}</p><small>Jornada del {formatLocalDate(selected.localDate)} · {selectedSite ? `${selectedSite.name} · ` : ''}Tolerancia individual: {selected.toleranceMinutes} minutos</small></div></div>
-            <div className="mark-timeline"><div className="timeline-title">Marcas de la jornada</div>{selected.marks.length ? selected.marks.map((mark) => <div className="mark-row" key={mark.id}><span className="timeline-point" /><strong>{actionLabel[mark.action]}</strong><time>{localTime(mark.acceptedAt, selectedSite?.timeZone)}</time></div>) : <p className="muted">Todavía no hay marcas en esta jornada.</p>}</div>
+            <div className="mark-timeline"><div className="timeline-title">Marcas de la jornada</div>{selected.marks.length ? selected.marks.map((mark) => <div className={`mark-row ${mark.voided ? 'mark-row-voided' : ''}`} key={mark.id}><span className="timeline-point" /><strong>{mark.voided ? <s>{actionLabel[mark.action]}</s> : actionLabel[mark.action]}</strong><time>{localTime(mark.acceptedAt, selectedSite?.timeZone)}</time>{mark.voided && <span className="status-chip">Anulada</span>}</div>) : <p className="muted">Todavía no hay marcas en esta jornada.</p>}</div>
           </Panel>
           <Panel title="Registrar una marca"><p className="muted small-copy">La marca se envía ahora. Necesitás conexión; no se guarda para enviar más tarde. La ubicación, si está disponible, se adjunta aparte.</p>
             <div className="mark-actions" aria-busy={busy}>{actions.map((action) => <button key={action} className={`mark-action ${action === 'INGRESO' || action === 'EGRESO' ? 'mark-action-primary' : ''}`} disabled={busy} onClick={() => void mark(action)}><span aria-hidden="true">{action === 'INGRESO' ? '→' : action === 'EGRESO' ? '←' : '◷'}</span><strong>{actionLabel[action]}</strong><small>{busy && pendingAttempt?.action === action ? 'Enviando al servidor…' : 'Enviar marca'}</small></button>)}</div>
             {busy && pendingAttempt && !receipt && <p role="status" aria-live="polite" aria-atomic="true">Enviando {actionLabel[pendingAttempt.action]} al servidor. La marca todavía no está confirmada.</p>}
             {selected.state === 'EGRESADA' && <PageMessage>Esta jornada ya fue cerrada.</PageMessage>}
+            {selected.state === 'CANCELADA' && <PageMessage>El administrador canceló esta jornada; no hay marcas para registrar.</PageMessage>}
           </Panel>
         </>}
       </>}
@@ -193,16 +197,18 @@ export function EmployeeApp() {
 }
 
 function allowedActions(jornada: Jornada): MarkAction[] {
-  if (jornada.state === 'EGRESADA') return []
+  if (jornada.state === 'EGRESADA' || jornada.state === 'CANCELADA') return []
   if (jornada.state === 'NO_INGRESO') return ['INGRESO']
+  // A voided mark stays visible but no longer counts (D-20261027-08), exactly as the server derives the state.
+  const marks = jornada.marks.filter((mark) => !mark.voided)
   if (jornada.state === 'PAUSA_ABIERTA') {
-    const last = [...jornada.marks].sort((a, b) => b.sequence - a.sequence)[0]
+    const last = [...marks].sort((a, b) => b.sequence - a.sequence)[0]
     if (last?.action === 'SALIDA_DESAYUNO') return ['VUELTA_DESAYUNO']
     if (last?.action === 'SALIDA_ALMUERZO') return ['VUELTA_ALMUERZO']
     return []
   }
   const actions: MarkAction[] = ['EGRESO']
-  const marked = new Set(jornada.marks.map((mark) => mark.action))
+  const marked = new Set(marks.map((mark) => mark.action))
   if (!marked.has('SALIDA_DESAYUNO')) actions.unshift('SALIDA_DESAYUNO')
   if (!marked.has('SALIDA_ALMUERZO')) actions.unshift('SALIDA_ALMUERZO')
   return actions
