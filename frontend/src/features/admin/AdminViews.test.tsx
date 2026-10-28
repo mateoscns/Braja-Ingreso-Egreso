@@ -859,19 +859,19 @@ describe('administración de desvíos y marcas', () => {
   })
 
   describe('declaración con plantilla vigente y por lote (D-20261027-11)', () => {
-    it('declara con la plantilla vigente sin enviar plantilla y con una plantilla elegida la envía', async () => {
+    it('preselecciona la primera plantilla de la sede como antes y con la plantilla vigente no envía plantilla', async () => {
       apiMocks.post.mockResolvedValue(jornada)
       render(<JourneysView />)
       await screen.findByRole('row', { name: /Lucía Pérez/ })
       const template = screen.getByLabelText('Plantilla horaria')
-      expect(template).toHaveValue('')
+      await waitFor(() => expect(template).toHaveValue('t-1'))
       const localDate = (screen.getByLabelText('Fecha') as HTMLInputElement).value
       fireEvent.click(screen.getByRole('button', { name: 'Declarar jornada' }))
-      await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/jornadas', { employeeId: 'e-1', siteId: 's-1', localDate }))
+      await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/jornadas', { employeeId: 'e-1', siteId: 's-1', localDate, templateId: 't-1' }))
 
-      fireEvent.change(template, { target: { value: 't-1' } })
+      fireEvent.change(template, { target: { value: '' } })
       fireEvent.click(screen.getByRole('button', { name: 'Declarar jornada' }))
-      await waitFor(() => expect(apiMocks.post).toHaveBeenLastCalledWith('/jornadas', { employeeId: 'e-1', siteId: 's-1', localDate, templateId: 't-1' }))
+      await waitFor(() => expect(apiMocks.post).toHaveBeenLastCalledWith('/jornadas', { employeeId: 'e-1', siteId: 's-1', localDate }))
     })
 
     it('valida el lote como el servidor antes de enviarlo', async () => {

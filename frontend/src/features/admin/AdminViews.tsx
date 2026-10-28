@@ -425,8 +425,9 @@ export function JourneysView() {
     await loadJourneys(requestedDate)
   }
   useEffect(() => { void loadDependencies(date) }, [])
-  // No template chosen means the employee's assignment in force (D-20261015-02); a site change drops a template of the old site.
-  useEffect(() => { setTemplateId('') }, [siteId])
+  // The first template of the site stays preselected as before; choosing "Usar la plantilla vigente" (empty) sends no template and
+  // the server uses the employee's assignment in force (D-20261015-02). Right after deploy no employee has an assignment yet.
+  useEffect(() => { setTemplateId(templates.find((item) => item.siteId === siteId)?.id ?? '') }, [siteId, templates])
   const eligibleEmployees = useMemo(() => employees.filter((person) => person.active && person.siteIds.includes(siteId)), [employees, siteId])
   useEffect(() => { setEmployeeId((current) => eligibleEmployees.some((person) => person.id === current) ? current : eligibleEmployees[0]?.id ?? '') }, [eligibleEmployees])
   async function declare(event: FormEvent<HTMLFormElement>) {
