@@ -252,11 +252,18 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
    `forgotten_mark_audits` y `mark_correction_audits`. Guarda en marcas
    olvidadas: `IT.forgottenIngressCanBeInsertedBeforeAlreadyStoredEgresoAndKeepsReceiptSequence`
    y `IT.forgottenPauseStartCannotLeaveInvalidHistoryWhenReturnIsAlsoMissing`
-   (rollback sin auditoría). `correctMark` `[sin guarda: implementado, sin test]`.
+   (rollback sin auditoría).
    La anulación de una marca (D-20261027-08) no borra la fila y escribe
    `mark_correction_audits` con `change_kind='VOID'` (V20, V21). Guarda:
    `JornadaCancellationAndMarkVoidMySqlTest.voidingAMarkKeepsTheRowAuditsItAndStopsCountingIt`
-   (2026-10-27).
+   (2026-10-27). **Lectura** (issue #60, 2026-10-27; antes las tres tablas de
+   auditoría no tenían ningún camino de lectura): `GET /admin/jornadas/{id}/audit`
+   (`JornadaAuditService`, solo `ADMIN` de la empresa) devuelve la cancelación,
+   las marcas olvidadas, las correcciones, las anulaciones y `deviation_audits`
+   de la jornada, sin texto de motivo ni coordenadas, con tope de 500. Guarda,
+   también de lo que escribe `correctMark`:
+   `JornadaAuditHistoryMySqlTest.adminReadsEveryChangeOfTheJornadaInOrderWithActorNamesAndNoMotiveTextOrCoordinates`
+   y `onlyAnAdminOfTheSameCompanyReadsTheHistory`.
 7. **Un empleado dado de baja no inicia sesión ni marca; su historial no se
    borra.** La baja es `PATCH /employees/{id}` con `active=false`; no existe
    endpoint de borrado y las FK impiden borrar filas referenciadas. Guarda:
@@ -423,10 +430,15 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
 23. **Cambios sensibles revocan acceso.** No hay `token_version`: la
     autenticación es sesión en MySQL (30 min de inactividad). Baja de
     empleado, membresía o cuenta cortan el acceso en la siguiente request
-    porque `ScopeService` relee la base (guarda: `Baja`). **Brecha**: el
-    cambio de contraseña no cierra otras sesiones. No hay endpoint para
-    cambiar el rol ni dar de baja a un `ADMIN`: "nunca el último `ADMIN`" se
-    cumple por ausencia `[sin guarda: implementado, sin test]`.
+    porque `ScopeService` relee la base (guarda: `Baja`). El cambio de
+    contraseña borra las demás sesiones de la cuenta (guarda:
+    `PasswordChangeSessionInvalidationMySqlTest`). El restablecimiento por el
+    `ADMIN` (D-20261027-09, `POST /employees/{id}/password-reset`) borra todas
+    las sesiones, exige cambiar la provisoria y solo vale para cuentas
+    `EMPLOYEE` que están únicamente en esa empresa (409 `ACCOUNT_SHARED` si
+    no; guarda: `AdminPasswordResetMySqlTest`, 2026-10-27). No hay endpoint
+    para cambiar el rol ni dar de baja a un `ADMIN`: "nunca el último
+    `ADMIN`" se cumple por ausencia `[sin guarda: implementado, sin test]`.
 24. **Anti-CSRF**: toda mutación exige `X-CSRF-TOKEN`; cookie de sesión
     `HttpOnly`, `SameSite=Lax`. El login rota el token (2026-10-27: el token
     previo al login seguía valiendo). Sin sesión autenticada (vencida o
@@ -601,7 +613,6 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     la separación contenedor/render (36).
   - Tests CA8 con un `ADMIN` real de otra empresa (9) y ráfaga de acciones
     distintas (10).
-  - El cambio de contraseña no invalida otras sesiones (23).
   - El alta con un DNI existente filtra estado de la cuenta a otra empresa:
     `OrganizationService.createEmployee` responde `ACCOUNT_INACTIVE` para una
     cuenta inactiva; al agregar una cuenta activa ya existente, devuelve su DNI
@@ -657,8 +668,7 @@ si cada clon hace `git config core.hooksPath .githooks`**. Hoy no existe
    este archivo se completaron con lo real; quedan RTO y el dominio.
 5. [~] Sacar `[sin guarda]` regla por regla. Con guarda: 2, 7, 8, 12, 13, 22
    y la máquina de estados; parcial: 1, 4, 5, 6, 9, 10, 14, 24. Siguen: 9
-   (CA8), 10 (ráfaga distinta), 23 (revocación tras
-   cambio de contraseña), 28 (`Clock`), 35 (reglas para capas, ciclos y
+   (CA8), 10 (ráfaga distinta), 28 (`Clock`), 35 (reglas para capas, ciclos y
    exports) y 36 (guarda de la separación contenedor/render).
 6. [x] Primera verificación completa del archivo contra el código:
    2026-10-20, sobre `main` en `5e61d0a5bb6b81c26603f42e9093bf85e9baab4a`.

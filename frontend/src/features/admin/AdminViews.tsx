@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { api, queryString } from '../../shared/api/client'
-import type { BulkDeclarationResult, Deviation, Employee, Jornada, JornadaSummary, Mark, MarkAction, Site, Template, TemplateAssignment, TemplateBlock, TemplateInput } from '../../shared/api/types'
+import type { BulkDeclarationResult, Deviation, Employee, Jornada, JornadaAudit, JornadaSummary, Mark, MarkAction, PasswordReset, Site, Template, TemplateAssignment, TemplateBlock, TemplateInput } from '../../shared/api/types'
 import { deviceDate, validateDateRange, DATE_PAIR_MESSAGE } from '../../shared/dateRange'
 import { validateBulkDeclaration } from './bulkDeclaration'
 import {
@@ -24,6 +24,11 @@ const dateInBrowserZone = () => {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 }
 const errText = (error: unknown) => error instanceof Error ? error.message : 'No se pudo completar la operación.'
+// The server reuses the employee mark-order codes on ADMIN forms; there they mean the typed time or action breaks the jornada order.
+const MARK_ORDER_CODES = new Set(['INVALID_MARK_ORDER', 'INVALID_MARK_HISTORY', 'INVALID_MARK_TRANSITION'])
+const markFormErrText = (error: unknown) => MARK_ORDER_CODES.has((error as { code?: string } | null)?.code ?? '')
+  ? 'La hora o la acción no encajan con las demás marcas de la jornada. Revisá el orden.'
+  : errText(error)
 function dateTimeParts(value: string, timeZone: string) {
   const entries = new Intl.DateTimeFormat('en-CA', {
     timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
@@ -287,10 +292,26 @@ export function EmployeesView() {
     loading={assignmentsLoading} loadError={assignmentsLoadError} error={assignmentError} busy={assignmentBusy} templateId={assignmentTemplateId} validFrom={assignmentValidFrom}
     onTemplateChange={setAssignmentTemplateId} onValidFromChange={setAssignmentValidFrom} onSubmit={(event) => void assignTemplate(event)}
     onRetry={() => void openAssignments(assignmentsEmployee.id)} onClose={closeAssignments} /> : null
+  // D-20261027-09: the temporary password lives only in this state; it is never written to browser storage and is
+  // gone when the ADMIN dismisses the panel or leaves the view.
+  const [resetTarget, setResetTarget] = useState<string | null>(null)
+  const [issuedPassword, setIssuedPassword] = useState<{ displayName: string; temporaryPassword: string } | null>(null)
+  function askReset(id: string) { setResetTarget(id); setIssuedPassword(null); setError(''); setNotice('') }
+  async function confirmReset() {
+    const person = employees.find((entry) => entry.id === resetTarget)
+    if (!person) return
+    setBusy(true); setError(''); setNotice('')
+    try {
+      const { temporaryPassword: issued } = await api.post<PasswordReset>(`/employees/${encodeURIComponent(person.id)}/password-reset`)
+      setIssuedPassword({ displayName: person.displayName, temporaryPassword: issued })
+      setEmployees((current) => current.map((entry) => entry.id === person.id ? { ...entry, mustChangePassword: true } : entry))
+    } catch (reason) { setError(errText(reason)) } finally { setBusy(false); setResetTarget(null) }
+  }
   return <EmployeesViewRender employees={employees} sites={sites} loading={loading} loadError={loadError} error={error} notice={notice} busy={busy} dni={dni} displayName={displayName} siteIds={siteIds} tolerance={tolerance} temporaryPassword={temporaryPassword} draft={draft}
     assignmentsPanel={assignmentsPanel} onOpenAssignments={(id) => void openAssignments(id)}
     onReload={() => void reload()} onCreate={create} onDniChange={setDni} onDisplayNameChange={setDisplayName} onToggleSite={toggleSite} onToleranceChange={setTolerance} onTemporaryPasswordChange={setTemporaryPassword}
-    onSave={() => void saveEmployee()} onDraftChange={updateDraft} onStartEditing={startEditing} onCancelEditing={() => { setDraft(null); setError('') }} />
+    onSave={() => void saveEmployee()} onDraftChange={updateDraft} onStartEditing={startEditing} onCancelEditing={() => { setDraft(null); setError('') }}
+    resetTarget={resetTarget} issuedPassword={issuedPassword} onAskReset={askReset} onConfirmReset={() => void confirmReset()} onCancelReset={() => setResetTarget(null)} onDismissIssuedPassword={() => setIssuedPassword(null)} />
 }
 
 export function TemplatesView() {
@@ -359,6 +380,25 @@ export function JourneysView() {
   const [bulkSiteId, setBulkSiteId] = useState(''); const [bulkEmployeeIds, setBulkEmployeeIds] = useState<string[]>([]); const [bulkFrom, setBulkFrom] = useState(''); const [bulkTo, setBulkTo] = useState('')
   const [bulkWeekdays, setBulkWeekdays] = useState<number[]>([1, 2, 3, 4, 5]); const [bulkTemplateId, setBulkTemplateId] = useState('')
   const [bulkBusy, setBulkBusy] = useState(false); const [bulkError, setBulkError] = useState(''); const [bulkResult, setBulkResult] = useState<BulkDeclarationResult | null>(null)
+  // Change history (issue #60): collapsed by default and loaded only when the ADMIN opens it; auditFor is the open jornada.
+  const [auditFor, setAuditFor] = useState(''); const [audit, setAudit] = useState<JornadaAudit | null>(null); const [auditLoading, setAuditLoading] = useState(false); const [auditError, setAuditError] = useState('')
+  const auditRequest = useRef(0)
+  async function loadAudit(jornadaId: string) {
+    const requestId = ++auditRequest.current
+    setAudit(null); setAuditError(''); setAuditLoading(true)
+    try {
+      const result = await api.get<JornadaAudit>(`/admin/jornadas/${encodeURIComponent(jornadaId)}/audit`)
+      if (requestId === auditRequest.current) setAudit(result)
+    } catch (reason) {
+      if (requestId === auditRequest.current) setAuditError(errText(reason))
+    } finally { if (requestId === auditRequest.current) setAuditLoading(false) }
+  }
+  function closeAudit() { auditRequest.current += 1; setAuditFor(''); setAudit(null); setAuditError(''); setAuditLoading(false) }
+  function toggleAudit() {
+    if (!detail) return
+    if (auditFor === detail.id) { closeAudit(); return }
+    setAuditFor(detail.id); void loadAudit(detail.id)
+  }
   async function loadJourneys(requestedDate = date, preserveNotice = false) {
     const requestId = ++journeyRequest.current
     detailRequest.current += 1
@@ -413,8 +453,11 @@ export function JourneysView() {
       if (date) await loadJourneys(date, true)
     } catch (reason) { setBulkError(errText(reason)) } finally { setBulkBusy(false) }
   }
-  async function showDetail(jornadaId: string) {
+  /** refreshAudit: after a change made from the detail, an open history is reloaded; opening a jornada starts it collapsed. */
+  async function showDetail(jornadaId: string, refreshAudit = false) {
     const requestId = ++detailRequest.current
+    if (refreshAudit && auditFor === jornadaId) void loadAudit(jornadaId)
+    else closeAudit()
     setDetail(null); setCancelOpen(false); setCancelReason(''); setVoidingMarkId(''); setVoidReason('')
     setDetailLoading(true); setError('')
     try {
@@ -436,8 +479,8 @@ export function JourneysView() {
     setMarkBusy('forgotten'); setError(''); setNotice('')
     try {
       await api.post<Mark>(`/admin/jornadas/${encodeURIComponent(detail.id)}/forgotten-marks`, { action: forgotAction, occurredAt, auditReason: forgotReason.trim() })
-      setForgotOccurredAt(''); setForgotReason(''); setNotice('Marca olvidada registrada.'); await showDetail(detail.id)
-    } catch (reason) { setError(errText(reason)) } finally { setMarkBusy('') }
+      setForgotOccurredAt(''); setForgotReason(''); setNotice('Marca olvidada registrada.'); await showDetail(detail.id, true)
+    } catch (reason) { setError(markFormErrText(reason)) } finally { setMarkBusy('') }
   }
   function beginMarkCorrection(mark: Mark) {
     if (!detailTimeZone) return
@@ -452,8 +495,8 @@ export function JourneysView() {
     setMarkBusy(mark.id); setError(''); setNotice('')
     try {
       await api.post<Mark>(`/admin/marks/${encodeURIComponent(mark.id)}/correction`, { correctedAction, correctedOccurredAt: correctedAt, auditReason: correctionReason.trim() })
-      setEditingMarkId(''); setCorrectionReason(''); setNotice('Marca corregida.'); await showDetail(detail.id)
-    } catch (reason) { setError(errText(reason)) } finally { setMarkBusy('') }
+      setEditingMarkId(''); setCorrectionReason(''); setNotice('Marca corregida.'); await showDetail(detail.id, true)
+    } catch (reason) { setError(markFormErrText(reason)) } finally { setMarkBusy('') }
   }
   function beginVoid(mark: Mark) { setEditingMarkId(''); setVoidingMarkId(mark.id); setVoidReason('') }
   async function voidMark(event: FormEvent<HTMLFormElement>, mark: Mark) {
@@ -463,11 +506,11 @@ export function JourneysView() {
     setMarkBusy(mark.id); setError(''); setNotice('')
     try {
       await api.post<Mark>(`/admin/marks/${encodeURIComponent(mark.id)}/void`, { reason: voidReason.trim() })
-      setVoidingMarkId(''); setVoidReason(''); setNotice('Marca anulada.'); await showDetail(detail.id)
+      setVoidingMarkId(''); setVoidReason(''); setNotice('Marca anulada.'); await showDetail(detail.id, true)
     } catch (reason) {
       // A retry whose first attempt committed (response lost) answers MARK_VOIDED: the void is done, show it as done.
       if ((reason as { code?: string } | null)?.code === 'MARK_VOIDED') {
-        setVoidingMarkId(''); setVoidReason(''); setNotice('La marca ya estaba anulada.'); await showDetail(detail.id)
+        setVoidingMarkId(''); setVoidReason(''); setNotice('La marca ya estaba anulada.'); await showDetail(detail.id, true)
         return
       }
       // The server reuses INVALID_MARK_HISTORY; for a void it means the marks left would not form a valid jornada.
@@ -485,12 +528,12 @@ export function JourneysView() {
     try {
       await api.post(`/admin/jornadas/${encodeURIComponent(jornadaId)}/cancellation`, { reason: cancelReason.trim() })
       setCancelOpen(false); setCancelReason(''); setNotice('Jornada cancelada.')
-      await loadJourneys(date, true); await showDetail(jornadaId)
+      await loadJourneys(date, true); await showDetail(jornadaId, true)
     } catch (reason) {
       // A retry whose first attempt committed answers JORNADA_CANCELLED: the cancellation is done, show it as done.
       if ((reason as { code?: string } | null)?.code === 'JORNADA_CANCELLED') {
         setCancelOpen(false); setCancelReason(''); setNotice('La jornada ya estaba cancelada.')
-        await loadJourneys(date, true); await showDetail(jornadaId)
+        await loadJourneys(date, true); await showDetail(jornadaId, true)
       } else setError(errText(reason))
     } finally { setMarkBusy('') }
   }
@@ -515,6 +558,7 @@ export function JourneysView() {
     onTemplateChange={setBulkTemplateId} onSubmit={(event) => void declareBulk(event)} />
   return <JourneysViewRender bulkPanel={bulkPanel} sites={sites} eligibleEmployees={eligibleEmployees} siteTemplates={siteTemplates} jornadas={jornadas} loading={loading} journeysLoading={journeysLoading} journeysDate={journeysDate} journeysError={journeysError} dependencyError={dependencyError} error={error} notice={notice} busy={busy} detail={detail} detailLoading={detailLoading} markBusy={markBusy} date={date} employeeId={employeeId} siteId={siteId} templateId={templateId} peopleById={peopleById} dateError={dateError} detailSite={detailSite} detailTimeZone={detailTimeZone} forgotAction={forgotAction} forgotOccurredAt={forgotOccurredAt} forgotReason={forgotReason} editingMarkId={editingMarkId} correctedAction={correctedAction} correctedOccurredAt={correctedOccurredAt} correctionReason={correctionReason}
     cancelOpen={cancelOpen} cancelReason={cancelReason} voidingMarkId={voidingMarkId} voidReason={voidReason}
+    auditOpen={Boolean(detail) && auditFor === detail?.id} audit={audit} auditLoading={auditLoading} auditError={auditError} onToggleAudit={toggleAudit} onRetryAudit={() => { if (auditFor) void loadAudit(auditFor) }}
     onBeginCancel={() => { setCancelOpen(true); setCancelReason('') }} onCancelReasonChange={setCancelReason} onConfirmCancel={(event) => void cancelJornada(event)} onAbortCancel={() => { setCancelOpen(false); setCancelReason('') }}
     onBeginVoid={beginVoid} onVoidReasonChange={setVoidReason} onConfirmVoid={(event, mark) => void voidMark(event, mark)} onAbortVoid={() => { setVoidingMarkId(''); setVoidReason('') }}
     onDateChange={changeDate} onEmployeeChange={setEmployeeId} onSiteChange={setSiteId} onTemplateChange={setTemplateId} onDeclare={declare} onRetryDependencies={() => void loadDependencies(date)} onReloadJourneys={() => void loadJourneys(date)} onShowDetail={(id) => void showDetail(id)}

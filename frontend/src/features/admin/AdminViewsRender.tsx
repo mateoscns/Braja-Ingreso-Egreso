@@ -1,9 +1,11 @@
 import { Fragment, type FormEvent, type ReactNode } from 'react'
 import { Empty, FormField, Loading, PageMessage, Panel } from '../../app/ui'
-import type { BulkDeclarationResult, BulkSkipReason, Deviation, Employee, Jornada, JornadaSummary, Mark, MarkAction, Site, Template, TemplateAssignment, TemplateBlock } from '../../shared/api/types'
+import type { BulkDeclarationResult, BulkSkipReason, Deviation, Employee, Jornada, JornadaAudit, JornadaAuditEntry, JornadaSummary, Mark, MarkAction, Site, Template, TemplateAssignment, TemplateBlock } from '../../shared/api/types'
 import { formatBlock, formatDateTime, formatLocalDate, jornadaStateLabel } from '../../shared/format'
 
 const stateLabel = jornadaStateLabel
+/** L30: cancel and void reasons are kept as free-text audit, so the form warns against health data. */
+const HEALTH_DATA_HINT = 'No escribas datos de salud; alcanza con «Licencia».'
 
 export type DeviationClassification = 'JUSTIFICADO' | 'NO_JUSTIFICADO'
 export type JourneyRow = Pick<Jornada, 'id' | 'employeeId' | 'siteId' | 'localDate' | 'state'>
@@ -94,7 +96,7 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, name
   </>
 }
 
-export function EmployeesViewRender({ employees, sites, loading, loadError, error, notice, busy, dni, displayName, siteIds, tolerance, temporaryPassword, draft, assignmentsPanel, onReload, onCreate, onDniChange, onDisplayNameChange, onToggleSite, onToleranceChange, onTemporaryPasswordChange, onSave, onDraftChange, onStartEditing, onCancelEditing, onOpenAssignments }: {
+export function EmployeesViewRender({ employees, sites, loading, loadError, error, notice, busy, dni, displayName, siteIds, tolerance, temporaryPassword, draft, assignmentsPanel, onReload, onCreate, onDniChange, onDisplayNameChange, onToggleSite, onToleranceChange, onTemporaryPasswordChange, onSave, onDraftChange, onStartEditing, onCancelEditing, onOpenAssignments, resetTarget, issuedPassword, onAskReset, onConfirmReset, onCancelReset, onDismissIssuedPassword }: {
   employees: Employee[]; sites: Site[]; loading: boolean; loadError: string; error: string; notice: string; busy: boolean
   dni: string; displayName: string; siteIds: string[]; tolerance: string; temporaryPassword: string; draft: Employee | null
   /** The template assignments of one employee (TemplateAssignmentsRender), shown under the list. */
@@ -103,11 +105,26 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
   onToggleSite: (id: string) => void; onToleranceChange: (value: string) => void; onTemporaryPasswordChange: (value: string) => void
   onSave: () => void; onDraftChange: (patch: Partial<Employee>) => void; onStartEditing: (id: string) => void; onCancelEditing: () => void
   onOpenAssignments: (id: string) => void
+  resetTarget: string | null; issuedPassword: { displayName: string; temporaryPassword: string } | null
+  onAskReset: (id: string) => void; onConfirmReset: () => void; onCancelReset: () => void; onDismissIssuedPassword: () => void
 }) {
+  const rowActions = (saved: Employee) => resetTarget === saved.id
+    ? <div className="button-row"><span>Se cierran todas sus sesiones y se genera una contraseña provisoria.</span>
+      <button className="button button-small button-primary" disabled={busy} onClick={onConfirmReset}>{busy ? 'Restableciendo…' : 'Confirmar restablecimiento'}</button>
+      <button type="button" className="button button-small button-quiet" aria-label="Cancelar restablecimiento" disabled={busy} onClick={onCancelReset}>Cancelar</button></div>
+    : <div className="button-row"><button className="button button-small button-quiet" aria-label={`Editar empleado ${saved.displayName}`} disabled={busy} onClick={() => onStartEditing(saved.id)}>Editar</button>
+      <button className="button button-small button-quiet" aria-label={`Plantillas de ${saved.displayName}`} onClick={() => onOpenAssignments(saved.id)}>Plantillas</button>
+      <button className="button button-small button-quiet" aria-label={`Restablecer contraseña de ${saved.displayName}`} disabled={busy || !saved.active} onClick={() => onAskReset(saved.id)}>Restablecer contraseña</button></div>
   return <>
     <PageHeading eyebrow="EQUIPO" title="Empleados" subtitle="Las cuentas se identifican por DNI. La tolerancia se guarda por empleado." />
     {error && <PageMessage kind="error">{error}</PageMessage>}
     {notice && <PageMessage kind="success">{notice}</PageMessage>}
+    {issuedPassword && <Panel title={`Contraseña provisoria de ${issuedPassword.displayName}`}>
+      <p><code>{issuedPassword.temporaryPassword}</code></p>
+      <p>Entregásela en persona; se pide cambiarla al ingresar.</p>
+      <p className="field-hint">No se vuelve a mostrar. Sus sesiones abiertas se cerraron.</p>
+      <button type="button" className="button button-small button-primary" onClick={onDismissIssuedPassword}>Listo, ya la entregué</button>
+    </Panel>}
     <Panel title={loading || loadError ? 'Empleados' : `Empleados (${employees.length})`}>{loading ? <Loading /> : loadError ? <LoadFailure message={loadError} onRetry={onReload} /> : employees.length ? <div className="table-scroll"><table><thead><tr><th>Nombre</th><th>DNI</th><th>Sedes</th><th>Tolerancia</th><th>Estado</th><th /></tr></thead><tbody>{employees.map((saved) => {
       const edit = draft?.id === saved.id ? draft : null
       return <tr key={saved.id}>
@@ -115,7 +132,7 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
         <td>{edit ? <div className="inline-checks">{sites.map((site) => <label key={site.id}><input type="checkbox" aria-label={`${site.name} (${who(saved)})`} checked={edit.siteIds.includes(site.id)} onChange={() => onDraftChange({ siteIds: edit.siteIds.includes(site.id) ? edit.siteIds.filter((id) => id !== site.id) : [...edit.siteIds, site.id] })} />{site.name}</label>)}</div> : saved.siteIds.map((id) => sites.find((site) => site.id === id)?.name ?? 'Sede').join(', ')}</td>
         <td>{edit ? <input className="short-input" aria-label={`Tolerancia en minutos del empleado con ${who(saved)}`} type="number" min="0" max="240" value={edit.toleranceMinutes} onChange={(event) => onDraftChange({ toleranceMinutes: Number(event.target.value) })} /> : `${saved.toleranceMinutes} min`}</td>
         <td>{edit ? <label><input type="checkbox" aria-label={`Activo (${who(saved)})`} checked={edit.active} onChange={(event) => onDraftChange({ active: event.target.checked })} /> Activo</label> : saved.active ? 'Activo' : 'Inactivo'}</td>
-        <td>{edit ? <div className="button-row"><button className="button button-small button-primary" disabled={busy || edit.siteIds.length === 0} onClick={onSave}>{busy ? 'Guardando…' : 'Guardar'}</button><button type="button" className="button button-small button-quiet" disabled={busy} onClick={onCancelEditing}>Cancelar</button></div> : <div className="button-row"><button className="button button-small button-quiet" aria-label={`Editar empleado ${saved.displayName}`} disabled={busy} onClick={() => onStartEditing(saved.id)}>Editar</button><button className="button button-small button-quiet" aria-label={`Plantillas de ${saved.displayName}`} onClick={() => onOpenAssignments(saved.id)}>Plantillas</button></div>}</td>
+        <td>{edit ? <div className="button-row"><button className="button button-small button-primary" disabled={busy || edit.siteIds.length === 0} onClick={onSave}>{busy ? 'Guardando…' : 'Guardar'}</button><button type="button" className="button button-small button-quiet" disabled={busy} onClick={onCancelEditing}>Cancelar</button></div> : rowActions(saved)}</td>
       </tr>
     })}</tbody></table></div> : <Empty>No hay empleados cargados.</Empty>}</Panel>
     {assignmentsPanel}
@@ -218,7 +235,7 @@ export function TemplatesViewRender({ sites, siteTemplates, loading, loadError, 
   </>
 }
 
-export function JourneysViewRender({ bulkPanel, sites, eligibleEmployees, siteTemplates, jornadas, loading, journeysLoading, journeysDate, journeysError, dependencyError, error, notice, busy, detail, detailLoading, markBusy, date, dateError, employeeId, siteId, templateId, peopleById, detailSite, detailTimeZone, forgotAction, forgotOccurredAt, forgotReason, editingMarkId, correctedAction, correctedOccurredAt, correctionReason, cancelOpen, cancelReason, voidingMarkId, voidReason, onDateChange, onEmployeeChange, onSiteChange, onTemplateChange, onDeclare, onRetryDependencies, onReloadJourneys, onShowDetail, onForgotActionChange, onForgotOccurredAtChange, onForgotReasonChange, onAddForgottenMark, onBeginMarkCorrection, onCorrectedActionChange, onCorrectedOccurredAtChange, onCorrectionReasonChange, onCorrectMark, onCancelMarkCorrection, onBeginCancel, onCancelReasonChange, onConfirmCancel, onAbortCancel, onBeginVoid, onVoidReasonChange, onConfirmVoid, onAbortVoid }: {
+export function JourneysViewRender({ bulkPanel, sites, eligibleEmployees, siteTemplates, jornadas, loading, journeysLoading, journeysDate, journeysError, dependencyError, error, notice, busy, detail, detailLoading, markBusy, date, dateError, employeeId, siteId, templateId, peopleById, detailSite, detailTimeZone, forgotAction, forgotOccurredAt, forgotReason, editingMarkId, correctedAction, correctedOccurredAt, correctionReason, cancelOpen, cancelReason, voidingMarkId, voidReason, auditOpen, audit, auditLoading, auditError, onToggleAudit, onRetryAudit, onDateChange, onEmployeeChange, onSiteChange, onTemplateChange, onDeclare, onRetryDependencies, onReloadJourneys, onShowDetail, onForgotActionChange, onForgotOccurredAtChange, onForgotReasonChange, onAddForgottenMark, onBeginMarkCorrection, onCorrectedActionChange, onCorrectedOccurredAtChange, onCorrectionReasonChange, onCorrectMark, onCancelMarkCorrection, onBeginCancel, onCancelReasonChange, onConfirmCancel, onAbortCancel, onBeginVoid, onVoidReasonChange, onConfirmVoid, onAbortVoid }: {
   /** The bulk declaration form (BulkDeclarationRender), shown under the single declaration. */
   bulkPanel?: ReactNode
   sites: Site[]; eligibleEmployees: Employee[]; siteTemplates: Template[]; jornadas: JourneyRow[]
@@ -234,6 +251,7 @@ export function JourneysViewRender({ bulkPanel, sites, eligibleEmployees, siteTe
   cancelOpen: boolean; cancelReason: string; voidingMarkId: string; voidReason: string
   onBeginCancel: () => void; onCancelReasonChange: (value: string) => void; onConfirmCancel: (event: FormEvent<HTMLFormElement>) => void; onAbortCancel: () => void
   onBeginVoid: (mark: Mark) => void; onVoidReasonChange: (value: string) => void; onConfirmVoid: (event: FormEvent<HTMLFormElement>, mark: Mark) => void; onAbortVoid: () => void
+  auditOpen: boolean; audit: JornadaAudit | null; auditLoading: boolean; auditError: string; onToggleAudit: () => void; onRetryAudit: () => void
 }) {
   const cancellable = detail?.state === 'NO_INGRESO' && detail.marks.every((mark) => mark.voided)
   return <>
@@ -258,14 +276,14 @@ export function JourneysViewRender({ bulkPanel, sites, eligibleEmployees, siteTe
       {!detailTimeZone && <PageMessage kind="error">No se pudo cargar la zona horaria de la sede. Reintentá los datos de la jornada antes de incorporar o corregir marcas.</PageMessage>}
       {detail.state === 'CANCELADA' && <PageMessage>Jornada cancelada el {dateTime(detail.cancelledAt ?? '', detailTimeZone)}.{detail.cancelReason ? ` Motivo: ${detail.cancelReason}` : ''}</PageMessage>}
       {cancellable && (cancelOpen ? <form className="form-stack correction-form" onSubmit={onConfirmCancel}>
-        <FormField label="Motivo de cancelación" hint="La jornada queda cancelada con tu nombre, la hora y este motivo; sus desvíos se cierran y podés volver a declararla."><textarea required maxLength={2000} value={cancelReason} onChange={(event) => onCancelReasonChange(event.target.value)} /></FormField>
+        <FormField label="Motivo de cancelación" hint={`La jornada queda cancelada con tu nombre, la hora y este motivo; sus desvíos se cierran y podés volver a declararla. ${HEALTH_DATA_HINT}`}><textarea required maxLength={2000} value={cancelReason} onChange={(event) => onCancelReasonChange(event.target.value)} /></FormField>
         <div className="button-row"><button className="button button-small button-danger-outline" disabled={markBusy !== '' || !cancelReason.trim()}>{markBusy === 'cancel' ? 'Cancelando…' : 'Confirmar cancelación'}</button><button type="button" className="button button-small button-quiet" disabled={markBusy === 'cancel'} onClick={onAbortCancel}>Volver</button></div>
       </form> : <div className="button-row"><button type="button" className="button button-small button-danger-outline" disabled={markBusy !== ''} onClick={onBeginCancel}>Cancelar jornada</button></div>)}
       {detail.marks.length ? <div className="table-scroll"><table><thead><tr><th>Marca</th><th>Hora del evento</th><th>Alta en servidor</th><th>Ubicación</th><th>Acciones</th></tr></thead><tbody>{detail.marks.map((mark) => <Fragment key={mark.id}>
         {mark.voided ? <tr className="mark-voided"><td><s>{actionName(mark.action)}</s> <span className="status-chip">Anulada</span></td><td><s>{dateTime(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)}</s></td><td>{dateTime(mark.recordedAt ?? mark.acceptedAt, detailTimeZone)}</td><td>{typeof mark.latitude === 'number' && typeof mark.longitude === 'number' ? `${mark.latitude.toFixed(5)}, ${mark.longitude.toFixed(5)}` : locationName(mark.locationStatus)}</td><td><small>{mark.voidedAt ? `Anulada el ${dateTime(mark.voidedAt, detailTimeZone)}` : 'Anulada'}{mark.voidReason ? ` · ${mark.voidReason}` : ''}</small></td></tr> :
         <tr><td>{actionName(mark.action)}</td><td>{dateTime(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)}</td><td>{dateTime(mark.recordedAt ?? mark.acceptedAt, detailTimeZone)}</td><td>{typeof mark.latitude === 'number' && typeof mark.longitude === 'number' ? `${mark.latitude.toFixed(5)}, ${mark.longitude.toFixed(5)}` : locationName(mark.locationStatus)}</td><td><div className="button-row"><button className="button button-small button-quiet" aria-label={`Corregir marca ${actionName(mark.action)} de ${dateTime(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)}`} disabled={markBusy !== '' || !detailTimeZone} onClick={() => onBeginMarkCorrection(mark)}>Corregir</button><button className="button button-small button-danger-outline" aria-label={`Anular marca ${actionName(mark.action)} de ${dateTime(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)}`} disabled={markBusy !== ''} onClick={() => onBeginVoid(mark)}>Anular</button></div></td></tr>}
         {voidingMarkId === mark.id && !mark.voided && <tr><td colSpan={5}><form className="form-stack correction-form" onSubmit={(event) => onConfirmVoid(event, mark)}>
-          <FormField label="Motivo de anulación" hint="La marca no se borra: queda visible como anulada, con tu nombre, la hora y este motivo, y deja de contar para la jornada y los desvíos."><textarea required maxLength={2000} value={voidReason} onChange={(event) => onVoidReasonChange(event.target.value)} /></FormField>
+          <FormField label="Motivo de anulación" hint={`La marca no se borra: queda visible como anulada, con tu nombre, la hora y este motivo, y deja de contar para la jornada y los desvíos. ${HEALTH_DATA_HINT}`}><textarea required maxLength={2000} value={voidReason} onChange={(event) => onVoidReasonChange(event.target.value)} /></FormField>
           <div className="button-row"><button className="button button-small button-danger-outline" disabled={markBusy === mark.id || !voidReason.trim()}>{markBusy === mark.id ? 'Anulando…' : 'Confirmar anulación'}</button><button type="button" className="button button-small button-quiet" disabled={markBusy === mark.id} onClick={onAbortVoid}>Volver</button></div>
         </form></td></tr>}
         {editingMarkId === mark.id && <tr><td colSpan={5}><form className="form-stack correction-form" onSubmit={(event) => onCorrectMark(event, mark)}>
@@ -282,8 +300,57 @@ export function JourneysViewRender({ bulkPanel, sites, eligibleEmployees, siteTe
         <FormField label="Motivo de incorporación"><textarea required maxLength={2000} value={forgotReason} onChange={(event) => onForgotReasonChange(event.target.value)} /></FormField>
         <div className="field-wide"><button className="button button-primary" disabled={markBusy !== '' || !forgotReason.trim()}>{markBusy === 'forgotten' ? 'Guardando…' : 'Registrar marca olvidada'}</button></div>
       </fieldset></form>}
+      <JornadaAuditSection open={auditOpen} audit={audit} loading={auditLoading} error={auditError} onToggle={onToggleAudit} onRetry={onRetryAudit} />
     </Panel>}
   </>
+}
+
+/** Issue #60: the jornada's change history, collapsed until the ADMIN asks for it; times in the jornada's time zone. */
+export function JornadaAuditSection({ open, audit, loading, error, onToggle, onRetry }: {
+  open: boolean; audit: JornadaAudit | null; loading: boolean; error: string; onToggle: () => void; onRetry: () => void
+}) {
+  return <section className="audit-history" aria-labelledby="audit-history-title">
+    <div className="form-subhead"><h3 id="audit-history-title">Historial de cambios</h3>
+      <button type="button" className="button button-small button-quiet" aria-expanded={open} aria-controls="audit-history-body" onClick={onToggle}>{open ? 'Ocultar historial' : 'Ver historial'}</button></div>
+    {open && <div id="audit-history-body">{loading ? <Loading label="Cargando historial de cambios…" /> : error ? <LoadFailure message={error} onRetry={onRetry} /> : !audit ? null : audit.entries.length === 0 ? <Empty>Esta jornada no tiene cambios registrados.</Empty> : <>
+      {audit.truncated && <PageMessage>Se muestran los primeros {audit.entries.length} cambios de esta jornada.</PageMessage>}
+      <ol className="history-items audit-items" aria-label="Cambios de la jornada">{audit.entries.map((entry, index) => <li key={`${entry.kind}-${entry.changedAt}-${index}`}>
+        <strong>{auditTitle(entry, audit.timeZone)}</strong><span>{dateTime(entry.changedAt, audit.timeZone)}</span>
+        <small>{entry.actorAccountId ? `Por ${entry.actorDisplayName?.trim() || 'una persona sin nombre registrado'}` : 'Automático del sistema'}</small>
+        {entry.reason && showsReason(entry) && <small>Motivo: {entry.reason}</small>}
+      </li>)}</ol>
+    </>}</div>}
+  </section>
+}
+
+/** Reasons written by people; the system's own reconciliation notes are not shown. */
+function showsReason(entry: JornadaAuditEntry) { return entry.kind !== 'DEVIATION' || entry.changeType === 'CLASSIFICATION_CHANGED' }
+
+function auditTitle(entry: JornadaAuditEntry, timeZone: string): string {
+  const markAt = (action?: MarkAction | null, at?: string | null) => `${action ? actionName(action) : 'Marca'}${at ? ` de ${dateTime(at, timeZone)}` : ''}`
+  const type = (value?: Deviation['type'] | null) => value ? deviationName(value) : 'Desvío'
+  const classification = (value?: 'JUSTIFICADO' | 'NO_JUSTIFICADO' | null) => value ? statusName(value).toLowerCase() : 'sin clasificar'
+  const category = (value?: Deviation['category']) => value ? categoryName(value) : 'sin categoría'
+  switch (entry.kind) {
+    case 'JORNADA_CANCELLATION': return 'Jornada cancelada'
+    case 'FORGOTTEN_MARK': return `Marca olvidada incorporada: ${markAt(entry.afterAction, entry.afterOccurredAt)}`
+    case 'MARK_CORRECTION': return `Marca corregida: ${markAt(entry.beforeAction, entry.beforeOccurredAt)} → ${markAt(entry.afterAction, entry.afterOccurredAt)}`
+    case 'MARK_VOID': return `Marca anulada: ${markAt(entry.beforeAction, entry.beforeOccurredAt)}`
+    case 'DEVIATION': break
+  }
+  const current = type(entry.deviationType)
+  switch (entry.changeType) {
+    case 'CREATED': return `Desvío detectado: ${type(entry.afterType ?? entry.deviationType)}`
+    case 'TYPE_REPLACED': return `Desvío actualizado: ${type(entry.beforeType)} → ${type(entry.afterType)}`
+    case 'RETRACTED': return `Desvío cerrado: ${type(entry.beforeType ?? entry.deviationType)}`
+    case 'CLASSIFICATION_CHANGED': return entry.beforeClassification
+      ? `${current}: clasificación corregida de ${classification(entry.beforeClassification)} a ${classification(entry.afterClassification)}`
+      : `${current}: clasificado como ${classification(entry.afterClassification)}`
+    case 'CLASSIFICATION_RESET': return `${current}: vuelve a revisión (se quitó la clasificación ${classification(entry.beforeClassification)})`
+    case 'MOTIVE_SUBMITTED': return `${current}: motivo cargado, categoría ${category(entry.afterMotiveCategory)}`
+    case 'MOTIVE_CORRECTED': return `${current}: motivo corregido, categoría ${category(entry.beforeMotiveCategory)} → ${category(entry.afterMotiveCategory)}`
+    default: return `${current}: cambio registrado`
+  }
 }
 
 export type HistoryFilterValues = { employeeId: string; siteId: string; from: string; to: string }

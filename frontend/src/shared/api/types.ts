@@ -16,6 +16,8 @@ export type Site = { id: Id; name: string; timeZone: string }
 export type Employee = {
   id: Id; displayName: string; dni?: string; siteIds: Id[]; toleranceMinutes: number; active: boolean; mustChangePassword?: boolean
 }
+/** Returned once by POST /employees/{id}/password-reset; keep it only in component memory. */
+export type PasswordReset = { temporaryPassword: string }
 export type TemplateBlock = { startDayOffset: 0 | 1; start: string; end: string; endDayOffset: 0 | 1 }
 export type TemplateInput = {
   siteId: Id; name: string; blocks: TemplateBlock[]; breakfastLimitMinutes: number; lunchLimitMinutes: number
@@ -60,3 +62,20 @@ export type Deviation = {
   occurredAt?: string; createdAt: string; updatedAt?: string; pushEligible: boolean
 }
 export type Inbox = { items: Deviation[]; nextCursor?: string | null }
+/** GET /admin/jornadas/{id}/audit (issue #60): fields that do not apply to an entry's kind are omitted. */
+export type JornadaAuditKind = 'JORNADA_CANCELLATION' | 'FORGOTTEN_MARK' | 'MARK_CORRECTION' | 'MARK_VOID' | 'DEVIATION'
+export type DeviationAuditChange = 'CREATED' | 'TYPE_REPLACED' | 'CLASSIFICATION_CHANGED' | 'RETRACTED' | 'MOTIVE_SUBMITTED' | 'MOTIVE_CORRECTED' | 'CLASSIFICATION_RESET'
+export type JornadaAuditEntry = {
+  kind: JornadaAuditKind; changedAt: string
+  /** Omitted for a change made by the system. */
+  actorAccountId?: Id | null; actorDisplayName?: string | null
+  /** Reason written by the ADMIN; never the employee's motive text (motive changes carry only their categories). */
+  reason?: string | null
+  markId?: Id | null; markSequence?: number | null; beforeAction?: MarkAction | null; afterAction?: MarkAction | null
+  beforeOccurredAt?: string | null; afterOccurredAt?: string | null
+  deviationId?: Id | null; deviationType?: Deviation['type'] | null; changeType?: DeviationAuditChange | null
+  beforeType?: Deviation['type'] | null; afterType?: Deviation['type'] | null
+  beforeClassification?: 'JUSTIFICADO' | 'NO_JUSTIFICADO' | null; afterClassification?: 'JUSTIFICADO' | 'NO_JUSTIFICADO' | null
+  beforeMotiveCategory?: NonNullable<Deviation['category']> | null; afterMotiveCategory?: NonNullable<Deviation['category']> | null
+}
+export type JornadaAudit = { jornadaId: Id; timeZone: string; entries: JornadaAuditEntry[]; truncated: boolean }

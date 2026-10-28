@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { submitMark } from './markFlow'
-import { ApiError, TimeoutError, type ApiClient } from '../../shared/api/client'
+import { ApiClient, ApiError, TimeoutError } from '../../shared/api/client'
 
 describe('submitMark', () => {
   it('no confirma hasta obtener respuesta del servidor y conserva la clave al reintentar', async () => {
@@ -132,6 +132,20 @@ describe('submitMark', () => {
       expect(post.mock.calls[0][3].signal.aborted).toBe(false)
       await vi.advanceTimersByTimeAsync(1)
       expect(await submission).toBeInstanceOf(TimeoutError)
+    })
+
+    it('el plazo de 15 segundos también cubre un pedido de token CSRF que no responde', async () => {
+      vi.useFakeTimers()
+      const fetchMock = vi.fn(() => new Promise<Response>(() => { /* GET /csrf stalls */ }))
+      vi.stubGlobal('fetch', fetchMock)
+      try {
+        const submission = submitMark(new ApiClient(), { jornadaId: 'j-1', action: 'INGRESO', idempotencyKey: 'k' }, () => Promise.resolve(null))
+          .catch((reason: unknown) => reason)
+
+        await vi.advanceTimersByTimeAsync(15_000)
+        expect(await submission).toBeInstanceOf(TimeoutError)
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+      } finally { vi.unstubAllGlobals() }
     })
   })
 })

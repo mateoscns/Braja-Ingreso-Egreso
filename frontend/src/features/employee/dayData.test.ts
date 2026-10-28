@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ApiClient } from '../../shared/api/client'
 import type { Deviation, Jornada, Site } from '../../shared/api/types'
-import { dateForSite, loadEmployeeDayData, localCalendarDate } from './dayData'
+import { dateForSite, loadEmployeeDayData, loadPendingMotives, localCalendarDate, PENDING_MOTIVES_LIMIT } from './dayData'
 
 const sites: Site[] = [
   { id: 's-east', name: 'Isla Este', timeZone: 'Pacific/Kiritimati' },
@@ -121,5 +121,37 @@ describe('motivos pendientes de cualquier fecha', () => {
     })
     const data = await loadEmployeeDayData({ get: get as unknown as ApiClient['get'] }, sites, '2026-10-01', instant)
     expect(data.pendingMotives.map((item) => item.id)).toEqual(['d-1'])
+    expect(data.pendingMotivesError).toBe('')
+    expect(data.pendingMotivesTruncated).toBe(false)
+  })
+
+  it('si fallan los motivos pendientes, la jornada y los desvíos de la fecha igual se cargan', async () => {
+    const journey = { id: 'j-east', siteId: 's-east', localDate: '2026-10-16' } as Jornada
+    const dated = pending('d-dated', 'j-east')
+    const get = vi.fn(async (path: string) => {
+      if (path === '/jornadas/mine?localDate=2026-10-16') return [journey]
+      if (path.startsWith('/jornadas/mine?')) return [] as Jornada[]
+      if (path === '/deviations?status=MOTIVO_PENDIENTE&limit=100') throw new Error('Servidor no disponible.')
+      if (path === '/deviations?from=2026-10-16&to=2026-10-16&siteId=s-east') return [dated]
+      if (path.startsWith('/deviations?from=')) return [] as Deviation[]
+      throw new Error(`GET inesperado: ${path}`)
+    })
+    const data = await loadEmployeeDayData({ get: get as unknown as ApiClient['get'] }, sites, '', instant)
+    expect(data.jornadas.map((item) => item.id)).toEqual(['j-east'])
+    expect(data.deviations.map((item) => item.id)).toEqual(['d-dated'])
+    expect(data.pendingMotives).toEqual([])
+    expect(data.pendingMotivesError).toBe('Servidor no disponible.')
+  })
+
+  it('avisa cuando la lista de pendientes llegó al límite de la consulta', async () => {
+    const page = Array.from({ length: PENDING_MOTIVES_LIMIT }, (_, index) => pending(`d-${index}`, `j-${index}`))
+    const get = vi.fn(async (path: string) => {
+      if (path === '/deviations?status=MOTIVO_PENDIENTE&limit=100') return page
+      return [] as never
+    })
+    const full = await loadPendingMotives({ get: get as unknown as ApiClient['get'] })
+    expect(full).toEqual({ items: page, truncated: true })
+    get.mockResolvedValueOnce(page.slice(1) as never)
+    expect((await loadPendingMotives({ get: get as unknown as ApiClient['get'] })).truncated).toBe(false)
   })
 })

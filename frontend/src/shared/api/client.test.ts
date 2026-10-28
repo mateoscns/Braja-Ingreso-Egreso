@@ -133,6 +133,8 @@ describe('ApiClient: códigos de error conocidos', () => {
     [409, 'JORNADA_EXISTS', 'Ya hay una jornada declarada para ese empleado, sede y fecha.'],
     [409, 'MEMBERSHIP_EXISTS', 'Esa persona ya tiene un rol en esta empresa.'],
     [409, 'ACCOUNT_INACTIVE', 'La cuenta de ese DNI no está habilitada y no se puede agregar a la empresa.'],
+    [409, 'ACCOUNT_SHARED', 'Esta persona también tiene acceso en otra empresa o como ADMIN; su contraseña la restablece el operador.'],
+    [409, 'EMPLOYEE_INACTIVE', 'El empleado está dado de baja; reactivalo antes de restablecer la contraseña.'],
     [409, 'JORNADA_HAS_MARKS', 'La jornada ya tiene marcas y no se puede cancelar. Corregí o anulá sus marcas.'],
     [409, 'JORNADA_CANCELLED', 'Esta jornada fue cancelada por el administrador y no admite marcas.'],
     [409, 'MARK_VOIDED', 'Esa marca ya fue anulada y no se puede modificar.'],
@@ -254,5 +256,73 @@ describe('ApiClient: tiempo de espera', () => {
     const failure = await pending.catch((reason: unknown) => reason)
     expect(failure).toBeInstanceOf(TimeoutError)
     expect((failure as Error).message).toBe('El servidor tardó demasiado en responder.')
+  })
+
+  it('la espera agotada también corta un pedido de token CSRF que no responde y no envía la mutación', async () => {
+    const fetchMock = vi.fn(() => new Promise<Response>(() => { /* GET /csrf never answers */ }))
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+    const pending = new ApiClient().post('/jornadas/j-1/marks', { action: 'INGRESO' }, { 'Idempotency-Key': 'k' }, { signal: controller.signal })
+      .catch((reason: unknown) => reason)
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    controller.abort(new DOMException('timeout', 'TimeoutError'))
+
+    expect(await pending).toBeInstanceOf(TimeoutError)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0]).toEqual(['/api/v1/csrf', expect.objectContaining({ method: 'GET' })])
+  })
+
+  it('una señal ya cortada no pide el token CSRF', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+    controller.abort(new DOMException('timeout', 'TimeoutError'))
+
+    await expect(new ApiClient().post('/x', {}, {}, { signal: controller.signal })).rejects.toBeInstanceOf(TimeoutError)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('cortar una operación no cancela el token CSRF que otra operación sigue esperando', async () => {
+    let answerCsrf!: (response: Response) => void
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { answerCsrf = resolve }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new ApiClient()
+    const controller = new AbortController()
+    const aborted = client.post('/a', {}, {}, { signal: controller.signal }).catch((reason: unknown) => reason)
+    const other = client.put('/b', {})
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+
+    controller.abort(new DOMException('timeout', 'TimeoutError'))
+    expect(await aborted).toBeInstanceOf(TimeoutError)
+    answerCsrf(new Response(JSON.stringify({ token: 'csrf-token-long-enough' }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+    await expect(other).resolves.toBeUndefined()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/b')
+    expect(new Headers(fetchMock.mock.calls[1][1].headers).get('X-CSRF-TOKEN')).toBe('csrf-token-long-enough')
+  })
+})
+
+describe('ApiClient: autenticación no disponible', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  const csrf = () => new Response(JSON.stringify({ token: 'csrf-token-long-enough' }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  const unavailable = () => new Response(JSON.stringify({ status: 503, code: 'AUTHENTICATION_UNAVAILABLE' }), { status: 503, headers: { 'Content-Type': 'application/problem+json' } })
+  const message = 'El sistema no está disponible en este momento. Probá de nuevo en unos minutos.'
+
+  it('un 503 AUTHENTICATION_UNAVAILABLE al iniciar sesión dice que el sistema no está disponible', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(csrf()).mockResolvedValueOnce(unavailable()))
+    await expect(new ApiClient().post('/session', { dni: '1', password: 'x' })).rejects.toMatchObject({ status: 503, code: 'AUTHENTICATION_UNAVAILABLE', message })
+  })
+
+  it('un 503 AUTHENTICATION_UNAVAILABLE al cambiar la contraseña dice que el sistema no está disponible', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(csrf()).mockResolvedValueOnce(unavailable()))
+    await expect(new ApiClient().put('/session/password', { currentPassword: 'a', newPassword: 'b' })).rejects.toMatchObject({ status: 503, message })
+  })
+
+  it('un 503 sin ese código conserva el mensaje genérico de conexión', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ status: 503 }), { status: 503, headers: { 'Content-Type': 'application/problem+json' } })))
+    await expect(new ApiClient().get('/x')).rejects.toMatchObject({ message: 'No se pudo completar la operación. Revisá tu conexión y reintentá.' })
   })
 })

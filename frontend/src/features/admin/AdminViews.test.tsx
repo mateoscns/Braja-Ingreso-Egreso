@@ -366,6 +366,50 @@ describe('administración de desvíos y marcas', () => {
     })))
   })
 
+  describe('marcas que no encajan con la jornada en los formularios de ADMIN', () => {
+    const staleEmployeeText = /El estado de la jornada cambió y esa marca ya no corresponde/
+    const adminText = 'La hora o la acción no encajan con las demás marcas de la jornada. Revisá el orden.'
+    const rejection = (code: string) => Object.assign(new Error('El estado de la jornada cambió y esa marca ya no corresponde. Revisá el estado actualizado.'), { status: 409, code })
+
+    it.each(['INVALID_MARK_ORDER', 'INVALID_MARK_HISTORY', 'INVALID_MARK_TRANSITION'])('una marca olvidada rechazada con %s explica el orden al ADMIN', async (code) => {
+      apiMocks.post.mockRejectedValueOnce(rejection(code))
+      render(<JourneysView />)
+      fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
+      await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
+      fireEvent.change(screen.getByLabelText('Hora del evento (Local Centro)'), { target: { value: '2026-10-16T08:30' } })
+      fireEvent.change(screen.getByLabelText('Motivo de incorporación'), { target: { value: 'Olvidó marcar.' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Registrar marca olvidada' }))
+
+      expect(await screen.findByText(adminText)).toBeInTheDocument()
+      expect(screen.queryByText(staleEmployeeText)).not.toBeInTheDocument()
+    })
+
+    it.each(['INVALID_MARK_ORDER', 'INVALID_MARK_HISTORY', 'INVALID_MARK_TRANSITION'])('una corrección rechazada con %s explica el orden al ADMIN', async (code) => {
+      apiMocks.post.mockRejectedValueOnce(rejection(code))
+      render(<JourneysView />)
+      fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
+      const markRow = await screen.findByRole('row', { name: /Ingreso/ })
+      fireEvent.click(within(markRow).getByRole('button', { name: /^Corregir marca/ }))
+      fireEvent.change(screen.getByLabelText('Motivo de corrección de marca'), { target: { value: 'Se verificó la hora.' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Guardar corrección de marca' }))
+
+      expect(await screen.findByText(adminText)).toBeInTheDocument()
+      expect(screen.queryByText(staleEmployeeText)).not.toBeInTheDocument()
+    })
+
+    it('otros rechazos de esos formularios conservan el mensaje del servidor', async () => {
+      apiMocks.post.mockRejectedValueOnce(Object.assign(new Error('Esa marca ya fue anulada y no se puede modificar.'), { status: 409, code: 'MARK_VOIDED' }))
+      render(<JourneysView />)
+      fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
+      const markRow = await screen.findByRole('row', { name: /Ingreso/ })
+      fireEvent.click(within(markRow).getByRole('button', { name: /^Corregir marca/ }))
+      fireEvent.change(screen.getByLabelText('Motivo de corrección de marca'), { target: { value: 'Se verificó la hora.' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Guardar corrección de marca' }))
+
+      expect(await screen.findByText('Esa marca ya fue anulada y no se puede modificar.')).toBeInTheDocument()
+    })
+  })
+
   it.each(['2026-03-08T02:30', '2026-11-01T01:30'])('rechaza una hora inexistente o ambigua en la zona de sede: %s', async (localTime) => {
     const originalGet = apiMocks.get.getMockImplementation()!
     apiMocks.get.mockImplementation((path: string) => path === '/sites' ? Promise.resolve([{ ...site, timeZone: 'America/New_York' }]) : originalGet(path))
@@ -500,6 +544,66 @@ describe('administración de desvíos y marcas', () => {
     })
   })
 
+  describe('restablecer la contraseña de un empleado', () => {
+    const TEMPORARY = 'Abcd-Efgh-Jkmn-Pqrs'
+    const resetButton = () => screen.findByRole('button', { name: 'Restablecer contraseña de Lucía Pérez' })
+
+    it('pide confirmación, muestra la provisoria una sola vez y la borra al cerrar el aviso', async () => {
+      const storageWrites = vi.spyOn(Storage.prototype, 'setItem')
+      apiMocks.post.mockResolvedValueOnce({ temporaryPassword: TEMPORARY })
+      render(<EmployeesView />)
+      fireEvent.click(await resetButton())
+      expect(apiMocks.post).not.toHaveBeenCalled()
+      expect(screen.getByText(/Se cierran todas sus sesiones/)).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Confirmar restablecimiento' }))
+      expect(await screen.findByText(TEMPORARY)).toBeInTheDocument()
+      expect(apiMocks.post).toHaveBeenCalledWith('/employees/e-1/password-reset')
+      expect(screen.getByText('Entregásela en persona; se pide cambiarla al ingresar.')).toBeInTheDocument()
+      expect(storageWrites).not.toHaveBeenCalled()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Listo, ya la entregué' }))
+      expect(screen.queryByText(TEMPORARY)).not.toBeInTheDocument()
+      storageWrites.mockRestore()
+    })
+
+    it('cancelar la confirmación no llama a la API', async () => {
+      render(<EmployeesView />)
+      fireEvent.click(await resetButton())
+      fireEvent.click(screen.getByRole('button', { name: 'Cancelar restablecimiento' }))
+      expect(screen.queryByRole('button', { name: 'Confirmar restablecimiento' })).not.toBeInTheDocument()
+      expect(apiMocks.post).not.toHaveBeenCalled()
+    })
+
+    it('un rechazo muestra el mensaje del servidor y ninguna contraseña', async () => {
+      apiMocks.post.mockRejectedValueOnce(new Error('Esta persona también tiene acceso en otra empresa o como ADMIN; su contraseña la restablece el operador.'))
+      render(<EmployeesView />)
+      fireEvent.click(await resetButton())
+      fireEvent.click(screen.getByRole('button', { name: 'Confirmar restablecimiento' }))
+      expect(await screen.findByRole('alert')).toHaveTextContent('su contraseña la restablece el operador')
+      expect(screen.queryByText('Listo, ya la entregué')).not.toBeInTheDocument()
+    })
+
+    it('la provisoria no sobrevive a salir de la vista', async () => {
+      apiMocks.post.mockResolvedValueOnce({ temporaryPassword: TEMPORARY })
+      const { unmount } = render(<EmployeesView />)
+      fireEvent.click(await resetButton())
+      fireEvent.click(screen.getByRole('button', { name: 'Confirmar restablecimiento' }))
+      await screen.findByText(TEMPORARY)
+      unmount()
+      render(<EmployeesView />)
+      await resetButton()
+      expect(screen.queryByText(TEMPORARY)).not.toBeInTheDocument()
+    })
+
+    it('un empleado inactivo no ofrece restablecer', async () => {
+      const previous = apiMocks.get.getMockImplementation()!
+      apiMocks.get.mockImplementation((path: string) => path === '/employees' ? Promise.resolve([{ ...employee, active: false }]) : previous(path))
+      render(<EmployeesView />)
+      expect(await resetButton()).toBeDisabled()
+    })
+  })
+
   it('sin la zona horaria de la sede deshabilita las marcas olvidadas y las correcciones', async () => {
     const previous = apiMocks.get.getMockImplementation()!
     apiMocks.get.mockImplementation((path: string) => path === '/sites' ? Promise.reject(new Error('Servidor no disponible.')) : previous(path))
@@ -629,6 +733,23 @@ describe('administración de desvíos y marcas', () => {
 
       await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/admin/jornadas/j-1/cancellation', { reason: 'Feriado nacional' }))
       expect(await screen.findByText('Jornada cancelada.')).toBeInTheDocument()
+    })
+
+    it('los motivos de cancelación y de anulación piden no escribir datos de salud (L30)', async () => {
+      const healthHint = 'No escribas datos de salud; alcanza con «Licencia».'
+      withDetail({ state: 'NO_INGRESO', marks: [] })
+      render(<JourneysView />)
+      fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancelar jornada' }))
+      expect(screen.getByRole('textbox', { name: 'Motivo de cancelación' })).toHaveAccessibleDescription(expect.stringContaining(healthHint))
+      cleanup()
+
+      withDetail({})
+      render(<JourneysView />)
+      fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
+      const markRow = await screen.findByRole('row', { name: /Ingreso/ })
+      fireEvent.click(within(markRow).getByRole('button', { name: /^Anular marca Ingreso de/ }))
+      expect(screen.getByRole('textbox', { name: 'Motivo de anulación' })).toHaveAccessibleDescription(expect.stringContaining(healthHint))
     })
 
     it('no ofrece cancelar una jornada que ya tiene marcas', async () => {

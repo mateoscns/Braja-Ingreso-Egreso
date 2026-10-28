@@ -352,6 +352,38 @@ paths:
                 ASSIGNMENT_EXISTS:
                   value: { type: about:blank, title: Conflict, status: 409, code: ASSIGNMENT_EXISTS, detail: The employee already has a template assigned at this site from that date }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /employees/{employeeId}/password-reset:
+    post:
+      tags: [Employees]
+      summary: Reset the password of an employee that belongs only to the active company
+      description: >-
+        ADMIN only (D-20261027-09). The server generates a temporary password, stores only its
+        hash, requires a password change at the next login, deletes every session of the account,
+        clears the DNI login throttle and writes an audit row (without the password). The
+        temporary password is returned only in this response (`Cache-Control: no-store`) and must
+        never be logged or stored by the client. Rejected with 409 `ACCOUNT_SHARED` when the
+        account has a membership in another company (active or not) or an ADMIN role; the
+        response does not say which. Rejected with 409 `EMPLOYEE_INACTIVE` when the employee,
+        its membership or the account is inactive.
+      parameters:
+        - $ref: '#/components/parameters/EmployeeId'
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Temporary password issued
+          headers:
+            Cache-Control:
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [temporaryPassword]
+                properties:
+                  temporaryPassword: { type: string, minLength: 12, maxLength: 256 }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /templates:
     get:
       tags: [Templates]
@@ -741,7 +773,8 @@ paths:
       tags: [Marks]
       summary: Correct a mark without overwriting its original value
       description: >-
-        ADMIN only. The original value, corrected value, actor, server correction time, and audit reason remain available to authorized reviewers.
+        ADMIN only. The original value, corrected value, actor, server correction time, and audit reason remain available to
+        the company's ADMIN through GET /admin/jornadas/{jornadaId}/audit.
         correctedOccurredAt follows the same bounds as a forgotten mark: not later than the server time and within 24 hours
         of the jornada schedule (422 VALIDATION_ERROR otherwise). A voided mark cannot be corrected (409 MARK_VOIDED).
       parameters:
@@ -824,6 +857,29 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/jornadas/{jornadaId}/audit:
+    get:
+      tags: [Jornadas]
+      summary: Change history of a jornada (issue #60)
+      description: >-
+        ADMIN only (403 FORBIDDEN otherwise); a jornada of another company answers 404 NOT_FOUND. Returns, oldest first, the
+        jornada cancellation, the forgotten marks, the mark corrections and voids, and the audits of the jornada's deviations
+        (active or retracted). Changes written in the same transaction keep their causal order (for example a forgotten mark
+        before the deviation change it caused). Each entry names its actor (employee name in the company, else the membership
+        name, else "DNI <dni>"); a change made by the system has no actor. Motive text of any category is never returned: a
+        motive change carries only its categories. Coordinates are never returned. At most 500 entries; truncated is true when
+        the jornada has more.
+      parameters:
+        - $ref: '#/components/parameters/JornadaId'
+      responses:
+        '200':
+          description: Change history
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JornadaAudit' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /deviations:
     get:
       tags: [Deviations]
@@ -1264,6 +1320,52 @@ components:
         cancelledAt: { type: string, format: date-time }
         cancelledBy: { $ref: '#/components/schemas/Id' }
         cancelReason: { type: string, minLength: 1, maxLength: 2000 }
+    JornadaAudit:
+      type: object
+      required: [jornadaId, timeZone, entries, truncated]
+      properties:
+        jornadaId: { $ref: '#/components/schemas/Id' }
+        timeZone: { type: string, description: IANA zone of the jornada's site, for presenting the times. }
+        entries:
+          type: array
+          maxItems: 500
+          items: { $ref: '#/components/schemas/JornadaAuditEntry' }
+        truncated: { type: boolean, description: True when the jornada has more than 500 changes; entries holds the oldest 500. }
+    JornadaAuditEntry:
+      type: object
+      description: Fields that do not apply to an entry's kind are omitted.
+      required: [kind, changedAt]
+      properties:
+        kind: { type: string, enum: [JORNADA_CANCELLATION, FORGOTTEN_MARK, MARK_CORRECTION, MARK_VOID, DEVIATION] }
+        changedAt: { type: string, format: date-time, description: Server time of the change. }
+        actorAccountId: { $ref: '#/components/schemas/Id' }
+        actorDisplayName: { type: string, description: Omitted, like actorAccountId, for a change made by the system. }
+        reason:
+          type: string
+          maxLength: 2000
+          description: >-
+            Reason written by the ADMIN (cancellation, forgotten mark, correction, void, classification change) or the system's
+            note on a deviation change. Never present for MOTIVE_SUBMITTED or MOTIVE_CORRECTED.
+        markId: { $ref: '#/components/schemas/Id' }
+        markSequence: { type: integer, minimum: 1 }
+        beforeAction: { $ref: '#/components/schemas/MarkAction' }
+        afterAction: { $ref: '#/components/schemas/MarkAction', description: For FORGOTTEN_MARK, the action the ADMIN entered. }
+        beforeOccurredAt: { type: string, format: date-time }
+        afterOccurredAt: { type: string, format: date-time, description: For FORGOTTEN_MARK, the declared event time the ADMIN entered. }
+        deviationId: { $ref: '#/components/schemas/Id' }
+        deviationType: { $ref: '#/components/schemas/DeviationType', description: Current type of the deviation. }
+        changeType:
+          type: string
+          enum: [CREATED, TYPE_REPLACED, CLASSIFICATION_CHANGED, RETRACTED, MOTIVE_SUBMITTED, MOTIVE_CORRECTED, CLASSIFICATION_RESET]
+        beforeType: { $ref: '#/components/schemas/DeviationType' }
+        afterType: { $ref: '#/components/schemas/DeviationType' }
+        beforeClassification: { type: string, enum: [JUSTIFICADO, NO_JUSTIFICADO] }
+        afterClassification: { type: string, enum: [JUSTIFICADO, NO_JUSTIFICADO] }
+        beforeMotiveCategory: { $ref: '#/components/schemas/MotiveCategory', description: Only for MOTIVE_CORRECTED. }
+        afterMotiveCategory: { $ref: '#/components/schemas/MotiveCategory', description: For MOTIVE_SUBMITTED and MOTIVE_CORRECTED. }
+    DeviationType:
+      type: string
+      enum: [SIN_INGRESO, LLEGADA_TARDE, EGRESO_TEMPRANO, EGRESO_TARDIO, MARCA_FALTANTE, EXCESO_DESAYUNO, EXCESO_ALMUERZO]
     ReasonInput:
       type: object
       required: [reason]
