@@ -429,6 +429,42 @@ describe('EmployeeApp', () => {
     expect(screen.getByRole('combobox', { name: 'Empresa activa' })).toBeEnabled()
   })
 
+  it('muestra una jornada cancelada sin acciones de marca y elige primero la que sigue vigente', async () => {
+    const cancelled = { ...jornadas[0], state: 'CANCELADA' as const, marks: [], cancelledAt: '2026-10-20T11:00:00Z' }
+    mocks.apiGet.mockImplementation((path: string) => {
+      if (path === '/sites') return Promise.resolve(sites)
+      if (path.startsWith('/jornadas/mine?')) return Promise.resolve([cancelled, jornadas[1]])
+      if (path.startsWith('/deviations?')) return Promise.resolve([])
+      throw new Error(`GET inesperado: ${path}`)
+    })
+    render(<EmployeeApp />)
+
+    const options = await screen.findAllByRole('button', { name: /Mañana/ })
+    expect(options[0]).toHaveAccessibleName(/Cancelada/)
+    expect(options[1]).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(options[0])
+    expect(await screen.findByText('El administrador canceló esta jornada; no hay marcas para registrar.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Registrar ingreso/ })).not.toBeInTheDocument()
+  })
+
+  it('muestra las marcas anuladas como Anulada y no las cuenta para la próxima acción', async () => {
+    const withVoided = {
+      ...jornadas[0],
+      marks: [...jornadas[0].marks, { id: 'mark-voided', jornadaId: 'jornada-center', action: 'SALIDA_DESAYUNO' as const, sequence: 2, acceptedAt: '2026-10-20T13:00:00Z', locationStatus: 'SIN_UBICACION' as const, voided: true }]
+    }
+    mocks.apiGet.mockImplementation((path: string) => {
+      if (path === '/sites') return Promise.resolve(sites)
+      if (path.startsWith('/jornadas/mine?')) return Promise.resolve([withVoided])
+      if (path.startsWith('/deviations?')) return Promise.resolve([])
+      throw new Error(`GET inesperado: ${path}`)
+    })
+    render(<EmployeeApp />)
+
+    expect(await screen.findByText('Anulada')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Salir a desayuno/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Registrar egreso/ })).toBeInTheDocument()
+  })
+
   it('oculta los símbolos decorativos de los botones de marca y lleva el foco al resultado', async () => {
     render(<EmployeeApp />)
     const egreso = await screen.findByRole('button', { name: /Registrar egreso/ })

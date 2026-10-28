@@ -83,10 +83,7 @@ public class DeviationService {
             }
         }
 
-        List<ExistingDeviation> existing = jdbc.query("SELECT id,type,active,source_mark_id,classification FROM deviations WHERE company_id=? AND jornada_id=? ORDER BY created_at,id FOR UPDATE",
-                (rs, row) -> new ExistingDeviation(UUID.fromString(rs.getString("id")), DeviationType.valueOf(rs.getString("type")), rs.getBoolean("active"),
-                        rs.getString("source_mark_id") == null ? null : UUID.fromString(rs.getString("source_mark_id")), rs.getString("classification")),
-                companyId.toString(), jornadaId.toString());
+        List<ExistingDeviation> existing = lockDeviations(companyId, jornadaId);
         Map<DeviationType, ExistingDeviation> active = new EnumMap<>(DeviationType.class);
         List<ExistingDeviation> activeRows = existing.stream().filter(ExistingDeviation::active).toList();
 
@@ -149,10 +146,33 @@ public class DeviationService {
             if ((deviation.type() == DeviationType.SIN_INGRESO && desired.containsKey(DeviationType.LLEGADA_TARDE))
                     || (deviation.type() == DeviationType.LLEGADA_TARDE && desired.containsKey(DeviationType.SIN_INGRESO))
                     || (isEgress(deviation.type()) && desired.keySet().stream().anyMatch(type -> isEgress(type)))) continue;
-            jdbc.update("UPDATE deviations SET active=FALSE,updated_at=? WHERE id=? AND company_id=?", timestamp(now), deviation.id().toString(), companyId.toString());
-            jdbc.update("INSERT INTO deviation_audits(id,company_id,deviation_id,change_type,before_type,created_at) VALUES(?,?,?,'RETRACTED',?,?)",
-                    UUID.randomUUID().toString(), companyId.toString(), deviation.id().toString(), deviation.type().name(), timestamp(now));
+            retract(companyId, deviation, now);
         }
+    }
+
+    /**
+     * A cancelled jornada (D-20261027-07) keeps no active deviation: each one is retracted and audited exactly like a reconcile
+     * retraction, so its pending push follows the same rule (the outbox only counts active deviations). The caller holds the
+     * jornada lock (CLAUDE.md §5.11: jornada before deviations).
+     */
+    @Transactional
+    public void retractAll(UUID companyId, UUID jornadaId, Instant now) {
+        for (ExistingDeviation deviation : lockDeviations(companyId, jornadaId)) {
+            if (deviation.active()) retract(companyId, deviation, now);
+        }
+    }
+
+    private List<ExistingDeviation> lockDeviations(UUID companyId, UUID jornadaId) {
+        return jdbc.query("SELECT id,type,active,source_mark_id,classification FROM deviations WHERE company_id=? AND jornada_id=? ORDER BY created_at,id FOR UPDATE",
+                (rs, row) -> new ExistingDeviation(UUID.fromString(rs.getString("id")), DeviationType.valueOf(rs.getString("type")), rs.getBoolean("active"),
+                        rs.getString("source_mark_id") == null ? null : UUID.fromString(rs.getString("source_mark_id")), rs.getString("classification")),
+                companyId.toString(), jornadaId.toString());
+    }
+
+    private void retract(UUID companyId, ExistingDeviation deviation, Instant now) {
+        jdbc.update("UPDATE deviations SET active=FALSE,updated_at=? WHERE id=? AND company_id=?", timestamp(now), deviation.id().toString(), companyId.toString());
+        jdbc.update("INSERT INTO deviation_audits(id,company_id,deviation_id,change_type,before_type,created_at) VALUES(?,?,?,'RETRACTED',?,?)",
+                UUID.randomUUID().toString(), companyId.toString(), deviation.id().toString(), deviation.type().name(), timestamp(now));
     }
 
     @Transactional

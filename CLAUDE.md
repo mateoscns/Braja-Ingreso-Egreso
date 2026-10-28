@@ -182,8 +182,11 @@ ArchUnit que se agreguen se ajustan a esta estructura.
 - **La jornada es una máquina de estado** (`NO_INGRESO`, `EN_CURSO`,
   `PAUSA_ABIERTA`, `EGRESADA`), derivada del historial (`MarkState.from`);
   las transiciones son reglas en `MarkTransitionPolicy`, no una tabla.
-  Guarda: `chk_jornada_state` (V2), `MarkTransitionPolicyTest`,
-  `MarkStateTest`.
+  Desde 2026-10-27 existe además `CANCELADA`, terminal, que solo se alcanza
+  desde `NO_INGRESO` sin marcas (D-20261027-07), y las marcas anuladas no
+  cuentan para el historial (D-20261027-08). Guarda: `chk_jornada_state`
+  (V2, V19), `chk_jornada_cancellation` (V19), `MarkTransitionPolicyTest`,
+  `MarkStateTest`, `JornadaCancellationAndMarkVoidMySqlTest`.
 - **Jobs** (`@Scheduled`): `MarkScheduler` (ausencias y `MARCA_FALTANTE`
   15 s; timeout de ubicación 5 s), `NotificationOutboxDispatcher` (5 s),
   `PrivacyRetentionScheduler` (15 min).
@@ -250,6 +253,10 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
    olvidadas: `IT.forgottenIngressCanBeInsertedBeforeAlreadyStoredEgresoAndKeepsReceiptSequence`
    y `IT.forgottenPauseStartCannotLeaveInvalidHistoryWhenReturnIsAlsoMissing`
    (rollback sin auditoría). `correctMark` `[sin guarda: implementado, sin test]`.
+   La anulación de una marca (D-20261027-08) no borra la fila y escribe
+   `mark_correction_audits` con `change_kind='VOID'` (V20, V21). Guarda:
+   `JornadaCancellationAndMarkVoidMySqlTest.voidingAMarkKeepsTheRowAuditsItAndStopsCountingIt`
+   (2026-10-27).
 7. **Un empleado dado de baja no inicia sesión ni marca; su historial no se
    borra.** La baja es `PATCH /employees/{id}` con `active=false`; no existe
    endpoint de borrado y las FK impiden borrar filas referenciadas. Guarda:
@@ -282,10 +289,15 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     `recordEmployeeMark` hace `SELECT … FOR UPDATE` sobre la cuenta, la
     membresía y la fila de `jornadas`, relee el historial `FOR UPDATE`, valida
     la transición y recién ahí inserta. Última defensa en la base:
-    `uq_mark_jornada_sequence` (V3) y `uq_jornada_employee_site_date` (V2),
-    que reemplazan al índice por `(empresa, empleado, fecha, bloque, tipo)` del
-    archivo anterior (D-20261019-04). Guarda: `IT.identicalConcurrentRetries…` (2 hilos),
-    `IT.ingresoCommittedAfterRepeatableReadSnapshotWinsAgainstAbsenceWorker`.
+    `uq_mark_jornada_sequence` (V3) y la unicidad de jornada por empleado,
+    sede y fecha, que reemplazan al índice por `(empresa, empleado, fecha, bloque, tipo)` del
+    archivo anterior (D-20261019-04). Desde V19 (2026-10-27, D-20261027-07) esa
+    unicidad es `uq_jornada_employee_site_active_date` (empresa, empleado, sede y
+    `active_local_date`, nula si `CANCELADA`) en lugar de `uq_jornada_employee_site_date`
+    (V2): ignora las canceladas y sigue siendo la última defensa entre las demás.
+    Guarda: `IT.identicalConcurrentRetries…` (2 hilos),
+    `IT.ingresoCommittedAfterRepeatableReadSnapshotWinsAgainstAbsenceWorker`,
+    `JornadaCancellationAndMarkVoidMySqlTest.concurrentDeclarationsOfTheSameEmployeeSiteAndDateStillYieldOneJornada` (4 hilos).
     **Brecha**: falta la ráfaga de N acciones distintas sobre un empleado.
 11. **Orden único de locks**, el real: cuenta → membresía → (empleado) →
     jornada → marcas → desvíos → estado de notificación de la empresa →
@@ -355,7 +367,8 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     Flyway Community no tiene `undo`: cada migración declara en un comentario
     cómo se vuelve atrás. El DDL de MySQL no es transaccional: **una sentencia
     DDL por migración**. Rige desde V12 (D-20261019-05): solo V11 declara su
-    reversa, y V1–V5 y V7–V10 tienen varias sentencias pero no se reescriben. Migrar desde base vacía ocurre en cada corrida de `IT`
+    reversa, y V1–V5 y V7–V10 tienen varias sentencias pero no se reescriben.
+    V19–V21 (2026-10-27) son un `ALTER TABLE` cada una y declaran su reversa. Migrar desde base vacía ocurre en cada corrida de `IT`
     (`IT.migrationsCreateTheTenantAndPrivacyInvariants`). `[sin guarda: destino]`
 20. **Migraciones sin corte (expand/contract)**: aplica cuando exista deploy
     (V11 ya avisa que con filas `MARCA_FALTANTE` la imagen anterior falla).

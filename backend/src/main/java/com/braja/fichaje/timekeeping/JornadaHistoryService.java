@@ -19,7 +19,7 @@ import java.util.*;
 public class JornadaHistoryService {
     /** Upper bound of jornadas in a detailed response; larger answers must narrow the range, site or employee. */
     static final int MAX_DETAIL_JORNADAS = 500;
-    private static final String MARK_COLUMNS = "id,jornada_id,action,sequence_number,accepted_at,occurred_at,recorded_at,location_status,latitude,longitude";
+    private static final String MARK_COLUMNS = "id,jornada_id,action,sequence_number,accepted_at,occurred_at,recorded_at,location_status,latitude,longitude,voided_at,void_reason";
 
     private final JdbcTemplate jdbc;
     private final ScopeService scopes;

@@ -561,6 +561,9 @@ paths:
                 INVALID_MARK_ORDER:
                   summary: A stored mark of the jornada is later than the current server time.
                   value: { type: about:blank, title: Conflict, status: 409, code: INVALID_MARK_ORDER, detail: A stored mark of this jornada is later than the current server time }
+                JORNADA_CANCELLED:
+                  summary: The jornada was cancelled by an ADMIN (D-20261027-07) and accepts no marks.
+                  value: { type: about:blank, title: Conflict, status: 409, code: JORNADA_CANCELLED, detail: The jornada was cancelled by an ADMIN }
                 RETRYABLE_TRANSACTION_CONFLICT:
                   summary: A concurrent transaction caused a retryable lock conflict.
                   value: { type: about:blank, title: Conflict, status: 409, code: RETRYABLE_TRANSACTION_CONFLICT, detail: The operation conflicted with another transaction; retry the request. }
@@ -624,7 +627,7 @@ paths:
       description: >-
         ADMIN only. The server records the stated event time, the current server entry time, author, and audit reason separately.
         occurredAt cannot be later than the server time and must be within 24 hours before the scheduled start or after
-        the scheduled end of the jornada (422 VALIDATION_ERROR otherwise).
+        the scheduled end of the jornada (422 VALIDATION_ERROR otherwise). A CANCELADA jornada answers 409 JORNADA_CANCELLED.
       parameters:
         - $ref: '#/components/parameters/JornadaId'
         - $ref: '#/components/parameters/CsrfToken'
@@ -656,7 +659,7 @@ paths:
       description: >-
         ADMIN only. The original value, corrected value, actor, server correction time, and audit reason remain available to authorized reviewers.
         correctedOccurredAt follows the same bounds as a forgotten mark: not later than the server time and within 24 hours
-        of the jornada schedule (422 VALIDATION_ERROR otherwise).
+        of the jornada schedule (422 VALIDATION_ERROR otherwise). A voided mark cannot be corrected (409 MARK_VOIDED).
       parameters:
         - $ref: '#/components/parameters/MarkId'
         - $ref: '#/components/parameters/CsrfToken'
@@ -677,6 +680,62 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Mark' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/marks/{markId}/void:
+    post:
+      tags: [Marks]
+      summary: Void a wrong mark without deleting it (D-20261027-08)
+      description: >-
+        ADMIN only. The mark stays listed with voided=true and keeps its sequence number; it stops counting for the jornada state,
+        the transitions and the deviations, which are recomputed in the same transaction. The void is audited in
+        mark_correction_audits (change_kind VOID) with actor, server time and reason. Allowed only when the remaining marks form a
+        valid history (409 INVALID_MARK_HISTORY otherwise, for example voiding the INGRESO while later marks exist). Voiding a voided
+        mark answers 409 MARK_VOIDED.
+      parameters:
+        - $ref: '#/components/parameters/MarkId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonInput' }
+      responses:
+        '200':
+          description: Mark voided and audited; returns its current state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Mark' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/jornadas/{jornadaId}/cancellation:
+    post:
+      tags: [Jornadas]
+      summary: Cancel a declared jornada that has no valid marks (D-20261027-07)
+      description: >-
+        ADMIN only. Allowed only for a NO_INGRESO jornada without valid marks; voided marks do not count and stay visible (409 JORNADA_HAS_MARKS otherwise);
+        a jornada already cancelled answers 409 JORNADA_CANCELLED. The jornada becomes CANCELADA with author, server time and
+        reason; its active deviations are retracted and audited (RETRACTED), and a pending push stops counting them like any
+        retracted deviation. A cancelled jornada accepts no marks or forgotten marks, the absence and missing-egress jobs ignore it,
+        and the same employee, site and date can be declared again.
+      parameters:
+        - $ref: '#/components/parameters/JornadaId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonInput' }
+      responses:
+        '200':
+          description: Jornada cancelled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JornadaCancellation' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
@@ -1052,7 +1111,10 @@ components:
         employeeId: { $ref: '#/components/schemas/Id' }
         siteId: { $ref: '#/components/schemas/Id' }
         localDate: { type: string, format: date }
-        state: { type: string, enum: [NO_INGRESO, EN_CURSO, PAUSA_ABIERTA, EGRESADA] }
+        state:
+          type: string
+          enum: [NO_INGRESO, EN_CURSO, PAUSA_ABIERTA, EGRESADA, CANCELADA]
+          description: CANCELADA is terminal and only reached from NO_INGRESO without marks (D-20261027-07).
     JornadaSummary:
       allOf:
         - $ref: '#/components/schemas/JornadaBase'
@@ -1078,7 +1140,24 @@ components:
             sequence: { type: integer, minimum: 0 }
             marks:
               type: array
+              description: Voided marks are included, flagged with voided=true.
               items: { $ref: '#/components/schemas/Mark' }
+            cancelledAt: { type: [string, 'null'], format: date-time, description: Set only for a CANCELADA jornada. }
+            cancelReason: { type: [string, 'null'], maxLength: 2000, description: Cancellation reason; only returned to ADMIN. }
+    JornadaCancellation:
+      type: object
+      required: [jornadaId, state, cancelledAt, cancelledBy, cancelReason]
+      properties:
+        jornadaId: { $ref: '#/components/schemas/Id' }
+        state: { type: string, const: CANCELADA }
+        cancelledAt: { type: string, format: date-time }
+        cancelledBy: { $ref: '#/components/schemas/Id' }
+        cancelReason: { type: string, minLength: 1, maxLength: 2000 }
+    ReasonInput:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 2000, description: Required; blank answers 422 VALIDATION_ERROR. }
     MarkAction:
       type: string
       enum: [INGRESO, EGRESO, SALIDA_DESAYUNO, VUELTA_DESAYUNO, SALIDA_ALMUERZO, VUELTA_ALMUERZO]
@@ -1096,6 +1175,9 @@ components:
         locationStatus: { type: string, enum: [PENDIENTE, RECIBIDA, SIN_UBICACION, PURGADA, NO_APLICA] }
         latitude: { type: [number, 'null'], minimum: -90, maximum: 90, description: Only returned to an authorized ADMIN and only before 90-day purge. }
         longitude: { type: [number, 'null'], minimum: -180, maximum: 180, description: Only returned to an authorized ADMIN and only before 90-day purge. }
+        voided: { type: boolean, description: True when an ADMIN voided the mark (D-20261027-08); a voided mark no longer counts for the jornada. }
+        voidedAt: { type: [string, 'null'], format: date-time, description: Server time of the void; only returned to ADMIN. }
+        voidReason: { type: [string, 'null'], maxLength: 2000, description: Void reason; only returned to ADMIN. }
         deviations:
           type: array
           items: { $ref: '#/components/schemas/Deviation' }
@@ -1186,7 +1268,7 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     Conflict:
-      description: Idempotency conflict, duplicate jornada, expired location window, invalid state transition, or retryable transaction conflict
+      description: Idempotency conflict, duplicate jornada, expired location window, invalid state transition or history, cancelled jornada (JORNADA_CANCELLED), jornada with marks (JORNADA_HAS_MARKS), voided mark (MARK_VOIDED), or retryable transaction conflict
       headers:
         Retry-After:
           description: Present when the conflict is retryable.
