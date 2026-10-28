@@ -1,6 +1,6 @@
 # Especificación de v1 — Fichaje Braja
 
-**Estado:** alcance confirmado por Mateo hasta el 2026-10-16. Esta especificación se implementa en la rama `feat/v1-implementation`; [DECISIONES.md](DECISIONES.md) prevalece si aparece una diferencia.
+**Estado:** alcance confirmado por Mateo hasta el 2026-10-27 (última fila adoptada: D-20261027-11). La v1 entró a `main` con el PR #2 (rama `feat/v1-implementation`, 2026-10-19) y las ampliaciones posteriores con sus PR; esta especificación se verificó contra `main` en `f3c9635` el 2026-10-28. [DECISIONES.md](DECISIONES.md) prevalece si aparece una diferencia.
 
 ## Objetivo y límites
 
@@ -35,7 +35,7 @@ Registrar ingreso, egreso, desayuno y almuerzo, y mostrar los desvíos para que 
 
 Las acciones admitidas por jornada son `INGRESO`, `EGRESO`, `SALIDA_DESAYUNO`, `VUELTA_DESAYUNO`, `SALIDA_ALMUERZO` y `VUELTA_ALMUERZO`. Se admite como máximo un ciclo de salida y vuelta de cada pausa, y desayuno y almuerzo pueden realizarse en cualquier orden. No se admite `EGRESO` con una pausa abierta.
 
-1. El servidor captura la hora oficial al recibir la solicitud; la app inicia GPS en paralelo y no lo espera.
+1. El servidor captura la hora oficial al recibir la solicitud, una vez tomado el bloqueo de la jornada (desde el 2026-10-27, #46); la app inicia GPS en paralelo y no lo espera.
 2. En una transacción MySQL, el servidor bloquea la jornada, valida la acción contra el estado persistido, asigna una secuencia creciente y guarda la marca. La secuencia determina el orden cuando acciones diferentes llegan simultáneamente, incluso si comparten hora de recepción.
 3. Cada intento usa una clave de idempotencia. Repetir clave y contenido devuelve la marca ya creada. Reutilizar la clave con contenido diferente da conflicto. No se deduplican acciones distintas mediante una ventana temporal.
 4. La app indica éxito solo después de recibir confirmación del servidor y muestra la hora de servidor. Si no hay conexión o el servidor no confirma, la acción no se informa como registrada y no se encola para envío posterior.
@@ -95,7 +95,7 @@ El backend es un monolito modular Spring Boot MVC. Las reglas de aplicación se 
 
 Requisitos: Java 21, Node.js LTS, Docker Desktop (para MySQL y Testcontainers) y el cliente Docker disponible. MySQL local y Testcontainers usan la serie MySQL 8.4 LTS.
 
-Copiar `.env.example` a `.env`; mantener ese archivo fuera de Git. En PowerShell se puede generar una clave privada aleatoria de 32 bytes para cada variable de cifrado así:
+Copiar `.env.example` a `.env`; mantener ese archivo fuera de Git. `docker-compose.yml` no arranca MySQL sin `SPRING_DATASOURCE_PASSWORD` (usuario `braja_app`) y `BRAJA_DB_ROOT_PASSWORD`. En PowerShell se puede generar una clave privada aleatoria de 32 bytes para cada clave así:
 
 ```powershell
 $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
@@ -104,14 +104,16 @@ $rng.GetBytes($bytes)
 [Convert]::ToBase64String($bytes)
 ```
 
-Ejecutar el bloque dos veces y guardar resultados distintos en `BRAJA_HEALTH_ENCRYPTION_KEY_BASE64` y `BRAJA_PUSH_SUBSCRIPTION_ENCRYPTION_KEY_BASE64`. No reutilizar claves entre propósitos ni entornos. Las claves VAPID quedan vacías hasta configurar push saliente; si push está desactivado, la app puede iniciar sin clave de suscripción y rechazará de forma controlada el alta de suscripciones hasta configurarla. Luego:
+Ejecutar el bloque tres veces y guardar resultados distintos en `BRAJA_HEALTH_ENCRYPTION_KEY_BASE64` (motivos `SALUD`), `BRAJA_LOGIN_IP_THROTTLE_KEY_BASE64` (HMAC del límite de login por IP) y `BRAJA_PUSH_SUBSCRIPTION_ENCRYPTION_KEY_BASE64`. El backend no arranca sin las dos primeras ni si son iguales (`BrajaProperties.validate`). No reutilizar claves entre propósitos ni entornos. Las claves VAPID quedan vacías hasta configurar push saliente; si push está desactivado, la app puede iniciar sin clave de suscripción y rechazará de forma controlada el alta de suscripciones hasta configurarla. Luego:
 
 ```powershell
 docker compose up -d mysql
 cd backend
-.\mvnw.cmd test
-.\mvnw.cmd spring-boot:run
+.\mvnw.cmd verify
+.\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=local"
 ```
+
+El perfil `local` es obligatorio en desarrollo: es el que importa `../.env` (`application-local.yml`), permite la cookie de sesión sin `Secure` sobre HTTP y es el único caso en que el backend arranca sin `BRAJA_TRUSTED_PROXY_CIDRS` (`BrajaProperties.validate(Environment)`, llamado por `EncryptionService`). Sin ese perfil, y sin esas variables en el entorno, el arranque falla. `.\mvnw.cmd verify` corre las pruebas de integración contra MySQL 8.4 con Testcontainers; no necesita el contenedor de `docker compose`.
 
 En otra terminal:
 
@@ -119,30 +121,32 @@ En otra terminal:
 cd frontend
 npm ci
 npm run dev
-npm test
-npm run build
 ```
+
+Antes de integrar, el mismo control que corre el CI: `npm run lint`, `npm run typecheck`, `npm test`, `npm run build` y `npm run audit:prod`.
 
 El backend usa Maven Wrapper para fijar su versión sin exigir una instalación global de Maven. El contrato OpenAPI es la referencia para ambos módulos.
 
 ## Criterios de aceptación de v1
 
-- [ ] Login por DNI normalizado, cambio seguro de contraseña y selección validada de empresa; el rol y la empresa nunca se aceptan como autorización desde el cliente.
-- [ ] Roles y datos quedan aislados entre empresas y sedes; IDs manipulados no habilitan lectura ni escritura cruzada.
-- [ ] Plantillas son por sede; jornadas son por empleado, sede y fecha local; los cambios posteriores no alteran la copia de horario y tolerancia de jornadas existentes.
-- [ ] Cada empleado tiene una plantilla asignada por sede con fecha de inicio e historial; declarar sin plantilla usa la vigente, y la declaración por lote crea cada jornada una sola vez, saltea e informa las existentes y no deja dos jornadas vivas ante una declaración concurrente.
-- [ ] Cada transición de marca válida funciona; pausas pueden ir en cualquier orden, se permite un ciclo por pausa y se rechaza egreso con pausa abierta.
-- [ ] El `ADMIN` puede agregar marcas olvidadas con hora del hecho separada de la hora de carga, incluso si el egreso ya se registró; y corregir marcas conservando auditoría.
-- [ ] Marcas distintas concurrentes quedan secuenciadas bajo bloqueo MySQL; el reintento exacto es idempotente y reutilizar una clave con otro contenido da conflicto.
-- [ ] `SIN_INGRESO` compite de manera segura con el ingreso tardío; al llegar este, se actualiza el mismo desvío a `LLEGADA_TARDE` cuando corresponda, sin duplicar motivo ni aviso.
-- [ ] Egreso temprano o tardío más allá de tolerancia genera desvío; dentro del margen no lo genera.
-- [ ] `MARCA_FALTANTE` se genera una sola vez para una jornada con `INGRESO` y sin `EGRESO` pasada la tolerancia, sin push; un egreso posterior lo cierra (dentro del margen) o lo convierte en `EGRESO_TARDIO` en el mismo desvío.
-- [ ] Ubicación lenta, denegada o fallida no demora la marca; la asociación posterior respeta 30 segundos y luego queda `SIN_UBICACION`.
-- [ ] Empleado no lee coordenadas de otros; solo ADMIN de su empresa ve ubicación exacta; coordenadas y texto de salud se purgan a los 90 días.
-- [ ] Solo el autor y ADMIN de su empresa leen motivos de salud; secretos y datos sensibles no llegan a logs, caché o push.
-- [ ] Push agrupa por empresa en ventanas fijas de cinco minutos, cuenta por sede, reintenta sin duplicados visibles y solo notifica por `SIN_INGRESO` y `LLEGADA_TARDE`.
-- [ ] La PWA no cachea respuestas de API ni encola marcas offline; solo presenta éxito tras confirmación del servidor.
-- [ ] La bandeja y el historial del `ADMIN` filtran por empleado, sede y fecha (rango de hasta 366 días) sin cruzar empresas; `occurredAt` de cada desvío es la hora del hecho y la sesión trae el nombre visible.
-- [ ] Las pruebas de integración validan bloqueo, restricciones y aislamiento contra MySQL 8 con Testcontainers.
+Estado verificado el 2026-10-28 sobre `main` en `f3c9635`. Un criterio se marca `[x]` solo si un test o un camino de código con nombre lo cubre; entre paréntesis va la cita. Alias de CLAUDE.md §3: `IT` = `BackendMySqlIntegrationTest`, `Outbox` = `NotificationOutboxMySqlTest`. Los tests del backend están en `backend/src/test/java/com/braja/fichaje/` y los del frontend, en `frontend/src`.
+
+- [x] Login por DNI normalizado, cambio seguro de contraseña y selección validada de empresa; el rol y la empresa nunca se aceptan como autorización desde el cliente. (`IT.httpLoginCreatesHttpOnlySessionCookieAndCsrfProtectsMutableRoutes`: login con `30.123.456` y empresa desconocida rechazada; `PasswordChangeSessionInvalidationMySqlTest`; `LoginHardeningMySqlTest.wrongCurrentPasswordIsThrottledLikeLoginAndHasADistinctCode`; `IT.httpSecurityRejectsAnonymousRequestsAndEmployeeCannotUseAnotherCompaniesIdsOrAdminRoutes`.)
+- [x] Roles y datos quedan aislados entre empresas y sedes; IDs manipulados no habilitan lectura ni escritura cruzada. (`IT.validAdminsCannotReadOrModifyRecordsFromAnotherCompany`, `IT.httpSecurityRejectsAnonymousRequestsAndEmployeeCannotUseAnotherCompaniesIdsOrAdminRoutes`, `IT.employeeTemplateListIsRestrictedToAssignedSitesWithoutSiteFilter`.)
+- [ ] Plantillas son por sede; jornadas son por empleado, sede y fecha local; los cambios posteriores no alteran la copia de horario y tolerancia de jornadas existentes. (Sin marcar: ningún test cambia una plantilla o una tolerancia después de declarar y compara la copia guardada.)
+- [x] Cada empleado tiene una plantilla asignada por sede con fecha de inicio e historial; declarar sin plantilla usa la vigente, y la declaración por lote crea cada jornada una sola vez, saltea e informa las existentes y no deja dos jornadas vivas ante una declaración concurrente. (`TemplateAssignmentAndBulkDeclarationMySqlTest`: `anAssignmentIsStoredWithItsAuthorAndTheHistoryIsListedNewestFirst`, `declaringWithoutTemplateUsesTheAssignmentInForceOnThatDateAtThatSite`, `bulkSkipsAndReportsExistingJornadasButNotCancelledOnes`, `bulkAndSingleDeclarationsOfTheSameDaysAtTheSameTimeYieldOneJornadaPerDayAndNo5xx`.)
+- [x] Cada transición de marca válida funciona; pausas pueden ir en cualquier orden, se permite un ciclo por pausa y se rechaza egreso con pausa abierta. (`MarkTransitionPolicyTest.breakfastAndLunchMayBeTakenInEitherOrderOnceEach`, `.aPauseMustBeClosedBeforeAnotherActionAndBeforeEgress`; `IT.reusedIdempotencyKeyWithDifferentPayloadConflictsAndPauseMustCloseBeforeEgress`.)
+- [x] El `ADMIN` puede agregar marcas olvidadas con hora del hecho separada de la hora de carga, incluso si el egreso ya se registró; y corregir marcas conservando auditoría. (`IT.forgottenIngressCanBeInsertedBeforeAlreadyStoredEgresoAndKeepsReceiptSequence`; `JornadaCancellationAndMarkVoidMySqlTest.correctionOfAMarkThatIsNotVoidedStillWorksAndIsAuditedAsACorrection`; `JornadaAuditHistoryMySqlTest.adminReadsEveryChangeOfTheJornadaInOrderWithActorNamesAndNoMotiveTextOrCoordinates`.)
+- [x] Marcas distintas concurrentes quedan secuenciadas bajo bloqueo MySQL; el reintento exacto es idempotente y reutilizar una clave con otro contenido da conflicto. (`IT.fiveDistinctConcurrentPauseRequestsYieldOneAcceptedMarkAndFourCodedConflicts`, `IT.identicalConcurrentRetriesPersistOneMarkAndReturnTheOriginalResponse`, `IT.reusedIdempotencyKeyWithDifferentPayloadConflictsAndPauseMustCloseBeforeEgress`.)
+- [x] `SIN_INGRESO` compite de manera segura con el ingreso tardío; al llegar este, se actualiza el mismo desvío a `LLEGADA_TARDE` cuando corresponda, sin duplicar motivo ni aviso. (`IT.ingresoCommittedAfterRepeatableReadSnapshotWinsAgainstAbsenceWorker`; `Outbox.replacingAbsenceUpdatesOneOutboxEventAndDispatchCountsOnlyActiveDeviationsBySiteName`; `Outbox.reactivatedDeviationAfterSentWindowNotifiesAgainButReplacementDoesNot`.)
+- [x] Egreso temprano o tardío más allá de tolerancia genera desvío; dentro del margen no lo genera. (`DeviationPolicyTest.earlyAndLateEgressOnlyDeviateOutsideTheInclusiveToleranceWindow`.)
+- [x] `MARCA_FALTANTE` se genera una sola vez para una jornada con `INGRESO` y sin `EGRESO` pasada la tolerancia, sin push; un egreso posterior lo cierra (dentro del margen) o lo convierte en `EGRESO_TARDIO` en el mismo desvío. (`IT.missingEgressWorkerCreatesOneInternalDeviationAndSkipsItOnNextTick`, `Outbox.missingEgressDeviationNeverEntersTheOutboxOrOpensAWindow`, `IT.laterEgressWithinToleranceClosesMissingEgressWithoutLeavingADeviation`, `IT.laterEgressOutsideToleranceReplacesTheSameDeviationWithEgresoTardioAndKeepsTheMotive`.)
+- [x] Ubicación lenta, denegada o fallida no demora la marca; la asociación posterior respeta 30 segundos y luego queda `SIN_UBICACION`. (`markFlow.test.ts`: "inicia GPS sin bloquear la marca…", "confirma la marca aunque el GPS esté denegado"; `IT.pendingLocationBecomesSinUbicacionAfterThirtySecondWindow`.)
+- [x] Empleado no lee coordenadas de otros; solo ADMIN de su empresa ve ubicación exacta; coordenadas y texto de salud se purgan a los 90 días. (`IT.healthMotiveAndCoordinatesAreScopedAndPurgedAfterNinetyDays`; `AdminHistoryFiltersMySqlTest.employeeHistoryDetailNeverExposesAnotherAuthorsMotiveOrCoordinatesButAdminSeesCoordinates`.)
+- [ ] Solo el autor y ADMIN de su empresa leen motivos de salud; secretos y datos sensibles no llegan a logs, caché o push. (Sin marcar: el acceso y el push tienen test, `IT.healthMotiveAndCoordinatesAreScopedAndPurgedAfterNinetyDays` y `SafePushPayloadFactoryTest.payloadContainsOnlyStableNavigationAndAggregatedCounts`, pero ningún test revisa los logs.)
+- [x] Push agrupa por empresa en ventanas fijas de cinco minutos, cuenta por sede, reintenta sin duplicados visibles y solo notifica por `SIN_INGRESO` y `LLEGADA_TARDE`. (`NotificationWindowPolicyTest`; `Outbox.groupsByFirstEventForFiveMinutesAndReplacementKeepsOneOutboxEvent`; `Outbox.partialDeliverySchedulesRetryWithStableTagAndTopic`; `PUSH_TYPES` en `JdbcDeviationNotificationOutbox`.)
+- [x] La PWA no cachea respuestas de API ni encola marcas offline; solo presenta éxito tras confirmación del servidor. (`sw.ts`: `/api/v1` en `NetworkOnly`; `routePolicy.test.ts`: "mantiene cualquier ruta API fuera del fallback de navegación"; `markFlow.test.ts`: "no confirma hasta obtener respuesta del servidor…".)
+- [x] La bandeja y el historial del `ADMIN` filtran por empleado, sede y fecha (rango de hasta 366 días) sin cruzar empresas; `occurredAt` de cada desvío es la hora del hecho y la sesión trae el nombre visible. (`AdminHistoryFiltersMySqlTest`: `inboxFiltersByEmployeeBySiteByDateRangeAndTheirCombination`, `inboxFilterWithAnotherCompanysEmployeeOrSiteIsNotFoundAndLeaksNothing`, `historyRejectsInvertedOverlongRangesAndTooManyJornadas`, `lateArrivalOccurredAtIsTheMarkTimeNotTheDetectionTimeOfTheAbsenceItReplaced`, `sessionExposesTheEmployeeDisplayNameOnLoginAndOnGetSession`.)
+- [x] Las pruebas de integración validan bloqueo, restricciones y aislamiento contra MySQL 8 con Testcontainers. (`IT`, `Outbox` y las demás clases `*MySqlTest` usan `MySQLContainer` con `mysql:8.4`; `IT.migrationsCreateTheTenantAndPrivacyInvariants`.)
 
 La prueba final de Web Push requiere URL HTTPS y el iPhone real del `ADMIN`. Capacitor solo se incorpora si esa prueba falla de forma confiable; la validación de dispositivo y la revisión legal siguen siendo puertas de entorno, no excusas para omitir los controles técnicos en el código.

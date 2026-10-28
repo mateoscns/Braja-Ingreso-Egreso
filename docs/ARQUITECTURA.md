@@ -1,21 +1,23 @@
 # Arquitectura v1 — límites e invariantes
 
+> **Nota (2026-10-28, verificada sobre `main` en `f3c9635`):** la fuente de verdad de la estructura del código es [CLAUDE.md §4](../CLAUDE.md). Esta página describía módulos `identity`, `scheduling`, `privacy`, `common` y `device/location` que nunca existieron con esos nombres; las tablas de abajo ya usan los paquetes y carpetas reales. La organización por funcionalidad con `JdbcTemplate` es D-20261019-03.
+
 Aplicación modular de una sola API y una PWA. Las reglas de acceso, jornada, privacidad y notificaciones viven en el servidor; la interfaz refleja su estado y no lo sustituye.
 
 ## Límites del backend
 
-Paquete raíz sugerido: `com.braja.fichaje`.
+Paquete raíz: `com.braja.fichaje`.
 
-| Módulo | Es responsable de | No debe hacer |
+| Paquete | Es responsable de | No debe hacer |
 | --- | --- | --- |
-| `identity` | Cuentas globales por DNI, contraseñas, sesiones, CSRF, membresías y rol de cada empresa. | Aceptar empresa o rol enviados por el cliente como autoridad. |
-| `organization` | Empresas, sedes, zona horaria, cuentas/membresías de empleado y tolerancia vigente. | Cambiar el horario o la tolerancia de jornadas ya declaradas. |
-| `scheduling` | Plantillas por sede, jornadas por empleado/sede/fecha y copia inmutable de horario/tolerancia. | Crear recurrencia semanal o jornadas implícitas. |
-| `timekeeping` | Estado de jornada, marcas, secuencia, idempotencia, acciones olvidadas y correcciones auditadas. | Esperar GPS o usar la hora del dispositivo como hora oficial. |
+| `security` | Cuentas globales por DNI, contraseñas, sesiones, CSRF, membresías y rol de cada empresa (`ScopeService`); límites de login; restablecimiento de contraseña por el `ADMIN`; cifrado de texto `SALUD` (`EncryptionService`) y purga a 90 días de ese texto y de las coordenadas (`PrivacyRetentionScheduler`). | Aceptar empresa o rol enviados por el cliente como autoridad. Escribir contenido sensible en logs, métricas o errores. |
+| `organization` | Sedes, zona horaria, cuentas/membresías de empleado, tolerancia vigente, plantillas por sede y su asignación a cada empleado con fecha de inicio. | Cambiar el horario o la tolerancia de jornadas ya declaradas. |
+| `timekeeping` | Declaración de jornadas (una o por lote) con copia inmutable de horario y tolerancia, cancelación, estado de jornada, marcas, secuencia, idempotencia, ubicación posterior y su ventana de 30 s, marcas olvidadas, correcciones y anulaciones auditadas, historial de cambios de la jornada y job de ausencias y `MARCA_FALTANTE`. | Crear recurrencia semanal o jornadas implícitas. Esperar GPS o usar la hora del dispositivo como hora oficial. |
 | `deviations` | Detección de ausencia, llegadas, egresos y pausas; motivos; clasificación por ADMIN; auditoría. | Emitir un segundo evento cuando `SIN_INGRESO` pasa a `LLEGADA_TARDE`. |
-| `privacy` | Cifrado de texto `SALUD`, autorización de coordenadas, ventana de asociación y purga a 90 días. | Escribir contenido sensible en logs, métricas o errores. |
-| `notifications` | Bandeja, outbox MySQL, ventanas por empresa, lease, reintentos y suscripciones Web Push. | Filtrar datos de motivo, coordenadas o salud en el push. |
-| `common` | Tipos de ID, reloj, contexto autenticado, errores API y correlación no sensible. | Contener reglas de negocio de los módulos. |
+| `notifications` | Outbox MySQL, ventanas por empresa, lease, reintentos y suscripciones Web Push. | Filtrar datos de motivo, coordenadas o salud en el push. |
+| `api` y `config` | Errores Problem Details (`ApiException`, `ApiExceptionHandler`), validación de rangos de fechas (`DateRanges`), configuración `braja.*` (`BrajaProperties`) y encendido de los jobs. | Contener reglas de negocio de los módulos. |
+
+La bandeja de desvíos (`GET /inbox`) se sirve desde `deviations` (`DeviationController`); `notifications` solo envía avisos push.
 
 Las dependencias apuntan desde la interfaz de cada módulo hacia sus contratos de aplicación. `timekeeping` consulta la jornada y la membresía autorizada; `deviations` aplica reglas a los hechos de `timekeeping`; `notifications` reacciona a desvíos persistidos mediante una outbox en la misma base. Ningún módulo accede directamente a tablas privadas de otro módulo para saltarse sus reglas. No se separan servicios ni se introduce un broker.
 
@@ -24,9 +26,9 @@ Las dependencias apuntan desde la interfaz de cada módulo hacia sus contratos d
 ### Registrar una marca
 
 1. Resolver principal, empresa activa y membresía desde la sesión.
-2. Capturar el instante de recepción con el reloj del servidor antes de esperar el bloqueo.
-3. Buscar la clave de idempotencia del actor. La clave es única por cuenta; si ya existe con el mismo hash canónico de jornada y acción, devolver el resultado guardado; si cambia el contenido, responder `409`.
-4. Bloquear la fila de la jornada con una transacción MySQL, volver a validar autorización y estado, incrementar la secuencia y aplicar una única transición.
+2. En una transacción MySQL, bloquear la cuenta, la membresía y la fila de la jornada (`FOR UPDATE`) y recién entonces leer el instante de recepción del reloj del servidor (desde el 2026-10-27, #46: antes se leía antes de esperar el bloqueo y una marca con secuencia mayor podía tener hora menor).
+3. Buscar la clave de idempotencia del actor. La clave es única por cuenta; si ya existe con el mismo hash canónico de jornada y acción, devolver el estado actual de esa marca (incluida una corrección o anulación posterior del `ADMIN`); si cambia el contenido, responder `409`.
+4. Volver a validar autorización y estado, rechazar una hora anterior a la última marca guardada (`409 INVALID_MARK_ORDER`), incrementar la secuencia y aplicar una única transición.
 5. Guardar marca, estado y desvío en la misma transacción. Insertar en outbox con la clave estable del desvío cuando corresponda.
 6. Responder con ID, hora recibida por el servidor y secuencia. La ubicación puede guardarse después y nunca modifica esos valores.
 
@@ -59,12 +61,14 @@ La clave de agrupación es empresa más una ventana fija de cinco minutos que co
 | Área | Responsabilidad |
 | --- | --- |
 | `app` | Enrutamiento, carga de sesión, selección de empresa y errores de autenticación. |
-| `features/admin` | Empleados, sedes, plantillas, declaración de jornadas, revisión/corrección y bandeja. |
-| `features/employee` | Estado actual, marcas confirmadas por el servidor y carga/completado del motivo propio. |
-| `shared/api` | Cliente HTTP same-origin, credenciales de cookie, token CSRF, contratos y Problem Details. |
-| `device/location` | Solicitar GPS en paralelo a la marca y adjuntar la coordenada al ID devuelto, con timeout visible. |
+| `features/auth` | Pantallas de login, selección de empresa y cambio de contraseña. |
+| `features/admin` | Empleados, sedes, plantillas y su asignación, declaración de jornadas (una o por lote), revisión/corrección, historial y bandeja. |
+| `features/employee` | Estado actual, marcas confirmadas por el servidor y carga/completado del motivo propio. La captura de GPS en paralelo a la marca, que adjunta la coordenada al ID devuelto, vive en `features/employee/markFlow.ts`. |
+| `shared/api` | Cliente HTTP same-origin (`client.ts`, único `fetch`), credenciales de cookie, token CSRF, contratos y Problem Details. |
+| `shared/pwa` | Reglas de ruta del service worker (`routePolicy.ts`). |
 | `device/push` | Permiso contextual, alta/baja de suscripción y navegación al desvío al tocar una notificación. |
-| `service-worker` | Cache app-shell de recursos estáticos; sin cache API, cola offline ni contenido personal. |
+| `device/pwa` | Instalación de la PWA y aviso de actualización del service worker. |
+| `sw.ts` | Service worker (Workbox): cache app-shell de recursos estáticos; `/api/v1` en `NetworkOnly`; sin cola offline ni contenido personal. |
 
 La UI nunca calcula la hora oficial, no interpreta una solicitud pendiente como éxito y no conserva marcas para enviarlas sin conexión. `SIN_INGRESO` y su reemplazo usan el mismo ID de desvío de backend. Los módulos de feature no importan internals del backend ni implementan reglas de acceso.
 
