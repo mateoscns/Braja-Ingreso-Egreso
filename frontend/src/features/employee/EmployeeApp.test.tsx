@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EmployeeApp } from './EmployeeApp'
 import type { Deviation, Jornada, Site } from '../../shared/api/types'
@@ -260,6 +260,47 @@ describe('EmployeeApp', () => {
     await waitFor(() => expect(screen.queryByLabelText('Motivo')).not.toBeInTheDocument())
   })
 
+  describe('panel de motivos pendientes', () => {
+    it('si fallan los pendientes, la jornada se muestra y el panel ofrece reintentar solo los motivos', async () => {
+      const previousNight: Deviation = { ...pendingDeviation, id: 'deviation-night', jornadaId: 'jornada-previous-night', type: 'MARCA_FALTANTE' }
+      const previous = mocks.apiGet.getMockImplementation()!
+      let pendingRequests = 0
+      mocks.apiGet.mockImplementation((path: string) => {
+        if (!path.startsWith('/deviations?status=')) return previous(path)
+        pendingRequests += 1
+        return pendingRequests === 1 ? Promise.reject(new Error('Servidor no disponible.')) : Promise.resolve([previousNight])
+      })
+      render(<EmployeeApp />)
+
+      expect(await screen.findByRole('button', { name: /Registrar egreso/ })).toBeEnabled()
+      const panel = screen.getByRole('heading', { name: 'Motivos pendientes' }).closest('section')!
+      expect(await within(panel).findByRole('alert')).toHaveTextContent('No se pudieron consultar tus motivos pendientes.')
+      expect(panel).not.toHaveTextContent('No tenés motivos pendientes.')
+      expect(screen.queryByRole('heading', { name: 'No se pudo consultar tu jornada' })).not.toBeInTheDocument()
+      const sitesBefore = mocks.apiGet.mock.calls.filter(([path]) => path === '/sites').length
+
+      fireEvent.click(within(panel).getByRole('button', { name: 'Reintentar motivos' }))
+
+      expect((await within(panel).findByLabelText('Motivo')).closest('form')).toHaveTextContent('Egreso sin marcar')
+      expect(within(panel).queryByRole('alert')).not.toBeInTheDocument()
+      expect(mocks.apiGet.mock.calls.filter(([path]) => path === '/sites').length).toBe(sitesBefore)
+    })
+
+    it('avisa cuando muestra solo los 100 pendientes más recientes', async () => {
+      const page = Array.from({ length: 100 }, (_, index): Deviation => ({ ...pendingDeviation, id: `deviation-${index}`, jornadaId: `jornada-${index}` }))
+      configureApi([], page)
+      render(<EmployeeApp />)
+      expect(await screen.findByText(/Mostramos los 100 motivos pendientes más recientes/)).toBeInTheDocument()
+    })
+
+    it('no muestra el aviso de límite cuando hay menos de 100 pendientes', async () => {
+      configureApi([pendingDeviation])
+      render(<EmployeeApp />)
+      await screen.findByLabelText('Motivo')
+      expect(screen.queryByText(/Mostramos los 100/)).not.toBeInTheDocument()
+    })
+  })
+
   it('permite corregir el motivo mientras el desvío no está clasificado', async () => {
     const underReview: Deviation = { ...pendingDeviation, status: 'PENDIENTE_REVISION', category: 'OTRA', motiveText: 'Texto anterior.' }
     configureApi([underReview], [])
@@ -388,6 +429,24 @@ describe('EmployeeApp', () => {
       render(<EmployeeApp />)
       fireEvent.click(await screen.findByRole('button', { name: /Registrar egreso/ }))
       expect(await screen.findByRole('alert')).toHaveTextContent('Todavía no es horario para registrar esta marca.')
+    })
+
+    it('un IDEMPOTENCY_CONFLICT descarta el intento guardado y el próximo usa una clave nueva', async () => {
+      let created = 0
+      mocks.createMarkAttempt.mockImplementation((jornadaId: string, action: string) => ({ jornadaId, action, idempotencyKey: `attempt-${++created}` }))
+      mocks.submitMark.mockRejectedValueOnce(new ApiError(409, { status: 409, code: 'IDEMPOTENCY_CONFLICT' }))
+      render(<EmployeeApp />)
+      const egreso = await screen.findByRole('button', { name: /Registrar egreso/ })
+      fireEvent.click(egreso)
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Esta solicitud ya se usó para otra acción.')
+      await waitFor(() => expect(egreso).toBeEnabled())
+      fireEvent.click(egreso)
+
+      expect(await screen.findByText(/Marca confirmada por el servidor/)).toBeInTheDocument()
+      expect(mocks.createMarkAttempt).toHaveBeenCalledTimes(2)
+      expect(mocks.submitMark.mock.calls[0][1]).toMatchObject({ idempotencyKey: 'attempt-1' })
+      expect(mocks.submitMark.mock.calls[1][1]).toMatchObject({ jornadaId: 'jornada-center', action: 'EGRESO', idempotencyKey: 'attempt-2' })
     })
 
     it('una espera agotada avisa que la marca puede no estar registrada, libera los botones y reintenta con la misma clave', async () => {

@@ -9,10 +9,22 @@ export type EmployeeDayData = {
   deviations: Deviation[]
   /** MOTIVO_PENDIENTE deviations of every date (overnight and older jornadas included), scoped by the session. */
   pendingMotives: Deviation[]
+  /** True when the server returned a full page: older pending motives may exist beyond it. */
+  pendingMotivesTruncated: boolean
+  /** Message of a failed pending-motives request ('' when it loaded); it never fails the day view. */
+  pendingMotivesError: string
 }
+
+export type PendingMotives = { items: Deviation[]; truncated: boolean }
 
 /** Upper bound of pending motives loaded at once; the API allows 1 to 200. */
 export const PENDING_MOTIVES_LIMIT = 100
+
+/** The API lists newest detection first, so a full page holds the most recent pending motives. */
+export async function loadPendingMotives(apiClient: Pick<ApiClient, 'get'>): Promise<PendingMotives> {
+  const items = await apiClient.get<Deviation[]>(`/deviations${queryString({ status: 'MOTIVO_PENDIENTE', limit: PENDING_MOTIVES_LIMIT })}`)
+  return { items, truncated: items.length >= PENDING_MOTIVES_LIMIT }
+}
 
 export function localCalendarDate(timeZone: string, instant = new Date()): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -51,7 +63,11 @@ export async function loadEmployeeDayData(
       const localDate = siteDates.get(site.id)!
       return apiClient.get<Deviation[]>(`/deviations${queryString({ from: localDate, to: localDate, siteId: site.id })}`)
     })),
-    apiClient.get<Deviation[]>(`/deviations${queryString({ status: 'MOTIVO_PENDIENTE', limit: PENDING_MOTIVES_LIMIT })}`)
+    // Settled on its own: a failed pending list is shown in its panel instead of failing the whole day view.
+    loadPendingMotives(apiClient).then(
+      (pending) => ({ ...pending, error: '' }),
+      (reason: unknown) => ({ items: [] as Deviation[], truncated: false, error: reason instanceof Error ? reason.message : 'No se pudieron consultar los motivos pendientes.' })
+    )
   ])
 
   const jornadas = new Map<string, Jornada>()
@@ -63,5 +79,8 @@ export async function loadEmployeeDayData(
   }
   const deviations = new Map<string, Deviation>()
   for (const item of deviationPages.flat()) deviations.set(item.id, item)
-  return { siteDates, jornadas: [...jornadas.values()], deviations: [...deviations.values()], pendingMotives }
+  return {
+    siteDates, jornadas: [...jornadas.values()], deviations: [...deviations.values()],
+    pendingMotives: pendingMotives.items, pendingMotivesTruncated: pendingMotives.truncated, pendingMotivesError: pendingMotives.error
+  }
 }

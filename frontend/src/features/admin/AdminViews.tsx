@@ -21,6 +21,11 @@ const dateInBrowserZone = () => {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 }
 const errText = (error: unknown) => error instanceof Error ? error.message : 'No se pudo completar la operación.'
+// The server reuses the employee mark-order codes on ADMIN forms; there they mean the typed time or action breaks the jornada order.
+const MARK_ORDER_CODES = new Set(['INVALID_MARK_ORDER', 'INVALID_MARK_HISTORY', 'INVALID_MARK_TRANSITION'])
+const markFormErrText = (error: unknown) => MARK_ORDER_CODES.has((error as { code?: string } | null)?.code ?? '')
+  ? 'La hora o la acción no encajan con las demás marcas de la jornada. Revisá el orden.'
+  : errText(error)
 function dateTimeParts(value: string, timeZone: string) {
   const entries = new Intl.DateTimeFormat('en-CA', {
     timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
@@ -391,7 +396,7 @@ export function JourneysView() {
     try {
       await api.post<Mark>(`/admin/jornadas/${encodeURIComponent(detail.id)}/forgotten-marks`, { action: forgotAction, occurredAt, auditReason: forgotReason.trim() })
       setForgotOccurredAt(''); setForgotReason(''); setNotice('Marca olvidada registrada.'); await showDetail(detail.id)
-    } catch (reason) { setError(errText(reason)) } finally { setMarkBusy('') }
+    } catch (reason) { setError(markFormErrText(reason)) } finally { setMarkBusy('') }
   }
   function beginMarkCorrection(mark: Mark) {
     if (!detailTimeZone) return
@@ -407,7 +412,7 @@ export function JourneysView() {
     try {
       await api.post<Mark>(`/admin/marks/${encodeURIComponent(mark.id)}/correction`, { correctedAction, correctedOccurredAt: correctedAt, auditReason: correctionReason.trim() })
       setEditingMarkId(''); setCorrectionReason(''); setNotice('Marca corregida.'); await showDetail(detail.id)
-    } catch (reason) { setError(errText(reason)) } finally { setMarkBusy('') }
+    } catch (reason) { setError(markFormErrText(reason)) } finally { setMarkBusy('') }
   }
   function beginVoid(mark: Mark) { setEditingMarkId(''); setVoidingMarkId(mark.id); setVoidReason('') }
   async function voidMark(event: FormEvent<HTMLFormElement>, mark: Mark) {

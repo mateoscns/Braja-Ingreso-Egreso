@@ -69,7 +69,30 @@ function messageForStatus(status: number, code?: string, context: ApiErrorContex
   if (status === 409) return 'La información cambió o la acción ya fue procesada. Actualizá la vista.'
   if (status === 422) return 'Revisá los datos ingresados.'
   if (status === 429) return `Hubo demasiados intentos. Esperá ${waitText(context.retryAfterSeconds)} y probá otra vez.`
+  // Login and password change answer it when the database fails; the connection itself is fine.
+  if (status === 503 && code === 'AUTHENTICATION_UNAVAILABLE') return 'El sistema no está disponible en este momento. Probá de nuevo en unos minutos.'
   return 'No se pudo completar la operación. Revisá tu conexión y reintentá.'
+}
+
+/** The same failure send() reports when fetch itself is aborted by that signal. */
+function abortFailure(signal: AbortSignal): Error {
+  const reason: unknown = signal.reason
+  return reason instanceof DOMException && reason.name === 'TimeoutError' ? new TimeoutError() : new NetworkError()
+}
+
+/**
+ * Starts the work unless the signal already aborted, then settles with it or rejects as soon as the signal aborts.
+ * The work itself keeps running, so other callers waiting on it are not cancelled.
+ */
+function untilAborted<T>(start: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return start()
+  if (signal.aborted) return Promise.reject(abortFailure(signal))
+  const promise = start()
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(abortFailure(signal))
+    signal.addEventListener('abort', onAbort, { once: true })
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort))
+  })
 }
 
 type RequestOptions = { headers?: Record<string, string>; signal?: AbortSignal }
@@ -148,7 +171,8 @@ export class ApiClient {
     const url = `/api/v1${path.startsWith('/') ? path : `/${path}`}`
     const headers = new Headers(options.headers)
     if (body !== undefined) headers.set('Content-Type', 'application/json')
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) headers.set('X-CSRF-TOKEN', await this.ensureCsrf())
+    // The caller's deadline also covers the token prefetch; the shared prefetch is not cancelled for other callers.
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) headers.set('X-CSRF-TOKEN', await untilAborted(() => this.ensureCsrf(), options.signal))
     return this.send<T>(url, {
       method,
       credentials: 'include',
