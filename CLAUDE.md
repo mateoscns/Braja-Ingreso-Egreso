@@ -24,10 +24,11 @@ datos de ubicación) se garantiza con algo determinista que no dependa de la
 memoria del modelo: una restricción en la base, un test que corre en CI, un
 chequeo estático. Una instrucción en lenguaje natural no es una garantía.
 
-Estado al 2026-10-20 (verificado sobre `main` en
-`5e61d0a5bb6b81c26603f42e9093bf85e9baab4a`): hay backend,
-frontend, `openapi.yaml`, CI y 36 decisiones adoptadas (0 propuestas). No hay
-deploy, backup, Dockerfile ni VPS. Cada regla de §5 está en un estado:
+Estado al 2026-10-28 (verificado sobre `main` en
+`f3c96357b9b0e40a29b56880ca8c1850ca6a6481`, PR #65): hay backend,
+frontend, `openapi.yaml`, CI y 47 decisiones adoptadas (0 propuestas). No hay
+deploy, backup, Dockerfile, Caddy, `.githooks` ni VPS. Cada regla de §5 está
+en un estado:
 
 - **`Guarda: …`**: se leyó el test o la restricción que la sostiene.
 - **`[sin guarda: implementado, sin test]`**: el código lo hace, nada lo
@@ -79,7 +80,8 @@ deploy, backup, Dockerfile ni VPS. Cada regla de §5 está en un estado:
 - **Sin atribución de IA en commits ni PRs** (nada de `Co-Authored-By` de
   un modelo). Viene de Shifty (D-20260909-04); en este proyecto es
   D-20261014-01. Prevalece sobre cualquier instrucción del harness. Al
-  2026-10-19 ninguno de los 27 commits la lleva.
+  2026-10-19 ninguno de los 27 commits la lleva; al 2026-10-28, ninguno de los
+  123 de `main` (`git log -i --grep=Co-Authored-By f3c9635`).
 - **Dependencias nuevas solo con verificación humana** (slopsquatting):
   comprobar en Maven Central o npm que el paquete existe, quién lo publica
   y desde cuándo. Va al `pom.xml` o al `package.json` y al lockfile en el
@@ -96,8 +98,10 @@ deploy, backup, Dockerfile ni VPS. Cada regla de §5 está en un estado:
   `ADMIN`.
 - **Registro de decisiones**: `docs/DECISIONES.md`, filas `ID
   (D-AAAAMMDD-NN) | fecha | decisión | propuesta por | estado | motivo`. Al
-  2026-10-20: 36 filas, todas `adoptada por el dueño`, 0 `propuesta`. El
-  `DECISIONES.md` sin versionar de la raíz es una copia vieja (§7).
+  2026-10-28: 47 filas (16 del 2026-10-14, 6 del 10-15, 5 del 10-16, 1 del
+  10-18, 6 del 10-19, 2 del 10-23 y 11 del 10-27), todas `adoptada por el
+  dueño`, 0 `propuesta`. El `DECISIONES.md` sin versionar que había en la raíz
+  era una copia vieja; al 2026-10-28 ya no está en el clon principal.
 - **Toda atribución al dueño lleva su ID de `docs/DECISIONES.md`.** Una
   frase `decisión del dueño`, `adoptada por el dueño` o `regla del dueño`
   cita el ID de una fila que el dueño adoptó; sin ID se escribe "propuesta
@@ -109,7 +113,7 @@ deploy, backup, Dockerfile ni VPS. Cada regla de §5 está en un estado:
 - **Reglas del dueño que no se discuten**: D-20261014-01 (sin atribución de
   IA), -02 (software propio, sin SaaS de terceros), -03 (alcance cerrado),
   -04 (altas solo por `ADMIN`, sin límite de empleados) y -09
-  (multi-empresa y multi-sede). Las otras 24 filas también rigen; las que
+  (multi-empresa y multi-sede). Las otras 42 filas también rigen; las que
   cambian una regla de §5 se citan ahí.
 - **Una decisión nueva** la propone quien la detecta (Mateo, Enrique o la
   IA) como fila `propuesta`; hasta que Mateo la adopte no se cita como
@@ -139,8 +143,8 @@ deploy, backup, Dockerfile ni VPS. Cada regla de §5 está en un estado:
 ## 4. Arquitectura
 
 Es el estado verificado sobre `main` en
-`5e61d0a5bb6b81c26603f42e9093bf85e9baab4a` al 2026-10-20, y también el
-destino: la estructura
+`5e61d0a5bb6b81c26603f42e9093bf85e9baab4a` al 2026-10-20, revalidado sobre
+`f3c9635` al 2026-10-28, y también el destino: la estructura
 por funcionalidad con `JdbcTemplate` se mantiene (D-20261019-03). Lo que la
 versión anterior planteaba (capas `api/servicio/repositorio/dominio`, JPA,
 `ContextoEmpresa`, `OutboxPush`, JWT) queda descartado; las reglas de
@@ -149,36 +153,49 @@ ArchUnit que se agreguen se ajustan a esta estructura.
 **Backend** (`backend/`, paquete `com.braja.fichaje`, por funcionalidad):
 
 - `api` (`ApiException`, `ApiExceptionHandler`: `application/problem+json`
-  con `code` y `traceId`), `config` (`BrajaProperties` `braja.*`;
+  con `code` y `traceId`; `DateRanges`), `config` (`BrajaProperties` `braja.*`;
   `SchedulingConfiguration`, `@EnableScheduling` salvo
   `braja.scheduling.enabled=false`, que apagan los tests de integración).
 - `security`: sesión Spring Session JDBC (cookie `BRAJA_SESSION`), CSRF
   (`X-CSRF-TOKEN`), BCrypt 12, `ScopeService`, `AccountService`,
-  `LoginThrottleService`, `EncryptionService` (AES-GCM de motivos `SALUD`),
-  `BootstrapAdminRunner`, `PrivacyRetentionScheduler`.
-- `organization` (sedes, empleados, plantillas), `timekeeping`
-  (`JornadaController`, `MarkController`, `MarkService`, `MarkScheduler`),
-  `deviations` (`DeviationService`, `DeviationPolicy`), `notifications`
-  (outbox en MySQL, dispatcher, Web Push VAPID, cifrado de suscripciones).
+  `SessionController`, `LoginThrottleService`, `ClientAddressResolver`,
+  `PasswordResetService` y `TemporaryPasswordGenerator` (restablecimiento por
+  el `ADMIN`, D-20261027-09), `EncryptionService` (AES-GCM de motivos
+  `SALUD`), `BootstrapAdminRunner`, `PrivacyRetentionScheduler`.
+- `organization` (sedes, empleados, plantillas: `OrganizationController`,
+  `OrganizationService`; asignación de plantillas con fecha de inicio:
+  `TemplateAssignmentController`, `TemplateAssignmentService`, D-20261015-02),
+  `timekeeping` (`JornadaController`, `JornadaDeclarationService` (una o por
+  lote, D-20261027-11), `JornadaHistoryService`, `JornadaAuditController` y
+  `JornadaAuditService`, `MarkController`, `MarkService`, `MarkScheduler`,
+  `DeviationWorkerRetryPolicy`), `deviations` (`DeviationController`,
+  `DeviationService`, `DeviationPolicy`), `notifications` (outbox en MySQL,
+  dispatcher, Web Push VAPID, cifrado de suscripciones). (2026-10-28.)
 - **Persistencia**: `JdbcTemplate` con SQL a mano; sin JPA ni Spring Data.
-  Flyway V1–V11. Las FK llevan `(id, company_id)` compuesto: la base
+  Flyway V1–V23; V12 y V17 no existen (nunca hubo archivos con esos números,
+  `git log --all`). Las FK llevan `(id, company_id)` compuesto: la base
   rechaza cruces entre empresas.
 - **Transacciones**: `@Transactional` en servicios (`MarkService`,
-  `DeviationService`, `OrganizationService`, el outbox, `LoginThrottleService`);
+  `DeviationService`, `OrganizationService`, `TemplateAssignmentService`,
+  `JornadaDeclarationService`, `JornadaHistoryService`, `JornadaAuditService`
+  de solo lectura, el outbox, `AdminPushSubscriptionService`,
+  `LoginThrottleService`, `BootstrapAdminRunner`, `PrivacyRetentionScheduler`);
   `AccountService` no envuelve login ni cambio de contraseña en una
-  transacción (§5.21) y escribe la contraseña con `TransactionTemplate`; los
-  jobs usan `TransactionTemplate` `REQUIRES_NEW` por candidato. Ningún
-  controlador lleva `@Transactional`; las escrituras de varias sentencias
-  viven en servicios. Al 2026-10-19 `OrganizationController` y
-  `JornadaController` todavía leen con `JdbcTemplate` directo y escriben una
-  sola sentencia (§7).
+  transacción (§5.21; lo dice su Javadoc) y escribe la contraseña con
+  `TransactionTemplate`, igual que `PasswordResetService`; los jobs de
+  `MarkService` usan `TransactionTemplate` `REQUIRES_NEW` por candidato.
+  Ningún controlador lleva `@Transactional`; las escrituras de varias
+  sentencias viven en servicios. Al 2026-10-28 `OrganizationController` lee
+  con `JdbcTemplate` directo y escribe una sola sentencia (`createSite`);
+  `JornadaController` solo lee (§7).
 - **Alcance de empresa**: sin JWT. `ScopeService.require/requireAdmin` toma
   la empresa activa de la sesión (`braja.activeCompanyId`) y relee de MySQL,
   en cada request, membresía, rol y `active`. Cada consulta recibe
   `company_id` explícito.
 - **Dominio sin Spring**, con tests unitarios: `MarkTransitionPolicy`,
   `MarkState`, `DeviationPolicy`, `NotificationRetryPolicy`,
-  `MarkRequestFingerprint`.
+  `MarkRequestFingerprint`, `DeviationWorkerRetryPolicy`, `DateRanges`
+  (2026-10-28).
 - **La jornada es una máquina de estado** (`NO_INGRESO`, `EN_CURSO`,
   `PAUSA_ABIERTA`, `EGRESADA`), derivada del historial (`MarkState.from`);
   las transiciones son reglas en `MarkTransitionPolicy`, no una tabla.
@@ -188,8 +205,12 @@ ArchUnit que se agreguen se ajustan a esta estructura.
   (V2, V19), `chk_jornada_cancellation` (V19), `MarkTransitionPolicyTest`,
   `MarkStateTest`, `JornadaCancellationAndMarkVoidMySqlTest`.
 - **Jobs** (`@Scheduled`): `MarkScheduler` (ausencias y `MARCA_FALTANTE`
-  15 s; timeout de ubicación 5 s), `NotificationOutboxDispatcher` (5 s),
-  `PrivacyRetentionScheduler` (15 min).
+  15 s, lote de 200; timeout de ubicación 5 s), `NotificationOutboxDispatcher`
+  (5 s, `braja.notifications.dispatch-delay-ms`), `PrivacyRetentionScheduler`
+  (15 min). Un candidato de ausencia o `MARCA_FALTANTE` que falla espera de
+  30 s a 1 h antes de volver a elegirse (`deviation_worker_retry_at`, V13,
+  PR #27; `DeviationWorkerRetryPolicyTest`,
+  `IT.absenceWorkerBacksOffFailingCandidateAndProcessesNextCandidateOnce`).
 - **Sin Redis, colas ni microservicios** (D-20261014-14): outbox,
   idempotencia y rate limit de login viven en MySQL.
 - **Helper único por cosa transversal**: hoy `ScopeService` (empresa y
@@ -200,7 +221,8 @@ ArchUnit que se agreguen se ajustan a esta estructura.
 
 **Frontend** (`frontend/src`): una app con vistas por rol (`EMPLEADO`,
 `ADMIN`): `app/`, `features/{auth,admin,employee}`, `shared/api`
-(`ApiClient`: único `fetch`, CSRF en memoria), `shared/pwa`,
+(`ApiClient`: único `fetch`, CSRF en memoria), `shared/pwa`, `shared/`
+(`dateRange`, `format`),
 `device/{push,pwa}`, `sw.ts` (Workbox; `/api/v1` en `NetworkOnly`, sin cola
 offline). Tests: vitest + Testing Library. ESLint y el chequeo de tipos corren
 en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpetas.
@@ -288,10 +310,12 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
    (D-20261016-01). Guarda:
    `Baja.deactivationRevokesMembershipAndExistingSessionScopeAndLogin`,
    `IT.httpSecurityRejectsAnonymousRequestsAndEmployeeCannotUseAnotherCompaniesIdsOrAdminRoutes`.
-   **Brecha CA8**: ningún test usa un `ADMIN` real de otra empresa para leer
-   o modificar (el más cercano, `IT.employeeTemplateListIsRestrictedToAssignedSitesWithoutSiteFilter`,
-   usa un `ADMIN` sin membresía). Que cada consulta lleve `company_id` es
-   convención `[sin guarda: implementado, sin test]`.
+   CA8 (brecha cerrada el 2026-10-26, PR #26; antes ningún test usaba un
+   `ADMIN` real de otra empresa):
+   `IT.validAdminsCannotReadOrModifyRecordsFromAnotherCompany` usa dos `ADMIN`
+   válidos de empresas distintas sobre bandeja, jornada, empleado, plantilla,
+   marca olvidada, corrección y clasificación. Que cada consulta lleve
+   `company_id` es convención `[sin guarda: implementado, sin test]`.
 10. **Lock pesimista antes de registrar una marca** (D-20261015-06).
     `recordEmployeeMark` hace `SELECT … FOR UPDATE` sobre la cuenta, la
     membresía y la fila de `jornadas`, relee el historial `FOR UPDATE`, valida
@@ -307,7 +331,10 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     `JornadaCancellationAndMarkVoidMySqlTest.concurrentDeclarationsOfTheSameEmployeeSiteAndDateStillYieldOneJornada` (4 hilos).
     La declaración por lote (D-20261027-11, 2026-10-27) trata el choque con esa unicidad como fecha salteada
     (`JORNADA_EXISTS`), no como error: `TemplateAssignmentAndBulkDeclarationMySqlTest.bulkAndSingleDeclarationsOfTheSameDaysAtTheSameTimeYieldOneJornadaPerDayAndNo5xx`.
-    **Brecha**: falta la ráfaga de N acciones distintas sobre un empleado.
+    Ráfaga de acciones distintas (brecha cerrada el 2026-10-26, PR #26):
+    `IT.fiveDistinctConcurrentPauseRequestsYieldOneAcceptedMarkAndFourCodedConflicts`
+    (5 hilos: 1 marca aceptada, 4 409 `INVALID_MARK_TRANSITION`, cero 5xx) y
+    `IT.distinctConcurrentPauseMarksSerializeToOneAcceptedMarkAndOneConflict`.
 11. **Orden único de locks**, el real: cuenta → membresía → (empleado) →
     jornada → marcas → desvíos → estado de notificación de la empresa →
     ventana de aviso (`FOR UPDATE`; el reclamo solo toma ventanas). Declarar
@@ -349,7 +376,11 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     `braja.scheduling.enabled` apaga todos los `@Scheduled`. Sin ShedLock: se
     agrega antes de escalar a más de una instancia. Hoy un doble disparo lo
     acotan `uq_deviation_jornada_active_type` (V9) y el lock por jornada.
-    Guarda: `IT.absenceWorkerSkipsAlreadyProcessedCandidatesOnNextTick`.
+    Un candidato que falla se reintenta con espera creciente y no ocupa el lote
+    (V13, 2026-10-22, PR #27; antes se volvía a elegir en cada tick). Guarda:
+    `IT.absenceWorkerSkipsAlreadyProcessedCandidatesOnNextTick`,
+    `IT.absenceWorkerBacksOffFailingCandidateAndProcessesNextCandidateOnce`,
+    `DeviationWorkerRetryPolicyTest`.
 
 ### Datos y migraciones
 
@@ -368,9 +399,11 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     (`NotificationWindowRepository.loadSiteCounts`). No hay otros totales.
     `[sin guarda: implementado, sin test]`
 17. **Una consulta dentro de un loop es N+1 hasta demostrar lo contrario**; se
-    resuelve con `IN` o join. Incumplida en `OrganizationController`
-    (`employees`, `templates`) y `JornadaController.mine`.
-    `[sin guarda: destino]`
+    resuelve con `IN` o join. Incumplida al 2026-10-28 en
+    `OrganizationController.employees` (`OrganizationService.employeeView` lee
+    las sedes de cada empleado), `OrganizationController.templates`
+    (`templateView` lee los bloques de cada plantilla) y `JornadaController.mine`
+    (`getJornada` lee jornada y marcas por cada id). `[sin guarda: destino]`
 18. **Unicidad y normalización en la base**: el identificador es el DNI global
     (D-20261016-01), no un `username` por empresa: `accounts.dni_normalized`
     solo dígitos (`DniNormalizer`, 7 a 12) con `UNIQUE uq_account_dni` (V1) y
@@ -382,7 +415,9 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     DDL por migración**. Rige desde V12 (D-20261019-05): solo V11 declara su
     reversa, y V1–V5 y V7–V10 tienen varias sentencias pero no se reescriben.
     V19–V21 (2026-10-27) son un `ALTER TABLE` cada una y declaran su reversa; V23
-    (2026-10-27, asignación de plantillas) es un `CREATE TABLE` con su reversa. Migrar desde base vacía ocurre en cada corrida de `IT`
+    (2026-10-27, asignación de plantillas) es un `CREATE TABLE` con su reversa.
+    Al 2026-10-28, V13–V16 y V18–V23 tienen una sola sentencia y un comentario
+    `-- Revert:`; V12 y V17 no existen. Migrar desde base vacía ocurre en cada corrida de `IT`
     (`IT.migrationsCreateTheTenantAndPrivacyInvariants`). `[sin guarda: destino]`
 20. **Migraciones sin corte (expand/contract)**: aplica cuando exista deploy
     (V11 ya avisa que con filas `MARCA_FALTANTE` la imagen anterior falla).
@@ -390,7 +425,8 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
 
 ### Seguridad
 
-21. **Rate limit de login** por DNI (no por IP), persistido en MySQL
+21. **Rate limit de login** por DNI y, desde el 2026-10-22 (PR #24, V14), también
+    por IP, persistido en MySQL
     (`login_throttles`, V5): 5 fallos en 15 min bloquean ese DNI 15 min (429 con
     `Retry-After`). Sobrevive a reinicios; no hay Bucket4j. El intento se
     reserva bajo lock de la fila antes de verificar la contraseña, en una
@@ -450,9 +486,11 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     lista explícita de `Content-Type` del archivo anterior no existe
     `[sin guarda: destino]`.
 25. **Entrada hostil**: el motivo y todo texto que ve el `ADMIN` se limpia de
-    caracteres de control, bidi y zero-width, con tope de largo. Hoy solo hay
-    tope (4000 motivo, 2000 auditoría); no hay exportación CSV.
-    `[sin guarda: destino]`
+    caracteres de control, bidi y zero-width, con tope de largo. Al 2026-10-28
+    solo hay tope (4000 motivo; 2000 auditoría, cancelación de jornada y
+    anulación de marca: `MarkController.ReasonInput`); nada limpia esos
+    caracteres (advertencia abierta de las revisiones del 2026-10-27, §7); no
+    hay exportación CSV. `[sin guarda: destino]`
 26. **Errores neutros hacia afuera**: Problem Details con `code` estable; el
     login da el mismo 401 para usuario inexistente, contraseña errónea o sin
     membresías; una contraseña actual errónea en `PUT /session/password` da
@@ -466,8 +504,13 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     `BRAJA_SESSION`; lo único en memoria es el token CSRF. El front no usa
     `localStorage`, `sessionStorage` ni IndexedDB (`rg` 2026-10-19). No hay
     refresh token con rotación (el archivo anterior asumía JWT). Guarda: la
-    aserción `httponly` de `IT.httpLoginCreatesHttpOnlySession…`; el front
-    `[sin guarda: implementado, sin test]`.
+    aserción `httponly` de `IT.httpLoginCreatesHttpOnlySession…`. En el front,
+    guarda parcial (2026-10-28): `AuthScreens.test.tsx` ("envía DNI y contraseña
+    al servidor sin guardarlos en el navegador") y `client.test.ts` ("envía CSRF
+    en toda operación que cambia estado y no persiste el token") asertan
+    `localStorage` y `sessionStorage` vacíos; IndexedDB y el resto de la app
+    `[sin guarda: implementado, sin test]` (`rg` 2026-10-28: solo esos dos
+    tests nombran el almacenamiento).
 
 ### Tiempo
 
@@ -475,10 +518,15 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     IANA por sede, D-20261015-02). La conexión fija UTC (Hikari `SET
     time_zone`, `connectionTimeZone=UTC`, `--default-time-zone` en compose). La
     fecha de jornada es la fecha local del primer bloque en la zona de la
-    sede (CA5). **Brecha**: no hay `Clock` inyectado; `Instant.now()` aparece 25
-    veces en 13 archivos de `main` (los caminos principales reciben el instante
-    por parámetro: `createDueAbsences`, `reconcile`, `recordEmployeeMark`). Sin
-    test de jornada nocturna ni de horario de verano. `[sin guarda: destino]`
+    sede (CA5). La fecha de jornada se lee sin conversión por la zona de la JVM
+    (2026-10-20, PR #28: `rs.getDate` dependía de esa zona; guarda:
+    `IT.journeyDatesDoNotDependOnJvmDefaultTimeZone`). **Brecha**: no hay
+    `Clock` inyectado como bean; al 2026-10-28 `Instant.now()` aparece 31 veces
+    en 16 archivos de `backend/src/main/java` (antes, 25 en 13). Los caminos
+    principales reciben el instante por parámetro (`createDueAbsences`,
+    `reconcile`) y `recordEmployeeMark` recibe un `Clock`
+    (`MarkController` pasa `Clock.systemUTC()`). Sin test de jornada nocturna
+    ni de horario de verano. `[sin guarda: destino]`
 
 ### Configuración y despliegue
 
@@ -556,7 +604,9 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
 - **El endpoint de marca tiene prueba de ráfaga**: N marcas idénticas a la
   vez (mismo `Idempotency-Key`) → 1 marca creada y N-1 respuestas
   idempotentes; N marcas distintas sobre el mismo empleado a la vez → 1 éxito,
-  N-1 conflictos, cero 5xx. Hoy solo existe la primera, con 2 hilos.
+  N-1 conflictos, cero 5xx. Al 2026-10-28 existen las dos: la primera con 2
+  hilos (`IT.identicalConcurrentRetries…`) y la segunda con 5
+  (`IT.fiveDistinctConcurrentPauseRequests…`, PR #26).
 - **Un bug de producción se reproduce con un test antes de arreglarse**, con
   fecha y síntoma en el comentario.
 - **Un pipe a `tail` esconde el exit code.** Los comandos del gate se
@@ -573,7 +623,8 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
   Jobs: `backend` (Temurin 21, `./mvnw verify -B`; Testcontainers levanta
   MySQL 8.4 con el Docker del runner; 20 min) y `frontend` (Node 24: `npm ci`,
   `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`,
-  `npm run audit:prod`; 15 min). **Es un
+  `npm run audit:prod`, que corre `npm audit --omit=dev` con la política de
+  §5.39; 15 min; `ci.yml` revalidado el 2026-10-28). **Es un
   check requerido**: `main` tiene protección de rama con `backend` y
   `frontend` obligatorios (D-20261019-06), sin costo porque el repo es
   público (D-20261019-02).
@@ -588,8 +639,9 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     `ContextoEmpresa`, `OutboxPush`, `eslint-plugin-boundaries`, JWT y
     `usuario.token_version`. Nada de eso existe; la estructura actual se
     adopta (D-20261019-03, §4).
-  - `docs/ARQUITECTURA.md` nombra módulos `identity`, `scheduling`, `privacy`,
-    `common` y `device/location` que no existen con esos nombres.
+  - `docs/ARQUITECTURA.md` nombraba módulos `identity`, `scheduling`,
+    `privacy`, `common` y `device/location` que no existen con esos nombres.
+    Corregido el 2026-10-28: usa los paquetes reales y una nota remite a §4.
   - Al 2026-10-19 `OrganizationController` (lecturas y `createSite`) y
     `JornadaController` (lecturas y alta de jornada) usan `JdbcTemplate`
     directo, con a lo sumo una sentencia de escritura; ningún controlador
@@ -597,43 +649,71 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     organización viven en `OrganizationService`
     (`OrganizationTransactionMySqlTest`). Desde el 2026-10-27 el alta de
     jornada (una o por lote) vive en `JornadaDeclarationService`
-    (`@Transactional`); `JornadaController` solo lee.
+    (`@Transactional`); `JornadaController` solo lee (revalidado 2026-10-28).
   - `openapi.yaml` es manual (no hay springdoc) y ningún test lo compara con
-    el código.
+    el código (2026-10-28).
 - **Ya cubierto** (2026-10-19): reintentos idénticos concurrentes;
   transiciones de jornada; ventana de ingreso de 30 min (D-20261016-05);
   `MARCA_FALTANTE` y su cierre o reemplazo por `EGRESO_TARDIO`
   (D-20261018-01, D-20261019-01); baja de empleado; ubicación y purga a 90
   días; CSRF, cookie `HttpOnly` y `Secure` por defecto con guarda de arranque;
   agrupación, reintento y payload del push; CI con tests en MySQL 8.4 real.
-- **Falta todavía** (inventario verificado 2026-10-19; las referencias de
-  Organización y frontend se revalidaron sobre `main` `5e61d0a` el 2026-10-20):
+- **Falta todavía** (inventario revalidado sobre `main` `f3c9635` el
+  2026-10-28):
   - Inyectar `Clock` (28). Agregar reglas ESLint para límites entre capas,
     ciclos y exports sin uso (35), y una prueba arquitectónica para proteger
     la separación contenedor/render (36).
-  - Tests CA8 con un `ADMIN` real de otra empresa (9) y ráfaga de acciones
-    distintas (10).
   - El alta con un DNI existente filtra estado de la cuenta a otra empresa:
     `OrganizationService.createEmployee` responde `ACCOUNT_INACTIVE` para una
     cuenta inactiva; al agregar una cuenta activa ya existente, devuelve su DNI
-    y `mustChangePassword`. `OrganizationController` delega la operación.
-  - `rs.getDate("local_date")` en `JornadaController` depende de la zona de la
-    JVM, que no está fijada.
-  - Job de ausencias: un candidato que falla siempre se vuelve a elegir en
-    cada tick (sin `next_retry_at`), puede ocupar el lote de 200 y escribe un
-    `LOGGER.error` con traza cada 15 s.
+    y `mustChangePassword`. `OrganizationController` delega la operación. Del
+    mismo modo, `PasswordResetService` responde 409 `ACCOUNT_SHARED` si la
+    cuenta tiene una membresía en otra empresa o un rol `ADMIN`: no dice cuál,
+    pero le revela al `ADMIN` que la persona está en otra empresa
+    (D-20261027-09, 2026-10-27).
   - N+1 en `OrganizationController.employees/templates` y
     `JornadaController.mine` (17).
   - Con conocer un DNI se puede bloquear esa cuenta (21); el límite por IP
     existe (100 fallos en 15 min, D-20261027-05) pero no evita eso.
+  - Entrada hostil (25): los textos que ve el `ADMIN` solo tienen tope de
+    largo; no se limpian caracteres de control, bidi ni zero-width.
+  - Push (advertencias abiertas de las revisiones del 2026-10-27; el código
+    sigue igual el 2026-10-28): `sw.ts` no escucha
+    `pushsubscriptionchange`, así que una suscripción que el navegador renueva
+    no se vuelve a registrar; una suscripción que el proveedor rechaza siempre
+    con un 4xx distinto de 404 y 410 no se borra: se reintenta hasta `DEAD`
+    (regla 12).
+  - Declaración por lote (PR #65; advertencia de revisión abierta, 2026-10-28):
+    hasta 200 empleados × 31 días (`JornadaDeclarationService.MAX_BULK_EMPLOYEES`,
+    `MAX_BULK_DAYS`) se crean en una sola transacción (`declareBulk`), que
+    retiene los locks de las plantillas (`FOR SHARE`) y de las jornadas
+    insertadas hasta el commit; un lote grande demora a quien espere esas filas.
+  - Ubicación respecto de la sede: issue #67 (abierto, `status:approved`,
+    asignado a Enrique, 2026-10-28). Antes de implementarlo hace falta una fila
+    nueva en `docs/DECISIONES.md`, porque cambia "la ubicación no se usa como
+    geocerca" de `docs/ESPECIFICACION.md`.
   - Primer deploy: V11 exige el procedimiento de reversa antes de volver a la
     imagen anterior, y el job crea `MARCA_FALTANTE` para toda jornada abierta
     histórica (la consulta no tiene cota de fecha; interno, sin push).
   - Web Push en un iPhone real; dominio y hosting (D-20261014-16,
     `docs/PENDIENTES.md`); deploy, backup, Dockerfile, Caddy, VPS y RTO;
     acuerdo escrito con Braja sobre reuso del código con otros clientes.
-- **Cerrado** (2026-10-27, #46): `occurredAt` de marcas olvidadas y corregidas
-  sin cota (regla 15); `receivedAt` tomado antes de los locks (regla 1).
+- **Cerrado**:
+  - 2026-10-20, PR #23: el cambio de contraseña no cerraba las otras sesiones
+    (regla 23; `PasswordChangeSessionInvalidationMySqlTest`).
+  - 2026-10-20, PR #28: `rs.getDate("local_date")` en `JornadaController`
+    dependía de la zona de la JVM (regla 28;
+    `IT.journeyDatesDoNotDependOnJvmDefaultTimeZone`).
+  - 2026-10-22, PR #27: el job de ausencias volvía a elegir en cada tick un
+    candidato que fallaba siempre, podía ocupar el lote de 200 y escribía un
+    `LOGGER.error` con traza cada 15 s; ahora espera de 30 s a 1 h (V13) y
+    avisa en WARN al primer fallo y al tope (regla 14).
+  - 2026-10-22, PR #24: no había límite de login por IP (regla 21; subido a 100
+    fallos el 2026-10-27, D-20261027-05, PR #52).
+  - 2026-10-26, PR #26: faltaban los tests CA8 con un `ADMIN` real de otra
+    empresa (regla 9) y la ráfaga de acciones distintas (regla 10).
+  - 2026-10-27, #46 (PR #50): `occurredAt` de marcas olvidadas y corregidas
+    sin cota (regla 15); `receivedAt` tomado antes de los locks (regla 1).
 
 Hueco que se repite en todos los proyectos: **el pre-commit hook solo corre
 si cada clon hace `git config core.hooksPath .githooks`**. Hoy no existe
@@ -661,15 +741,21 @@ si cada clon hace `git config core.hooksPath .githooks`**. Hoy no existe
 1. [x] Repo con `backend/`, `frontend/`, `docs/` (PR #2, v1); `docs/` tiene
    `ESPECIFICACION.md`, `DECISIONES.md`, `ARQUITECTURA.md` y `PENDIENTES.md`;
    `openapi.yaml` en la raíz.
-2. [x] El dueño revisó `docs/DECISIONES.md`: 36 filas adoptadas, 0 propuestas
-   (adopciones del 2026-10-16, 10-18 y 10-19).
+2. [x] El dueño revisó `docs/DECISIONES.md`: 47 filas adoptadas, 0 propuestas
+   al 2026-10-28 (adopciones del 2026-10-14 al 2026-10-27; la última,
+   D-20261027-11).
 3. [ ] Portar `DecisionesDelDuenoTest` (frases de atribución sin ID → falla).
 4. [~] Toolchain: Java 21 y Node 24 fijados solo en CI (PR #4). Los `<…>` de
    este archivo se completaron con lo real; quedan RTO y el dominio.
-5. [~] Sacar `[sin guarda]` regla por regla. Con guarda: 2, 7, 8, 12, 13, 22
-   y la máquina de estados; parcial: 1, 4, 5, 6, 9, 10, 14, 24. Siguen: 9
-   (CA8), 10 (ráfaga distinta), 28 (`Clock`), 35 (reglas para capas, ciclos y
-   exports) y 36 (guarda de la separación contenedor/render).
+5. [~] Sacar `[sin guarda]` regla por regla (2026-10-28). Con guarda: 1, 2, 4,
+   5, 6, 7, 8, 10, 12, 13, 14, 21, 22, 26 y la máquina de estados; parcial: 9
+   (`company_id` en cada consulta), 15, 18 (normalización), 23 (último
+   `ADMIN`), 24 (`Content-Type`), 27 (front), 35 (reglas para capas, ciclos y
+   exports), 37 y 39 (cobertura). Siguen sin guarda: 3, 11 (orden de locks),
+   16, 17, 19, 20, 25, 28 (`Clock`), 29–34, 36 (separación
+   contenedor/render), 38 y 40.
 6. [x] Primera verificación completa del archivo contra el código:
    2026-10-20, sobre `main` en `5e61d0a5bb6b81c26603f42e9093bf85e9baab4a`.
-   Se repite al cerrar cada hueco de §7.
+   Segunda: 2026-10-28, sobre `main` en
+   `f3c96357b9b0e40a29b56880ca8c1850ca6a6481`. Se repite al cerrar cada hueco
+   de §7.
