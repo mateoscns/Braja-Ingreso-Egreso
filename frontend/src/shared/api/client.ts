@@ -55,7 +55,11 @@ const CONFLICT_MESSAGES: Record<string, string> = {
   EMPLOYEE_INACTIVE: 'El empleado está dado de baja; reactivalo antes de restablecer la contraseña.',
   JORNADA_HAS_MARKS: 'La jornada ya tiene marcas y no se puede cancelar. Corregí o anulá sus marcas.',
   JORNADA_CANCELLED: 'Esta jornada fue cancelada por el administrador y no admite marcas.',
-  MARK_VOIDED: 'Esa marca ya fue anulada y no se puede modificar.'
+  MARK_VOIDED: 'Esa marca ya fue anulada y no se puede modificar.',
+  ASSIGNMENT_EXISTS: 'Ese empleado ya tiene una plantilla asignada en esa sede desde esa fecha. Elegí otra fecha de inicio.'
+}
+const VALIDATION_MESSAGES: Record<string, string> = {
+  TEMPLATE_REQUIRED: 'El empleado no tiene una plantilla vigente en esa sede para esa fecha. Elegí una plantilla o asignale una desde Empleados.'
 }
 
 function messageForStatus(status: number, code?: string, context: ApiErrorContext = {}): string {
@@ -67,6 +71,7 @@ function messageForStatus(status: number, code?: string, context: ApiErrorContex
   if (status === 403) return 'No tenés permiso para realizar esta acción.'
   if (status === 409 && code && Object.hasOwn(CONFLICT_MESSAGES, code)) return CONFLICT_MESSAGES[code]
   if (status === 409) return 'La información cambió o la acción ya fue procesada. Actualizá la vista.'
+  if (status === 422 && code && Object.hasOwn(VALIDATION_MESSAGES, code)) return VALIDATION_MESSAGES[code]
   if (status === 422) return 'Revisá los datos ingresados.'
   if (status === 429) return `Hubo demasiados intentos. Esperá ${waitText(context.retryAfterSeconds)} y probá otra vez.`
   // Login and password change answer it when the database fails; the connection itself is fine.

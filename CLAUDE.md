@@ -305,10 +305,16 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     Guarda: `IT.identicalConcurrentRetries…` (2 hilos),
     `IT.ingresoCommittedAfterRepeatableReadSnapshotWinsAgainstAbsenceWorker`,
     `JornadaCancellationAndMarkVoidMySqlTest.concurrentDeclarationsOfTheSameEmployeeSiteAndDateStillYieldOneJornada` (4 hilos).
+    La declaración por lote (D-20261027-11, 2026-10-27) trata el choque con esa unicidad como fecha salteada
+    (`JORNADA_EXISTS`), no como error: `TemplateAssignmentAndBulkDeclarationMySqlTest.bulkAndSingleDeclarationsOfTheSameDaysAtTheSameTimeYieldOneJornadaPerDayAndNo5xx`.
     **Brecha**: falta la ráfaga de N acciones distintas sobre un empleado.
 11. **Orden único de locks**, el real: cuenta → membresía → (empleado) →
     jornada → marcas → desvíos → estado de notificación de la empresa →
-    ventana de aviso (`FOR UPDATE`; el reclamo solo toma ventanas). Todo
+    ventana de aviso (`FOR UPDATE`; el reclamo solo toma ventanas). Declarar
+    (una o por lote) y asignar plantilla toman la plantilla `FOR SHARE` antes de
+    insertar; mover una plantilla de sede la toma `FOR UPDATE` antes de leer sus
+    jornadas y asignaciones (`JornadaDeclarationService`,
+    `TemplateAssignmentService`, `OrganizationService.saveTemplate`, 2026-10-27). Todo
     camino nuevo lo respeta. `ApiExceptionHandlerTest` solo prueba que un
     fallo de lock da 409 reintentable. `[sin guarda: implementado, sin test]`
 12. **El envío de push va fuera de la transacción** (D-20261014-14). El desvío
@@ -375,7 +381,8 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     cómo se vuelve atrás. El DDL de MySQL no es transaccional: **una sentencia
     DDL por migración**. Rige desde V12 (D-20261019-05): solo V11 declara su
     reversa, y V1–V5 y V7–V10 tienen varias sentencias pero no se reescriben.
-    V19–V21 (2026-10-27) son un `ALTER TABLE` cada una y declaran su reversa. Migrar desde base vacía ocurre en cada corrida de `IT`
+    V19–V21 (2026-10-27) son un `ALTER TABLE` cada una y declaran su reversa; V23
+    (2026-10-27, asignación de plantillas) es un `CREATE TABLE` con su reversa. Migrar desde base vacía ocurre en cada corrida de `IT`
     (`IT.migrationsCreateTheTenantAndPrivacyInvariants`). `[sin guarda: destino]`
 20. **Migraciones sin corte (expand/contract)**: aplica cuando exista deploy
     (V11 ya avisa que con filas `MARCA_FALTANTE` la imagen anterior falla).
@@ -588,7 +595,9 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     directo, con a lo sumo una sentencia de escritura; ningún controlador
     lleva `@Transactional`. Las escrituras de varias sentencias de
     organización viven en `OrganizationService`
-    (`OrganizationTransactionMySqlTest`).
+    (`OrganizationTransactionMySqlTest`). Desde el 2026-10-27 el alta de
+    jornada (una o por lote) vive en `JornadaDeclarationService`
+    (`@Transactional`); `JornadaController` solo lee.
   - `openapi.yaml` es manual (no hay springdoc) y ningún test lo compara con
     el código.
 - **Ya cubierto** (2026-10-19): reintentos idénticos concurrentes;

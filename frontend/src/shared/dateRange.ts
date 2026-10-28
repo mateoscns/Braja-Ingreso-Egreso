@@ -14,10 +14,10 @@ function parse(value: string): number | null {
 
 /**
  * Mirrors the server rule for local-date ranges (ordered, years 2000 to 2100, at most 366 days inclusive) so the
- * mistake is explained before any request is made. Both ends empty means "no range" and is valid here.
+ * mistake is explained before any request is made; maxSpanDays narrows the span (bulk declaration: 31). Both ends empty means "no range" and is valid here.
  * Returns a Spanish message, or an empty string when the range is acceptable.
  */
-export function validateDateRange(from: string, to: string): string {
+export function validateDateRange(from: string, to: string, maxSpanDays = MAX_SPAN_DAYS): string {
   if (!from && !to) return ''
   if (!from || !to) return DATE_PAIR_MESSAGE
   const start = parse(from)
@@ -26,7 +26,7 @@ export function validateDateRange(from: string, to: string): string {
   if ([start, end].some((time) => { const year = new Date(time).getUTCFullYear(); return year < MIN_YEAR || year > MAX_YEAR })) return `Las fechas deben estar entre los años ${MIN_YEAR} y ${MAX_YEAR}.`
   if (end < start) return 'La fecha desde no puede ser posterior a la fecha hasta.'
   // Inclusive span: from and to count as days, so 366 days means to - from <= 365 days (api/DateRanges.java).
-  if (end - start >= MAX_SPAN_DAYS * DAY_MS) return `El rango no puede superar los ${MAX_SPAN_DAYS} días.`
+  if (end - start >= maxSpanDays * DAY_MS) return `El rango no puede superar los ${maxSpanDays} días.`
   return ''
 }
 

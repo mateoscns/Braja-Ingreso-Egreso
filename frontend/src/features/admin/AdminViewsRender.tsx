@@ -1,6 +1,6 @@
-import { Fragment, type FormEvent } from 'react'
+import { Fragment, type FormEvent, type ReactNode } from 'react'
 import { Empty, FormField, Loading, PageMessage, Panel } from '../../app/ui'
-import type { Deviation, Employee, Jornada, JornadaAudit, JornadaAuditEntry, JornadaSummary, Mark, MarkAction, Site, Template, TemplateBlock } from '../../shared/api/types'
+import type { BulkDeclarationResult, BulkSkipReason, Deviation, Employee, Jornada, JornadaAudit, JornadaAuditEntry, JornadaSummary, Mark, MarkAction, Site, Template, TemplateAssignment, TemplateBlock } from '../../shared/api/types'
 import { formatBlock, formatDateTime, formatLocalDate, jornadaStateLabel } from '../../shared/format'
 
 const stateLabel = jornadaStateLabel
@@ -96,12 +96,15 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, name
   </>
 }
 
-export function EmployeesViewRender({ employees, sites, loading, loadError, error, notice, busy, dni, displayName, siteIds, tolerance, temporaryPassword, draft, onReload, onCreate, onDniChange, onDisplayNameChange, onToggleSite, onToleranceChange, onTemporaryPasswordChange, onSave, onDraftChange, onStartEditing, onCancelEditing, resetTarget, issuedPassword, onAskReset, onConfirmReset, onCancelReset, onDismissIssuedPassword }: {
+export function EmployeesViewRender({ employees, sites, loading, loadError, error, notice, busy, dni, displayName, siteIds, tolerance, temporaryPassword, draft, assignmentsPanel, onReload, onCreate, onDniChange, onDisplayNameChange, onToggleSite, onToleranceChange, onTemporaryPasswordChange, onSave, onDraftChange, onStartEditing, onCancelEditing, onOpenAssignments, resetTarget, issuedPassword, onAskReset, onConfirmReset, onCancelReset, onDismissIssuedPassword }: {
   employees: Employee[]; sites: Site[]; loading: boolean; loadError: string; error: string; notice: string; busy: boolean
   dni: string; displayName: string; siteIds: string[]; tolerance: string; temporaryPassword: string; draft: Employee | null
+  /** The template assignments of one employee (TemplateAssignmentsRender), shown under the list. */
+  assignmentsPanel?: ReactNode
   onReload: () => void; onCreate: (event: FormEvent<HTMLFormElement>) => void; onDniChange: (value: string) => void; onDisplayNameChange: (value: string) => void
   onToggleSite: (id: string) => void; onToleranceChange: (value: string) => void; onTemporaryPasswordChange: (value: string) => void
   onSave: () => void; onDraftChange: (patch: Partial<Employee>) => void; onStartEditing: (id: string) => void; onCancelEditing: () => void
+  onOpenAssignments: (id: string) => void
   resetTarget: string | null; issuedPassword: { displayName: string; temporaryPassword: string } | null
   onAskReset: (id: string) => void; onConfirmReset: () => void; onCancelReset: () => void; onDismissIssuedPassword: () => void
 }) {
@@ -110,6 +113,7 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
       <button className="button button-small button-primary" disabled={busy} onClick={onConfirmReset}>{busy ? 'Restableciendo…' : 'Confirmar restablecimiento'}</button>
       <button type="button" className="button button-small button-quiet" aria-label="Cancelar restablecimiento" disabled={busy} onClick={onCancelReset}>Cancelar</button></div>
     : <div className="button-row"><button className="button button-small button-quiet" aria-label={`Editar empleado ${saved.displayName}`} disabled={busy} onClick={() => onStartEditing(saved.id)}>Editar</button>
+      <button className="button button-small button-quiet" aria-label={`Plantillas de ${saved.displayName}`} onClick={() => onOpenAssignments(saved.id)}>Plantillas</button>
       <button className="button button-small button-quiet" aria-label={`Restablecer contraseña de ${saved.displayName}`} disabled={busy || !saved.active} onClick={() => onAskReset(saved.id)}>Restablecer contraseña</button></div>
   return <>
     <PageHeading eyebrow="EQUIPO" title="Empleados" subtitle="Las cuentas se identifican por DNI. La tolerancia se guarda por empleado." />
@@ -131,6 +135,7 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
         <td>{edit ? <div className="button-row"><button className="button button-small button-primary" disabled={busy || edit.siteIds.length === 0} onClick={onSave}>{busy ? 'Guardando…' : 'Guardar'}</button><button type="button" className="button button-small button-quiet" disabled={busy} onClick={onCancelEditing}>Cancelar</button></div> : rowActions(saved)}</td>
       </tr>
     })}</tbody></table></div> : <Empty>No hay empleados cargados.</Empty>}</Panel>
+    {assignmentsPanel}
     <Panel title="Dar de alta un empleado"><form className="form-grid" onSubmit={onCreate}>
       <FormField label="Nombre y apellido"><input required maxLength={160} value={displayName} onChange={(event) => onDisplayNameChange(event.target.value)} /></FormField>
       <FormField label="DNI"><input required minLength={7} maxLength={12} inputMode="numeric" value={dni} onChange={(event) => onDniChange(event.target.value)} /></FormField>
@@ -140,6 +145,64 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
       <div className="field-wide"><button className="button button-primary" disabled={busy || loading || Boolean(loadError) || siteIds.length === 0}>{busy ? 'Guardando…' : 'Crear empleado'}</button></div>
     </form></Panel>
   </>
+}
+
+/** D-20261015-02: history (newest start first) and a new assignment from a date; templates are those of the employee's sites. */
+export function TemplateAssignmentsRender({ employee, sites, templates, assignments, loading, loadError, error, busy, templateId, validFrom, onTemplateChange, onValidFromChange, onSubmit, onRetry, onClose }: {
+  employee: Employee; sites: Site[]; templates: Template[]; assignments: TemplateAssignment[]; loading: boolean; loadError: string; error: string; busy: boolean
+  templateId: string; validFrom: string; onTemplateChange: (value: string) => void; onValidFromChange: (value: string) => void
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void; onRetry: () => void; onClose: () => void
+}) {
+  const siteName = (id: string) => sites.find((site) => site.id === id)?.name ?? 'Sede'
+  return <Panel title={`Plantillas de ${employee.displayName}`} action={<button type="button" className="button button-small button-quiet" onClick={onClose}>Cerrar</button>}>
+    <p className="muted">Cada sede tiene su plantilla con fecha de inicio. Una asignación nueva rige desde esa fecha y el historial se conserva; las jornadas ya declaradas no cambian.</p>
+    {error && <PageMessage kind="error">{error}</PageMessage>}
+    {loading ? <Loading label="Cargando plantillas…" /> : loadError ? <LoadFailure message={loadError} onRetry={onRetry} /> : <>
+      {assignments.length ? <ul className="simple-list" aria-label={`Historial de plantillas de ${employee.displayName}`}>{assignments.map((item) => <li key={item.id} className="simple-row">{`${item.templateName} · ${siteName(item.siteId)} · desde ${formatLocalDate(item.validFrom)}`}</li>)}</ul> : <Empty>Todavía no tiene plantillas asignadas.</Empty>}
+      <form className="form-grid" onSubmit={onSubmit}>
+        <FormField label="Plantilla" hint={templates.length === 0 ? 'No hay plantillas activas en las sedes de este empleado.' : undefined}><select required value={templateId} onChange={(event) => onTemplateChange(event.target.value)}><option value="">Elegí una plantilla</option>{templates.map((template) => <option key={template.id} value={template.id}>{`${template.name} · ${siteName(template.siteId)}`}</option>)}</select></FormField>
+        <FormField label="Vigente desde"><input type="date" required value={validFrom} onChange={(event) => onValidFromChange(event.target.value)} /></FormField>
+        <div className="field-wide"><button className="button button-primary" disabled={busy || !templateId || !validFrom}>{busy ? 'Guardando…' : 'Asignar plantilla'}</button></div>
+      </form>
+    </>}
+  </Panel>
+}
+
+const WEEKDAYS: { value: number; label: string }[] = [
+  { value: 1, label: 'Lunes' }, { value: 2, label: 'Martes' }, { value: 3, label: 'Miércoles' }, { value: 4, label: 'Jueves' },
+  { value: 5, label: 'Viernes' }, { value: 6, label: 'Sábado' }, { value: 7, label: 'Domingo' }
+]
+const SKIP_REASONS: Record<BulkSkipReason, string> = {
+  JORNADA_EXISTS: 'Ya tenía una jornada declarada',
+  TEMPLATE_REQUIRED: 'Sin plantilla vigente en esa fecha',
+  TEMPLATE_INVALID: 'La plantilla asignada no se puede usar; revisala en Plantillas'
+}
+
+/** D-20261027-11: each jornada is created once now; no rule is stored. Existing ones are skipped and reported. */
+export function BulkDeclarationRender({ sites, employees, templates, siteId, employeeIds, from, to, weekdays, templateId, busy, disabled, error, result, peopleById, onSiteChange, onToggleEmployee, onSelectAll, onFromChange, onToChange, onToggleWeekday, onTemplateChange, onSubmit }: {
+  sites: Site[]; employees: Employee[]; templates: Template[]; siteId: string; employeeIds: string[]; from: string; to: string; weekdays: number[]; templateId: string
+  busy: boolean; disabled: boolean; error: string; result: BulkDeclarationResult | null; peopleById: Map<string, string>
+  onSiteChange: (value: string) => void; onToggleEmployee: (id: string) => void; onSelectAll: () => void; onFromChange: (value: string) => void; onToChange: (value: string) => void
+  onToggleWeekday: (value: number) => void; onTemplateChange: (value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void
+}) {
+  return <Panel title="Declarar por lote"><form className="form-grid" noValidate onSubmit={onSubmit}>
+    <p className="field-wide muted">Crea una jornada por empleado y por cada fecha del rango (hasta 31 días) que caiga en los días elegidos. Se crean una sola vez, sin repetirse cada semana; las que ya existen se saltean.</p>
+    <FormField label="Sede del lote"><select value={siteId} onChange={(event) => onSiteChange(event.target.value)}>{sites.map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}</select></FormField>
+    <FormField label="Plantilla del lote"><select value={templateId} onChange={(event) => onTemplateChange(event.target.value)}><option value="">Usar la plantilla vigente de cada empleado</option>{templates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>)}</select></FormField>
+    <FormField label="Desde"><input type="date" value={from} onChange={(event) => onFromChange(event.target.value)} /></FormField>
+    <FormField label="Hasta"><input type="date" value={to} onChange={(event) => onToChange(event.target.value)} /></FormField>
+    <fieldset className="field field-wide"><legend className="field-label">Días de la semana</legend><div className="inline-checks">{WEEKDAYS.map((day) => <label key={day.value}><input type="checkbox" checked={weekdays.includes(day.value)} onChange={() => onToggleWeekday(day.value)} />{day.label}</label>)}</div></fieldset>
+    <fieldset className="field field-wide"><legend className="field-label">Empleados del lote ({employeeIds.length})</legend>
+      {employees.length ? <><div className="check-grid">{employees.map((person) => <label key={person.id}><input type="checkbox" checked={employeeIds.includes(person.id)} onChange={() => onToggleEmployee(person.id)} />{person.displayName}</label>)}</div>
+        <div className="button-row"><button type="button" className="button button-small button-quiet" onClick={onSelectAll}>Seleccionar todos</button></div></> : <span className="field-hint">No hay empleados activos habilitados para esta sede.</span>}
+    </fieldset>
+    {error && <div className="field-wide"><PageMessage kind="error">{error}</PageMessage></div>}
+    <div className="field-wide"><button className="button button-primary" disabled={busy || disabled}>{busy ? 'Declarando…' : 'Declarar lote'}</button></div>
+    {result && <div className="field-wide form-stack">
+      <PageMessage kind="success">{`Jornadas creadas: ${result.created.length}. Salteadas: ${result.skipped.length}.`}</PageMessage>
+      {result.skipped.length > 0 && <ul className="simple-list" aria-label="Fechas salteadas">{result.skipped.map((item) => <li key={`${item.employeeId}-${item.localDate}`} className="simple-row">{`${peopleById.get(item.employeeId) ?? 'Empleado'} · ${formatLocalDate(item.localDate)} · ${SKIP_REASONS[item.reason] ?? item.reason}`}</li>)}</ul>}
+    </div>}
+  </form></Panel>
 }
 
 export function TemplatesViewRender({ sites, siteTemplates, loading, loadError, error, notice, busy, selectedSite, editing, name, blocks, breakfast, lunch, onReload, onSiteChange, onBeginEdit, onSubmit, onNameChange, onBlockChange, onRemoveBlock, onAddBlock, onBreakfastChange, onLunchChange, onResetForm }: {
@@ -172,7 +235,9 @@ export function TemplatesViewRender({ sites, siteTemplates, loading, loadError, 
   </>
 }
 
-export function JourneysViewRender({ sites, eligibleEmployees, siteTemplates, jornadas, loading, journeysLoading, journeysDate, journeysError, dependencyError, error, notice, busy, detail, detailLoading, markBusy, date, dateError, employeeId, siteId, templateId, peopleById, detailSite, detailTimeZone, forgotAction, forgotOccurredAt, forgotReason, editingMarkId, correctedAction, correctedOccurredAt, correctionReason, cancelOpen, cancelReason, voidingMarkId, voidReason, auditOpen, audit, auditLoading, auditError, onToggleAudit, onRetryAudit, onDateChange, onEmployeeChange, onSiteChange, onTemplateChange, onDeclare, onRetryDependencies, onReloadJourneys, onShowDetail, onForgotActionChange, onForgotOccurredAtChange, onForgotReasonChange, onAddForgottenMark, onBeginMarkCorrection, onCorrectedActionChange, onCorrectedOccurredAtChange, onCorrectionReasonChange, onCorrectMark, onCancelMarkCorrection, onBeginCancel, onCancelReasonChange, onConfirmCancel, onAbortCancel, onBeginVoid, onVoidReasonChange, onConfirmVoid, onAbortVoid }: {
+export function JourneysViewRender({ bulkPanel, sites, eligibleEmployees, siteTemplates, jornadas, loading, journeysLoading, journeysDate, journeysError, dependencyError, error, notice, busy, detail, detailLoading, markBusy, date, dateError, employeeId, siteId, templateId, peopleById, detailSite, detailTimeZone, forgotAction, forgotOccurredAt, forgotReason, editingMarkId, correctedAction, correctedOccurredAt, correctionReason, cancelOpen, cancelReason, voidingMarkId, voidReason, auditOpen, audit, auditLoading, auditError, onToggleAudit, onRetryAudit, onDateChange, onEmployeeChange, onSiteChange, onTemplateChange, onDeclare, onRetryDependencies, onReloadJourneys, onShowDetail, onForgotActionChange, onForgotOccurredAtChange, onForgotReasonChange, onAddForgottenMark, onBeginMarkCorrection, onCorrectedActionChange, onCorrectedOccurredAtChange, onCorrectionReasonChange, onCorrectMark, onCancelMarkCorrection, onBeginCancel, onCancelReasonChange, onConfirmCancel, onAbortCancel, onBeginVoid, onVoidReasonChange, onConfirmVoid, onAbortVoid }: {
+  /** The bulk declaration form (BulkDeclarationRender), shown under the single declaration. */
+  bulkPanel?: ReactNode
   sites: Site[]; eligibleEmployees: Employee[]; siteTemplates: Template[]; jornadas: JourneyRow[]
   loading: boolean; journeysLoading: boolean; journeysDate: string; journeysError: string; dependencyError: string; error: string; notice: string; busy: boolean
   detail: Jornada | null; detailLoading: boolean; markBusy: string; date: string; dateError: string; employeeId: string; siteId: string; templateId: string; peopleById: Map<string, string>
@@ -198,9 +263,10 @@ export function JourneysViewRender({ sites, eligibleEmployees, siteTemplates, jo
       <FormField label="Fecha" hint={dateError || 'La fecha inicial usa el calendario local de este dispositivo; la fecha elegida se aplica como día local en cada sede.'}><input type="date" required aria-invalid={Boolean(dateError)} disabled={loading} value={date} onChange={(event) => onDateChange(event.target.value)} /></FormField>
       <FormField label="Empleado" hint={eligibleEmployees.length === 0 ? 'No hay empleados activos habilitados para esta sede.' : undefined}><select required value={employeeId} onChange={(event) => onEmployeeChange(event.target.value)}>{eligibleEmployees.map((person) => <option value={person.id} key={person.id}>{person.displayName}</option>)}</select></FormField>
       <FormField label="Sede"><select required value={siteId} onChange={(event) => onSiteChange(event.target.value)}>{sites.map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}</select></FormField>
-      <FormField label="Plantilla horaria"><select required value={templateId} onChange={(event) => onTemplateChange(event.target.value)}>{siteTemplates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>)}</select></FormField>
-      <div className="field-wide"><button className="button button-primary" disabled={busy || loading || journeysLoading || !date || !templateId || !employeeId}>{busy ? 'Guardando…' : 'Declarar jornada'}</button></div>
+      <FormField label="Plantilla horaria" hint="Sin elegir una, se usa la plantilla asignada al empleado en esa sede para esa fecha."><select value={templateId} onChange={(event) => onTemplateChange(event.target.value)}><option value="">Usar la plantilla vigente</option>{siteTemplates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>)}</select></FormField>
+      <div className="field-wide"><button className="button button-primary" disabled={busy || loading || journeysLoading || !date || !employeeId}>{busy ? 'Guardando…' : 'Declarar jornada'}</button></div>
     </form></Panel>
+    {bulkPanel}
     <Panel title={journeysTitle(date)} action={<button className="button button-small button-quiet" disabled={journeysLoading} onClick={onReloadJourneys}>{journeysLoading ? 'Actualizando…' : 'Actualizar'}</button>}>
       {!date ? <Empty>{dateError}</Empty> : loading || journeysLoading || journeysDate !== date ? <Loading label={loading || !journeysDate ? 'Cargando jornadas…' : 'Actualizando jornadas…'} /> : journeysError ? <LoadFailure message={journeysError} onRetry={onReloadJourneys} /> : jornadas.length ? <div className="table-scroll"><table><thead><tr><th>Empleado</th><th>Sede</th><th>Estado</th><th /></tr></thead><tbody>{jornadas.map((jornada) => <tr key={jornada.id}><td>{peopleById.get(jornada.employeeId) ?? 'Empleado'}</td><td>{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Sede'}</td><td><span className="status-chip">{stateLabel(jornada.state)}</span></td><td><button className="button button-small button-quiet" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></td></tr>)}</tbody></table></div> : <Empty>No hay jornadas declaradas para esta fecha.</Empty>}
     </Panel>
