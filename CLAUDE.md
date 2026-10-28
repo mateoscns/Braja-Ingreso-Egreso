@@ -252,11 +252,18 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
    `forgotten_mark_audits` y `mark_correction_audits`. Guarda en marcas
    olvidadas: `IT.forgottenIngressCanBeInsertedBeforeAlreadyStoredEgresoAndKeepsReceiptSequence`
    y `IT.forgottenPauseStartCannotLeaveInvalidHistoryWhenReturnIsAlsoMissing`
-   (rollback sin auditoría). `correctMark` `[sin guarda: implementado, sin test]`.
+   (rollback sin auditoría).
    La anulación de una marca (D-20261027-08) no borra la fila y escribe
    `mark_correction_audits` con `change_kind='VOID'` (V20, V21). Guarda:
    `JornadaCancellationAndMarkVoidMySqlTest.voidingAMarkKeepsTheRowAuditsItAndStopsCountingIt`
-   (2026-10-27).
+   (2026-10-27). **Lectura** (issue #60, 2026-10-27; antes las tres tablas de
+   auditoría no tenían ningún camino de lectura): `GET /admin/jornadas/{id}/audit`
+   (`JornadaAuditService`, solo `ADMIN` de la empresa) devuelve la cancelación,
+   las marcas olvidadas, las correcciones, las anulaciones y `deviation_audits`
+   de la jornada, sin texto de motivo ni coordenadas, con tope de 500. Guarda,
+   también de lo que escribe `correctMark`:
+   `JornadaAuditHistoryMySqlTest.adminReadsEveryChangeOfTheJornadaInOrderWithActorNamesAndNoMotiveTextOrCoordinates`
+   y `onlyAnAdminOfTheSameCompanyReadsTheHistory`.
 7. **Un empleado dado de baja no inicia sesión ni marca; su historial no se
    borra.** La baja es `PATCH /employees/{id}` con `active=false`; no existe
    endpoint de borrado y las FK impiden borrar filas referenciadas. Guarda:
