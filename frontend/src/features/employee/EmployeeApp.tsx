@@ -4,7 +4,7 @@ import { useSession } from '../../app/session'
 import { ApiError, api } from '../../shared/api/client'
 import type { Deviation, Jornada, Site } from '../../shared/api/types'
 import { createMarkAttempt, submitMark, type MarkAction, type MarkAttempt, type MarkReceipt } from './markFlow'
-import { loadEmployeeDayData } from './dayData'
+import { loadEmployeeDayData, loadPendingMotives, PENDING_MOTIVES_LIMIT } from './dayData'
 import { InstallControl } from '../../device/pwa/InstallControl'
 import { formatBlock, formatDateTime, formatLocalDate, jornadaStateLabel } from '../../shared/format'
 
@@ -36,6 +36,9 @@ export function EmployeeApp() {
   const [selectedId, setSelectedId] = useState('')
   const [deviations, setDeviations] = useState<Deviation[]>([])
   const [pendingMotives, setPendingMotives] = useState<Deviation[]>([])
+  const [pendingTruncated, setPendingTruncated] = useState(false)
+  const [pendingError, setPendingError] = useState('')
+  const [pendingRetrying, setPendingRetrying] = useState(false)
   const [editingMotives, setEditingMotives] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [loadFailed, setLoadFailed] = useState(false)
@@ -48,6 +51,7 @@ export function EmployeeApp() {
   const [markFailed, setMarkFailed] = useState(false)
   const [feedbackFocus, setFeedbackFocus] = useState(0)
   const loadSequence = useRef(0)
+  const pendingSequence = useRef(0)
   const markSequence = useRef(0)
   const markInFlight = useRef(false)
   const feedbackRef = useRef<HTMLDivElement>(null)
@@ -65,7 +69,8 @@ export function EmployeeApp() {
       // A cancelled jornada stays listed, but the first one that still accepts marks is selected by default.
       setSelectedId((current) => dayData.jornadas.some((jornada) => jornada.id === current) ? current
         : (dayData.jornadas.find((jornada) => jornada.state !== 'CANCELADA') ?? dayData.jornadas[0])?.id ?? '')
-      setDeviations(dayData.deviations); setPendingMotives(dayData.pendingMotives); setEditingMotives([])
+      setDeviations(dayData.deviations); setEditingMotives([])
+      applyPendingMotives(dayData.pendingMotives, dayData.pendingMotivesTruncated, dayData.pendingMotivesError)
     } catch (reason) {
       if (requestId === loadSequence.current) {
         setLoadFailed(true)
@@ -73,6 +78,25 @@ export function EmployeeApp() {
       }
     }
     finally { if (requestId === loadSequence.current) setLoading(false) }
+  }
+  /** Applies a pending-motives result; any retry still in flight becomes stale. */
+  function applyPendingMotives(items: Deviation[], truncated: boolean, failure: string) {
+    pendingSequence.current += 1
+    setPendingMotives(items); setPendingTruncated(truncated); setPendingError(failure); setPendingRetrying(false)
+  }
+  /** Retries only the pending list: the day view already loaded. */
+  async function retryPendingMotives() {
+    const requestId = ++pendingSequence.current
+    setPendingRetrying(true); setPendingError('')
+    try {
+      const pending = await loadPendingMotives(api)
+      if (requestId === pendingSequence.current) applyPendingMotives(pending.items, pending.truncated, '')
+    } catch (reason) {
+      if (requestId === pendingSequence.current) {
+        setPendingRetrying(false)
+        setPendingError(reason instanceof Error ? reason.message : 'No se pudieron consultar los motivos pendientes.')
+      }
+    }
   }
   useEffect(() => {
     if (!session?.activeCompanyId) return
@@ -100,7 +124,9 @@ export function EmployeeApp() {
       } catch { /* El recibo confirmado sigue siendo válido aunque falle la actualización de pantalla. */ }
       try {
         const refreshedDay = await loadEmployeeDayData(api, sites, date)
-        setSiteDates(refreshedDay.siteDates); setDeviations(refreshedDay.deviations); setPendingMotives(refreshedDay.pendingMotives)
+        setSiteDates(refreshedDay.siteDates); setDeviations(refreshedDay.deviations)
+        // A failed background refresh keeps the pending list already on screen.
+        if (!refreshedDay.pendingMotivesError) applyPendingMotives(refreshedDay.pendingMotives, refreshedDay.pendingMotivesTruncated, '')
       } catch { /* La marca no depende de actualizar la bandeja. */ }
     } catch (reason) {
       setError(markFailureMessage(reason)); setMarkFailed(true)
@@ -179,7 +205,9 @@ export function EmployeeApp() {
         </>}
       </>}
       <Panel title="Motivos pendientes"><p className="muted small-copy">Completá el motivo del desvío, de cualquier fecha. Podés corregirlo hasta que el administrador lo revise. El texto solo aparece para vos y el administrador de tu empresa.</p>
-        {loading ? <Loading label="Consultando motivos…" /> : loadFailed ? <Empty>No se pudieron consultar los motivos.</Empty> : motiveForms.length === 0 ? <Empty>No tenés motivos pendientes.</Empty> : <div className="motive-list">{motiveForms.map((item) => {
+        {!loading && !loadFailed && pendingError && <><PageMessage kind="error">No se pudieron consultar tus motivos pendientes. {pendingError}</PageMessage><button type="button" className="button button-quiet button-small" onClick={() => void retryPendingMotives()}>Reintentar motivos</button></>}
+        {!loading && !loadFailed && !pendingRetrying && pendingTruncated && <p className="muted small-copy">Mostramos los {PENDING_MOTIVES_LIMIT} motivos pendientes más recientes. Completalos para ver los anteriores.</p>}
+        {loading || pendingRetrying ? <Loading label="Consultando motivos…" /> : loadFailed ? <Empty>No se pudieron consultar los motivos.</Empty> : motiveForms.length === 0 ? (pendingError ? null : <Empty>No tenés motivos pendientes.</Empty>) : <div className="motive-list">{motiveForms.map((item) => {
           const values = motiveValues[item.id] ?? { category: 'OTRA', text: '' }
           const editing = editingMotives.includes(item.id)
           return <Fragment key={item.id}><form className="motive-card" aria-busy={savingMotive === item.id} onSubmit={(event) => void saveMotive(event, item)}><div><strong>{deviationName(item.type)}</strong><span className="status-chip">{localTime(item.occurredAt ?? item.createdAt, item.siteId ? sites.find((site) => site.id === item.siteId)?.timeZone : undefined)}</span></div>
