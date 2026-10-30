@@ -121,6 +121,7 @@ class BackendMySqlIntegrationTest {
         jdbc.update("DELETE FROM schedule_templates");
         jdbc.update("DELETE FROM employee_sites");
         jdbc.update("DELETE FROM employees");
+        jdbc.update("DELETE FROM site_location_audits");
         jdbc.update("DELETE FROM company_memberships");
         jdbc.update("DELETE FROM accounts");
         jdbc.update("DELETE FROM sites");
