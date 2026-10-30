@@ -36,12 +36,14 @@ class DailyGeofenceDeviationMigrationMySqlTest {
         Fixture fixture = seedV27Rows(jdbc);
 
         assertThrows(org.springframework.dao.DataAccessException.class,
-                () -> insertDeviation(jdbc, id(), fixture, fixture.firstMark(), fixture.createdAt()));
+                () -> insertDeviation(jdbc, id(), fixture, fixture.firstMark(), fixture.createdAt(), true));
 
         Flyway.configure().dataSource(dataSource).target(MigrationVersion.fromVersion("28")).load().migrate();
-        insertDeviation(jdbc, fixture.firstDeviation(), fixture, fixture.firstMark(), fixture.createdAt());
+        insertDeviation(jdbc, fixture.firstDeviation(), fixture, fixture.firstMark(), fixture.createdAt(), true);
         assertThrows(org.springframework.dao.DataAccessException.class,
-                () -> insertDeviation(jdbc, id(), fixture, fixture.secondMark(), fixture.createdAt().plusMinutes(1)));
+                () -> insertDeviation(jdbc, id(), fixture, fixture.secondMark(), fixture.createdAt().plusMinutes(1), true));
+        assertThrows(org.springframework.dao.DataAccessException.class,
+                () -> insertDeviation(jdbc, id(), fixture, null, fixture.createdAt().plusMinutes(2), false));
         assertEquals(1, count(jdbc, "SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND active=TRUE AND type='FUERA_DE_SEDE'",
                 fixture.jornadaId()));
 
@@ -100,10 +102,10 @@ class DailyGeofenceDeviationMigrationMySqlTest {
                 Timestamp.valueOf(occurredAt), Timestamp.valueOf(occurredAt), accountId);
     }
 
-    private void insertDeviation(JdbcTemplate jdbc, String deviationId, Fixture fixture, String markId, LocalDateTime createdAt) {
+    private void insertDeviation(JdbcTemplate jdbc, String deviationId, Fixture fixture, String markId, LocalDateTime createdAt, boolean active) {
         jdbc.update("INSERT INTO deviations(id,company_id,jornada_id,source_mark_id,site_id,employee_id,type,created_at,updated_at,active) " +
-                        "VALUES(?,?,?,?,?,?,'FUERA_DE_SEDE',?,?,TRUE)", deviationId, fixture.companyId(), fixture.jornadaId(), markId,
-                fixture.siteId(), fixture.employeeId(), Timestamp.valueOf(createdAt), Timestamp.valueOf(createdAt));
+                        "VALUES(?,?,?,?,?,?,'FUERA_DE_SEDE',?,?,?)", deviationId, fixture.companyId(), fixture.jornadaId(), markId,
+                fixture.siteId(), fixture.employeeId(), Timestamp.valueOf(createdAt), Timestamp.valueOf(createdAt), active);
     }
 
     private void insertLocationAudit(JdbcTemplate jdbc, Fixture fixture, String source) {
