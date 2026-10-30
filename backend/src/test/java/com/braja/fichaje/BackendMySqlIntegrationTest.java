@@ -165,10 +165,8 @@ class BackendMySqlIntegrationTest {
     void migrationsCreateTheTenantAndPrivacyInvariants() {
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='notification_outbox_events'", Integer.class));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='deviations' AND column_name='active_type'", Integer.class));
-        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='deviations' AND column_name='active_jornada_geofence_type'", Integer.class));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='site_location_audits' AND column_name='location_source'", Integer.class));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='jornadas' AND column_name='site_geofence_latitude_snapshot'", Integer.class));
-        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.check_constraints WHERE constraint_schema=DATABASE() AND constraint_name='chk_deviation_fuera_source_mark'", Integer.class));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM bootstrap_guard WHERE id=1 AND consumed_at IS NULL", Integer.class));
     }
 

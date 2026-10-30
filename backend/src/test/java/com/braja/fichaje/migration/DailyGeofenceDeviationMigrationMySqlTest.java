@@ -28,48 +28,45 @@ class DailyGeofenceDeviationMigrationMySqlTest {
             .withPassword("test");
 
     @Test
-    void v29KeepsOneLegacyDeviationPerJornadaAndAuditsRetractedDuplicates() {
+    void v28AllowsOneGeofenceDeviationPerJornadaAndV29RecordsLocationSource() {
         DataSource dataSource = new DriverManagerDataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
-        Flyway.configure().dataSource(dataSource).target(MigrationVersion.fromVersion("28")).load().migrate();
+        Flyway.configure().dataSource(dataSource).target(MigrationVersion.fromVersion("27")).load().migrate();
 
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
-        Fixture fixture = seedV28Rows(jdbc);
+        Fixture fixture = seedV27Rows(jdbc);
+
+        assertThrows(org.springframework.dao.DataAccessException.class,
+                () -> insertDeviation(jdbc, id(), fixture, fixture.firstMark(), fixture.createdAt()));
+
+        Flyway.configure().dataSource(dataSource).target(MigrationVersion.fromVersion("28")).load().migrate();
+        insertDeviation(jdbc, fixture.firstDeviation(), fixture, fixture.firstMark(), fixture.createdAt());
+        assertThrows(org.springframework.dao.DataAccessException.class,
+                () -> insertDeviation(jdbc, id(), fixture, fixture.secondMark(), fixture.createdAt().plusMinutes(1)));
+        assertEquals(1, count(jdbc, "SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND active=TRUE AND type='FUERA_DE_SEDE'",
+                fixture.jornadaId()));
 
         Flyway.configure().dataSource(dataSource).load().migrate();
-
-        assertEquals(1, count(jdbc, "SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND active=TRUE AND type='FUERA_DE_SEDE'", fixture.firstJornada()));
-        assertEquals(1, count(jdbc, "SELECT COUNT(*) FROM deviations WHERE id=? AND active=TRUE", fixture.earliestDeviation()));
-        assertEquals(0, count(jdbc, "SELECT COUNT(*) FROM deviations WHERE id=? AND active=TRUE", fixture.duplicateDeviation()));
-        assertEquals(1, count(jdbc, "SELECT COUNT(*) FROM deviation_audits WHERE deviation_id=? AND change_type='RETRACTED' AND before_type='FUERA_DE_SEDE'",
-                fixture.duplicateDeviation()));
-        assertEquals(1, count(jdbc, "SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND id=? AND active=TRUE AND source_mark_id=?",
-                fixture.secondJornada(), fixture.isolatedDeviation(), fixture.isolatedMark()));
-
-        assertThrows(org.springframework.dao.DataAccessException.class, () -> jdbc.update(
-                "INSERT INTO deviations(id,company_id,jornada_id,source_mark_id,site_id,employee_id,type,created_at,updated_at,active) " +
-                        "VALUES(?,?,?,?,?,?,'FUERA_DE_SEDE',?,?,TRUE)", fixture.newDeviation(), fixture.companyId(), fixture.firstJornada(),
-                fixture.unusedMark(), fixture.siteId(), fixture.employeeId(), Timestamp.valueOf(fixture.createdAt()), Timestamp.valueOf(fixture.createdAt())));
+        assertEquals(1, count(jdbc, "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() " +
+                "AND table_name='site_location_audits' AND column_name='location_source'"));
+        insertLocationAudit(jdbc, fixture, "CAPTURED");
+        insertLocationAudit(jdbc, fixture, "MANUAL");
+        assertThrows(org.springframework.dao.DataAccessException.class, () -> insertLocationAudit(jdbc, fixture, "OTHER"));
     }
 
-    private Fixture seedV28Rows(JdbcTemplate jdbc) {
+    private Fixture seedV27Rows(JdbcTemplate jdbc) {
         String companyId = id();
         String siteId = id();
         String accountId = id();
         String employeeId = id();
         String templateId = id();
-        String firstJornada = id();
-        String secondJornada = id();
+        String jornadaId = id();
         String firstMark = id();
         String secondMark = id();
-        String unusedMark = id();
-        String isolatedMark = id();
-        String earliestDeviation = id();
-        String duplicateDeviation = id();
-        String isolatedDeviation = id();
         LocalDateTime createdAt = LocalDateTime.of(2026, 10, 30, 9, 0);
 
         jdbc.update("INSERT INTO companies(id,name,created_at) VALUES(?,?,?)", companyId, "Migration fixture", Timestamp.valueOf(createdAt));
-        jdbc.update("INSERT INTO sites(id,company_id,name,time_zone,created_at) VALUES(?,?,?,?,?)", siteId, companyId, "Centro", "America/Argentina/Buenos_Aires", Timestamp.valueOf(createdAt));
+        jdbc.update("INSERT INTO sites(id,company_id,name,time_zone,created_at) VALUES(?,?,?,?,?)", siteId, companyId, "Centro",
+                "America/Argentina/Buenos_Aires", Timestamp.valueOf(createdAt));
         jdbc.update("INSERT INTO accounts(id,dni_normalized,dni_display,password_hash,must_change_password,active,created_at,updated_at) " +
                         "VALUES(?,?,?,'test-hash',FALSE,TRUE,?,?)", accountId, "30123456", "30.123.456", Timestamp.valueOf(createdAt), Timestamp.valueOf(createdAt));
         jdbc.update("INSERT INTO company_memberships(id,company_id,account_id,role,active,created_at) VALUES(?,?,?,'EMPLOYEE',TRUE,?)",
@@ -79,26 +76,20 @@ class DailyGeofenceDeviationMigrationMySqlTest {
         jdbc.update("INSERT INTO schedule_templates(id,company_id,site_id,name,breakfast_limit_minutes,lunch_limit_minutes,active,created_at,updated_at) " +
                         "VALUES(?,?,?,'Migration template',20,30,TRUE,?,?)", templateId, companyId, siteId, Timestamp.valueOf(createdAt), Timestamp.valueOf(createdAt));
 
-        insertJornada(jdbc, firstJornada, companyId, employeeId, siteId, templateId, accountId, LocalDate.of(2026, 10, 30), createdAt);
-        insertJornada(jdbc, secondJornada, companyId, employeeId, siteId, templateId, accountId, LocalDate.of(2026, 10, 31), createdAt);
-        insertMark(jdbc, firstMark, companyId, firstJornada, accountId, 1, createdAt);
-        insertMark(jdbc, secondMark, companyId, firstJornada, accountId, 2, createdAt.plusMinutes(1));
-        insertMark(jdbc, unusedMark, companyId, firstJornada, accountId, 3, createdAt.plusMinutes(2));
-        insertMark(jdbc, isolatedMark, companyId, secondJornada, accountId, 1, createdAt);
-        insertDeviation(jdbc, earliestDeviation, companyId, firstJornada, firstMark, siteId, employeeId, createdAt);
-        insertDeviation(jdbc, duplicateDeviation, companyId, firstJornada, secondMark, siteId, employeeId, createdAt.plusMinutes(1));
-        insertDeviation(jdbc, isolatedDeviation, companyId, secondJornada, isolatedMark, siteId, employeeId, createdAt);
-        return new Fixture(companyId, siteId, employeeId, firstJornada, secondJornada, unusedMark, isolatedMark,
-                earliestDeviation, duplicateDeviation, isolatedDeviation, id(), createdAt);
+        insertJornada(jdbc, jornadaId, companyId, employeeId, siteId, templateId, accountId, createdAt);
+        insertMark(jdbc, firstMark, companyId, jornadaId, accountId, 1, createdAt);
+        insertMark(jdbc, secondMark, companyId, jornadaId, accountId, 2, createdAt.plusMinutes(1));
+        return new Fixture(companyId, siteId, accountId, employeeId, jornadaId, firstMark, secondMark, id(), createdAt);
     }
 
     private void insertJornada(JdbcTemplate jdbc, String jornadaId, String companyId, String employeeId, String siteId,
-                               String templateId, String accountId, LocalDate localDate, LocalDateTime createdAt) {
+                               String templateId, String accountId, LocalDateTime createdAt) {
         jdbc.update("INSERT INTO jornadas(id,company_id,employee_id,site_id,template_id,local_date,time_zone,schedule_snapshot," +
                         "tolerance_minutes,scheduled_start_at,scheduled_end_at,state,next_sequence,created_by,created_at) " +
                         "VALUES(?,?,?,?,?,?,?,JSON_OBJECT(),10,?,?,'NO_INGRESO',1,?,?)",
-                jornadaId, companyId, employeeId, siteId, templateId, localDate, ZoneId.of("America/Argentina/Buenos_Aires").getId(),
-                Timestamp.valueOf(createdAt), Timestamp.valueOf(createdAt.plusHours(8)), accountId, Timestamp.valueOf(createdAt));
+                jornadaId, companyId, employeeId, siteId, templateId, LocalDate.of(2026, 10, 30),
+                ZoneId.of("America/Argentina/Buenos_Aires").getId(), Timestamp.valueOf(createdAt), Timestamp.valueOf(createdAt.plusHours(8)),
+                accountId, Timestamp.valueOf(createdAt));
     }
 
     private void insertMark(JdbcTemplate jdbc, String markId, String companyId, String jornadaId, String accountId,
@@ -109,11 +100,18 @@ class DailyGeofenceDeviationMigrationMySqlTest {
                 Timestamp.valueOf(occurredAt), Timestamp.valueOf(occurredAt), accountId);
     }
 
-    private void insertDeviation(JdbcTemplate jdbc, String deviationId, String companyId, String jornadaId, String markId,
-                                 String siteId, String employeeId, LocalDateTime createdAt) {
+    private void insertDeviation(JdbcTemplate jdbc, String deviationId, Fixture fixture, String markId, LocalDateTime createdAt) {
         jdbc.update("INSERT INTO deviations(id,company_id,jornada_id,source_mark_id,site_id,employee_id,type,created_at,updated_at,active) " +
-                        "VALUES(?,?,?,?,?,?,'FUERA_DE_SEDE',?,?,TRUE)", deviationId, companyId, jornadaId, markId, siteId, employeeId,
-                Timestamp.valueOf(createdAt), Timestamp.valueOf(createdAt));
+                        "VALUES(?,?,?,?,?,?,'FUERA_DE_SEDE',?,?,TRUE)", deviationId, fixture.companyId(), fixture.jornadaId(), markId,
+                fixture.siteId(), fixture.employeeId(), Timestamp.valueOf(createdAt), Timestamp.valueOf(createdAt));
+    }
+
+    private void insertLocationAudit(JdbcTemplate jdbc, Fixture fixture, String source) {
+        LocalDateTime changedAt = fixture.createdAt().plusMinutes(5);
+        jdbc.update("INSERT INTO site_location_audits(id,company_id,site_id,actor_account_id,before_latitude,before_longitude," +
+                        "before_radius_meters,after_latitude,after_longitude,after_radius_meters,changed_at,location_source) " +
+                        "VALUES(?,?,?,?,NULL,NULL,NULL,0,0,100,?,?)", id(), fixture.companyId(), fixture.siteId(), fixture.accountId(),
+                Timestamp.valueOf(changedAt), source);
     }
 
     private int count(JdbcTemplate jdbc, String sql, Object... args) {
@@ -122,7 +120,6 @@ class DailyGeofenceDeviationMigrationMySqlTest {
 
     private static String id() { return UUID.randomUUID().toString(); }
 
-    private record Fixture(String companyId, String siteId, String employeeId, String firstJornada, String secondJornada,
-                           String unusedMark, String isolatedMark, String earliestDeviation, String duplicateDeviation, String isolatedDeviation,
-                           String newDeviation, LocalDateTime createdAt) { }
+    private record Fixture(String companyId, String siteId, String accountId, String employeeId, String jornadaId,
+                           String firstMark, String secondMark, String firstDeviation, LocalDateTime createdAt) { }
 }

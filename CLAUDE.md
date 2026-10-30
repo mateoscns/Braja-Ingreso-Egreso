@@ -436,7 +436,10 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     V19–V21 (2026-10-27) son un `ALTER TABLE` cada una y declaran su reversa; V23
     (2026-10-27, asignación de plantillas) es un `CREATE TABLE` con su reversa.
     Al 2026-10-28, V13–V16 y V18–V23 tienen una sola sentencia y un comentario
-    `-- Revert:`; V12 y V17 no existen. Migrar desde base vacía ocurre en cada corrida de `IT`
+    `-- Revert:`; V12 y V17 no existen. V24–V29 (2026-10-30, issue #67) siguen
+    la misma regla: V28 amplía el `CHECK` con `FUERA_DE_SEDE` usando la unicidad
+    activa por jornada existente; V29 agrega el origen a la auditoría de ubicación.
+    Migrar desde base vacía ocurre en cada corrida de `IT`
     (`IT.migrationsCreateTheTenantAndPrivacyInvariants`). `[sin guarda: destino]`
 20. **Migraciones sin corte (expand/contract)**: aplica cuando exista deploy
     (V11 ya avisa que con filas `MARCA_FALTANTE` la imagen anterior falla).
