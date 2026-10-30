@@ -26,14 +26,14 @@ chequeo estático. Una instrucción en lenguaje natural no es una garantía.
 
 Estado base al 2026-10-29 (verificado sobre `origin/main` en
 `925e2a9d4bfc040314497a98e3be8e0536605398`, PR #68): hay backend,
-frontend, `openapi.yaml`, CI y 48 decisiones adoptadas (0 propuestas). El issue
-#67 está aprobado y la configuración/auditoría de ubicación de sedes y la
-evaluación de `FUERA_DE_SEDE` están implementadas en `feat/site-geofence-67`.
-Dos aclaraciones sobre congelar la geocerca por jornada siguen pendientes de
-adopción o ajuste de Mateo y están documentadas como propuestas en §7. Mateo
-adoptó D-20261029-01 el 2026-10-30: conserva la carga manual y agrega captura
-automática estricta con precisión máxima de 25 m. También adoptó en
-D-20261030-01 un solo `FUERA_DE_SEDE` por empleado y jornada. No hay
+frontend, `openapi.yaml`, CI y, al 2026-10-30, 51 decisiones adoptadas (0
+propuestas). El issue #67 está aprobado y la configuración/auditoría de
+ubicación de sedes y la evaluación de `FUERA_DE_SEDE` están implementadas en
+`feat/site-geofence-67` (PR #69). Mateo adoptó D-20261029-01 el 2026-10-30:
+conserva la carga manual y agrega captura automática estricta con precisión
+máxima de 25 m. También adoptó en D-20261030-01 un solo `FUERA_DE_SEDE` por
+empleado y jornada, y en D-20261030-02 que cada jornada congele el centro y el
+radio al declararse y que una jornada declarada sin centro no se compare. No hay
 deploy, backup, Dockerfile, Caddy, `.githooks` ni VPS. Cada regla de §5 está
 en un estado:
 
@@ -716,9 +716,9 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     conserva la carga manual y agrega captura del navegador con alta precisión,
     `maximumAge=0`, límite de 30 segundos y precisión reportada de hasta 25 m;
     también requiere mostrar un enlace al mapa y auditar el origen del punto.
-    D-20261030-01 decide un desvío por empleado y jornada. Siguen propuestas de
-    Enrique omitir geocerca si falta centro al declarar y congelar centro/radio
-    por jornada; Mateo aún debe adoptarlas o ajustarlas.
+    D-20261030-01 decide un desvío por empleado y jornada, y D-20261030-02
+    congela centro y radio al declarar y omite la geocerca si la sede no tenía
+    centro (2026-10-30).
   - Primer deploy: V11 exige el procedimiento de reversa antes de volver a la
     imagen anterior, y el job crea `MARCA_FALTANTE` para toda jornada abierta
     histórica (la consulta no tiene cota de fecha; interno, sin push).

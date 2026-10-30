@@ -236,8 +236,8 @@ paths:
         supplied. Automatic capture uses high accuracy, maximumAge=0, a 30-second total deadline, and accepts only a
         finite reported accuracy from 0 through 25 meters. Manual coordinates use the same latitude and longitude bounds.
         `locationSource` records CAPTURED or MANUAL in the location audit and is required when the center is set or moved
-        (422 VALIDATION_ERROR otherwise); a radius-only change or a cleared center takes none. Proposed local behavior,
-        pending Mateo's adoption: a jornada declared while the site has no center snapshots
+        (422 VALIDATION_ERROR otherwise); a radius-only change or a cleared center takes none. Each jornada keeps the center
+        and radius in force when it was declared (D-20261030-02): a jornada declared while the site has no center snapshots
         no geofence and is not evaluated later, even if the site is configured afterward. Every successful change is audited with its actor, server time, previous
         center/radius, and new center/radius. Creating a site with a configured center or non-default radius also creates
         an audit entry; a site created with no center and the default radius has no location-change entry.
@@ -782,7 +782,7 @@ paths:
         mark stops supporting it (voided, or its on-time location falls inside) and another employee mark of the jornada is still
         outside or unknown, the same deviation moves to that mark, keeps its motive, and its classification goes back to review
         (audited as CLASSIFICATION_RESET); otherwise it is retracted. A jornada
-        declared without a site center has no geofence assessment (proposed local behavior, pending Mateo's adoption). This evaluation
+        declared without a site center has no geofence assessment (D-20261030-02). This evaluation
         never blocks a mark and FUERA_DE_SEDE is not push-eligible.
       parameters:
         - $ref: '#/components/parameters/MarkId'
