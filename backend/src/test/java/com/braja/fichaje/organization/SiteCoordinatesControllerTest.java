@@ -75,9 +75,11 @@ class SiteCoordinatesControllerTest {
         OrganizationService realService = new OrganizationService(jdbc, scopes, mock(PasswordEncoder.class));
         var partialCoordinates = new OrganizationController.SiteLocationInput(new BigDecimal("-34.6"), null, 100);
         var invalidRadius = new OrganizationController.SiteLocationInput(null, null, 49);
+        var invalidSource = new OrganizationController.SiteLocationInput(null, null, 100, "GPS");
 
         assertThrows(ApiException.class, () -> realService.updateSiteLocation(companyId, UUID.randomUUID(), UUID.randomUUID(), partialCoordinates));
         assertThrows(ApiException.class, () -> realService.updateSiteLocation(companyId, UUID.randomUUID(), UUID.randomUUID(), invalidRadius));
+        assertThrows(ApiException.class, () -> realService.updateSiteLocation(companyId, UUID.randomUUID(), UUID.randomUUID(), invalidSource));
         verifyNoInteractions(jdbc);
     }
 

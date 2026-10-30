@@ -215,6 +215,7 @@ paths:
                 timeZone: { type: string, description: IANA time zone, example: America/Argentina/Buenos_Aires }
                 latitude: { type: [number, 'null'], minimum: -90, maximum: 90, description: Optional latitude; must be sent together with longitude. }
                 longitude: { type: [number, 'null'], minimum: -180, maximum: 180, description: Optional longitude; must be sent together with latitude. }
+                locationSource: { type: string, enum: [CAPTURED, MANUAL], description: Origin of the configured point; omit when no point is supplied. }
                 geofenceRadiusMeters: { type: integer, minimum: 50, maximum: 500, default: 100, description: Site geofence radius; defaults to 100 meters. }
       responses:
         '201':
@@ -230,7 +231,10 @@ paths:
       summary: Replace the site location and geofence radius
       description: >-
         ADMIN only, scoped to the active company. Latitude and longitude are nullable but must both be null or both be
-        supplied. Proposed local behavior, pending Mateo's adoption: a jornada declared while the site has no center snapshots
+        supplied. Automatic capture uses high accuracy, maximumAge=0, a 30-second total deadline, and accepts only a
+        finite reported accuracy from 0 through 25 meters. Manual coordinates use the same latitude and longitude bounds.
+        `locationSource` records CAPTURED or MANUAL in the location audit when a point changes. Proposed local behavior,
+        pending Mateo's adoption: a jornada declared while the site has no center snapshots
         no geofence and is not evaluated later, even if the site is configured afterward. Every successful change is audited with its actor, server time, previous
         center/radius, and new center/radius. Creating a site with a configured center or non-default radius also creates
         an audit entry; a site created with no center and the default radius has no location-change entry.
@@ -247,6 +251,7 @@ paths:
               properties:
                 latitude: { type: [number, 'null'], minimum: -90, maximum: 90 }
                 longitude: { type: [number, 'null'], minimum: -180, maximum: 180 }
+                locationSource: { type: string, enum: [CAPTURED, MANUAL], description: Origin of the submitted point; omit when clearing coordinates or changing only the radius. }
                 geofenceRadiusMeters: { type: integer, minimum: 50, maximum: 500 }
       responses:
         '200':
@@ -767,11 +772,12 @@ paths:
         The server uses its receipt time to enforce the 30-second window. A late,
         duplicate, or unauthorized attachment cannot change the mark timestamp.
         The response never echoes coordinates to an employee client. latitude, longitude and accuracyMeters
-        are all required: a missing or null field answers 422 VALIDATION_ERROR and the location stays pending. Proposed local behavior,
-        pending Mateo's adoption: for an employee-origin mark whose jornada has a frozen site center/radius, the server creates
-        one FUERA_DE_SEDE deviation for that mark if distance to the center plus reported accuracy exceeds the frozen radius.
-        If no location arrives within 30 seconds, the same per-mark deviation is created. A jornada declared without a site center
-        has no geofence assessment. This evaluation never blocks the mark and FUERA_DE_SEDE is not push-eligible.
+        are all required: a missing or null field answers 422 VALIDATION_ERROR and the location stays pending. For an employee-origin
+        mark whose jornada has a geofence, the server creates at most one FUERA_DE_SEDE deviation per employee and jornada when the
+        first mark falls outside the radius, cannot be confirmed within it because of reported accuracy, or has no location after 30
+        seconds. The deviation refers to the first triggering mark; later marks remain allowed and visible in mark history. A jornada
+        declared without a site center has no geofence assessment (proposed local behavior, pending Mateo's adoption). This evaluation
+        never blocks a mark and FUERA_DE_SEDE is not push-eligible.
       parameters:
         - $ref: '#/components/parameters/MarkId'
         - $ref: '#/components/parameters/CsrfToken'
@@ -1283,7 +1289,7 @@ components:
           items: { $ref: '#/components/schemas/SiteLocationAuditEntry' }
     SiteLocationAuditEntry:
       type: object
-      required: [id, changedAt, actorDisplayName, beforeLatitude, beforeLongitude, afterLatitude, afterLongitude, beforeRadiusMeters, afterRadiusMeters]
+      required: [id, changedAt, actorDisplayName, beforeLatitude, beforeLongitude, afterLatitude, afterLongitude, beforeRadiusMeters, afterRadiusMeters, locationSource]
       properties:
         id: { $ref: '#/components/schemas/Id' }
         changedAt: { type: string, format: date-time }
@@ -1294,6 +1300,7 @@ components:
         afterLongitude: { type: [number, 'null'], minimum: -180, maximum: 180 }
         beforeRadiusMeters: { type: [integer, 'null'], minimum: 50, maximum: 500, description: Null before the first location/radius configuration event. }
         afterRadiusMeters: { type: integer, minimum: 50, maximum: 500 }
+        locationSource: { type: [string, 'null'], enum: [CAPTURED, MANUAL, null], description: Origin of the changed point, or null when not applicable. }
     Employee:
       type: object
       required: [id, displayName, siteIds, toleranceMinutes, active]
@@ -1503,7 +1510,7 @@ components:
           type: string
           enum: [SIN_INGRESO, LLEGADA_TARDE, EGRESO_TEMPRANO, EGRESO_TARDIO, MARCA_FALTANTE, EXCESO_DESAYUNO, EXCESO_ALMUERZO, FUERA_DE_SEDE]
         status: { type: string, enum: [MOTIVO_PENDIENTE, PENDIENTE_REVISION, JUSTIFICADO, NO_JUSTIFICADO] }
-        sourceMarkId: { type: [string, 'null'], format: uuid, description: Source employee mark for mark-based deviations; null when no source mark exists. Coordinates are never included. }
+        sourceMarkId: { type: [string, 'null'], format: uuid, description: First triggering employee mark for FUERA_DE_SEDE or source mark for other mark-based deviations; null when no source mark exists. Coordinates are never included. }
         sourceMarkAction:
           oneOf:
             - $ref: '#/components/schemas/MarkAction'

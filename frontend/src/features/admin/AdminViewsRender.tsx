@@ -13,12 +13,12 @@ export type JourneyRow = Pick<Jornada, 'id' | 'employeeId' | 'siteId' | 'localDa
 export type SiteLocationEditDraft = {
   siteId: string; latitude: string; longitude: string; geofenceRadiusMeters: string
   locationStatus: 'idle' | 'loading' | 'selected' | 'error'; locationMessage: string; locationErrorKind: SiteLocationErrorKind | null
-  locationAccuracyMeters: number | null; locationConfirmed: boolean; locationSource: 'device' | null
+  locationAccuracyMeters: number | null; locationConfirmed: boolean; locationSource: 'CAPTURED' | 'MANUAL' | null
 }
 export type SiteLocationAuditEntry = {
   id: string; changedAt: string; actorDisplayName: string | null
   beforeLatitude: number | null; beforeLongitude: number | null; afterLatitude: number | null; afterLongitude: number | null
-  beforeRadiusMeters: number | null; afterRadiusMeters: number | null
+  beforeRadiusMeters: number | null; afterRadiusMeters: number | null; locationSource?: 'CAPTURED' | 'MANUAL' | null
 }
 export type SiteLocationAuditResponse = { entries: SiteLocationAuditEntry[] }
 
@@ -95,19 +95,23 @@ function DeviationList({ items, filtered, loading, busy, onClassify, targetId, t
   </article>)}</div>
 }
 
-export function SitesViewRender({ sites, loading, loadError, error, notice, name, timeZone, busy, siteLocation, locationStatus, locationMessage, locating, locationErrorKind = null, locationAccuracyMeters = null, locationConfirmed = false, createRadiusMeters = '100', locationEdit = null, siteLocationAuditFor = '', siteLocationAudit = null, siteLocationAuditLoading = false, siteLocationAuditError = '', onLocationConfirmedChange = () => undefined, onCancelLocationCapture = () => undefined, onCreateRadiusMetersChange = () => undefined, onBeginLocationEdit = () => undefined, onCancelLocationEdit = () => undefined, onLocationEditChange = () => undefined, onCaptureEditLocation = () => undefined, onClearEditLocation = () => undefined, onSaveLocationEdit = () => undefined, onToggleSiteLocationAudit = () => undefined, onRetrySiteLocationAudit = () => undefined, onReload, onSubmit, onNameChange, onTimeZoneChange, onCaptureLocation, onClearLocation }: {
+export function SitesViewRender({ sites, loading, loadError, error, notice, name, timeZone, busy, locationStatus, locationMessage, locating, locationErrorKind = null, locationAccuracyMeters = null, locationConfirmed = false, createRadiusMeters = '100', createLatitude = '', createLongitude = '', createLocationSource = null, locationEdit = null, siteLocationAuditFor = '', siteLocationAudit = null, siteLocationAuditLoading = false, siteLocationAuditError = '', onLocationConfirmedChange = () => undefined, onCancelLocationCapture = () => undefined, onCreateRadiusMetersChange = () => undefined, onCreateCoordinateChange = () => undefined, onBeginLocationEdit = () => undefined, onCancelLocationEdit = () => undefined, onLocationEditChange = () => undefined, onCaptureEditLocation = () => undefined, onClearEditLocation = () => undefined, onSaveLocationEdit = () => undefined, onToggleSiteLocationAudit = () => undefined, onRetrySiteLocationAudit = () => undefined, onReload, onSubmit, onNameChange, onTimeZoneChange, onCaptureLocation, onClearLocation }: {
   sites: Site[]; loading: boolean; loadError: string; error: string; notice: string; name: string; timeZone: string; busy: boolean
   siteLocation: SiteCoordinates | null; locationStatus: 'idle' | 'loading' | 'selected' | 'error'; locationMessage: string; locating: boolean
   locationErrorKind?: SiteLocationErrorKind | null; locationAccuracyMeters?: number | null; locationConfirmed?: boolean
-  createRadiusMeters?: string; locationEdit?: SiteLocationEditDraft | null; siteLocationAuditFor?: string; siteLocationAudit?: SiteLocationAuditResponse | null
+  createRadiusMeters?: string; createLatitude?: string; createLongitude?: string; createLocationSource?: 'CAPTURED' | 'MANUAL' | null
+  locationEdit?: SiteLocationEditDraft | null; siteLocationAuditFor?: string; siteLocationAudit?: SiteLocationAuditResponse | null
   siteLocationAuditLoading?: boolean; siteLocationAuditError?: string
   onLocationConfirmedChange?: (confirmed: boolean) => void; onCancelLocationCapture?: () => void; onCreateRadiusMetersChange?: (value: string) => void
+  onCreateCoordinateChange?: (field: 'latitude' | 'longitude', value: string) => void
   onBeginLocationEdit?: (site: Site) => void; onCancelLocationEdit?: () => void; onLocationEditChange?: (patch: Partial<SiteLocationEditDraft>) => void
   onCaptureEditLocation?: (siteId: string) => void; onClearEditLocation?: () => void
   onSaveLocationEdit?: (event: FormEvent<HTMLFormElement>) => void; onToggleSiteLocationAudit?: (siteId: string) => void; onRetrySiteLocationAudit?: () => void
   onReload: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onNameChange: (value: string) => void; onTimeZoneChange: (value: string) => void
   onCaptureLocation: () => void; onClearLocation: () => void
 }) {
+  const createCoordinates = siteCoordinates(createLatitude, createLongitude)
+  const editCoordinates = locationEdit ? siteCoordinates(locationEdit.latitude, locationEdit.longitude) : null
   const locationErrorTitle = (kind: SiteLocationErrorKind | null) => kind === 'permission-denied' ? 'Permiso de ubicación' :
     kind === 'insecure-context' ? 'Conexión no segura' :
       kind === 'timeout' ? 'La ubicación tardó demasiado' :
@@ -125,17 +129,22 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, name
       {locationEdit?.siteId === site.id && <form className="form-stack" aria-label={`Editar ubicación y radio de ${site.name}`} onSubmit={onSaveLocationEdit}>
         <fieldset className="site-location-field fieldset-plain">
           <legend className="field-label">Ubicación de la sede</legend>
+          <div className="site-location-coordinate-inputs">
+            <FormField label="Latitud" hint="Entre -90 y 90."><input type="number" step="any" min="-90" max="90" value={locationEdit.latitude} disabled={busy || locationEdit.locationStatus === 'loading'} onChange={(event) => onLocationEditChange({ latitude: event.target.value })} /></FormField>
+            <FormField label="Longitud" hint="Entre -180 y 180."><input type="number" step="any" min="-180" max="180" value={locationEdit.longitude} disabled={busy || locationEdit.locationStatus === 'loading'} onChange={(event) => onLocationEditChange({ longitude: event.target.value })} /></FormField>
+          </div>
           <div className="site-location-actions">
             <button type="button" className="button button-outline" disabled={busy} onClick={() => locationEdit.locationStatus === 'loading' ? onCancelLocationCapture() : onCaptureEditLocation(site.id)}>{locationEdit.locationStatus === 'loading' ? 'Cancelar búsqueda' : locationEdit.latitude && locationEdit.longitude ? 'Capturar otra ubicación' : 'Capturar ubicación del dispositivo'}</button>
             {(locationEdit.latitude || locationEdit.longitude) && <button type="button" className="button button-quiet" disabled={busy || locationEdit.locationStatus === 'loading'} onClick={onClearEditLocation}>Quitar ubicación</button>}
           </div>
-          <span className="field-hint">El navegador informa una estimación del proveedor de ubicación del dispositivo; puede combinar GPS, redes Wi-Fi y otros datos, y no garantiza exactitud. El límite local propuesto es de 25 m, la mitad del radio mínimo permitido de 50 m; espera confirmación de Mateo. Podés quitar el centro guardado.</span>
+          <span className="field-hint">La captura automática acepta precisión informada de hasta 25 m y puede fallar en una PC. En ese caso podés ingresar las coordenadas manualmente. También podés quitar el centro guardado.</span>
           {locationEdit.locationMessage && <span className={`site-location-message site-location-message-${locationEdit.locationStatus}`} role={locationEdit.locationStatus === 'error' ? 'alert' : 'status'} aria-live={locationEdit.locationStatus === 'error' ? 'assertive' : 'polite'}>{locationEdit.locationStatus === 'error' && <strong>{locationErrorTitle(locationEdit.locationErrorKind)}: </strong>}{locationEdit.locationMessage}</span>}
-          {locationEdit.latitude && locationEdit.longitude && <div className="site-location-selection">
-            <span className="site-location-coordinates">Latitud {Number(locationEdit.latitude).toFixed(7)} · Longitud {Number(locationEdit.longitude).toFixed(7)}</span>
-            <span className="field-hint">{locationEdit.locationSource === 'device'
+          {editCoordinates && <div className="site-location-selection">
+            <span className="site-location-coordinates">Latitud {editCoordinates.latitude.toFixed(7)} · Longitud {editCoordinates.longitude.toFixed(7)}</span>
+            <a href={siteMapHref(editCoordinates)} target="_blank" rel="noreferrer noopener">Revisar este punto en el mapa</a>
+            <span className="field-hint">{locationEdit.locationSource === 'CAPTURED'
               ? `Precisión informada por el dispositivo: ±${locationEdit.locationAccuracyMeters?.toFixed(1) ?? '—'} m (estimación; no garantiza exactitud).`
-              : 'Coordenadas guardadas actualmente para esta sede.'}</span>
+              : locationEdit.locationSource === 'MANUAL' ? 'Coordenadas ingresadas manualmente.' : 'Coordenadas guardadas actualmente para esta sede.'}</span>
             {locationEdit.locationSource !== null && <label className="site-location-confirmation"><input type="checkbox" checked={locationEdit.locationConfirmed} disabled={busy || locationEdit.locationStatus === 'loading'} onChange={(event) => onLocationEditChange({ locationConfirmed: event.target.checked })} /><span>Confirmo que este punto corresponde a la sede.</span></label>}
           </div>}
         </fieldset>
@@ -148,17 +157,24 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, name
         <FormField label="Nombre de la sede"><input required maxLength={120} value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="Ej. Local Centro" /></FormField>
         <fieldset className="site-location-field fieldset-plain" aria-describedby="site-location-help">
           <legend className="field-label">Ubicación de la sede</legend>
-          <div className="site-location-actions">
-            <button type="button" className="button button-outline" disabled={busy} onClick={locating ? onCancelLocationCapture : onCaptureLocation}>{locating ? 'Cancelar búsqueda' : siteLocation ? 'Capturar otra ubicación' : 'Capturar ubicación del dispositivo'}</button>
-            {siteLocation && <button type="button" className="button button-quiet" disabled={busy || locating} onClick={onClearLocation}>Quitar ubicación</button>}
+          <div className="site-location-coordinate-inputs">
+            <FormField label="Latitud" hint="Entre -90 y 90."><input type="number" step="any" min="-90" max="90" value={createLatitude} disabled={busy || locating} onChange={(event) => onCreateCoordinateChange('latitude', event.target.value)} /></FormField>
+            <FormField label="Longitud" hint="Entre -180 y 180."><input type="number" step="any" min="-180" max="180" value={createLongitude} disabled={busy || locating} onChange={(event) => onCreateCoordinateChange('longitude', event.target.value)} /></FormField>
           </div>
-          <span id="site-location-help" className="field-hint">Opcional. El navegador usa los proveedores de ubicación disponibles en el dispositivo y muestra su estimación; puede combinar GPS, redes Wi-Fi y otros datos, y no garantiza exactitud. El límite local propuesto es de 25 m, la mitad del radio mínimo permitido de 50 m; espera confirmación de Mateo. Podés crear la sede sin centro.</span>
+          <div className="site-location-actions">
+            <button type="button" className="button button-outline" disabled={busy} onClick={locating ? onCancelLocationCapture : onCaptureLocation}>{locating ? 'Cancelar búsqueda' : createLatitude || createLongitude ? 'Capturar otra ubicación' : 'Capturar ubicación del dispositivo'}</button>
+            {(createLatitude || createLongitude) && <button type="button" className="button button-quiet" disabled={busy || locating} onClick={onClearLocation}>Quitar ubicación</button>}
+          </div>
+          <span id="site-location-help" className="field-hint">Opcional. La captura automática usa la ubicación disponible en el dispositivo y acepta solo precisión informada de hasta 25 m. Si falla o la precisión no alcanza, no captura el punto; podés ingresar latitud y longitud manualmente. Antes de guardar revisá el enlace al mapa. Podés crear la sede sin centro.</span>
           {locationMessage && <span className={`site-location-message site-location-message-${locationStatus}`} role={locationStatus === 'error' ? 'alert' : 'status'} aria-live={locationStatus === 'error' ? 'assertive' : 'polite'}>
             {locationStatus === 'error' && <strong>{locationErrorTitle(locationErrorKind)}: </strong>}{locationMessage}
           </span>}
-          {siteLocation && <div className="site-location-selection">
-            <span className="site-location-coordinates">Latitud {siteLocation.latitude.toFixed(7)} · Longitud {siteLocation.longitude.toFixed(7)}</span>
-            <span className="field-hint">Precisión informada por el dispositivo: ±{locationAccuracyMeters?.toFixed(1) ?? '—'} m (estimación; no garantiza exactitud).</span>
+          {createCoordinates && <div className="site-location-selection">
+            <span className="site-location-coordinates">Latitud {createCoordinates.latitude.toFixed(7)} · Longitud {createCoordinates.longitude.toFixed(7)}</span>
+            <a href={siteMapHref(createCoordinates)} target="_blank" rel="noreferrer noopener">Revisar este punto en el mapa</a>
+            <span className="field-hint">{createLocationSource === 'CAPTURED'
+              ? `Precisión informada por el dispositivo: ±${locationAccuracyMeters?.toFixed(1) ?? '—'} m (estimación; no garantiza exactitud).`
+              : 'Coordenadas ingresadas manualmente.'}</span>
             <label className="site-location-confirmation"><input type="checkbox" checked={locationConfirmed} disabled={busy || locating} onChange={(event) => onLocationConfirmedChange(event.target.checked)} />
               <span>Confirmo que este punto corresponde a la sede.</span>
             </label>
@@ -178,6 +194,18 @@ function siteCenter(latitude: number | null, longitude: number | null) {
   return `${latitude.toFixed(7)}, ${longitude.toFixed(7)}`
 }
 
+function siteCoordinates(latitudeText: string, longitudeText: string): SiteCoordinates | null {
+  if (!latitudeText.trim() || !longitudeText.trim()) return null
+  const latitude = Number(latitudeText)
+  const longitude = Number(longitudeText)
+  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) return null
+  return { latitude, longitude }
+}
+
+function siteMapHref({ latitude, longitude }: SiteCoordinates) {
+  return `https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}#map=17/${latitude}/${longitude}`
+}
+
 export function SiteLocationAuditSection({ siteId, siteName, timeZone, audit, loading, error, onRetry }: {
   siteId: string; siteName: string; timeZone: string; audit: SiteLocationAuditResponse | null; loading: boolean; error: string; onRetry: () => void
 }) {
@@ -189,6 +217,7 @@ export function SiteLocationAuditSection({ siteId, siteName, timeZone, audit, lo
         <strong>{initial ? 'Configuración inicial de ubicación' : 'Ubicación y radio actualizados'}</strong>
         <span>{dateTime(entry.changedAt, timeZone)}</span>
         <small>Por {entry.actorDisplayName?.trim() || 'un administrador'}</small>
+        {entry.locationSource && <small>Origen del punto: {entry.locationSource === 'CAPTURED' ? 'captura automática' : 'carga manual'}</small>}
         <small>Centro anterior: {siteCenter(entry.beforeLatitude, entry.beforeLongitude)} · radio: {entry.beforeRadiusMeters === null ? '—' : `${entry.beforeRadiusMeters} m`}</small>
         <small>Centro nuevo: {siteCenter(entry.afterLatitude, entry.afterLongitude)} · radio: {entry.afterRadiusMeters === null ? '—' : `${entry.afterRadiusMeters} m`}</small>
       </li>

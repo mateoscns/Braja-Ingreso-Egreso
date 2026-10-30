@@ -165,7 +165,7 @@ class OrganizationTransactionMySqlTest {
     void createSiteSavesFirstCenterAuditInSameTransaction() {
         BigDecimal latitude = new BigDecimal("-34.6037220");
         BigDecimal longitude = new BigDecimal("-58.3815920");
-        var input = new OrganizationController.SiteInput("New site " + suffix, "America/Argentina/Buenos_Aires", latitude, longitude, 125);
+        var input = new OrganizationController.SiteInput("New site " + suffix, "America/Argentina/Buenos_Aires", latitude, longitude, 125, "CAPTURED");
 
         var created = organizations.createSite(adminAuthentication, adminSession, input);
 
@@ -182,6 +182,7 @@ class OrganizationTransactionMySqlTest {
         assertEquals(latitude, audit.afterLatitude());
         assertEquals(longitude, audit.afterLongitude());
         assertEquals(125, audit.afterRadiusMeters());
+        assertEquals("CAPTURED", audit.locationSource());
         assertNotNull(audit.changedAt());
     }
 
@@ -211,7 +212,7 @@ class OrganizationTransactionMySqlTest {
 
     @Test
     void siteLocationUpdateAuditsAndRollsBackAsOneTransaction() {
-        var input = new OrganizationController.SiteLocationInput(null, null, 200);
+        var input = new OrganizationController.SiteLocationInput(new BigDecimal("-34.6"), new BigDecimal("-58.4"), 200, "MANUAL");
 
         var updated = organizations.updateSiteLocation(adminAuthentication, adminSession, siteId, input);
 
@@ -220,6 +221,7 @@ class OrganizationTransactionMySqlTest {
         var audit = organizations.siteLocationAudit(adminAuthentication, adminSession, siteId).entries().getFirst();
         assertEquals(100, audit.beforeRadiusMeters());
         assertEquals(200, audit.afterRadiusMeters());
+        assertEquals("MANUAL", audit.locationSource());
         assertEquals("Admin " + suffix, audit.actorDisplayName());
 
         inject("site_location_audits", "after_radius_meters <> 275");

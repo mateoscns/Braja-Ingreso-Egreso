@@ -46,6 +46,7 @@ public class OrganizationService {
     @Transactional
     public SiteView createSite(UUID companyId, UUID actorAccountId, SiteInput input) {
         validateSiteCoordinates(input.latitude(), input.longitude());
+        validateLocationSource(input.locationSource());
         int radiusMeters = effectiveRadius(input.geofenceRadiusMeters());
         UUID siteId = UUID.randomUUID();
         String name = input.name().trim();
@@ -53,7 +54,7 @@ public class OrganizationService {
                 siteId.toString(), companyId.toString(), name, input.timeZone(), input.latitude(), input.longitude(), radiusMeters, now());
         if (input.latitude() != null || radiusMeters != 100) {
             recordSiteLocationAudit(companyId, siteId, actorAccountId, null, null, null,
-                    input.latitude(), input.longitude(), radiusMeters);
+                    input.latitude(), input.longitude(), radiusMeters, input.latitude() == null ? null : input.locationSource());
         }
         return new SiteView(siteId, name, input.timeZone(), input.latitude(), input.longitude(), radiusMeters);
     }
@@ -67,12 +68,13 @@ public class OrganizationService {
                 siteId.toString(), companyId.toString());
         if (before == null) throw ApiException.notFound();
 
-        if (!sameCoordinate(before.latitude(), input.latitude()) || !sameCoordinate(before.longitude(), input.longitude())
-                || before.radiusMeters() != input.geofenceRadiusMeters()) {
+        boolean coordinatesChanged = !sameCoordinate(before.latitude(), input.latitude()) || !sameCoordinate(before.longitude(), input.longitude());
+        if (coordinatesChanged || before.radiusMeters() != input.geofenceRadiusMeters()) {
             jdbc.update("UPDATE sites SET latitude=?,longitude=?,geofence_radius_meters=? WHERE id=? AND company_id=?",
                     input.latitude(), input.longitude(), input.geofenceRadiusMeters(), siteId.toString(), companyId.toString());
             recordSiteLocationAudit(companyId, siteId, actorAccountId, before.latitude(), before.longitude(), before.radiusMeters(),
-                    input.latitude(), input.longitude(), input.geofenceRadiusMeters());
+                    input.latitude(), input.longitude(), input.geofenceRadiusMeters(),
+                    coordinatesChanged && input.latitude() != null ? input.locationSource() : null);
         }
         return new SiteView(siteId, before.name(), before.timeZone(), input.latitude(), input.longitude(), input.geofenceRadiusMeters());
     }
@@ -80,7 +82,7 @@ public class OrganizationService {
     public SiteLocationAuditResponse siteLocationAudit(UUID companyId, UUID siteId) {
         if (!scopes.companyHasSite(companyId, siteId)) throw ApiException.notFound();
         List<SiteLocationAuditEntry> entries = jdbc.query("SELECT a.id,a.changed_at,COALESCE(NULLIF(m.display_name,''),'Administrador') AS actor_display_name,"
-                        + "a.before_latitude,a.before_longitude,a.after_latitude,a.after_longitude,a.before_radius_meters,a.after_radius_meters "
+                        + "a.before_latitude,a.before_longitude,a.after_latitude,a.after_longitude,a.before_radius_meters,a.after_radius_meters,a.location_source "
                         + "FROM site_location_audits a JOIN company_memberships m ON m.company_id=a.company_id AND m.account_id=a.actor_account_id "
                         + "WHERE a.company_id=? AND a.site_id=? ORDER BY a.changed_at DESC,a.id DESC",
                 (rs, row) -> {
@@ -88,23 +90,31 @@ public class OrganizationService {
                     return new SiteLocationAuditEntry(UUID.fromString(rs.getString("id")), rs.getTimestamp("changed_at").toInstant(),
                             rs.getString("actor_display_name"), rs.getBigDecimal("before_latitude"), rs.getBigDecimal("before_longitude"),
                             rs.getBigDecimal("after_latitude"), rs.getBigDecimal("after_longitude"),
-                            previousRadius == null ? null : ((Number) previousRadius).intValue(), rs.getInt("after_radius_meters"));
+                            previousRadius == null ? null : ((Number) previousRadius).intValue(), rs.getInt("after_radius_meters"),
+                            rs.getString("location_source"));
                 }, companyId.toString(), siteId.toString());
         return new SiteLocationAuditResponse(entries);
     }
 
     private void recordSiteLocationAudit(UUID companyId, UUID siteId, UUID actorAccountId,
                                          BigDecimal beforeLatitude, BigDecimal beforeLongitude, Integer beforeRadiusMeters,
-                                         BigDecimal afterLatitude, BigDecimal afterLongitude, int afterRadiusMeters) {
-        jdbc.update("INSERT INTO site_location_audits(id,company_id,site_id,actor_account_id,before_latitude,before_longitude,before_radius_meters,after_latitude,after_longitude,after_radius_meters,changed_at) "
-                        + "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                                         BigDecimal afterLatitude, BigDecimal afterLongitude, int afterRadiusMeters, String locationSource) {
+        jdbc.update("INSERT INTO site_location_audits(id,company_id,site_id,actor_account_id,before_latitude,before_longitude,before_radius_meters,after_latitude,after_longitude,after_radius_meters,location_source,changed_at) "
+                        + "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 UUID.randomUUID().toString(), companyId.toString(), siteId.toString(), actorAccountId.toString(), beforeLatitude,
-                beforeLongitude, beforeRadiusMeters, afterLatitude, afterLongitude, afterRadiusMeters, now());
+                beforeLongitude, beforeRadiusMeters, afterLatitude, afterLongitude, afterRadiusMeters, locationSource, now());
+    }
+
+    private static void validateLocationSource(String locationSource) {
+        if (locationSource != null && !locationSource.equals("CAPTURED") && !locationSource.equals("MANUAL")) {
+            throw ApiException.invalid("locationSource must be CAPTURED or MANUAL");
+        }
     }
 
     private static void validateSiteLocation(SiteLocationInput input) {
         if (input == null) throw ApiException.invalid("A location and geofence radius are required");
         validateSiteCoordinates(input.latitude(), input.longitude());
+        validateLocationSource(input.locationSource());
         if (input.geofenceRadiusMeters() == null) throw ApiException.invalid("geofenceRadiusMeters is required");
         effectiveRadius(input.geofenceRadiusMeters());
     }

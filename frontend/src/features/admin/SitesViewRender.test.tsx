@@ -10,14 +10,16 @@ import type { SiteLocationAuditResponse, SiteLocationEditDraft } from './AdminVi
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 function renderSitesView(siteLocation: SiteCoordinates | null = null, locating = false, onCancelLocationCapture = vi.fn(), options: {
-  sites?: Site[]; createRadiusMeters?: string; locationEdit?: SiteLocationEditDraft | null; siteLocationAuditFor?: string; locationAccuracyMeters?: number | null
+  sites?: Site[]; createRadiusMeters?: string; createLatitude?: string; createLongitude?: string; locationEdit?: SiteLocationEditDraft | null; siteLocationAuditFor?: string; locationAccuracyMeters?: number | null
   siteLocationAudit?: SiteLocationAuditResponse | null
 } = {}) {
   return render(<SitesViewRender
     sites={options.sites ?? []} loading={false} loadError="" error="" notice="" name="Local Centro" timeZone="America/Argentina/Buenos_Aires" busy={false}
     siteLocation={siteLocation} locationStatus={siteLocation ? 'selected' : locating ? 'loading' : 'idle'}
     locationMessage={siteLocation ? 'Ubicación capturada. Se guardará con esta sede.' : locating ? 'Buscando la ubicación del dispositivo…' : ''} locating={locating}
-    locationAccuracyMeters={options.locationAccuracyMeters} createRadiusMeters={options.createRadiusMeters} locationEdit={options.locationEdit} siteLocationAuditFor={options.siteLocationAuditFor} siteLocationAudit={options.siteLocationAudit}
+    locationAccuracyMeters={options.locationAccuracyMeters} createRadiusMeters={options.createRadiusMeters}
+    createLatitude={options.createLatitude ?? (siteLocation ? String(siteLocation.latitude) : '')} createLongitude={options.createLongitude ?? (siteLocation ? String(siteLocation.longitude) : '')}
+    createLocationSource={siteLocation ? 'CAPTURED' : null} locationEdit={options.locationEdit} siteLocationAuditFor={options.siteLocationAuditFor} siteLocationAudit={options.siteLocationAudit}
     onReload={vi.fn()} onSubmit={vi.fn()} onNameChange={vi.fn()} onTimeZoneChange={vi.fn()} onCaptureLocation={vi.fn()} onCancelLocationCapture={onCancelLocationCapture} onClearLocation={vi.fn()}
   />)
 }
@@ -29,8 +31,9 @@ describe('SitesViewRender location picker', () => {
     expect(screen.getByRole('heading', { name: 'Agregar sede' })).toBeInTheDocument()
     expect(screen.getByText('Ubicación de la sede')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Capturar ubicación del dispositivo' })).toBeInTheDocument()
+    expect(screen.getByRole('spinbutton', { name: 'Latitud' })).toBeInTheDocument()
+    expect(screen.getByRole('spinbutton', { name: 'Longitud' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Crear sede' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /coordenadas manualmente/i })).not.toBeInTheDocument()
   })
 
   it('shows selected coordinates and offers to update or remove them', () => {
@@ -38,6 +41,7 @@ describe('SitesViewRender location picker', () => {
 
     expect(screen.getByText('Latitud -34.6037220 · Longitud -58.3815920')).toBeInTheDocument()
     expect(screen.getByText('Precisión informada por el dispositivo: ±8.0 m (estimación; no garantiza exactitud).')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Revisar este punto en el mapa' })).toHaveAttribute('href', expect.stringContaining('mlat=-34.603722'))
     expect(screen.getByRole('button', { name: 'Capturar otra ubicación' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Quitar ubicación' })).toBeInTheDocument()
   })
@@ -75,12 +79,12 @@ describe('SitesViewRender location picker', () => {
     const locationEdit: SiteLocationEditDraft = {
       siteId: site.id, latitude: '-34.603722', longitude: '-58.381592', geofenceRadiusMeters: '175',
       locationStatus: 'selected', locationMessage: 'Ubicación recibida.', locationErrorKind: null, locationAccuracyMeters: 8,
-      locationConfirmed: false, locationSource: 'device'
+      locationConfirmed: false, locationSource: 'CAPTURED'
     }
     const audit: SiteLocationAuditResponse = { entries: [{
       id: 'audit-1', changedAt: '2026-10-28T15:30:00Z', actorDisplayName: 'Mateo',
       beforeLatitude: null, beforeLongitude: null, beforeRadiusMeters: null,
-      afterLatitude: site.latitude!, afterLongitude: site.longitude!, afterRadiusMeters: 100
+      afterLatitude: site.latitude!, afterLongitude: site.longitude!, afterRadiusMeters: 100, locationSource: 'MANUAL'
     }] }
     renderSitesView(null, false, vi.fn(), { sites: [site], locationEdit, siteLocationAuditFor: site.id, siteLocationAudit: audit })
 
@@ -91,6 +95,7 @@ describe('SitesViewRender location picker', () => {
     expect(screen.getByRole('checkbox', { name: 'Confirmo que este punto corresponde a la sede.' })).not.toBeChecked()
     expect(screen.getByText('Configuración inicial de ubicación')).toBeInTheDocument()
     expect(screen.getByText('Por Mateo')).toBeInTheDocument()
+    expect(screen.getByText('Origen del punto: carga manual')).toBeInTheDocument()
     expect(screen.getByText(formatDateTime(audit.entries[0].changedAt, site.timeZone))).toBeInTheDocument()
     expect(screen.getByText('Centro nuevo: -34.6037220, -58.3815920 · radio: 100 m')).toBeInTheDocument()
   })
@@ -110,6 +115,43 @@ describe('SitesView location administration API', () => {
     expect(post).toHaveBeenCalledWith('/sites', expect.objectContaining({ latitude: null, longitude: null, geofenceRadiusMeters: 100 }))
   })
 
+  it('creates a site from manually entered coordinates after map review', async () => {
+    const created: Site = { id: 'site-new', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: -34.603722, longitude: -58.381592, geofenceRadiusMeters: 100 }
+    vi.spyOn(api, 'get').mockResolvedValue([] as never)
+    const post = vi.spyOn(api, 'post').mockResolvedValue(created as never)
+    render(<SitesView />)
+
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre de la sede' }), { target: { value: 'Local Centro' } })
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Latitud' }), { target: { value: '-34.603722' } })
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Longitud' }), { target: { value: '-58.381592' } })
+    const mapLink = screen.getByRole('link', { name: 'Revisar este punto en el mapa' })
+    expect(mapLink).toHaveAttribute('href', expect.stringContaining('mlon=-58.381592'))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Confirmo que este punto corresponde a la sede.' }))
+    fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
+
+    await screen.findByText('Sede creada.')
+    expect(post).toHaveBeenCalledWith('/sites', expect.objectContaining({
+      latitude: -34.603722, longitude: -58.381592, locationSource: 'MANUAL'
+    }))
+  })
+
+  it('rejects a partial or out-of-range manual coordinate pair before creating', async () => {
+    vi.spyOn(api, 'get').mockResolvedValue([] as never)
+    const post = vi.spyOn(api, 'post').mockResolvedValue({} as never)
+    render(<SitesView />)
+
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre de la sede' }), { target: { value: 'Local Centro' } })
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Latitud' }), { target: { value: '91' } })
+    fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Ingresá latitud y longitud juntas')
+    expect(post).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Longitud' }), { target: { value: '181' } })
+    fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
+    expect(await screen.findByRole('alert')).toHaveTextContent('latitud entre -90 y 90')
+    expect(post).not.toHaveBeenCalled()
+  })
+
   it('allows creating a site without a center after permission is denied', async () => {
     const created: Site = { id: 'site-new', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: null, longitude: null, geofenceRadiusMeters: 100 }
     vi.spyOn(api, 'get').mockResolvedValue([] as never)
@@ -125,6 +167,30 @@ describe('SitesView location administration API', () => {
 
     await screen.findByText('Sede creada.')
     expect(post).toHaveBeenCalledWith('/sites', expect.objectContaining({ latitude: null, longitude: null }))
+  })
+
+  it('locks manual coordinate inputs during capture while keeping cancellation available', async () => {
+    vi.spyOn(api, 'get').mockResolvedValue([] as never)
+    let finishCapture: PositionCallback | undefined
+    vi.stubGlobal('navigator', { geolocation: { getCurrentPosition: (success: PositionCallback) => { finishCapture = success } } })
+    render(<SitesView />)
+
+    const latitude = await screen.findByRole('spinbutton', { name: 'Latitud' })
+    const longitude = screen.getByRole('spinbutton', { name: 'Longitud' })
+    fireEvent.click(screen.getByRole('button', { name: 'Capturar ubicación del dispositivo' }))
+
+    expect(latitude).toBeDisabled()
+    expect(longitude).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Cancelar búsqueda' })).toBeEnabled()
+    fireEvent.change(latitude, { target: { value: '-34.6' } })
+    expect(latitude).toHaveValue(null)
+
+    await act(async () => {
+      finishCapture?.({ coords: { latitude: -34.603722, longitude: -58.381592, accuracy: 8 } } as GeolocationPosition)
+    })
+    expect(latitude).toHaveValue(-34.603722)
+    expect(longitude).toHaveValue(-58.381592)
+    expect(screen.getByText(/Ubicación recibida/)).toBeInTheDocument()
   })
 
   it('does not save a captured point whose reported accuracy exceeds the proposed limit', async () => {
@@ -177,7 +243,7 @@ describe('SitesView location administration API', () => {
     expect(screen.getByText(/revisalo y confirmalo de nuevo antes de guardar/i)).toBeInTheDocument()
     expect(confirmation).not.toBeChecked()
     fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
-    expect(await screen.findByText(/Confirmá que las coordenadas corresponden a esta sede/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Revisá el punto en el mapa y confirmá que corresponde a esta sede/i)).toBeInTheDocument()
     expect(post).not.toHaveBeenCalled()
 
     fireEvent.click(confirmation)
@@ -224,7 +290,28 @@ describe('SitesView location administration API', () => {
     fireEvent.submit(form)
 
     await screen.findByText('Ubicación y radio de la sede actualizados.')
-    expect(put).toHaveBeenCalledWith('/sites/site-1/location', { latitude: null, longitude: null, geofenceRadiusMeters: 250 })
+    expect(put).toHaveBeenCalledWith('/sites/site-1/location', { latitude: null, longitude: null, locationSource: null, geofenceRadiusMeters: 250 })
+  })
+
+  it('updates a site with manually entered coordinates after map review', async () => {
+    const existing: Site = { id: 'site-1', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: null, longitude: null, geofenceRadiusMeters: 100 }
+    const updated: Site = { ...existing, latitude: -34.6, longitude: -58.38 }
+    vi.spyOn(api, 'get').mockResolvedValue([existing] as never)
+    const put = vi.spyOn(api, 'put').mockResolvedValue(updated as never)
+    render(<SitesView />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Editar ubicación y radio de Local Centro' }))
+    const form = screen.getByRole('form', { name: 'Editar ubicación y radio de Local Centro' })
+    fireEvent.change(within(form).getByRole('spinbutton', { name: 'Latitud' }), { target: { value: '-34.6' } })
+    fireEvent.change(within(form).getByRole('spinbutton', { name: 'Longitud' }), { target: { value: '-58.38' } })
+    expect(within(form).getByRole('link', { name: 'Revisar este punto en el mapa' })).toHaveAttribute('href', expect.stringContaining('mlat=-34.6'))
+    fireEvent.click(within(form).getByRole('checkbox', { name: 'Confirmo que este punto corresponde a la sede.' }))
+    fireEvent.submit(form)
+
+    await screen.findByText('Ubicación y radio de la sede actualizados.')
+    expect(put).toHaveBeenCalledWith('/sites/site-1/location', {
+      latitude: -34.6, longitude: -58.38, locationSource: 'MANUAL', geofenceRadiusMeters: 100
+    })
   })
 
   it('captures a replacement point in the edit form and requires confirmation before saving it', async () => {
@@ -266,7 +353,7 @@ describe('SitesView location administration API', () => {
     fireEvent.click(confirmation)
     fireEvent.submit(form)
     await screen.findByText('Ubicación y radio de la sede actualizados.')
-    expect(put).toHaveBeenCalledWith('/sites/site-1/location', { latitude: -34.603722, longitude: -58.381592, geofenceRadiusMeters: 100 })
+    expect(put).toHaveBeenCalledWith('/sites/site-1/location', { latitude: -34.603722, longitude: -58.381592, locationSource: 'CAPTURED', geofenceRadiusMeters: 100 })
     expect(getCurrentPosition).toHaveBeenCalledTimes(2)
   })
 
@@ -281,11 +368,11 @@ describe('SitesView location administration API', () => {
     const form = screen.getByRole('form', { name: 'Editar ubicación y radio de Local Centro' })
     fireEvent.click(within(form).getByRole('button', { name: 'Capturar ubicación del dispositivo' }))
     expect(await within(form).findByRole('alert')).toHaveTextContent('Permiso de ubicación')
-    expect(within(form).queryByRole('textbox', { name: 'Latitud' })).not.toBeInTheDocument()
-    expect(within(form).queryByRole('button', { name: /coordenadas manualmente/i })).not.toBeInTheDocument()
+    expect(within(form).getByRole('spinbutton', { name: 'Latitud' })).toBeInTheDocument()
+    expect(within(form).getByRole('spinbutton', { name: 'Longitud' })).toBeInTheDocument()
     fireEvent.submit(form)
     await screen.findByText('Ubicación y radio de la sede actualizados.')
-    expect(put).toHaveBeenCalledWith('/sites/site-1/location', { latitude: null, longitude: null, geofenceRadiusMeters: 100 })
+    expect(put).toHaveBeenCalledWith('/sites/site-1/location', { latitude: null, longitude: null, locationSource: null, geofenceRadiusMeters: 100 })
   })
 
   it('preserves a saved site center when a replacement capture fails', async () => {
@@ -307,7 +394,7 @@ describe('SitesView location administration API', () => {
     fireEvent.submit(form)
 
     await screen.findByText('Ubicación y radio de la sede actualizados.')
-    expect(put).toHaveBeenCalledWith('/sites/site-1/location', { latitude: -34.6, longitude: -58.38, geofenceRadiusMeters: 100 })
+    expect(put).toHaveBeenCalledWith('/sites/site-1/location', { latitude: -34.6, longitude: -58.38, locationSource: null, geofenceRadiusMeters: 100 })
   })
 
   it('loads scoped location audit entries when the ADMIN opens the history', async () => {

@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
+import java.math.BigDecimal;
 import java.time.*;
 import java.util.*;
 
@@ -33,6 +34,7 @@ public class DeviationService {
     static final int LIST_MAX_LIMIT = 200;
     private static final Set<String> STATUSES = Set.of("MOTIVO_PENDIENTE", "PENDIENTE_REVISION", "JUSTIFICADO", "NO_JUSTIFICADO");
     private final DeviationPolicy policy = new DeviationPolicy();
+    private final GeofencePolicy geofence = new GeofencePolicy();
     private final JdbcTemplate jdbc;
     private final ScopeService scopes;
     private final EncryptionService encryption;
@@ -142,8 +144,8 @@ public class DeviationService {
         }
 
         for (ExistingDeviation deviation : activeRows) {
-            // Geofence deviations are tied to an individual finalized employee mark; generic jornada reconciliation must not
-            // retract them when it recomputes arrival, pause, or egress deviations. A valid mark void retracts its own row.
+            // A geofence deviation is shared by the jornada; generic reconciliation must not retract it when it recomputes
+            // arrival, pause, or egress deviations. Mark correction handles it separately.
             if (deviation.type() == DeviationType.FUERA_DE_SEDE) continue;
             if (active.containsKey(deviation.type())) continue;
             // Arrival types share one persistent deviation when an absence is replaced by a late mark.
@@ -166,33 +168,41 @@ public class DeviationService {
         }
     }
 
-    /** Creates at most one non-push deviation for a finalized employee mark assessed outside its frozen site geofence. */
+    /** Creates or reopens the jornada's single non-push geofence deviation; later outside marks keep their own history. */
     @Transactional
     public void recordOutOfSiteMark(UUID companyId, UUID jornadaId, UUID siteId, UUID employeeId, UUID markId, Instant now) {
         ExistingDeviation current = jdbc.query("SELECT id,type,active,source_mark_id,classification FROM deviations " +
-                        "WHERE company_id=? AND jornada_id=? AND source_mark_id=? AND type='FUERA_DE_SEDE' FOR UPDATE",
+                        "WHERE company_id=? AND jornada_id=? AND type='FUERA_DE_SEDE' AND active=TRUE FOR UPDATE",
                 rs -> rs.next() ? new ExistingDeviation(UUID.fromString(rs.getString("id")), DeviationType.valueOf(rs.getString("type")),
                         rs.getBoolean("active"), UUID.fromString(rs.getString("source_mark_id")), rs.getString("classification")) : null,
-                companyId.toString(), jornadaId.toString(), markId.toString());
-        if (current != null && current.active()) return;
-        UUID deviationId = current == null ? UUID.randomUUID() : current.id();
-        if (current == null) {
+                companyId.toString(), jornadaId.toString());
+        if (current != null) return;
+
+        ExistingDeviation historical = jdbc.query("SELECT id,type,active,source_mark_id,classification FROM deviations " +
+                        "WHERE company_id=? AND jornada_id=? AND type='FUERA_DE_SEDE' ORDER BY created_at,id LIMIT 1 FOR UPDATE",
+                rs -> rs.next() ? new ExistingDeviation(UUID.fromString(rs.getString("id")), DeviationType.valueOf(rs.getString("type")),
+                        rs.getBoolean("active"), rs.getString("source_mark_id") == null ? null : UUID.fromString(rs.getString("source_mark_id")), rs.getString("classification")) : null,
+                companyId.toString(), jornadaId.toString());
+        UUID deviationId = historical == null ? UUID.randomUUID() : historical.id();
+        if (historical == null) {
             jdbc.update("INSERT INTO deviations(id,company_id,jornada_id,source_mark_id,site_id,employee_id,type,created_at,updated_at,active) " +
                             "VALUES(?,?,?,?,?,?,'FUERA_DE_SEDE',?,?,TRUE)",
                     deviationId.toString(), companyId.toString(), jornadaId.toString(), markId.toString(), siteId.toString(), employeeId.toString(),
                     timestamp(now), timestamp(now));
         } else {
-            // Reopening is only possible after a concurrent retry; preserve the same fact and clear any stale motive/classification.
+            // Reopening is a new daily fact; preserve the row history while clearing any stale motive/classification.
             jdbc.update("UPDATE deviations SET active=TRUE,site_id=?,employee_id=?,motive_category=NULL,motive_text=NULL,motive_ciphertext=NULL," +
                             "motive_iv=NULL,motive_cipher_key_id=NULL,motive_author_account_id=NULL,motive_created_at=NULL,motive_purged_at=NULL," +
-                            "classification=NULL,created_at=?,updated_at=? WHERE id=? AND company_id=?",
-                    siteId.toString(), employeeId.toString(), timestamp(now), timestamp(now), deviationId.toString(), companyId.toString());
+                            "classification=NULL,source_mark_id=?,created_at=?,updated_at=? WHERE id=? AND company_id=?",
+                    siteId.toString(), employeeId.toString(), markId.toString(), timestamp(now), timestamp(now), deviationId.toString(), companyId.toString());
         }
         jdbc.update("INSERT INTO deviation_audits(id,company_id,deviation_id,change_type,after_type,created_at) VALUES(?,?,?,'CREATED','FUERA_DE_SEDE',?)",
                 UUID.randomUUID().toString(), companyId.toString(), deviationId.toString(), timestamp(now));
+        if (historical != null) auditClassificationReset(companyId, deviationId, historical.classification(), historical.type(), DeviationType.FUERA_DE_SEDE,
+                null, "Deviation reactivated", now);
     }
 
-    /** Retracts the geofence deviation for one invalidated mark; callers lock jornada before mark/deviation rows. */
+    /** Moves the daily deviation to another outside/unknown employee mark when its anchor is invalidated; otherwise retracts it. */
     @Transactional
     public void retractOutOfSiteForMark(UUID companyId, UUID jornadaId, UUID markId, Instant now) {
         ExistingDeviation deviation = jdbc.query("SELECT id,type,active,source_mark_id,classification FROM deviations " +
@@ -200,7 +210,36 @@ public class DeviationService {
                 rs -> rs.next() ? new ExistingDeviation(UUID.fromString(rs.getString("id")), DeviationType.valueOf(rs.getString("type")),
                         rs.getBoolean("active"), UUID.fromString(rs.getString("source_mark_id")), rs.getString("classification")) : null,
                 companyId.toString(), jornadaId.toString(), markId.toString());
-        if (deviation != null && deviation.active()) retract(companyId, deviation, now);
+        if (deviation == null || !deviation.active()) return;
+
+        JornadaGeofence center = jdbc.query("SELECT site_geofence_latitude_snapshot,site_geofence_longitude_snapshot,site_geofence_radius_snapshot " +
+                        "FROM jornadas WHERE id=? AND company_id=?",
+                rs -> rs.next() ? new JornadaGeofence(rs.getBigDecimal("site_geofence_latitude_snapshot"),
+                        rs.getBigDecimal("site_geofence_longitude_snapshot"), rs.getObject("site_geofence_radius_snapshot", Integer.class)) : null,
+                jornadaId.toString(), companyId.toString());
+        List<OutsideMarkCandidate> candidates = jdbc.query("SELECT id,location_status,latitude,longitude,accuracy_meters FROM mark_events " +
+                        "WHERE company_id=? AND jornada_id=? AND id<>? AND origin='EMPLEADO' AND voided_at IS NULL " +
+                        "AND location_status IN ('RECIBIDA','SIN_UBICACION') ORDER BY sequence_number",
+                (rs, row) -> new OutsideMarkCandidate(UUID.fromString(rs.getString("id")), rs.getString("location_status"),
+                        rs.getBigDecimal("latitude"), rs.getBigDecimal("longitude"), rs.getBigDecimal("accuracy_meters")),
+                companyId.toString(), jornadaId.toString(), markId.toString());
+
+        UUID replacementMarkId = candidates.stream()
+                .filter(candidate -> candidate.isUnknownLocation() || isOutside(center, candidate))
+                .map(OutsideMarkCandidate::id).findFirst().orElse(null);
+        if (replacementMarkId != null) {
+            jdbc.update("UPDATE deviations SET source_mark_id=? WHERE id=? AND company_id=? AND active=TRUE",
+                    replacementMarkId.toString(), deviation.id().toString(), companyId.toString());
+            return;
+        }
+        retract(companyId, deviation, now);
+    }
+
+    private boolean isOutside(JornadaGeofence center, OutsideMarkCandidate candidate) {
+        return center != null && center.latitude() != null && center.longitude() != null && center.radiusMeters() != null
+                && candidate.latitude() != null && candidate.longitude() != null && candidate.accuracyMeters() != null
+                && geofence.isOutside(center.latitude().doubleValue(), center.longitude().doubleValue(), candidate.latitude().doubleValue(),
+                        candidate.longitude().doubleValue(), candidate.accuracyMeters().doubleValue(), center.radiusMeters());
     }
 
     private List<ExistingDeviation> lockDeviations(UUID companyId, UUID jornadaId) {
@@ -419,6 +458,10 @@ public class DeviationService {
     }
     private record DesiredDeviation(UUID markId, Instant occurredAt) { }
     private record ExistingDeviation(UUID id, DeviationType type, boolean active, UUID sourceMarkId, String classification) { }
+    private record JornadaGeofence(BigDecimal latitude, BigDecimal longitude, Integer radiusMeters) { }
+    private record OutsideMarkCandidate(UUID id, String locationStatus, BigDecimal latitude, BigDecimal longitude, BigDecimal accuracyMeters) {
+        boolean isUnknownLocation() { return "SIN_UBICACION".equals(locationStatus); }
+    }
     private record DeviationRow(UUID id, UUID employeeId, String classification, String motiveCategory, Instant motiveCreatedAt) { }
     private record Cursor(Instant occurredAt, String filters, UUID id) { }
     /** GET /deviations filters: local jornada dates (inclusive, both or neither), derived review status, page size. */

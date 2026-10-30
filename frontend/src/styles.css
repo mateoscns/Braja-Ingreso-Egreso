@@ -59,6 +59,7 @@ h2 { font-size: 1rem; letter-spacing: -.02em; margin: 0; }
 .field-label { color: #495950; font-size: .875rem; font-weight: 650; }
 .field-hint { color: var(--text-secondary); font-size: .875rem; line-height: 1.45; }
 .site-location-field { display: flex; flex-direction: column; gap: 8px; }
+.site-location-coordinate-inputs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .site-location-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .site-location-message, .site-location-coordinates { font-size: .875rem; line-height: 1.45; }
 .site-location-message-error { color: var(--red); }
@@ -66,6 +67,7 @@ h2 { font-size: 1rem; letter-spacing: -.02em; margin: 0; }
 .site-location-selection { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #f8faf8; }
 .site-location-confirmation { display: flex; align-items: flex-start; gap: 10px; color: var(--text-primary); font-size: .9rem; line-height: 1.45; cursor: pointer; }
 .site-location-confirmation input { flex: 0 0 auto; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--green-2); }
+@media (max-width: 640px) { .site-location-coordinate-inputs { grid-template-columns: 1fr; } }
 .field input, .field select, .field textarea, td input, .company-switch {
   width: 100%; min-height: var(--tap-target); border: 1px solid #dfe6e1; border-radius: var(--radius-control); background: #fff; padding: 9px 12px; font-size: 1rem; outline: 0;
   transition: border-color .16s, box-shadow .16s;

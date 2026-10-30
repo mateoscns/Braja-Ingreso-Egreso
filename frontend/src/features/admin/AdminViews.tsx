@@ -206,6 +206,9 @@ export function SitesView() {
   const [name, setName] = useState('')
   const [timeZone, setTimeZone] = useState('America/Argentina/Buenos_Aires')
   const [siteLocation, setSiteLocation] = useState<SiteCoordinates | null>(null)
+  const [createLatitude, setCreateLatitude] = useState('')
+  const [createLongitude, setCreateLongitude] = useState('')
+  const [createLocationSource, setCreateLocationSource] = useState<'CAPTURED' | 'MANUAL' | null>(null)
   const [locationStatus, setLocationStatus] = useState<'idle' | 'loading' | 'selected' | 'error'>('idle')
   const [locationMessage, setLocationMessage] = useState('')
   const [locationErrorKind, setLocationErrorKind] = useState<SiteLocationErrorKind | null>(null)
@@ -245,7 +248,7 @@ export function SitesView() {
       setLocationStatus('loading'); setLocationErrorKind(null); setLocationMessage('Buscando la ubicación actual del dispositivo…')
     } else {
       setLocationEdit((current) => current?.siteId === target.siteId ? {
-        ...current, locationConfirmed: current.locationSource === 'device' ? false : current.locationConfirmed,
+        ...current, locationConfirmed: current.locationSource === 'CAPTURED' ? false : current.locationConfirmed,
         locationStatus: 'loading', locationErrorKind: null,
         locationMessage: 'Buscando la ubicación actual del dispositivo…'
       } : current)
@@ -255,14 +258,15 @@ export function SitesView() {
       if (locationCaptureController.current !== controller || locationCaptureTarget.current !== target) return
       if (target.kind === 'create') {
         setSiteLocation({ latitude: coordinates.latitude, longitude: coordinates.longitude })
+        setCreateLatitude(String(coordinates.latitude)); setCreateLongitude(String(coordinates.longitude)); setCreateLocationSource('CAPTURED')
         setLocationAccuracyMeters(coordinates.accuracyMeters); setLocationConfirmed(false); setLocationStatus('selected')
-        setLocationMessage('Ubicación recibida. Revisá las coordenadas y la estimación de precisión; confirmá que el punto corresponde a esta sede antes de guardarla.')
+        setLocationMessage('Ubicación recibida. Revisá las coordenadas, la precisión y el mapa; confirmá que el punto corresponde a esta sede antes de guardarla.')
       } else {
         setLocationEdit((current) => current?.siteId === target.siteId ? {
           ...current, latitude: String(coordinates.latitude), longitude: String(coordinates.longitude),
-          locationSource: 'device', locationAccuracyMeters: coordinates.accuracyMeters, locationConfirmed: false,
+          locationSource: 'CAPTURED', locationAccuracyMeters: coordinates.accuracyMeters, locationConfirmed: false,
           locationStatus: 'selected', locationErrorKind: null,
-          locationMessage: 'Ubicación recibida. Revisá las coordenadas y la estimación de precisión; confirmá que el nuevo punto corresponde a esta sede antes de guardarlo.'
+          locationMessage: 'Ubicación recibida. Revisá las coordenadas, la precisión y el mapa; confirmá que el nuevo punto corresponde a esta sede antes de guardarlo.'
         } : current)
       }
     } catch (reason) {
@@ -270,12 +274,12 @@ export function SitesView() {
       const kind = reason instanceof SiteLocationError ? reason.kind : 'unavailable'
       if (target.kind === 'create') {
         setLocationStatus('error'); setLocationErrorKind(kind)
-        const fallback = siteLocation ? ' Se conserva el punto que ya habías elegido; revisalo y confirmalo de nuevo antes de guardar.' : ''
+        const fallback = createLatitude || createLongitude ? ' Se conserva el punto que ya habías elegido; revisalo y confirmalo de nuevo antes de guardar.' : ''
         setLocationMessage(`${reason instanceof Error ? reason.message : 'No se pudo obtener la ubicación. Volvé a intentar.'}${fallback}`)
       } else {
         setLocationEdit((current) => current?.siteId === target.siteId ? {
           ...current, locationStatus: 'error', locationErrorKind: kind,
-          locationMessage: `${reason instanceof Error ? reason.message : 'No se pudo obtener la ubicación. Volvé a intentar.'}${current.latitude && current.longitude ? ` Se conserva el punto que ya habías elegido.${current.locationSource === 'device' ? ' Revisalo y confirmalo de nuevo antes de guardar.' : ''}` : ''}`
+          locationMessage: `${reason instanceof Error ? reason.message : 'No se pudo obtener la ubicación. Volvé a intentar.'}${current.latitude && current.longitude ? ` Se conserva el punto que ya habías elegido.${current.locationSource === 'CAPTURED' ? ' Revisalo y confirmalo de nuevo antes de guardar.' : ''}` : ''}`
         } : current)
       }
     } finally {
@@ -296,12 +300,13 @@ export function SitesView() {
       setLocationEdit((current) => current?.siteId === target.siteId ? {
         ...current, locationStatus: current.latitude && current.longitude ? 'selected' : 'idle', locationErrorKind: null,
         locationMessage: current.latitude && current.longitude
-          ? `Se canceló la búsqueda; se conserva el punto seleccionado.${current.locationSource === 'device' ? ' Revisalo y confirmalo de nuevo antes de guardar.' : ''}`
+          ? `Se canceló la búsqueda; se conserva el punto seleccionado.${current.locationSource === 'CAPTURED' ? ' Revisalo y confirmalo de nuevo antes de guardar.' : ''}`
           : 'Búsqueda cancelada. Podés dejar el centro vacío.'
       } : current)
     } else {
-      setLocationStatus(siteLocation ? 'selected' : 'idle'); setLocationErrorKind(null)
-      setLocationMessage(siteLocation
+      const hasPoint = Boolean(createLatitude || createLongitude)
+      setLocationStatus(hasPoint ? 'selected' : 'idle'); setLocationErrorKind(null)
+      setLocationMessage(hasPoint
         ? 'Se canceló la búsqueda; se conserva el punto elegido. Revisalo y confirmalo de nuevo antes de guardar.'
         : 'Búsqueda cancelada. Podés crear la sede sin centro.')
     }
@@ -309,7 +314,19 @@ export function SitesView() {
   function clearLocation() {
     cancelLocationCapture()
     setSiteLocation(null); setLocationStatus('idle'); setLocationMessage(''); setLocationErrorKind(null)
+    setCreateLatitude(''); setCreateLongitude(''); setCreateLocationSource(null)
     setLocationAccuracyMeters(null); setLocationConfirmed(false)
+  }
+  function updateCreateCoordinate(field: 'latitude' | 'longitude', value: string) {
+    if (locationStatus === 'loading') return
+    const nextLatitude = field === 'latitude' ? value : createLatitude
+    const nextLongitude = field === 'longitude' ? value : createLongitude
+    setCreateLatitude(nextLatitude); setCreateLongitude(nextLongitude)
+    setSiteLocation(null); setLocationAccuracyMeters(null); setLocationConfirmed(false)
+    const hasPoint = Boolean(nextLatitude.trim() || nextLongitude.trim())
+    setCreateLocationSource(hasPoint ? 'MANUAL' : null)
+    setLocationStatus(hasPoint ? 'selected' : 'idle'); setLocationErrorKind(null)
+    setLocationMessage(hasPoint ? 'Carga manual. Revisá el punto en el mapa y confirmá que corresponde a esta sede antes de guardarla.' : '')
   }
   function beginLocationEdit(site: Site) {
     cancelLocationCapture()
@@ -338,7 +355,24 @@ export function SitesView() {
     } : current)
   }
   function updateLocationEdit(patch: Partial<SiteLocationEditDraft>) {
-    setLocationEdit((current) => current ? { ...current, ...patch } : current)
+    setLocationEdit((current) => {
+      if (!current) return current
+      const updated = { ...current, ...patch }
+      if ('latitude' in patch || 'longitude' in patch) {
+        if (current.locationStatus === 'loading') return current
+        const hasPoint = Boolean(updated.latitude.trim() || updated.longitude.trim())
+        return {
+          ...updated,
+          locationSource: hasPoint ? 'MANUAL' : null,
+          locationAccuracyMeters: null,
+          locationConfirmed: false,
+          locationStatus: hasPoint ? 'selected' : 'idle',
+          locationErrorKind: null,
+          locationMessage: hasPoint ? 'Carga manual. Revisá el punto en el mapa y confirmá que corresponde a esta sede antes de guardarlo.' : ''
+        }
+      }
+      return updated
+    })
   }
   function closeSiteLocationAudit() {
     siteLocationAuditRequest.current += 1
@@ -378,7 +412,7 @@ export function SitesView() {
       const latitude = Number(locationEdit.latitude)
       const longitude = Number(locationEdit.longitude)
       if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
-        setError('El punto seleccionado tiene coordenadas inválidas. Volvé a capturar la ubicación o dejá el centro vacío.')
+        setError('Ingresá una latitud entre -90 y 90 y una longitud entre -180 y 180; también podés capturar el punto o dejar el centro vacío.')
         return
       }
       coordinates = { latitude, longitude }
@@ -392,6 +426,7 @@ export function SitesView() {
       const updated = await api.put<Site>(`/sites/${encodeURIComponent(locationEdit.siteId)}/location`, {
         latitude: coordinates?.latitude ?? null,
         longitude: coordinates?.longitude ?? null,
+        locationSource: coordinates ? locationEdit.locationSource : null,
         geofenceRadiusMeters
       })
       setSites((current) => current.map((site) => site.id === updated.id ? updated : site))
@@ -405,9 +440,25 @@ export function SitesView() {
     let geofenceRadiusMeters: number
     try { geofenceRadiusMeters = parseGeofenceRadiusMeters(createRadiusMeters) }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Revisá el radio de la sede.'); return }
-    if (siteLocation && !locationConfirmed) {
-      setError('Confirmá que las coordenadas corresponden a esta sede, o quitá la ubicación para crearla sin coordenadas.')
+    const hasLatitude = Boolean(createLatitude.trim())
+    const hasLongitude = Boolean(createLongitude.trim())
+    if (hasLatitude !== hasLongitude) {
+      setError('Ingresá latitud y longitud juntas, o dejá ambas vacías para crear la sede sin centro.')
       return
+    }
+    let coordinates: SiteCoordinates | null = null
+    if (hasLatitude && hasLongitude) {
+      const latitude = Number(createLatitude)
+      const longitude = Number(createLongitude)
+      if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+        setError('Ingresá una latitud entre -90 y 90 y una longitud entre -180 y 180.')
+        return
+      }
+      coordinates = { latitude, longitude }
+      if (!locationConfirmed) {
+        setError('Revisá el punto en el mapa y confirmá que corresponde a esta sede antes de guardarla.')
+        return
+      }
     }
     setBusy(true)
     try { new Intl.DateTimeFormat('en-US', { timeZone }).format(new Date()) }
@@ -415,8 +466,9 @@ export function SitesView() {
     try {
       const created = await api.post<Site>('/sites', {
         name: name.trim(), timeZone,
-        latitude: siteLocation?.latitude ?? null,
-        longitude: siteLocation?.longitude ?? null,
+        latitude: coordinates?.latitude ?? null,
+        longitude: coordinates?.longitude ?? null,
+        locationSource: coordinates ? createLocationSource : null,
         geofenceRadiusMeters
       })
       setSites((current) => [...current, created]); setLoadError(''); setName(''); setCreateRadiusMeters('100'); clearLocation(); setNotice('Sede creada.')
@@ -424,10 +476,12 @@ export function SitesView() {
     catch (reason) { setError(errText(reason)) } finally { setBusy(false) }
   }
   return <SitesViewRender sites={sites} loading={loading} loadError={loadError} error={error} notice={notice} name={name} timeZone={timeZone} busy={busy}
-    createRadiusMeters={createRadiusMeters} locationEdit={locationEdit} siteLocationAuditFor={siteLocationAuditFor} siteLocationAudit={siteLocationAudit} siteLocationAuditLoading={siteLocationAuditLoading} siteLocationAuditError={siteLocationAuditError}
+    createRadiusMeters={createRadiusMeters} createLatitude={createLatitude} createLongitude={createLongitude} createLocationSource={createLocationSource}
+    locationEdit={locationEdit} siteLocationAuditFor={siteLocationAuditFor} siteLocationAudit={siteLocationAudit} siteLocationAuditLoading={siteLocationAuditLoading} siteLocationAuditError={siteLocationAuditError}
     siteLocation={siteLocation} locationStatus={locationStatus} locationMessage={locationMessage} locating={locationStatus === 'loading'}
     locationErrorKind={locationErrorKind} locationAccuracyMeters={locationAccuracyMeters} locationConfirmed={locationConfirmed}
     onLocationConfirmedChange={setLocationConfirmed} onCancelLocationCapture={cancelLocationCapture}
+    onCreateCoordinateChange={updateCreateCoordinate}
     onCreateRadiusMetersChange={setCreateRadiusMeters} onBeginLocationEdit={beginLocationEdit} onCancelLocationEdit={cancelLocationEdit}
     onCaptureEditLocation={(siteId) => void captureLocationFor({ kind: 'edit', siteId })} onClearEditLocation={clearEditLocation}
     onLocationEditChange={updateLocationEdit} onSaveLocationEdit={saveLocationEdit}

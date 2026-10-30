@@ -144,15 +144,25 @@ public class OrganizationController {
     public record SiteInput(@NotBlank @Size(max=120) String name, @NotBlank @Size(max=64) String timeZone,
                             @DecimalMin("-90") @DecimalMax("90") @Digits(integer=3,fraction=7) BigDecimal latitude,
                             @DecimalMin("-180") @DecimalMax("180") @Digits(integer=3,fraction=7) BigDecimal longitude,
-                            @Min(50) @Max(500) Integer geofenceRadiusMeters) { }
+                            @Min(50) @Max(500) Integer geofenceRadiusMeters,
+                            @Pattern(regexp="CAPTURED|MANUAL") String locationSource) {
+        public SiteInput(String name, String timeZone, BigDecimal latitude, BigDecimal longitude, Integer geofenceRadiusMeters) {
+            this(name, timeZone, latitude, longitude, geofenceRadiusMeters, null);
+        }
+    }
     public record SiteLocationInput(@DecimalMin("-90") @DecimalMax("90") @Digits(integer=3,fraction=7) BigDecimal latitude,
                                     @DecimalMin("-180") @DecimalMax("180") @Digits(integer=3,fraction=7) BigDecimal longitude,
-                                    @NotNull @Min(50) @Max(500) Integer geofenceRadiusMeters) { }
+                                    @NotNull @Min(50) @Max(500) Integer geofenceRadiusMeters,
+                                    @Pattern(regexp="CAPTURED|MANUAL") String locationSource) {
+        public SiteLocationInput(BigDecimal latitude, BigDecimal longitude, Integer geofenceRadiusMeters) {
+            this(latitude, longitude, geofenceRadiusMeters, null);
+        }
+    }
     public record SiteView(UUID id, String name, String timeZone, BigDecimal latitude, BigDecimal longitude, Integer geofenceRadiusMeters) { }
     public record SiteLocationAuditEntry(UUID id, java.time.Instant changedAt, String actorDisplayName,
                                          BigDecimal beforeLatitude, BigDecimal beforeLongitude,
                                          BigDecimal afterLatitude, BigDecimal afterLongitude,
-                                         Integer beforeRadiusMeters, int afterRadiusMeters) { }
+                                         Integer beforeRadiusMeters, int afterRadiusMeters, String locationSource) { }
     public record SiteLocationAuditResponse(List<SiteLocationAuditEntry> entries) { }
     public record EmployeeInput(@NotBlank @Size(min=7,max=12) String dni, @NotBlank @Size(max=160) String displayName,
                                 @NotEmpty List<@NotNull UUID> siteIds, @Min(0) @Max(240) int toleranceMinutes,

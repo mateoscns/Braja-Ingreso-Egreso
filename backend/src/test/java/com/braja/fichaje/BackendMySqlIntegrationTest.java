@@ -165,7 +165,8 @@ class BackendMySqlIntegrationTest {
     void migrationsCreateTheTenantAndPrivacyInvariants() {
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='notification_outbox_events'", Integer.class));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='deviations' AND column_name='active_type'", Integer.class));
-        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='deviations' AND column_name='active_source_mark_type'", Integer.class));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='deviations' AND column_name='active_jornada_geofence_type'", Integer.class));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='site_location_audits' AND column_name='location_source'", Integer.class));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='jornadas' AND column_name='site_geofence_latitude_snapshot'", Integer.class));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.check_constraints WHERE constraint_schema=DATABASE() AND constraint_name='chk_deviation_fuera_source_mark'", Integer.class));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM bootstrap_guard WHERE id=1 AND consumed_at IS NULL", Integer.class));
@@ -453,7 +454,7 @@ class BackendMySqlIntegrationTest {
     }
 
     @Test
-    void declaredJornadaFreezesTheSiteGeofenceAndCreatesOneDeviationPerOutsideMark() {
+    void declaredJornadaFreezesTheSiteGeofenceAndCreatesOneDeviationPerJornadaWhileKeepingEveryMark() {
         jdbc.update("UPDATE sites SET latitude=-26.8200000,longitude=-65.2100000,geofence_radius_meters=100 WHERE id=? AND company_id=?",
                 siteId.toString(), companyId.toString());
         java.time.LocalDate date = java.time.LocalDate.now().plusDays(1);
@@ -480,11 +481,17 @@ class BackendMySqlIntegrationTest {
 
         List<com.braja.fichaje.deviations.DeviationService.DeviationView> outside = deviations.list(adminScope,
                 new DeviationService.ListFilter(null, null, null, null, 100)).stream().filter(item -> "FUERA_DE_SEDE".equals(item.type())).toList();
-        assertEquals(3, outside.size());
+        assertEquals(1, outside.size());
         assertFalse(outside.stream().anyMatch(item -> insideMark.equals(item.sourceMarkId())));
-        assertTrue(outside.stream().anyMatch(item -> firstOutside.equals(item.sourceMarkId()) && "SALIDA_DESAYUNO".equals(item.sourceMarkAction()) && item.sourceMarkSequence() == 2));
-        assertTrue(outside.stream().anyMatch(item -> secondOutside.equals(item.sourceMarkId()) && "VUELTA_DESAYUNO".equals(item.sourceMarkAction()) && item.sourceMarkSequence() == 3));
-        assertTrue(outside.stream().anyMatch(item -> thirdOutside.equals(item.sourceMarkId()) && "EGRESO".equals(item.sourceMarkAction()) && item.sourceMarkSequence() == 4));
+        assertEquals(firstOutside, outside.getFirst().sourceMarkId());
+        assertEquals("SALIDA_DESAYUNO", outside.getFirst().sourceMarkAction());
+        assertEquals(2, outside.getFirst().sourceMarkSequence());
+        assertEquals(4, jdbc.queryForObject("SELECT COUNT(*) FROM mark_events WHERE jornada_id=? AND voided_at IS NULL", Integer.class, geofenceJornada.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE' AND active=TRUE", Integer.class, geofenceJornada.toString()));
+        assertThrows(org.springframework.dao.DataAccessException.class, () -> jdbc.update(
+                "INSERT INTO deviations(id,company_id,jornada_id,source_mark_id,site_id,employee_id,type,created_at,updated_at,active) " +
+                        "VALUES(?,?,?,?,?,?,'FUERA_DE_SEDE',?,?,TRUE)", UUID.randomUUID().toString(), companyId.toString(), geofenceJornada.toString(),
+                secondOutside.toString(), siteId.toString(), employeeId.toString(), java.sql.Timestamp.from(acceptedAt), java.sql.Timestamp.from(acceptedAt)));
         assertTrue(outside.stream().noneMatch(item -> item.pushEligible()));
         assertThrows(org.springframework.dao.DataAccessException.class,
                 () -> jdbc.update("UPDATE deviations SET source_mark_id=NULL WHERE jornada_id=? AND source_mark_id=? AND type='FUERA_DE_SEDE'",
@@ -492,22 +499,39 @@ class BackendMySqlIntegrationTest {
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM notification_outbox_events WHERE deviation_id IN " +
                 "(SELECT id FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE')", Integer.class, geofenceJornada.toString()));
 
-        // The egreso triggered a normal reconciliation; all per-mark deviations survived. Voiding it retracts only its own row.
-        assertEquals(3, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE' AND active=TRUE", Integer.class, geofenceJornada.toString()));
+        // Later marks remain available after the first daily reason; voiding a non-anchor mark does not retract that reason.
         marks.voidMark(adminScope, thirdOutside, "Egreso cargado por error");
-        assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE' AND active=TRUE", Integer.class, geofenceJornada.toString()));
-        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND source_mark_id=? AND type='FUERA_DE_SEDE' AND active=FALSE",
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE' AND active=TRUE", Integer.class, geofenceJornada.toString()));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND source_mark_id=? AND type='FUERA_DE_SEDE' AND active=FALSE",
                 Integer.class, geofenceJornada.toString(), thirdOutside.toString()));
+
+        // If the anchor is voided, a still-valid outside mark anchors the same daily deviation.
+        UUID dailyDeviationId = outside.getFirst().id();
+        Instant correctionAt = Instant.now();
+        jdbc.update("UPDATE mark_events SET voided_at=?,voided_by=?,void_reason=? WHERE id=? AND company_id=?",
+                java.sql.Timestamp.from(correctionAt), adminAccountId.toString(), "Marca de salida cargada por error", firstOutside.toString(), companyId.toString());
+        deviations.retractOutOfSiteForMark(companyId, geofenceJornada, firstOutside, correctionAt);
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE id=? AND active=TRUE AND source_mark_id=?",
+                Integer.class, dailyDeviationId.toString(), secondOutside.toString()));
+        var reanchoredDeviation = deviations.list(adminScope, new DeviationService.ListFilter(null, null, null, null, 100)).stream()
+                .filter(item -> item.id().equals(dailyDeviationId)).findFirst().orElseThrow();
+        assertEquals(acceptedAt.plusSeconds(120), reanchoredDeviation.occurredAt());
+        correctionAt = Instant.now();
+        jdbc.update("UPDATE mark_events SET voided_at=?,voided_by=?,void_reason=? WHERE id=? AND company_id=?",
+                java.sql.Timestamp.from(correctionAt), adminAccountId.toString(), "Marca de vuelta cargada por error", secondOutside.toString(), companyId.toString());
+        deviations.retractOutOfSiteForMark(companyId, geofenceJornada, secondOutside, correctionAt);
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE' AND active=TRUE",
+                Integer.class, geofenceJornada.toString()));
 
         jdbc.update("UPDATE mark_events SET location_received_at=? WHERE id IN (?,?,?,?)", java.sql.Timestamp.from(Instant.now().minusSeconds(91L * 86400)),
                 insideMark.toString(), firstOutside.toString(), secondOutside.toString(), thirdOutside.toString());
         retention.purgeSensitiveData();
         assertEquals("PURGADA", jdbc.queryForObject("SELECT location_status FROM mark_events WHERE id=?", String.class, firstOutside.toString()));
-        assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE' AND active=TRUE", Integer.class, geofenceJornada.toString()));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE' AND active=TRUE", Integer.class, geofenceJornada.toString()));
     }
 
     @Test
-    void missingEmployeeLocationCreatesOnePerMarkAfterThirtySecondsAndDoesNotDuplicateOnRetry() {
+    void missingEmployeeLocationCreatesOnePerJornadaAfterThirtySecondsAndDoesNotDuplicateOnRetry() {
         jdbc.update("UPDATE sites SET latitude=-26.8200000,longitude=-65.2100000,geofence_radius_meters=100 WHERE id=? AND company_id=?",
                 siteId.toString(), companyId.toString());
         UUID geofenceJornada = declareJornada(java.time.LocalDate.now().plusDays(2));
@@ -564,7 +588,7 @@ class BackendMySqlIntegrationTest {
     }
 
     @Test
-    void timelyLocationAfterTimeoutRetractsOrPreservesTheSamePerMarkDeviation() {
+    void timelyLocationAfterTimeoutRetractsOrPreservesTheSameDailyDeviation() {
         jdbc.update("UPDATE sites SET latitude=-26.8200000,longitude=-65.2100000,geofence_radius_meters=100 WHERE id=? AND company_id=?",
                 siteId.toString(), companyId.toString());
         java.time.LocalDate insideDate = java.time.LocalDate.now().plusDays(6);

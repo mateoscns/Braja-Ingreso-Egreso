@@ -69,7 +69,7 @@ export function captureSiteCoordinates(
         return
       }
       if (accuracyMeters > SITE_LOCATION_ACCURACY_LIMIT_METERS) {
-        failWithError(new SiteLocationError('precision-insufficient', `El dispositivo informó una precisión de ${accuracyMeters.toFixed(1)} m; la propuesta local acepta hasta ${SITE_LOCATION_ACCURACY_LIMIT_METERS} m. Activá la ubicación precisa, probá desde un lugar abierto y volvé a intentar. El punto no se guardó; también podés crear la sede sin centro.`))
+        failWithError(new SiteLocationError('precision-insufficient', `El dispositivo informó una precisión de ${accuracyMeters.toFixed(1)} m; solo se aceptan hasta ${SITE_LOCATION_ACCURACY_LIMIT_METERS} m. Activá la ubicación precisa, probá desde un lugar abierto y volvé a intentar. El punto no se guardó; también podés ingresar las coordenadas manualmente o crear la sede sin centro.`))
         return
       }
       if (settled) return
