@@ -47,6 +47,7 @@ public class OrganizationService {
     public SiteView createSite(UUID companyId, UUID actorAccountId, SiteInput input) {
         validateSiteCoordinates(input.latitude(), input.longitude());
         validateLocationSource(input.locationSource());
+        requireSourceForNewCenter(input.latitude() != null, input.locationSource());
         int radiusMeters = effectiveRadius(input.geofenceRadiusMeters());
         UUID siteId = UUID.randomUUID();
         String name = input.name().trim();
@@ -69,6 +70,7 @@ public class OrganizationService {
         if (before == null) throw ApiException.notFound();
 
         boolean coordinatesChanged = !sameCoordinate(before.latitude(), input.latitude()) || !sameCoordinate(before.longitude(), input.longitude());
+        requireSourceForNewCenter(coordinatesChanged && input.latitude() != null, input.locationSource());
         if (coordinatesChanged || before.radiusMeters() != input.geofenceRadiusMeters()) {
             jdbc.update("UPDATE sites SET latitude=?,longitude=?,geofence_radius_meters=? WHERE id=? AND company_id=?",
                     input.latitude(), input.longitude(), input.geofenceRadiusMeters(), siteId.toString(), companyId.toString());
@@ -109,6 +111,14 @@ public class OrganizationService {
         if (locationSource != null && !locationSource.equals("CAPTURED") && !locationSource.equals("MANUAL")) {
             throw ApiException.invalid("locationSource must be CAPTURED or MANUAL");
         }
+    }
+
+    /**
+     * D-20261029-01: every new or moved center records whether it was captured or typed. A radius-only change or a cleared
+     * center keeps no source. CAPTURED is what the ADMIN's browser reports; the 25 m accuracy limit is checked there.
+     */
+    private static void requireSourceForNewCenter(boolean newCenter, String locationSource) {
+        if (newCenter && locationSource == null) throw ApiException.invalid("locationSource is required when the site center is set or changed");
     }
 
     private static void validateSiteLocation(SiteLocationInput input) {

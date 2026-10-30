@@ -202,7 +202,7 @@ class OrganizationTransactionMySqlTest {
     void createSiteRollsBackWhenInitialAuditCannotBeWritten() {
         inject("site_location_audits", "after_radius_meters <> 275");
         var input = new OrganizationController.SiteInput("Rollback site " + suffix, "America/Argentina/Buenos_Aires",
-                new BigDecimal("-34.6"), new BigDecimal("-58.4"), 275);
+                new BigDecimal("-34.6"), new BigDecimal("-58.4"), 275, "MANUAL");
 
         assertThrows(DataAccessException.class, () -> organizations.createSite(adminAuthentication, adminSession, input));
 

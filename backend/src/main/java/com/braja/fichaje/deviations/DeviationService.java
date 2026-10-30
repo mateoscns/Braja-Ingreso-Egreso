@@ -202,7 +202,10 @@ public class DeviationService {
                 null, "Deviation reactivated", now);
     }
 
-    /** Moves the daily deviation to another outside/unknown employee mark when its anchor is invalidated; otherwise retracts it. */
+    /**
+     * Moves the daily deviation to another outside/unknown employee mark when its anchor is invalidated (the classification is
+     * cleared and audited, the motive is kept); otherwise retracts it.
+     */
     @Transactional
     public void retractOutOfSiteForMark(UUID companyId, UUID jornadaId, UUID markId, Instant now) {
         ExistingDeviation deviation = jdbc.query("SELECT id,type,active,source_mark_id,classification FROM deviations " +
@@ -228,8 +231,11 @@ public class DeviationService {
                 .filter(candidate -> candidate.isUnknownLocation() || isOutside(center, candidate))
                 .map(OutsideMarkCandidate::id).findFirst().orElse(null);
         if (replacementMarkId != null) {
-            jdbc.update("UPDATE deviations SET source_mark_id=? WHERE id=? AND company_id=? AND active=TRUE",
-                    replacementMarkId.toString(), deviation.id().toString(), companyId.toString());
+            // D-20261027-01 applied to the anchor: a classification decided for another mark goes back to review; the motive stays.
+            jdbc.update("UPDATE deviations SET source_mark_id=?,classification=NULL,updated_at=? WHERE id=? AND company_id=? AND active=TRUE",
+                    replacementMarkId.toString(), timestamp(now), deviation.id().toString(), companyId.toString());
+            auditClassificationReset(companyId, deviation.id(), deviation.classification(), DeviationType.FUERA_DE_SEDE,
+                    DeviationType.FUERA_DE_SEDE, null, "Source mark changed", now);
             return;
         }
         retract(companyId, deviation, now);

@@ -618,6 +618,89 @@ class BackendMySqlIntegrationTest {
     }
 
     @Test
+    void outOfSiteDeviationIsJustifiedAndClassifiedAndGoesBackToReviewWhenItMovesToAnotherMark() {
+        // 2026-10-30, PR #69 review: a JUSTIFICADO decided for one mark silently stayed on the replacement mark, unaudited.
+        jdbc.update("UPDATE sites SET latitude=-26.8200000,longitude=-65.2100000,geofence_radius_meters=100 WHERE id=? AND company_id=?",
+                siteId.toString(), companyId.toString());
+        java.time.LocalDate date = java.time.LocalDate.now().plusDays(8);
+        UUID geofenceJornada = declareJornada(date);
+        Instant acceptedAt = date.atTime(9, 0).atZone(ZoneId.of("America/Argentina/Buenos_Aires")).toInstant();
+        UUID firstMark = marks.recordEmployeeMark(employeeScope, geofenceJornada, MarkAction.INGRESO, UUID.randomUUID(), acceptedAt).mark().id();
+        marks.resolveLocationTimeouts(acceptedAt.plusSeconds(31));
+        UUID deviationId = jdbc.queryForObject("SELECT id FROM deviations WHERE jornada_id=? AND source_mark_id=? AND type='FUERA_DE_SEDE' AND active=TRUE",
+                (rs, row) -> UUID.fromString(rs.getString(1)), geofenceJornada.toString(), firstMark.toString());
+        UUID secondMark = marks.recordEmployeeMark(employeeScope, geofenceJornada, MarkAction.SALIDA_DESAYUNO, UUID.randomUUID(), acceptedAt.plusSeconds(60)).mark().id();
+        marks.attachLocation(employeeScope, secondMark, -30, -60, 5, acceptedAt.plusSeconds(61));
+
+        var justified = deviations.saveMotive(null, employeeScope, deviationId, "TRANSPORTE", "El colectivo me dejó lejos del local");
+        assertEquals("FUERA_DE_SEDE", justified.type());
+        assertEquals("TRANSPORTE", justified.category());
+        deviations.classify(adminScope, deviationId, "JUSTIFICADO", null);
+        assertEquals("JUSTIFICADO", jdbc.queryForObject("SELECT classification FROM deviations WHERE id=?", String.class, deviationId.toString()));
+
+        // The first mark's on-time location arrives inside: the jornada's single deviation moves to the second (outside) mark.
+        marks.attachLocation(employeeScope, firstMark, -26.82, -65.21, 5, acceptedAt.plusSeconds(29));
+
+        assertEquals(1, count("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE' AND active=TRUE", geofenceJornada.toString()));
+        assertEquals(secondMark.toString(), jdbc.queryForObject("SELECT source_mark_id FROM deviations WHERE id=?", String.class, deviationId.toString()));
+        assertNull(jdbc.queryForObject("SELECT classification FROM deviations WHERE id=?", String.class, deviationId.toString()));
+        assertEquals("TRANSPORTE", jdbc.queryForObject("SELECT motive_category FROM deviations WHERE id=?", String.class, deviationId.toString()));
+        assertEquals(1, count("SELECT COUNT(*) FROM deviation_audits WHERE deviation_id=? AND change_type='CLASSIFICATION_RESET' " +
+                "AND before_classification='JUSTIFICADO' AND after_classification IS NULL AND audit_reason='Source mark changed'", deviationId.toString()));
+        assertEquals(0, count("SELECT COUNT(*) FROM notification_outbox_events WHERE deviation_id=?", deviationId.toString()));
+    }
+
+    @Test
+    void siteLocationRoutesValidateOverHttpAndStayInsideTheAdminsCompany() throws Exception {
+        OtherTenantAdmin tenantB = createOtherTenantAdmin();
+        HttpLogin admin = loginOverHttp(adminAccountId, "30.123.457", "CorrectHorseBattery9!");
+        HttpLogin employee = loginOverHttp(accountId, "30.123.456", "CorrectHorseBattery9!");
+        HttpLogin adminB = loginOverHttp(tenantB.adminAccountId(), tenantB.adminDni(), "CorrectHorseBattery9!");
+        String manualCenter = "{\"latitude\":-26.82,\"longitude\":-65.21,\"geofenceRadiusMeters\":150,\"locationSource\":\"MANUAL\"}";
+
+        for (String invalid : List.of(
+                "{\"latitude\":-26.82,\"longitude\":-65.21,\"geofenceRadiusMeters\":49,\"locationSource\":\"MANUAL\"}",
+                "{\"latitude\":-26.82,\"longitude\":-65.21,\"geofenceRadiusMeters\":501,\"locationSource\":\"MANUAL\"}",
+                "{\"latitude\":91,\"longitude\":-65.21,\"geofenceRadiusMeters\":150,\"locationSource\":\"MANUAL\"}",
+                "{\"latitude\":-26.82,\"geofenceRadiusMeters\":150,\"locationSource\":\"MANUAL\"}",
+                "{\"latitude\":-26.82,\"longitude\":-65.21,\"geofenceRadiusMeters\":150,\"locationSource\":\"GPS\"}",
+                "{\"latitude\":-26.82,\"longitude\":-65.21,\"geofenceRadiusMeters\":150}")) {
+            MvcResult rejected = adminWrite(admin, put("/api/v1/sites/{id}/location", siteId), invalid);
+            assertEquals(422, rejected.getResponse().getStatus(), invalid);
+            assertEquals("VALIDATION_ERROR", objectMapper.readTree(rejected.getResponse().getContentAsString()).get("code").asText(), invalid);
+        }
+        mockMvc.perform(put("/api/v1/sites/{id}/location", siteId).cookie(admin.sessionCookie())
+                        .contentType(MediaType.APPLICATION_JSON).content(manualCenter))
+                .andExpect(status().isForbidden());
+        assertEquals(403, adminWrite(employee, put("/api/v1/sites/{id}/location", siteId), manualCenter).getResponse().getStatus());
+        mockMvc.perform(get("/api/v1/sites/{id}/location-audit", siteId).cookie(employee.sessionCookie()))
+                .andExpect(status().isForbidden());
+        assertEquals(404, adminWrite(adminB, put("/api/v1/sites/{id}/location", siteId), manualCenter).getResponse().getStatus());
+        mockMvc.perform(get("/api/v1/sites/{id}/location-audit", siteId).cookie(adminB.sessionCookie()))
+                .andExpect(status().isNotFound());
+        assertEquals(0, count("SELECT COUNT(*) FROM site_location_audits WHERE site_id=?", siteId.toString()));
+        assertEquals(0, count("SELECT COUNT(*) FROM sites WHERE id=? AND latitude IS NOT NULL", siteId.toString()));
+
+        MvcResult saved = adminWrite(admin, put("/api/v1/sites/{id}/location", siteId), manualCenter);
+        assertEquals(200, saved.getResponse().getStatus());
+        JsonNode body = objectMapper.readTree(saved.getResponse().getContentAsString());
+        assertEquals(-26.82, body.get("latitude").asDouble());
+        assertEquals(150, body.get("geofenceRadiusMeters").asInt());
+        mockMvc.perform(get("/api/v1/sites/{id}/location-audit", siteId).cookie(admin.sessionCookie()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entries.length()").value(1))
+                .andExpect(jsonPath("$.entries[0].locationSource").value("MANUAL"))
+                .andExpect(jsonPath("$.entries[0].afterRadiusMeters").value(150));
+
+        // A radius-only change needs no source; an unchanged PUT writes no audit row.
+        String radiusOnly = "{\"latitude\":-26.82,\"longitude\":-65.21,\"geofenceRadiusMeters\":200}";
+        assertEquals(200, adminWrite(admin, put("/api/v1/sites/{id}/location", siteId), radiusOnly).getResponse().getStatus());
+        assertEquals(200, adminWrite(admin, put("/api/v1/sites/{id}/location", siteId), radiusOnly).getResponse().getStatus());
+        assertEquals(2, count("SELECT COUNT(*) FROM site_location_audits WHERE site_id=?", siteId.toString()));
+        assertEquals(1, count("SELECT COUNT(*) FROM site_location_audits WHERE site_id=? AND after_radius_meters=200 AND location_source IS NULL", siteId.toString()));
+    }
+
+    @Test
     void adminForgottenMarkIsNotAssessedAgainstGeofence() {
         jdbc.update("UPDATE sites SET latitude=-26.8200000,longitude=-65.2100000,geofence_radius_meters=100 WHERE id=? AND company_id=?",
                 siteId.toString(), companyId.toString());

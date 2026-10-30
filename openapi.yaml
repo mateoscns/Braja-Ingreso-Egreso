@@ -197,7 +197,9 @@ paths:
       summary: Create a site in the active company
       description: >-
         ADMIN only. The server derives the company from the session. Coordinates are optional and must be sent together;
-        when supplied, they represent the device's current location selected by the ADMIN. The API does not reverse-geocode
+        when supplied, they are the site center captured by the ADMIN's browser or typed manually, and `locationSource`
+        (CAPTURED or MANUAL) is required. CAPTURED is reported by the client; the 25-meter accuracy limit is enforced in
+        the browser, not by the server. The API does not reverse-geocode
         them or derive the time zone from them. The geofence radius defaults to 100 meters and is configurable from 50 to
         500 meters. Site coordinates are retained for the life of the site and are not covered by the employee-mark
         location purge. Employee site responses return null coordinates and radius.
@@ -233,7 +235,8 @@ paths:
         ADMIN only, scoped to the active company. Latitude and longitude are nullable but must both be null or both be
         supplied. Automatic capture uses high accuracy, maximumAge=0, a 30-second total deadline, and accepts only a
         finite reported accuracy from 0 through 25 meters. Manual coordinates use the same latitude and longitude bounds.
-        `locationSource` records CAPTURED or MANUAL in the location audit when a point changes. Proposed local behavior,
+        `locationSource` records CAPTURED or MANUAL in the location audit and is required when the center is set or moved
+        (422 VALIDATION_ERROR otherwise); a radius-only change or a cleared center takes none. Proposed local behavior,
         pending Mateo's adoption: a jornada declared while the site has no center snapshots
         no geofence and is not evaluated later, even if the site is configured afterward. Every successful change is audited with its actor, server time, previous
         center/radius, and new center/radius. Creating a site with a configured center or non-default radius also creates
@@ -775,7 +778,10 @@ paths:
         are all required: a missing or null field answers 422 VALIDATION_ERROR and the location stays pending. For an employee-origin
         mark whose jornada has a geofence, the server creates at most one FUERA_DE_SEDE deviation per employee and jornada when the
         first mark falls outside the radius, cannot be confirmed within it because of reported accuracy, or has no location after 30
-        seconds. The deviation refers to the first triggering mark; later marks remain allowed and visible in mark history. A jornada
+        seconds. The deviation refers to the first triggering mark; later marks remain allowed and visible in mark history. If that
+        mark stops supporting it (voided, or its on-time location falls inside) and another employee mark of the jornada is still
+        outside or unknown, the same deviation moves to that mark, keeps its motive, and its classification goes back to review
+        (audited as CLASSIFICATION_RESET); otherwise it is retracted. A jornada
         declared without a site center has no geofence assessment (proposed local behavior, pending Mateo's adoption). This evaluation
         never blocks a mark and FUERA_DE_SEDE is not push-eligible.
       parameters:
