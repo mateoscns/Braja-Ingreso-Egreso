@@ -21,6 +21,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.sql.Timestamp;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.time.temporal.ChronoUnit;
@@ -68,6 +69,7 @@ class OrganizationTransactionMySqlTest {
 
     private UUID companyId;
     private UUID siteId;
+    private UUID adminAccountId;
     private Authentication adminAuthentication;
     private MockHttpSession adminSession;
     private String suffix;
@@ -77,13 +79,13 @@ class OrganizationTransactionMySqlTest {
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         companyId = UUID.randomUUID();
         siteId = UUID.randomUUID();
-        UUID adminAccountId = UUID.randomUUID();
+        adminAccountId = UUID.randomUUID();
         suffix = String.format("%08d", Math.floorMod(System.nanoTime(), 100_000_000L));
         jdbc.update("INSERT INTO companies(id,name,created_at) VALUES(?,?,?)", companyId.toString(), "OrgTx " + suffix, Timestamp.from(now));
         jdbc.update("INSERT INTO accounts(id,dni_normalized,dni_display,password_hash,must_change_password,active,created_at,updated_at) VALUES(?,?,?,?,FALSE,TRUE,?,?)",
                 adminAccountId.toString(), "401" + suffix, "40.1" + suffix, "unused", Timestamp.from(now), Timestamp.from(now));
-        jdbc.update("INSERT INTO company_memberships(id,company_id,account_id,role,active,created_at) VALUES(?,?,?,'ADMIN',TRUE,?)",
-                UUID.randomUUID().toString(), companyId.toString(), adminAccountId.toString(), Timestamp.from(now));
+        jdbc.update("INSERT INTO company_memberships(id,company_id,account_id,role,active,created_at,display_name) VALUES(?,?,?,'ADMIN',TRUE,?,?)",
+                UUID.randomUUID().toString(), companyId.toString(), adminAccountId.toString(), Timestamp.from(now), "Admin " + suffix);
         jdbc.update("INSERT INTO sites(id,company_id,name,time_zone,created_at) VALUES(?,?,?,?,?)",
                 siteId.toString(), companyId.toString(), "Sede " + suffix, "America/Argentina/Buenos_Aires", Timestamp.from(now));
         adminSession = new MockHttpSession();
@@ -96,6 +98,7 @@ class OrganizationTransactionMySqlTest {
     void dropInjectedFailures() {
         dropConstraint("employee_sites", "chk_test_inject");
         dropConstraint("template_blocks", "chk_test_inject");
+        dropConstraint("site_location_audits", "chk_test_inject");
     }
 
     @Test
@@ -156,6 +159,119 @@ class OrganizationTransactionMySqlTest {
         assertEquals(twoBlockTemplate("Cambiado").name(), updated.name());
         assertEquals(2, updated.blocks().size());
         assertEquals(2, count("SELECT COUNT(*) FROM template_blocks WHERE template_id=? AND company_id=?", created.id().toString(), companyId.toString()));
+    }
+
+    @Test
+    void createSiteSavesFirstCenterAuditInSameTransaction() {
+        BigDecimal latitude = new BigDecimal("-34.6037220");
+        BigDecimal longitude = new BigDecimal("-58.3815920");
+        var input = new OrganizationController.SiteInput("New site " + suffix, "America/Argentina/Buenos_Aires", latitude, longitude, 125, "CAPTURED");
+
+        var created = organizations.createSite(adminAuthentication, adminSession, input);
+
+        assertEquals(latitude, created.latitude());
+        assertEquals(longitude, created.longitude());
+        assertEquals(125, created.geofenceRadiusMeters());
+        assertEquals(1, count("SELECT COUNT(*) FROM sites WHERE id=? AND company_id=?", created.id().toString(), companyId.toString()));
+        assertEquals(1, count("SELECT COUNT(*) FROM site_location_audits WHERE site_id=? AND company_id=?", created.id().toString(), companyId.toString()));
+        var audit = organizations.siteLocationAudit(adminAuthentication, adminSession, created.id()).entries().getFirst();
+        assertEquals("Admin " + suffix, audit.actorDisplayName());
+        assertNull(audit.beforeLatitude());
+        assertNull(audit.beforeLongitude());
+        assertNull(audit.beforeRadiusMeters());
+        assertEquals(latitude, audit.afterLatitude());
+        assertEquals(longitude, audit.afterLongitude());
+        assertEquals(125, audit.afterRadiusMeters());
+        assertEquals("CAPTURED", audit.locationSource());
+        assertNotNull(audit.changedAt());
+    }
+
+    @Test
+    void createSiteWithDefaultLocationHasNoChangeAudit() {
+        var input = new OrganizationController.SiteInput("Default site " + suffix, "America/Argentina/Buenos_Aires", null, null, null);
+
+        var created = organizations.createSite(adminAuthentication, adminSession, input);
+
+        assertEquals(100, created.geofenceRadiusMeters());
+        assertNull(created.latitude());
+        assertNull(created.longitude());
+        assertEquals(0, count("SELECT COUNT(*) FROM site_location_audits WHERE site_id=? AND company_id=?", created.id().toString(), companyId.toString()));
+    }
+
+    @Test
+    void createSiteRollsBackWhenInitialAuditCannotBeWritten() {
+        inject("site_location_audits", "after_radius_meters <> 275");
+        var input = new OrganizationController.SiteInput("Rollback site " + suffix, "America/Argentina/Buenos_Aires",
+                new BigDecimal("-34.6"), new BigDecimal("-58.4"), 275, "MANUAL");
+
+        assertThrows(DataAccessException.class, () -> organizations.createSite(adminAuthentication, adminSession, input));
+
+        assertEquals(0, count("SELECT COUNT(*) FROM sites WHERE company_id=? AND name=?", companyId.toString(), input.name()));
+        assertEquals(0, count("SELECT COUNT(*) FROM site_location_audits WHERE company_id=?", companyId.toString()));
+    }
+
+    @Test
+    void siteLocationUpdateAuditsAndRollsBackAsOneTransaction() {
+        var input = new OrganizationController.SiteLocationInput(new BigDecimal("-34.6"), new BigDecimal("-58.4"), 200, "MANUAL");
+
+        var updated = organizations.updateSiteLocation(adminAuthentication, adminSession, siteId, input);
+
+        assertEquals(200, updated.geofenceRadiusMeters());
+        assertEquals(1, count("SELECT COUNT(*) FROM site_location_audits WHERE site_id=? AND company_id=?", siteId.toString(), companyId.toString()));
+        var audit = organizations.siteLocationAudit(adminAuthentication, adminSession, siteId).entries().getFirst();
+        assertEquals(100, audit.beforeRadiusMeters());
+        assertEquals(200, audit.afterRadiusMeters());
+        assertEquals("MANUAL", audit.locationSource());
+        assertEquals("Admin " + suffix, audit.actorDisplayName());
+
+        inject("site_location_audits", "after_radius_meters <> 275");
+        assertThrows(DataAccessException.class, () -> organizations.updateSiteLocation(adminAuthentication, adminSession, siteId,
+                new OrganizationController.SiteLocationInput(new BigDecimal("-34.6"), new BigDecimal("-58.4"), 275)));
+
+        assertEquals(200, jdbc.queryForObject("SELECT geofence_radius_meters FROM sites WHERE id=? AND company_id=?", Integer.class,
+                siteId.toString(), companyId.toString()));
+        assertEquals(1, count("SELECT COUNT(*) FROM site_location_audits WHERE site_id=? AND company_id=?", siteId.toString(), companyId.toString()));
+    }
+
+    @Test
+    void siteLocationValidationRejectsInvalidRadiusAndPartialCenterBeforeWriting() {
+        assertThrows(com.braja.fichaje.api.ApiException.class, () -> organizations.updateSiteLocation(adminAuthentication, adminSession,
+                siteId, new OrganizationController.SiteLocationInput(null, null, 49)));
+        assertThrows(com.braja.fichaje.api.ApiException.class, () -> organizations.updateSiteLocation(adminAuthentication, adminSession,
+                siteId, new OrganizationController.SiteLocationInput(new BigDecimal("-34.6"), null, 100)));
+
+        assertEquals(100, jdbc.queryForObject("SELECT geofence_radius_meters FROM sites WHERE id=? AND company_id=?", Integer.class,
+                siteId.toString(), companyId.toString()));
+        assertEquals(0, count("SELECT COUNT(*) FROM site_location_audits WHERE site_id=? AND company_id=?", siteId.toString(), companyId.toString()));
+    }
+
+    @Test
+    void siteLocationEndpointsEnforceAdminAndCompanyIsolation() {
+        UUID otherCompanyId = UUID.randomUUID();
+        UUID otherSiteId = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        jdbc.update("INSERT INTO companies(id,name,created_at) VALUES(?,?,?)", otherCompanyId.toString(), "Other " + suffix, Timestamp.from(now));
+        jdbc.update("INSERT INTO sites(id,company_id,name,time_zone,created_at) VALUES(?,?,?,?,?)",
+                otherSiteId.toString(), otherCompanyId.toString(), "Other site " + suffix, "America/Argentina/Buenos_Aires", Timestamp.from(now));
+
+        assertThrows(com.braja.fichaje.api.ApiException.class, () -> organizations.updateSiteLocation(adminAuthentication, adminSession,
+                otherSiteId, new OrganizationController.SiteLocationInput(null, null, 200)));
+        assertThrows(com.braja.fichaje.api.ApiException.class, () -> organizations.siteLocationAudit(adminAuthentication, adminSession, otherSiteId));
+        assertEquals(100, jdbc.queryForObject("SELECT geofence_radius_meters FROM sites WHERE id=?", Integer.class, otherSiteId.toString()));
+
+        var employee = organizations.createEmployee(adminAuthentication, adminSession,
+                new OrganizationController.EmployeeInput("52" + suffix.substring(0, 6), "Empleado " + suffix,
+                        List.of(siteId), 10, "TemporaryPass123"));
+        UUID employeeAccount = UUID.fromString(jdbc.queryForObject("SELECT account_id FROM employees WHERE id=? AND company_id=?", String.class,
+                employee.id().toString(), companyId.toString()));
+        jdbc.update("UPDATE accounts SET must_change_password=FALSE WHERE id=?", employeeAccount.toString());
+        Authentication employeeAuthentication = UsernamePasswordAuthenticationToken.authenticated(
+                new BrajaUserDetails(employeeAccount, "52" + suffix.substring(0, 6), "unused", true), "unused", List.of());
+
+        assertThrows(com.braja.fichaje.api.ApiException.class, () -> organizations.updateSiteLocation(employeeAuthentication, adminSession,
+                siteId, new OrganizationController.SiteLocationInput(null, null, 200)));
+        assertThrows(com.braja.fichaje.api.ApiException.class, () -> organizations.siteLocationAudit(employeeAuthentication, adminSession, siteId));
+        assertEquals(0, count("SELECT COUNT(*) FROM site_location_audits WHERE company_id=?", companyId.toString()));
     }
 
     private OrganizationController.TemplateInput oneBlockTemplate(String name) {

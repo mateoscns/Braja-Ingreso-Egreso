@@ -10,6 +10,7 @@ import com.braja.fichaje.security.PrivacyRetentionScheduler;
 import com.braja.fichaje.timekeeping.MarkAction;
 import com.braja.fichaje.timekeeping.MarkController;
 import com.braja.fichaje.timekeeping.MarkService;
+import com.braja.fichaje.timekeeping.JornadaDeclarationService;
 import com.braja.fichaje.security.ScopeService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,6 +40,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -81,6 +83,7 @@ class BackendMySqlIntegrationTest {
 
     @Autowired JdbcTemplate jdbc;
     @Autowired MarkService marks;
+    @Autowired JornadaDeclarationService jornadaDeclarations;
     @Autowired MarkController markController;
     @Autowired DeviationService deviations;
     @Autowired DeviationController deviationController;
@@ -118,6 +121,7 @@ class BackendMySqlIntegrationTest {
         jdbc.update("DELETE FROM schedule_templates");
         jdbc.update("DELETE FROM employee_sites");
         jdbc.update("DELETE FROM employees");
+        jdbc.update("DELETE FROM site_location_audits");
         jdbc.update("DELETE FROM company_memberships");
         jdbc.update("DELETE FROM accounts");
         jdbc.update("DELETE FROM sites");
@@ -146,6 +150,8 @@ class BackendMySqlIntegrationTest {
         jdbc.update("INSERT INTO employee_sites(company_id,employee_id,site_id,created_at) VALUES(?,?,?,?)", companyId.toString(), employeeId.toString(), siteId.toString(), java.sql.Timestamp.from(now));
         jdbc.update("INSERT INTO schedule_templates(id,company_id,site_id,name,breakfast_limit_minutes,lunch_limit_minutes,active,created_at,updated_at) VALUES(?,?,?,?,20,30,TRUE,?,?)",
                 templateId.toString(), companyId.toString(), siteId.toString(), "Turno", java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
+        jdbc.update("INSERT INTO template_blocks(id,company_id,template_id,sequence_number,start_day_offset,starts_at,ends_at,end_day_offset) VALUES(?,?,?,1,0,'08:00:00','16:00:00',0)",
+                UUID.randomUUID().toString(), companyId.toString(), templateId.toString());
         Instant scheduleStart = now.minusSeconds(900);
         Instant scheduleEnd = now.plusSeconds(3600);
         String snapshot = "{\"siteId\":\"" + siteId + "\",\"name\":\"Turno\",\"blocks\":[{\"startDayOffset\":0,\"start\":\"08:00:00\",\"end\":\"16:00:00\",\"endDayOffset\":0}],\"breakfastLimitMinutes\":20,\"lunchLimitMinutes\":30}";
@@ -160,6 +166,9 @@ class BackendMySqlIntegrationTest {
     void migrationsCreateTheTenantAndPrivacyInvariants() {
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='notification_outbox_events'", Integer.class));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='deviations' AND column_name='active_type'", Integer.class));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='site_location_audits' AND column_name='location_source'", Integer.class));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='jornadas' AND column_name='site_geofence_latitude_snapshot'", Integer.class));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.check_constraints WHERE constraint_schema=DATABASE() AND constraint_name='chk_deviation_fuera_source_mark'", Integer.class));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM bootstrap_guard WHERE id=1 AND consumed_at IS NULL", Integer.class));
     }
 
@@ -442,6 +451,308 @@ class BackendMySqlIntegrationTest {
         marks.resolveLocationTimeouts(acceptedAt.plusSeconds(31));
 
         assertEquals("SIN_UBICACION", jdbc.queryForObject("SELECT location_status FROM mark_events WHERE id=?", String.class, markId.toString()));
+    }
+
+    @Test
+    void declaredJornadaFreezesTheSiteGeofenceAndCreatesOneDeviationPerJornadaWhileKeepingEveryMark() {
+        jdbc.update("UPDATE sites SET latitude=-26.8200000,longitude=-65.2100000,geofence_radius_meters=100 WHERE id=? AND company_id=?",
+                siteId.toString(), companyId.toString());
+        java.time.LocalDate date = java.time.LocalDate.now().plusDays(1);
+        UUID geofenceJornada = declareJornada(date);
+        assertEquals(-26.82, jdbc.queryForObject("SELECT site_geofence_latitude_snapshot FROM jornadas WHERE id=?", Double.class, geofenceJornada.toString()));
+        assertEquals(-65.21, jdbc.queryForObject("SELECT site_geofence_longitude_snapshot FROM jornadas WHERE id=?", Double.class, geofenceJornada.toString()));
+        assertEquals(100, jdbc.queryForObject("SELECT site_geofence_radius_snapshot FROM jornadas WHERE id=?", Integer.class, geofenceJornada.toString()));
+
+        // Later ADMIN changes affect future declarations only.
+        jdbc.update("UPDATE sites SET latitude=-30.0000000,longitude=-60.0000000,geofence_radius_meters=500 WHERE id=? AND company_id=?",
+                siteId.toString(), companyId.toString());
+        assertEquals(-26.82, jdbc.queryForObject("SELECT site_geofence_latitude_snapshot FROM jornadas WHERE id=?", Double.class, geofenceJornada.toString()));
+        assertEquals(100, jdbc.queryForObject("SELECT site_geofence_radius_snapshot FROM jornadas WHERE id=?", Integer.class, geofenceJornada.toString()));
+
+        Instant acceptedAt = date.atTime(9, 0).atZone(ZoneId.of("America/Argentina/Buenos_Aires")).toInstant();
+        UUID insideMark = marks.recordEmployeeMark(employeeScope, geofenceJornada, MarkAction.INGRESO, UUID.randomUUID(), acceptedAt).mark().id();
+        marks.attachLocation(employeeScope, insideMark, -26.82, -65.21, 0, acceptedAt.plusSeconds(1));
+        UUID firstOutside = marks.recordEmployeeMark(employeeScope, geofenceJornada, MarkAction.SALIDA_DESAYUNO, UUID.randomUUID(), acceptedAt.plusSeconds(60)).mark().id();
+        marks.attachLocation(employeeScope, firstOutside, -30, -60, 0, acceptedAt.plusSeconds(61));
+        UUID secondOutside = marks.recordEmployeeMark(employeeScope, geofenceJornada, MarkAction.VUELTA_DESAYUNO, UUID.randomUUID(), acceptedAt.plusSeconds(120)).mark().id();
+        marks.attachLocation(employeeScope, secondOutside, -30, -60, 0, acceptedAt.plusSeconds(121));
+        UUID thirdOutside = marks.recordEmployeeMark(employeeScope, geofenceJornada, MarkAction.EGRESO, UUID.randomUUID(), acceptedAt.plusSeconds(180)).mark().id();
+        marks.attachLocation(employeeScope, thirdOutside, -30, -60, 0, acceptedAt.plusSeconds(181));
+
+        List<com.braja.fichaje.deviations.DeviationService.DeviationView> outside = deviations.list(adminScope,
+                new DeviationService.ListFilter(null, null, null, null, 100)).stream().filter(item -> "FUERA_DE_SEDE".equals(item.type())).toList();
+        assertEquals(1, outside.size());
+        assertFalse(outside.stream().anyMatch(item -> insideMark.equals(item.sourceMarkId())));
+        assertEquals(firstOutside, outside.getFirst().sourceMarkId());
+        assertEquals("SALIDA_DESAYUNO", outside.getFirst().sourceMarkAction());
+        assertEquals(2, outside.getFirst().sourceMarkSequence());
+        assertEquals(4, jdbc.queryForObject("SELECT COUNT(*) FROM mark_events WHERE jornada_id=? AND voided_at IS NULL", Integer.class, geofenceJornada.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE' AND active=TRUE", Integer.class, geofenceJornada.toString()));
+        assertThrows(org.springframework.dao.DataAccessException.class, () -> jdbc.update(
+                "INSERT INTO deviations(id,company_id,jornada_id,source_mark_id,site_id,employee_id,type,created_at,updated_at,active) " +
+                        "VALUES(?,?,?,?,?,?,'FUERA_DE_SEDE',?,?,TRUE)", UUID.randomUUID().toString(), companyId.toString(), geofenceJornada.toString(),
+                secondOutside.toString(), siteId.toString(), employeeId.toString(), java.sql.Timestamp.from(acceptedAt), java.sql.Timestamp.from(acceptedAt)));
+        assertTrue(outside.stream().noneMatch(item -> item.pushEligible()));
+        assertThrows(org.springframework.dao.DataAccessException.class,
+                () -> jdbc.update("UPDATE deviations SET source_mark_id=NULL WHERE jornada_id=? AND source_mark_id=? AND type='FUERA_DE_SEDE'",
+                        geofenceJornada.toString(), firstOutside.toString()));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM notification_outbox_events WHERE deviation_id IN " +
+                "(SELECT id FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE')", Integer.class, geofenceJornada.toString()));
+
+        // Later marks remain available after the first daily reason; voiding a non-anchor mark does not retract that reason.
+        marks.voidMark(adminScope, thirdOutside, "Egreso cargado por error");
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE' AND active=TRUE", Integer.class, geofenceJornada.toString()));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND source_mark_id=? AND type='FUERA_DE_SEDE' AND active=FALSE",
+                Integer.class, geofenceJornada.toString(), thirdOutside.toString()));
+
+        // If the anchor is voided, a still-valid outside mark anchors the same daily deviation.
+        UUID dailyDeviationId = outside.getFirst().id();
+        Instant correctionAt = Instant.now();
+        jdbc.update("UPDATE mark_events SET voided_at=?,voided_by=?,void_reason=? WHERE id=? AND company_id=?",
+                java.sql.Timestamp.from(correctionAt), adminAccountId.toString(), "Marca de salida cargada por error", firstOutside.toString(), companyId.toString());
+        deviations.retractOutOfSiteForMark(companyId, geofenceJornada, firstOutside, correctionAt);
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE id=? AND active=TRUE AND source_mark_id=?",
+                Integer.class, dailyDeviationId.toString(), secondOutside.toString()));
+        var reanchoredDeviation = deviations.list(adminScope, new DeviationService.ListFilter(null, null, null, null, 100)).stream()
+                .filter(item -> item.id().equals(dailyDeviationId)).findFirst().orElseThrow();
+        assertEquals(acceptedAt.plusSeconds(120), reanchoredDeviation.occurredAt());
+        correctionAt = Instant.now();
+        jdbc.update("UPDATE mark_events SET voided_at=?,voided_by=?,void_reason=? WHERE id=? AND company_id=?",
+                java.sql.Timestamp.from(correctionAt), adminAccountId.toString(), "Marca de vuelta cargada por error", secondOutside.toString(), companyId.toString());
+        deviations.retractOutOfSiteForMark(companyId, geofenceJornada, secondOutside, correctionAt);
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE' AND active=TRUE",
+                Integer.class, geofenceJornada.toString()));
+
+        jdbc.update("UPDATE mark_events SET location_received_at=? WHERE id IN (?,?,?,?)", java.sql.Timestamp.from(Instant.now().minusSeconds(91L * 86400)),
+                insideMark.toString(), firstOutside.toString(), secondOutside.toString(), thirdOutside.toString());
+        retention.purgeSensitiveData();
+        assertEquals("PURGADA", jdbc.queryForObject("SELECT location_status FROM mark_events WHERE id=?", String.class, firstOutside.toString()));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE' AND active=TRUE", Integer.class, geofenceJornada.toString()));
+    }
+
+    @Test
+    void missingEmployeeLocationCreatesOnePerJornadaAfterThirtySecondsAndDoesNotDuplicateOnRetry() {
+        jdbc.update("UPDATE sites SET latitude=-26.8200000,longitude=-65.2100000,geofence_radius_meters=100 WHERE id=? AND company_id=?",
+                siteId.toString(), companyId.toString());
+        UUID geofenceJornada = declareJornada(java.time.LocalDate.now().plusDays(2));
+        Instant acceptedAt = java.time.LocalDate.now().plusDays(2).atTime(9, 0).atZone(ZoneId.of("America/Argentina/Buenos_Aires")).toInstant();
+        UUID markId = marks.recordEmployeeMark(employeeScope, geofenceJornada, MarkAction.INGRESO, UUID.randomUUID(), acceptedAt).mark().id();
+
+        marks.resolveLocationTimeouts(acceptedAt.plusSeconds(31));
+        marks.resolveLocationTimeouts(acceptedAt.plusSeconds(32));
+
+        assertEquals("SIN_UBICACION", jdbc.queryForObject("SELECT location_status FROM mark_events WHERE id=?", String.class, markId.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE' AND source_mark_id=? AND active=TRUE",
+                Integer.class, geofenceJornada.toString(), markId.toString()));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM mark_events WHERE id=? AND (latitude IS NOT NULL OR longitude IS NOT NULL)", Integer.class, markId.toString()));
+        ApiException lateLocation = assertThrows(ApiException.class,
+                () -> marks.attachLocation(employeeScope, markId, -26.82, -65.21, 5, acceptedAt.plusSeconds(33)));
+        assertEquals("LOCATION_ALREADY_FINAL", lateLocation.code());
+    }
+
+    @Test
+    void locationAttachmentAndThirtySecondTimeoutRaceAcceptsOnTimePayload() throws Exception {
+        jdbc.update("UPDATE sites SET latitude=-26.8200000,longitude=-65.2100000,geofence_radius_meters=100 WHERE id=? AND company_id=?",
+                siteId.toString(), companyId.toString());
+        java.time.LocalDate date = java.time.LocalDate.now().plusDays(5);
+        UUID geofenceJornada = declareJornada(date);
+        Instant acceptedAt = date.atTime(9, 0).atZone(ZoneId.of("America/Argentina/Buenos_Aires")).toInstant();
+        UUID markId = marks.recordEmployeeMark(employeeScope, geofenceJornada, MarkAction.INGRESO, UUID.randomUUID(), acceptedAt).mark().id();
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        Future<MarkService.LocationResult> attachment = pool.submit(() -> {
+            ready.countDown();
+            start.await();
+            return marks.attachLocation(employeeScope, markId, -30, -60, 5, acceptedAt.plusSeconds(29));
+        });
+        Future<?> timeout = pool.submit(() -> {
+            ready.countDown();
+            start.await();
+            marks.resolveLocationTimeouts(acceptedAt.plusSeconds(31));
+            return null;
+        });
+        try {
+            assertTrue(ready.await(5, TimeUnit.SECONDS));
+            start.countDown();
+            MarkService.LocationResult location = attachment.get(15, TimeUnit.SECONDS);
+            timeout.get(15, TimeUnit.SECONDS);
+            assertEquals("RECIBIDA", location.locationStatus());
+            assertEquals("RECIBIDA", jdbc.queryForObject("SELECT location_status FROM mark_events WHERE id=?", String.class, markId.toString()));
+            assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND source_mark_id=? AND type='FUERA_DE_SEDE' AND active=TRUE",
+                    Integer.class, geofenceJornada.toString(), markId.toString()));
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void timelyLocationAfterTimeoutRetractsOrPreservesTheSameDailyDeviation() {
+        jdbc.update("UPDATE sites SET latitude=-26.8200000,longitude=-65.2100000,geofence_radius_meters=100 WHERE id=? AND company_id=?",
+                siteId.toString(), companyId.toString());
+        java.time.LocalDate insideDate = java.time.LocalDate.now().plusDays(6);
+        UUID insideJornada = declareJornada(insideDate);
+        Instant insideAcceptedAt = insideDate.atTime(9, 0).atZone(ZoneId.of("America/Argentina/Buenos_Aires")).toInstant();
+        UUID insideMark = marks.recordEmployeeMark(employeeScope, insideJornada, MarkAction.INGRESO, UUID.randomUUID(), insideAcceptedAt).mark().id();
+        marks.resolveLocationTimeouts(insideAcceptedAt.plusSeconds(31));
+        UUID provisionalInsideDeviation = jdbc.queryForObject("SELECT id FROM deviations WHERE jornada_id=? AND source_mark_id=? AND type='FUERA_DE_SEDE' AND active=TRUE",
+                (rs, row) -> UUID.fromString(rs.getString(1)), insideJornada.toString(), insideMark.toString());
+
+        marks.attachLocation(employeeScope, insideMark, -26.82, -65.21, 5, insideAcceptedAt.plusSeconds(29));
+        assertEquals("RECIBIDA", jdbc.queryForObject("SELECT location_status FROM mark_events WHERE id=?", String.class, insideMark.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE id=? AND active=FALSE", Integer.class, provisionalInsideDeviation.toString()));
+
+        java.time.LocalDate outsideDate = java.time.LocalDate.now().plusDays(7);
+        UUID outsideJornada = declareJornada(outsideDate);
+        Instant outsideAcceptedAt = outsideDate.atTime(9, 0).atZone(ZoneId.of("America/Argentina/Buenos_Aires")).toInstant();
+        UUID outsideMark = marks.recordEmployeeMark(employeeScope, outsideJornada, MarkAction.INGRESO, UUID.randomUUID(), outsideAcceptedAt).mark().id();
+        marks.resolveLocationTimeouts(outsideAcceptedAt.plusSeconds(31));
+        UUID provisionalOutsideDeviation = jdbc.queryForObject("SELECT id FROM deviations WHERE jornada_id=? AND source_mark_id=? AND type='FUERA_DE_SEDE' AND active=TRUE",
+                (rs, row) -> UUID.fromString(rs.getString(1)), outsideJornada.toString(), outsideMark.toString());
+
+        marks.attachLocation(employeeScope, outsideMark, -30, -60, 5, outsideAcceptedAt.plusSeconds(29));
+        assertEquals("RECIBIDA", jdbc.queryForObject("SELECT location_status FROM mark_events WHERE id=?", String.class, outsideMark.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE id=? AND active=TRUE", Integer.class, provisionalOutsideDeviation.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND source_mark_id=? AND type='FUERA_DE_SEDE'",
+                Integer.class, outsideJornada.toString(), outsideMark.toString()));
+    }
+
+    @Test
+    void outOfSiteDeviationIsJustifiedAndClassifiedAndGoesBackToReviewWhenItMovesToAnotherMark() {
+        // 2026-10-30, PR #69 review: a JUSTIFICADO decided for one mark silently stayed on the replacement mark, unaudited.
+        jdbc.update("UPDATE sites SET latitude=-26.8200000,longitude=-65.2100000,geofence_radius_meters=100 WHERE id=? AND company_id=?",
+                siteId.toString(), companyId.toString());
+        java.time.LocalDate date = java.time.LocalDate.now().plusDays(8);
+        UUID geofenceJornada = declareJornada(date);
+        Instant acceptedAt = date.atTime(9, 0).atZone(ZoneId.of("America/Argentina/Buenos_Aires")).toInstant();
+        UUID firstMark = marks.recordEmployeeMark(employeeScope, geofenceJornada, MarkAction.INGRESO, UUID.randomUUID(), acceptedAt).mark().id();
+        marks.resolveLocationTimeouts(acceptedAt.plusSeconds(31));
+        UUID deviationId = jdbc.queryForObject("SELECT id FROM deviations WHERE jornada_id=? AND source_mark_id=? AND type='FUERA_DE_SEDE' AND active=TRUE",
+                (rs, row) -> UUID.fromString(rs.getString(1)), geofenceJornada.toString(), firstMark.toString());
+        UUID secondMark = marks.recordEmployeeMark(employeeScope, geofenceJornada, MarkAction.SALIDA_DESAYUNO, UUID.randomUUID(), acceptedAt.plusSeconds(60)).mark().id();
+        marks.attachLocation(employeeScope, secondMark, -30, -60, 5, acceptedAt.plusSeconds(61));
+
+        var justified = deviations.saveMotive(null, employeeScope, deviationId, "TRANSPORTE", "El colectivo me dejó lejos del local");
+        assertEquals("FUERA_DE_SEDE", justified.type());
+        assertEquals("TRANSPORTE", justified.category());
+        deviations.classify(adminScope, deviationId, "JUSTIFICADO", null);
+        assertEquals("JUSTIFICADO", jdbc.queryForObject("SELECT classification FROM deviations WHERE id=?", String.class, deviationId.toString()));
+
+        // The first mark's on-time location arrives inside: the jornada's single deviation moves to the second (outside) mark.
+        marks.attachLocation(employeeScope, firstMark, -26.82, -65.21, 5, acceptedAt.plusSeconds(29));
+
+        assertEquals(1, count("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE' AND active=TRUE", geofenceJornada.toString()));
+        assertEquals(secondMark.toString(), jdbc.queryForObject("SELECT source_mark_id FROM deviations WHERE id=?", String.class, deviationId.toString()));
+        assertNull(jdbc.queryForObject("SELECT classification FROM deviations WHERE id=?", String.class, deviationId.toString()));
+        assertEquals("TRANSPORTE", jdbc.queryForObject("SELECT motive_category FROM deviations WHERE id=?", String.class, deviationId.toString()));
+        assertEquals(1, count("SELECT COUNT(*) FROM deviation_audits WHERE deviation_id=? AND change_type='CLASSIFICATION_RESET' " +
+                "AND before_classification='JUSTIFICADO' AND after_classification IS NULL AND audit_reason='Source mark changed'", deviationId.toString()));
+        assertEquals(0, count("SELECT COUNT(*) FROM notification_outbox_events WHERE deviation_id=?", deviationId.toString()));
+    }
+
+    @Test
+    void siteLocationRoutesValidateOverHttpAndStayInsideTheAdminsCompany() throws Exception {
+        OtherTenantAdmin tenantB = createOtherTenantAdmin();
+        HttpLogin admin = loginOverHttp(adminAccountId, "30.123.457", "CorrectHorseBattery9!");
+        HttpLogin employee = loginOverHttp(accountId, "30.123.456", "CorrectHorseBattery9!");
+        HttpLogin adminB = loginOverHttp(tenantB.adminAccountId(), tenantB.adminDni(), "CorrectHorseBattery9!");
+        String manualCenter = "{\"latitude\":-26.82,\"longitude\":-65.21,\"geofenceRadiusMeters\":150,\"locationSource\":\"MANUAL\"}";
+
+        for (String invalid : List.of(
+                "{\"latitude\":-26.82,\"longitude\":-65.21,\"geofenceRadiusMeters\":49,\"locationSource\":\"MANUAL\"}",
+                "{\"latitude\":-26.82,\"longitude\":-65.21,\"geofenceRadiusMeters\":501,\"locationSource\":\"MANUAL\"}",
+                "{\"latitude\":91,\"longitude\":-65.21,\"geofenceRadiusMeters\":150,\"locationSource\":\"MANUAL\"}",
+                "{\"latitude\":-26.82,\"geofenceRadiusMeters\":150,\"locationSource\":\"MANUAL\"}",
+                "{\"latitude\":-26.82,\"longitude\":-65.21,\"geofenceRadiusMeters\":150,\"locationSource\":\"GPS\"}",
+                "{\"latitude\":-26.82,\"longitude\":-65.21,\"geofenceRadiusMeters\":150}")) {
+            MvcResult rejected = adminWrite(admin, put("/api/v1/sites/{id}/location", siteId), invalid);
+            assertEquals(422, rejected.getResponse().getStatus(), invalid);
+            assertEquals("VALIDATION_ERROR", objectMapper.readTree(rejected.getResponse().getContentAsString()).get("code").asText(), invalid);
+        }
+        mockMvc.perform(put("/api/v1/sites/{id}/location", siteId).cookie(admin.sessionCookie())
+                        .contentType(MediaType.APPLICATION_JSON).content(manualCenter))
+                .andExpect(status().isForbidden());
+        assertEquals(403, adminWrite(employee, put("/api/v1/sites/{id}/location", siteId), manualCenter).getResponse().getStatus());
+        mockMvc.perform(get("/api/v1/sites/{id}/location-audit", siteId).cookie(employee.sessionCookie()))
+                .andExpect(status().isForbidden());
+        assertEquals(404, adminWrite(adminB, put("/api/v1/sites/{id}/location", siteId), manualCenter).getResponse().getStatus());
+        mockMvc.perform(get("/api/v1/sites/{id}/location-audit", siteId).cookie(adminB.sessionCookie()))
+                .andExpect(status().isNotFound());
+        assertEquals(0, count("SELECT COUNT(*) FROM site_location_audits WHERE site_id=?", siteId.toString()));
+        assertEquals(0, count("SELECT COUNT(*) FROM sites WHERE id=? AND latitude IS NOT NULL", siteId.toString()));
+
+        MvcResult saved = adminWrite(admin, put("/api/v1/sites/{id}/location", siteId), manualCenter);
+        assertEquals(200, saved.getResponse().getStatus());
+        JsonNode body = objectMapper.readTree(saved.getResponse().getContentAsString());
+        assertEquals(-26.82, body.get("latitude").asDouble());
+        assertEquals(150, body.get("geofenceRadiusMeters").asInt());
+        mockMvc.perform(get("/api/v1/sites/{id}/location-audit", siteId).cookie(admin.sessionCookie()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entries.length()").value(1))
+                .andExpect(jsonPath("$.entries[0].locationSource").value("MANUAL"))
+                .andExpect(jsonPath("$.entries[0].afterRadiusMeters").value(150));
+
+        // A radius-only change needs no source; an unchanged PUT writes no audit row.
+        String radiusOnly = "{\"latitude\":-26.82,\"longitude\":-65.21,\"geofenceRadiusMeters\":200}";
+        assertEquals(200, adminWrite(admin, put("/api/v1/sites/{id}/location", siteId), radiusOnly).getResponse().getStatus());
+        assertEquals(200, adminWrite(admin, put("/api/v1/sites/{id}/location", siteId), radiusOnly).getResponse().getStatus());
+        assertEquals(2, count("SELECT COUNT(*) FROM site_location_audits WHERE site_id=?", siteId.toString()));
+        assertEquals(1, count("SELECT COUNT(*) FROM site_location_audits WHERE site_id=? AND after_radius_meters=200 AND location_source IS NULL", siteId.toString()));
+    }
+
+    @Test
+    void adminForgottenMarkIsNotAssessedAgainstGeofence() {
+        jdbc.update("UPDATE sites SET latitude=-26.8200000,longitude=-65.2100000,geofence_radius_meters=100 WHERE id=? AND company_id=?",
+                siteId.toString(), companyId.toString());
+        jdbc.update("UPDATE jornadas SET site_geofence_latitude_snapshot=-26.8200000,site_geofence_longitude_snapshot=-65.2100000,site_geofence_radius_snapshot=100 WHERE id=?",
+                jornadaId.toString());
+        var forgotten = marks.forgottenMark(adminScope, jornadaId, MarkAction.INGRESO, Instant.now(), "Marca olvidada");
+
+        assertEquals("NO_APLICA", forgotten.locationStatus());
+        assertEquals("ADMIN", jdbc.queryForObject("SELECT origin FROM mark_events WHERE id=?", String.class, forgotten.id().toString()));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE' AND source_mark_id=?",
+                Integer.class, jornadaId.toString(), forgotten.id().toString()));
+    }
+
+    @Test
+    void jornadaDeclaredWithoutSiteCenterSkipsGeofenceEvenAfterSiteIsConfigured() {
+        jdbc.update("UPDATE sites SET latitude=NULL,longitude=NULL,geofence_radius_meters=100 WHERE id=? AND company_id=?",
+                siteId.toString(), companyId.toString());
+        java.time.LocalDate date = java.time.LocalDate.now().plusDays(3);
+        UUID geofenceJornada = declareJornada(date);
+        assertNull(jdbc.queryForObject("SELECT site_geofence_latitude_snapshot FROM jornadas WHERE id=?", Double.class, geofenceJornada.toString()));
+        assertNull(jdbc.queryForObject("SELECT site_geofence_radius_snapshot FROM jornadas WHERE id=?", Integer.class, geofenceJornada.toString()));
+        jdbc.update("UPDATE sites SET latitude=-26.8200000,longitude=-65.2100000 WHERE id=? AND company_id=?", siteId.toString(), companyId.toString());
+
+        Instant acceptedAt = date.atTime(9, 0).atZone(ZoneId.of("America/Argentina/Buenos_Aires")).toInstant();
+        UUID markId = marks.recordEmployeeMark(employeeScope, geofenceJornada, MarkAction.INGRESO, UUID.randomUUID(), acceptedAt).mark().id();
+        marks.attachLocation(employeeScope, markId, -30, -60, 0, acceptedAt.plusSeconds(1));
+
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE'", Integer.class, geofenceJornada.toString()));
+    }
+
+    @Test
+    void voidedMarkRejectsLateLocationAndNeverCreatesOutsideDeviation() {
+        jdbc.update("UPDATE sites SET latitude=-26.8200000,longitude=-65.2100000,geofence_radius_meters=100 WHERE id=? AND company_id=?",
+                siteId.toString(), companyId.toString());
+        java.time.LocalDate date = java.time.LocalDate.now().plusDays(4);
+        UUID geofenceJornada = declareJornada(date);
+        Instant acceptedAt = date.atTime(9, 0).atZone(ZoneId.of("America/Argentina/Buenos_Aires")).toInstant();
+        UUID markId = marks.recordEmployeeMark(employeeScope, geofenceJornada, MarkAction.INGRESO, UUID.randomUUID(), acceptedAt).mark().id();
+
+        marks.voidMark(adminScope, markId, "Marca ingresada por error");
+        ApiException lateLocation = assertThrows(ApiException.class,
+                () -> marks.attachLocation(employeeScope, markId, -30, -60, 0, acceptedAt.plusSeconds(1)));
+
+        assertEquals("MARK_VOIDED", lateLocation.code());
+        assertEquals("SIN_UBICACION", jdbc.queryForObject("SELECT location_status FROM mark_events WHERE id=?", String.class, markId.toString()));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE'", Integer.class, geofenceJornada.toString()));
+    }
+
+    private UUID declareJornada(java.time.LocalDate date) {
+        return jornadaDeclarations.declare(adminScope,
+                new com.braja.fichaje.timekeeping.JornadaController.DeclareJornada(employeeId, siteId, date, templateId));
     }
 
     @Test

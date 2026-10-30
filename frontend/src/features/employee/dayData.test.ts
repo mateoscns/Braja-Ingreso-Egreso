@@ -4,8 +4,8 @@ import type { Deviation, Jornada, Site } from '../../shared/api/types'
 import { dateForSite, loadEmployeeDayData, loadPendingMotives, localCalendarDate, PENDING_MOTIVES_LIMIT } from './dayData'
 
 const sites: Site[] = [
-  { id: 's-east', name: 'Isla Este', timeZone: 'Pacific/Kiritimati' },
-  { id: 's-west', name: 'Isla Oeste', timeZone: 'Pacific/Honolulu' }
+  { id: 's-east', name: 'Isla Este', timeZone: 'Pacific/Kiritimati', latitude: null, longitude: null, geofenceRadiusMeters: null },
+  { id: 's-west', name: 'Isla Oeste', timeZone: 'Pacific/Honolulu', latitude: null, longitude: null, geofenceRadiusMeters: null }
 ]
 const instant = new Date('2026-10-16T01:00:00Z')
 

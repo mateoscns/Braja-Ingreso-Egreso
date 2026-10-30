@@ -12,7 +12,8 @@ export type Session = {
 }
 export type PublicConfig = { pushEnabled: boolean; vapidPublicKey: string | null }
 export type CurrentPushSubscription = { subscribed: boolean; id?: Id }
-export type Site = { id: Id; name: string; timeZone: string }
+export type SiteCoordinates = { latitude: number; longitude: number }
+export type Site = { id: Id; name: string; timeZone: string; latitude: number | null; longitude: number | null; geofenceRadiusMeters: number | null }
 export type Employee = {
   id: Id; displayName: string; dni?: string; siteIds: Id[]; toleranceMinutes: number; active: boolean; mustChangePassword?: boolean
 }
@@ -55,7 +56,9 @@ export type JornadaSummary = {
 }
 export type Deviation = {
   id: Id; jornadaId: Id; siteId?: Id; employeeId?: Id; employeeDisplayName?: string;
-  type: 'SIN_INGRESO' | 'LLEGADA_TARDE' | 'EGRESO_TEMPRANO' | 'EGRESO_TARDIO' | 'MARCA_FALTANTE' | 'EXCESO_DESAYUNO' | 'EXCESO_ALMUERZO';
+  type: 'SIN_INGRESO' | 'LLEGADA_TARDE' | 'EGRESO_TEMPRANO' | 'EGRESO_TARDIO' | 'MARCA_FALTANTE' | 'EXCESO_DESAYUNO' | 'EXCESO_ALMUERZO' | 'FUERA_DE_SEDE';
+  /** Identifies the employee mark that caused a mark-scoped deviation; absent for jornada-level events. */
+  sourceMarkId?: Id | null; sourceMarkAction?: MarkAction | null; sourceMarkSequence?: number | null;
   status: 'MOTIVO_PENDIENTE' | 'PENDIENTE_REVISION' | 'JUSTIFICADO' | 'NO_JUSTIFICADO';
   category?: 'SALUD' | 'TRANSPORTE' | 'EMERGENCIA' | 'OTRA' | null; motiveText?: string | null;
   /** Time of the fact (source mark; due time for SIN_INGRESO / MARCA_FALTANTE). createdAt is the detection time. */

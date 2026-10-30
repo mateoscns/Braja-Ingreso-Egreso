@@ -37,8 +37,8 @@ const today = (() => {
 })()
 
 const sites: Site[] = [
-  { id: 'site-center', name: 'Local Centro', timeZone },
-  { id: 'site-north', name: 'Local Norte', timeZone }
+  { id: 'site-center', name: 'Local Centro', timeZone, latitude: null, longitude: null, geofenceRadiusMeters: null },
+  { id: 'site-north', name: 'Local Norte', timeZone, latitude: null, longitude: null, geofenceRadiusMeters: null }
 ]
 
 function makeJornada(id: string, siteId: string): Jornada {
@@ -220,6 +220,16 @@ describe('EmployeeApp', () => {
     const card = (await screen.findByLabelText('Motivo')).closest('form')!
     expect(card).toHaveTextContent(/0?8:15/)
     expect(card).not.toHaveTextContent(/0?9:00/)
+  })
+
+  it('muestra qué marca originó un FUERA_DE_SEDE pendiente', async () => {
+    configureApi([{
+      ...pendingDeviation, type: 'FUERA_DE_SEDE', sourceMarkId: 'mark-outside', sourceMarkAction: 'SALIDA_ALMUERZO', sourceMarkSequence: 2
+    }])
+    render(<EmployeeApp />)
+    const card = (await screen.findByLabelText('Motivo')).closest('form')!
+    expect(card).toHaveTextContent('Fuera de sede')
+    expect(card).toHaveTextContent('Marca: Salir a almuerzo · secuencia 2')
   })
 
   it('anuncia el envío de un motivo y actualiza su estado al recibir respuesta', async () => {

@@ -18,6 +18,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -60,14 +61,15 @@ public class JornadaDeclarationService {
         Template template = loadTemplates(companyId, input.siteId(), Set.of(templateId)).get(templateId);
         Integer tolerance = jdbc.query("SELECT tolerance_minutes FROM employees WHERE id=? AND company_id=? AND active=TRUE",
                 rs -> rs.next() ? rs.getInt(1) : null, input.employeeId().toString(), companyId.toString());
-        String timeZone = siteTimeZone(companyId, input.siteId());
+        SiteConfiguration site = siteConfiguration(companyId, input.siteId());
+        String timeZone = site == null ? null : site.timeZone();
         if (template == null || tolerance == null || timeZone == null) throw ApiException.notFound();
         String problem = template.problem();
         if (problem != null) throw ApiException.invalid(problem);
         Instant[] window = template.window(ZoneId.of(timeZone), input.localDate());
         if (window == null) throw ApiException.invalid("The template must end after it starts");
         UUID jornadaId = UUID.randomUUID();
-        if (!insert(jornadaId, companyId, input.employeeId(), input.siteId(), template, input.localDate(), timeZone, snapshot(template, input.siteId()),
+        if (!insert(jornadaId, companyId, input.employeeId(), input.siteId(), template, input.localDate(), site, snapshot(template, input.siteId()),
                 tolerance, window, scope.accountId(), Instant.now())) {
             throw ApiException.conflict(JORNADA_EXISTS, "A jornada already exists for this employee, site, and date");
         }
@@ -84,7 +86,9 @@ public class JornadaDeclarationService {
     public BulkResult declareBulk(ScopeService.Scope scope, BulkDeclaration input) {
         UUID companyId = scope.companyId();
         List<LocalDate> dates = bulkDates(input);
-        String timeZone = siteTimeZone(companyId, input.siteId());
+        // Lock/read the site configuration once for the whole lot; all created jornadas share one point-in-time snapshot.
+        SiteConfiguration site = siteConfiguration(companyId, input.siteId());
+        String timeZone = site == null ? null : site.timeZone();
         if (timeZone == null) throw ApiException.notFound();
         List<UUID> employees = input.employeeIds().stream().sorted(Comparator.comparing(UUID::toString)).toList();
         Map<UUID, Integer> tolerances = bulkEmployees(companyId, input.siteId(), employees);
@@ -115,7 +119,7 @@ public class JornadaDeclarationService {
                 if (window == null) { skipped.add(new SkippedJornada(employeeId, date, TEMPLATE_INVALID)); continue; }
                 String snapshot = snapshots.computeIfAbsent(templateId, id -> snapshot(template, input.siteId()));
                 UUID jornadaId = UUID.randomUUID();
-                if (insert(jornadaId, companyId, employeeId, input.siteId(), template, date, timeZone, snapshot, tolerances.get(employeeId), window, scope.accountId(), createdAt)) {
+                if (insert(jornadaId, companyId, employeeId, input.siteId(), template, date, site, snapshot, tolerances.get(employeeId), window, scope.accountId(), createdAt)) {
                     created.add(new CreatedJornada(jornadaId, employeeId, input.siteId(), date, "NO_INGRESO"));
                 } else skipped.add(new SkippedJornada(employeeId, date, JORNADA_EXISTS));
             }
@@ -197,8 +201,10 @@ public class JornadaDeclarationService {
         return templates;
     }
 
-    private String siteTimeZone(UUID companyId, UUID siteId) {
-        return jdbc.query("SELECT time_zone FROM sites WHERE id=? AND company_id=?", rs -> rs.next() ? rs.getString(1) : null, siteId.toString(), companyId.toString());
+    private SiteConfiguration siteConfiguration(UUID companyId, UUID siteId) {
+        return jdbc.query("SELECT time_zone,latitude,longitude,geofence_radius_meters FROM sites WHERE id=? AND company_id=? FOR SHARE",
+                rs -> rs.next() ? new SiteConfiguration(rs.getString("time_zone"), rs.getBigDecimal("latitude"), rs.getBigDecimal("longitude"),
+                        rs.getInt("geofence_radius_meters")) : null, siteId.toString(), companyId.toString());
     }
 
     private String snapshot(Template template, UUID siteId) {
@@ -210,12 +216,13 @@ public class JornadaDeclarationService {
     }
 
     /** False when the employee already has a live jornada at the site on that date (uq_jornada_employee_site_active_date). */
-    private boolean insert(UUID jornadaId, UUID companyId, UUID employeeId, UUID siteId, Template template, LocalDate localDate, String timeZone,
+    private boolean insert(UUID jornadaId, UUID companyId, UUID employeeId, UUID siteId, Template template, LocalDate localDate, SiteConfiguration site,
                            String snapshot, int tolerance, Instant[] window, UUID createdBy, Instant createdAt) {
         try {
-            jdbc.update("INSERT INTO jornadas(id,company_id,employee_id,site_id,template_id,local_date,time_zone,schedule_snapshot,tolerance_minutes,scheduled_start_at,scheduled_end_at,state,next_sequence,created_by,created_at) " +
-                            "VALUES(?,?,?,?,?,?,?,?,?,?,?,'NO_INGRESO',1,?,?)",
-                    jornadaId.toString(), companyId.toString(), employeeId.toString(), siteId.toString(), template.id().toString(), localDate, timeZone, snapshot, tolerance,
+            jdbc.update("INSERT INTO jornadas(id,company_id,employee_id,site_id,template_id,local_date,time_zone,schedule_snapshot,site_geofence_latitude_snapshot,site_geofence_longitude_snapshot,site_geofence_radius_snapshot,tolerance_minutes,scheduled_start_at,scheduled_end_at,state,next_sequence,created_by,created_at) " +
+                            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'NO_INGRESO',1,?,?)",
+                    jornadaId.toString(), companyId.toString(), employeeId.toString(), siteId.toString(), template.id().toString(), localDate, site.timeZone(), snapshot,
+                    site.latitude(), site.longitude(), site.latitude() == null ? null : site.geofenceRadiusMeters(), tolerance,
                     java.sql.Timestamp.from(window[0]), java.sql.Timestamp.from(window[1]), createdBy.toString(), java.sql.Timestamp.from(createdAt));
             return true;
         } catch (DuplicateKeyException ex) {
@@ -250,6 +257,8 @@ public class JornadaDeclarationService {
             return end.isAfter(start) ? new Instant[]{start, end} : null;
         }
     }
+
+    private record SiteConfiguration(String timeZone, BigDecimal latitude, BigDecimal longitude, Integer geofenceRadiusMeters) { }
 
     /** weekdays are ISO (1 = Monday ... 7 = Sunday); templateId is optional (each employee's assignment in force otherwise). */
     public record BulkDeclaration(@NotNull @Size(min = 1, max = MAX_BULK_EMPLOYEES) List<@NotNull UUID> employeeIds, @NotNull UUID siteId,

@@ -180,6 +180,9 @@ paths:
     get:
       tags: [Sites]
       summary: List sites visible in the active company
+      description: >-
+        ADMIN responses include exact coordinates and geofence radius. EMPLOYEE responses include null for those
+        configuration values. Company and employee site scope are derived from the authenticated session.
       responses:
         '200':
           description: Sites in the active company only
@@ -192,7 +195,14 @@ paths:
     post:
       tags: [Sites]
       summary: Create a site in the active company
-      description: ADMIN only. The server derives the company from the session.
+      description: >-
+        ADMIN only. The server derives the company from the session. Coordinates are optional and must be sent together;
+        when supplied, they are the site center captured by the ADMIN's browser or typed manually, and `locationSource`
+        (CAPTURED or MANUAL) is required. CAPTURED is reported by the client; the 25-meter accuracy limit is enforced in
+        the browser, not by the server. The API does not reverse-geocode
+        them or derive the time zone from them. The geofence radius defaults to 100 meters and is configurable from 50 to
+        500 meters. Site coordinates are retained for the life of the site and are not covered by the employee-mark
+        location purge. Employee site responses return null coordinates and radius.
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
       requestBody:
@@ -205,6 +215,10 @@ paths:
               properties:
                 name: { type: string, minLength: 1, maxLength: 120 }
                 timeZone: { type: string, description: IANA time zone, example: America/Argentina/Buenos_Aires }
+                latitude: { type: [number, 'null'], minimum: -90, maximum: 90, description: Optional latitude; must be sent together with longitude. }
+                longitude: { type: [number, 'null'], minimum: -180, maximum: 180, description: Optional longitude; must be sent together with latitude. }
+                locationSource: { type: string, enum: [CAPTURED, MANUAL], description: Origin of the configured point; omit when no point is supplied. }
+                geofenceRadiusMeters: { type: integer, minimum: 50, maximum: 500, default: 100, description: Site geofence radius; defaults to 100 meters. }
       responses:
         '201':
           description: Site created
@@ -213,6 +227,61 @@ paths:
               schema: { $ref: '#/components/schemas/Site' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /sites/{siteId}/location:
+    put:
+      tags: [Sites]
+      summary: Replace the site location and geofence radius
+      description: >-
+        ADMIN only, scoped to the active company. Latitude and longitude are nullable but must both be null or both be
+        supplied. Automatic capture uses high accuracy, maximumAge=0, a 30-second total deadline, and accepts only a
+        finite reported accuracy from 0 through 25 meters. Manual coordinates use the same latitude and longitude bounds.
+        `locationSource` records CAPTURED or MANUAL in the location audit and is required when the center is set or moved
+        (422 VALIDATION_ERROR otherwise); a radius-only change or a cleared center takes none. Each jornada keeps the center
+        and radius in force when it was declared (D-20261030-02): a jornada declared while the site has no center snapshots
+        no geofence and is not evaluated later, even if the site is configured afterward. Every successful change is audited with its actor, server time, previous
+        center/radius, and new center/radius. Creating a site with a configured center or non-default radius also creates
+        an audit entry; a site created with no center and the default radius has no location-change entry.
+      parameters:
+        - $ref: '#/components/parameters/SiteId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [latitude, longitude, geofenceRadiusMeters]
+              properties:
+                latitude: { type: [number, 'null'], minimum: -90, maximum: 90 }
+                longitude: { type: [number, 'null'], minimum: -180, maximum: 180 }
+                locationSource: { type: string, enum: [CAPTURED, MANUAL], description: Origin of the submitted point; omit when clearing coordinates or changing only the radius. }
+                geofenceRadiusMeters: { type: integer, minimum: 50, maximum: 500 }
+      responses:
+        '200':
+          description: Updated site
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Site' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /sites/{siteId}/location-audit:
+    get:
+      tags: [Sites]
+      summary: Read site location change history
+      description: >-
+        ADMIN only, scoped to the active company. Exact coordinates are returned only to an ADMIN of the site company and
+        retained for the life of the site, separate from the 90-day employee-mark location purge.
+      parameters:
+        - $ref: '#/components/parameters/SiteId'
+      responses:
+        '200':
+          description: Location changes ordered by changedAt descending and then id descending
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteLocationAudit' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /employees:
     get:
       tags: [Employees]
@@ -706,7 +775,15 @@ paths:
         The server uses its receipt time to enforce the 30-second window. A late,
         duplicate, or unauthorized attachment cannot change the mark timestamp.
         The response never echoes coordinates to an employee client. latitude, longitude and accuracyMeters
-        are all required: a missing or null field answers 422 VALIDATION_ERROR and the location stays pending.
+        are all required: a missing or null field answers 422 VALIDATION_ERROR and the location stays pending. For an employee-origin
+        mark whose jornada has a geofence, the server creates at most one FUERA_DE_SEDE deviation per employee and jornada when the
+        first mark falls outside the radius, cannot be confirmed within it because of reported accuracy, or has no location after 30
+        seconds. The deviation refers to the first triggering mark; later marks remain allowed and visible in mark history. If that
+        mark stops supporting it (voided, or its on-time location falls inside) and another employee mark of the jornada is still
+        outside or unknown, the same deviation moves to that mark, keeps its motive, and its classification goes back to review
+        (audited as CLASSIFICATION_RESET); otherwise it is retracted. A jornada
+        declared without a site center has no geofence assessment (D-20261030-02). This evaluation
+        never blocks a mark and FUERA_DE_SEDE is not push-eligible.
       parameters:
         - $ref: '#/components/parameters/MarkId'
         - $ref: '#/components/parameters/CsrfToken'
@@ -1148,6 +1225,11 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/Id' }
+    SiteId:
+      name: siteId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
     JornadaId:
       name: jornadaId
       in: path
@@ -1196,11 +1278,35 @@ components:
         role: { type: string, enum: [ADMIN, EMPLOYEE] }
     Site:
       type: object
-      required: [id, name, timeZone]
+      required: [id, name, timeZone, latitude, longitude, geofenceRadiusMeters]
       properties:
         id: { $ref: '#/components/schemas/Id' }
         name: { type: string }
         timeZone: { type: string, description: IANA time zone }
+        latitude: { type: [number, 'null'], minimum: -90, maximum: 90, description: Exact coordinates are returned only to the ADMIN; employees receive null. }
+        longitude: { type: [number, 'null'], minimum: -180, maximum: 180, description: Exact coordinates are returned only to the ADMIN; employees receive null. }
+        geofenceRadiusMeters: { type: [integer, 'null'], minimum: 50, maximum: 500, description: Radius is returned only to the ADMIN; employees receive null. }
+    SiteLocationAudit:
+      type: object
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          items: { $ref: '#/components/schemas/SiteLocationAuditEntry' }
+    SiteLocationAuditEntry:
+      type: object
+      required: [id, changedAt, actorDisplayName, beforeLatitude, beforeLongitude, afterLatitude, afterLongitude, beforeRadiusMeters, afterRadiusMeters, locationSource]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        changedAt: { type: string, format: date-time }
+        actorDisplayName: { type: string, description: Name from the ADMIN's company membership, or a generic ADMIN label when no name is stored. }
+        beforeLatitude: { type: [number, 'null'], minimum: -90, maximum: 90 }
+        beforeLongitude: { type: [number, 'null'], minimum: -180, maximum: 180 }
+        afterLatitude: { type: [number, 'null'], minimum: -90, maximum: 90 }
+        afterLongitude: { type: [number, 'null'], minimum: -180, maximum: 180 }
+        beforeRadiusMeters: { type: [integer, 'null'], minimum: 50, maximum: 500, description: Null before the first location/radius configuration event. }
+        afterRadiusMeters: { type: integer, minimum: 50, maximum: 500 }
+        locationSource: { type: [string, 'null'], enum: [CAPTURED, MANUAL, null], description: Origin of the changed point, or null when not applicable. }
     Employee:
       type: object
       required: [id, displayName, siteIds, toleranceMinutes, active]
@@ -1399,7 +1505,7 @@ components:
       enum: [SALUD, TRANSPORTE, EMERGENCIA, OTRA]
     Deviation:
       type: object
-      required: [id, jornadaId, type, status, createdAt, pushEligible]
+      required: [id, jornadaId, type, status, sourceMarkId, sourceMarkAction, sourceMarkSequence, createdAt, pushEligible]
       properties:
         id: { $ref: '#/components/schemas/Id' }
         jornadaId: { $ref: '#/components/schemas/Id' }
@@ -1408,8 +1514,15 @@ components:
         employeeDisplayName: { type: string, description: Display name exposed only within the caller's authorized company and employee scope. }
         type:
           type: string
-          enum: [SIN_INGRESO, LLEGADA_TARDE, EGRESO_TEMPRANO, EGRESO_TARDIO, MARCA_FALTANTE, EXCESO_DESAYUNO, EXCESO_ALMUERZO]
+          enum: [SIN_INGRESO, LLEGADA_TARDE, EGRESO_TEMPRANO, EGRESO_TARDIO, MARCA_FALTANTE, EXCESO_DESAYUNO, EXCESO_ALMUERZO, FUERA_DE_SEDE]
         status: { type: string, enum: [MOTIVO_PENDIENTE, PENDIENTE_REVISION, JUSTIFICADO, NO_JUSTIFICADO] }
+        sourceMarkId: { type: [string, 'null'], format: uuid, description: First triggering employee mark for FUERA_DE_SEDE or source mark for other mark-based deviations; null when no source mark exists. Coordinates are never included. }
+        sourceMarkAction:
+          oneOf:
+            - $ref: '#/components/schemas/MarkAction'
+            - type: 'null'
+          description: Action on the source mark when available.
+        sourceMarkSequence: { type: [integer, 'null'], minimum: 1, description: Sequence of the source mark when available. }
         category: { oneOf: [{ $ref: '#/components/schemas/MotiveCategory' }, { type: 'null' }] }
         motiveText:
           type: [string, 'null']
@@ -1419,10 +1532,10 @@ components:
           format: date-time
           description: >-
             Time of the fact: the source mark's time; for SIN_INGRESO the due time (scheduled start + tolerance); for MARCA_FALTANTE
-            the due time (scheduled end + tolerance). createdAt stays the detection time.
+            the due time (scheduled end + tolerance). For FUERA_DE_SEDE this is the time of its source mark. createdAt stays the detection time.
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
-        pushEligible: { type: boolean, description: True only for SIN_INGRESO and LLEGADA_TARDE in v1. }
+        pushEligible: { type: boolean, description: True only for SIN_INGRESO and LLEGADA_TARDE; FUERA_DE_SEDE is never push-eligible. }
     SafePushPayload:
       type: object
       description: >-
