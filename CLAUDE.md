@@ -24,9 +24,17 @@ datos de ubicación) se garantiza con algo determinista que no dependa de la
 memoria del modelo: una restricción en la base, un test que corre en CI, un
 chequeo estático. Una instrucción en lenguaje natural no es una garantía.
 
-Estado al 2026-10-28 (verificado sobre `main` en
-`f3c96357b9b0e40a29b56880ca8c1850ca6a6481`, PR #65): hay backend,
-frontend, `openapi.yaml`, CI y 47 decisiones adoptadas (0 propuestas). No hay
+Estado base al 2026-10-29 (verificado sobre `origin/main` en
+`925e2a9d4bfc040314497a98e3be8e0536605398`, PR #68): hay backend,
+frontend, `openapi.yaml`, CI y 48 decisiones adoptadas (0 propuestas). El issue
+#67 está aprobado y la configuración/auditoría de ubicación de sedes y la
+evaluación de `FUERA_DE_SEDE` están implementadas y verificadas localmente en
+`feat/site-geofence-67`. Tres aclaraciones del comportamiento siguen pendientes
+de adopción o ajuste de Mateo y están documentadas como propuestas en §7. En el
+worktree local, D-20261029-01 propone retirar el ingreso manual y fijar un
+umbral de captura; contradice una opción adoptada en D-20261027-12. Puede
+publicarse para revisión, pero sigue siendo propuesta hasta que Mateo la adopte
+o ajuste. No hay
 deploy, backup, Dockerfile, Caddy, `.githooks` ni VPS. Cada regla de §5 está
 en un estado:
 
@@ -98,10 +106,11 @@ en un estado:
   `ADMIN`.
 - **Registro de decisiones**: `docs/DECISIONES.md`, filas `ID
   (D-AAAAMMDD-NN) | fecha | decisión | propuesta por | estado | motivo`. Al
-  2026-10-28: 47 filas (16 del 2026-10-14, 6 del 10-15, 5 del 10-16, 1 del
-  10-18, 6 del 10-19, 2 del 10-23 y 11 del 10-27), todas `adoptada por el
-  dueño`, 0 `propuesta`. El `DECISIONES.md` sin versionar que había en la raíz
-  era una copia vieja; al 2026-10-28 ya no está en el clon principal.
+  2026-10-29: 49 filas (48 adoptadas: 16 del 2026-10-14, 6 del 10-15, 5 del
+  10-16, 1 del 10-18, 6 del 10-19, 2 del 10-23 y 12 del 10-27; una propuesta,
+  D-20261029-01, local, pendiente de Mateo). El `DECISIONES.md` sin versionar
+  que había en la raíz era una copia vieja; al 2026-10-28 ya no está en el
+  clon principal.
 - **Toda atribución al dueño lleva su ID de `docs/DECISIONES.md`.** Una
   frase `decisión del dueño`, `adoptada por el dueño` o `regla del dueño`
   cita el ID de una fila que el dueño adoptó; sin ID se escribe "propuesta
@@ -246,11 +255,20 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
    `PENDIENTE` y pasa a `RECIBIDA` o, a los 30 s, a `SIN_UBICACION`. Guarda:
    `chk_mark_location_status` (V3),
    `IT.pendingLocationBecomesSinUbicacionAfterThirtySecondWindow`.
-3. **La ubicación solo se captura en el momento de marcar.** Prohibido el
-   seguimiento en segundo plano o periódico. Es un dato personal del
-   empleado (Ley 25.326). El front pide una posición por marca
-   (`features/employee/markFlow.ts`; sin `watchPosition`).
-   `[sin guarda: implementado, sin test]`
+ 3. **La ubicación personal del empleado solo se captura al marcar.** Está
+    prohibido el seguimiento en segundo plano o periódico. El front pide una
+    posición por marca (`features/employee/markFlow.ts`; sin `watchPosition`).
+    La ubicación fija de una sede es un flujo distinto: el `ADMIN` puede
+    capturarla al crear o editar la sede si está físicamente en el local, o
+    ingresar latitud/longitud manualmente; confirma el punto antes de guardar.
+    Solo el `ADMIN` de esa empresa ve las coordenadas exactas y se conservan
+    durante la vida de la sede (D-20261027-12). La ubicación personal de las
+    marcas conserva su purga de 90 días. Guarda: `OrganizationTransactionMySqlTest`
+    (`createSiteSavesFirstCenterAuditInSameTransaction`,
+    `siteLocationUpdateAuditsAndRollsBackAsOneTransaction`) y
+    `SitesViewRender.test.tsx`. La retirada local del ingreso manual y el
+    umbral de 25 m están propuestos en D-20261029-01; D-20261027-12 sigue siendo
+    la decisión adoptada hasta que Mateo confirme un cambio.
 4. **Todo desvío exige motivo y categoría, pero después de guardar la
    marca** (D-20261014-07, D-20261015-04): queda `MOTIVO_PENDIENTE` hasta
    `PUT /deviations/{id}/motive` (categoría `SALUD`, `TRANSPORTE`,
@@ -384,8 +402,9 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
 
 ### Datos y migraciones
 
-15. **Todo parámetro numérico de la API lleva cota inferior Y superior**:
-    tolerancia y pausas (`@Min/@Max`), ubicación (`@DecimalMin/@DecimalMax`),
+ 15. **Todo parámetro numérico de la API lleva cota inferior Y superior**:
+     tolerancia y pausas (`@Min/@Max`), ubicación (`@DecimalMin/@DecimalMax`),
+     radio de geocerca 50–500 metros (100 por defecto; columna y `CHECK` en V25),
     `limit` de bandeja 1–100 y rangos de fechas de 366 días inclusive como
     máximo en años 2000–2100 (`api/DateRanges`), contraseña 12–256. Un solo lado
     deja un 500 alcanzable (Shifty, 2026-09-04: desborde con `offset`). Guarda de
@@ -688,10 +707,17 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     `MAX_BULK_DAYS`) se crean en una sola transacción (`declareBulk`), que
     retiene los locks de las plantillas (`FOR SHARE`) y de las jornadas
     insertadas hasta el commit; un lote grande demora a quien espere esas filas.
-  - Ubicación respecto de la sede: issue #67 (abierto, `status:approved`,
-    asignado a Enrique, 2026-10-28). Antes de implementarlo hace falta una fila
-    nueva en `docs/DECISIONES.md`, porque cambia "la ubicación no se usa como
-    geocerca" de `docs/ESPECIFICACION.md`.
+  - Issue #67 fue aprobado por Mateo y registrado como D-20261027-12. Esta
+    rama implementa ubicación/radio de sede, captura GPS/manual, auditoría,
+    permisos y persistencia (V24–V26), más la evaluación de `FUERA_DE_SEDE`
+    (V27–V28). Pasaron las suites locales. El candidato sigue tres aclaraciones
+    propuestas por Enrique: omitir geocerca si falta centro al declarar,
+    congelar centro/radio por jornada y crear un desvío por marca. Mateo aún
+    debe adoptarlas o ajustarlas antes de integrarlas. D-20261029-01 agrega una
+    propuesta local para retirar el ingreso manual y aceptar solo capturas del
+    navegador con precisión reportada de hasta 25 m; no cambia el estado de
+    D-20261027-12 y queda pendiente de Mateo. Ninguna de estas propuestas debe
+    presentarse como adoptada.
   - Primer deploy: V11 exige el procedimiento de reversa antes de volver a la
     imagen anterior, y el job crea `MARCA_FALTANTE` para toda jornada abierta
     histórica (la consulta no tiene cota de fecha; interno, sin push).
@@ -741,9 +767,10 @@ si cada clon hace `git config core.hooksPath .githooks`**. Hoy no existe
 1. [x] Repo con `backend/`, `frontend/`, `docs/` (PR #2, v1); `docs/` tiene
    `ESPECIFICACION.md`, `DECISIONES.md`, `ARQUITECTURA.md` y `PENDIENTES.md`;
    `openapi.yaml` en la raíz.
-2. [x] El dueño revisó `docs/DECISIONES.md`: 47 filas adoptadas, 0 propuestas
-   al 2026-10-28 (adopciones del 2026-10-14 al 2026-10-27; la última,
-   D-20261027-11).
+2. [x] El dueño revisó las 48 filas adoptadas en `docs/DECISIONES.md`
+   (adopciones del 2026-10-14 al 2026-10-27; la última, D-20261027-12). La
+   propuesta D-20261029-01 fue agregada localmente por Enrique y espera la
+   confirmación de Mateo.
 3. [ ] Portar `DecisionesDelDuenoTest` (frases de atribución sin ID → falla).
 4. [~] Toolchain: Java 21 y Node 24 fijados solo en CI (PR #4). Los `<…>` de
    este archivo se completaron con lo real; quedan RTO y el dominio.

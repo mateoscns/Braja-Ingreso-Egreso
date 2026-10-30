@@ -13,7 +13,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.Instant;
+import java.math.BigDecimal;
 import java.time.ZoneId;
 import java.util.*;
 
@@ -36,12 +36,12 @@ public class OrganizationController {
     public List<SiteView> sites(Authentication auth, HttpSession session) {
         var scope = scopes.require(auth, session);
         if ("ADMIN".equals(scope.role())) {
-            return jdbc.query("SELECT id,name,time_zone FROM sites WHERE company_id=? ORDER BY name,id",
-                    (rs, row) -> new SiteView(UUID.fromString(rs.getString("id")), rs.getString("name"), rs.getString("time_zone")), scope.companyId().toString());
+            return jdbc.query("SELECT id,name,time_zone,latitude,longitude,geofence_radius_meters FROM sites WHERE company_id=? ORDER BY name,id",
+                    (rs, row) -> new SiteView(UUID.fromString(rs.getString("id")), rs.getString("name"), rs.getString("time_zone"), rs.getBigDecimal("latitude"), rs.getBigDecimal("longitude"), rs.getInt("geofence_radius_meters")), scope.companyId().toString());
         }
         UUID employeeId = requireEmployee(scope);
         return jdbc.query("SELECT s.id,s.name,s.time_zone FROM sites s JOIN employee_sites es ON es.site_id=s.id AND es.company_id=s.company_id WHERE s.company_id=? AND es.employee_id=? ORDER BY s.name,s.id",
-                (rs, row) -> new SiteView(UUID.fromString(rs.getString("id")), rs.getString("name"), rs.getString("time_zone")), scope.companyId().toString(), employeeId.toString());
+                (rs, row) -> new SiteView(UUID.fromString(rs.getString("id")), rs.getString("name"), rs.getString("time_zone"), null, null, null), scope.companyId().toString(), employeeId.toString());
     }
 
     @PostMapping("/sites")
@@ -49,9 +49,20 @@ public class OrganizationController {
     public SiteView createSite(Authentication auth, HttpSession session, @Valid @RequestBody SiteInput input) {
         var scope = scopes.requireAdmin(auth, session);
         validateZone(input.timeZone());
-        UUID id = UUID.randomUUID();
-        jdbc.update("INSERT INTO sites(id,company_id,name,time_zone,created_at) VALUES(?,?,?,?,?)", id.toString(), scope.companyId().toString(), input.name().trim(), input.timeZone(), now());
-        return new SiteView(id, input.name().trim(), input.timeZone());
+        return service.createSite(scope.companyId(), scope.accountId(), input);
+    }
+
+    @PutMapping("/sites/{siteId}/location")
+    public SiteView updateSiteLocation(Authentication auth, HttpSession session, @PathVariable UUID siteId,
+                                       @Valid @RequestBody SiteLocationInput input) {
+        var scope = scopes.requireAdmin(auth, session);
+        return service.updateSiteLocation(scope.companyId(), scope.accountId(), siteId, input);
+    }
+
+    @GetMapping("/sites/{siteId}/location-audit")
+    public SiteLocationAuditResponse siteLocationAudit(Authentication auth, HttpSession session, @PathVariable UUID siteId) {
+        var scope = scopes.requireAdmin(auth, session);
+        return service.siteLocationAudit(scope.companyId(), siteId);
     }
 
     @GetMapping("/employees")
@@ -130,10 +141,19 @@ public class OrganizationController {
         catch (Exception ex) { throw ApiException.invalid("timeZone must be a valid IANA time zone"); }
     }
 
-    private static java.sql.Timestamp now() { return java.sql.Timestamp.from(Instant.now()); }
-
-    public record SiteInput(@NotBlank @Size(max=120) String name, @NotBlank @Size(max=64) String timeZone) { }
-    public record SiteView(UUID id, String name, String timeZone) { }
+    public record SiteInput(@NotBlank @Size(max=120) String name, @NotBlank @Size(max=64) String timeZone,
+                            @DecimalMin("-90") @DecimalMax("90") @Digits(integer=3,fraction=7) BigDecimal latitude,
+                            @DecimalMin("-180") @DecimalMax("180") @Digits(integer=3,fraction=7) BigDecimal longitude,
+                            @Min(50) @Max(500) Integer geofenceRadiusMeters) { }
+    public record SiteLocationInput(@DecimalMin("-90") @DecimalMax("90") @Digits(integer=3,fraction=7) BigDecimal latitude,
+                                    @DecimalMin("-180") @DecimalMax("180") @Digits(integer=3,fraction=7) BigDecimal longitude,
+                                    @NotNull @Min(50) @Max(500) Integer geofenceRadiusMeters) { }
+    public record SiteView(UUID id, String name, String timeZone, BigDecimal latitude, BigDecimal longitude, Integer geofenceRadiusMeters) { }
+    public record SiteLocationAuditEntry(UUID id, java.time.Instant changedAt, String actorDisplayName,
+                                         BigDecimal beforeLatitude, BigDecimal beforeLongitude,
+                                         BigDecimal afterLatitude, BigDecimal afterLongitude,
+                                         Integer beforeRadiusMeters, int afterRadiusMeters) { }
+    public record SiteLocationAuditResponse(List<SiteLocationAuditEntry> entries) { }
     public record EmployeeInput(@NotBlank @Size(min=7,max=12) String dni, @NotBlank @Size(max=160) String displayName,
                                 @NotEmpty List<@NotNull UUID> siteIds, @Min(0) @Max(240) int toleranceMinutes,
                                 @Size(min=12,max=256) String temporaryPassword) { }

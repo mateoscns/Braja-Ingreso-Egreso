@@ -25,7 +25,8 @@ public class DeviationService {
     private static final String OCCURRED_AT_SQL = "COALESCE(CASE WHEN d.source_mark_id IS NOT NULL THEN m.occurred_at" +
             " WHEN d.type='SIN_INGRESO' THEN DATE_ADD(j.scheduled_start_at, INTERVAL j.tolerance_minutes MINUTE)" +
             " WHEN d.type='MARCA_FALTANTE' THEN DATE_ADD(j.scheduled_end_at, INTERVAL j.tolerance_minutes MINUTE) END, d.created_at)";
-    private static final String VIEW_SQL = "SELECT d.*,j.local_date,e.display_name AS employee_display_name," + OCCURRED_AT_SQL + " AS occurred_at" +
+    private static final String VIEW_SQL = "SELECT d.*,j.local_date,e.display_name AS employee_display_name,m.action AS source_mark_action," +
+            "m.sequence_number AS source_mark_sequence," + OCCURRED_AT_SQL + " AS occurred_at" +
             " FROM deviations d JOIN jornadas j ON j.id=d.jornada_id AND j.company_id=d.company_id" +
             " JOIN employees e ON e.id=d.employee_id AND e.company_id=d.company_id" +
             " LEFT JOIN mark_events m ON m.id=d.source_mark_id AND m.company_id=d.company_id";
@@ -141,6 +142,9 @@ public class DeviationService {
         }
 
         for (ExistingDeviation deviation : activeRows) {
+            // Geofence deviations are tied to an individual finalized employee mark; generic jornada reconciliation must not
+            // retract them when it recomputes arrival, pause, or egress deviations. A valid mark void retracts its own row.
+            if (deviation.type() == DeviationType.FUERA_DE_SEDE) continue;
             if (active.containsKey(deviation.type())) continue;
             // Arrival types share one persistent deviation when an absence is replaced by a late mark.
             if ((deviation.type() == DeviationType.SIN_INGRESO && desired.containsKey(DeviationType.LLEGADA_TARDE))
@@ -160,6 +164,43 @@ public class DeviationService {
         for (ExistingDeviation deviation : lockDeviations(companyId, jornadaId)) {
             if (deviation.active()) retract(companyId, deviation, now);
         }
+    }
+
+    /** Creates at most one non-push deviation for a finalized employee mark assessed outside its frozen site geofence. */
+    @Transactional
+    public void recordOutOfSiteMark(UUID companyId, UUID jornadaId, UUID siteId, UUID employeeId, UUID markId, Instant now) {
+        ExistingDeviation current = jdbc.query("SELECT id,type,active,source_mark_id,classification FROM deviations " +
+                        "WHERE company_id=? AND jornada_id=? AND source_mark_id=? AND type='FUERA_DE_SEDE' FOR UPDATE",
+                rs -> rs.next() ? new ExistingDeviation(UUID.fromString(rs.getString("id")), DeviationType.valueOf(rs.getString("type")),
+                        rs.getBoolean("active"), UUID.fromString(rs.getString("source_mark_id")), rs.getString("classification")) : null,
+                companyId.toString(), jornadaId.toString(), markId.toString());
+        if (current != null && current.active()) return;
+        UUID deviationId = current == null ? UUID.randomUUID() : current.id();
+        if (current == null) {
+            jdbc.update("INSERT INTO deviations(id,company_id,jornada_id,source_mark_id,site_id,employee_id,type,created_at,updated_at,active) " +
+                            "VALUES(?,?,?,?,?,?,'FUERA_DE_SEDE',?,?,TRUE)",
+                    deviationId.toString(), companyId.toString(), jornadaId.toString(), markId.toString(), siteId.toString(), employeeId.toString(),
+                    timestamp(now), timestamp(now));
+        } else {
+            // Reopening is only possible after a concurrent retry; preserve the same fact and clear any stale motive/classification.
+            jdbc.update("UPDATE deviations SET active=TRUE,site_id=?,employee_id=?,motive_category=NULL,motive_text=NULL,motive_ciphertext=NULL," +
+                            "motive_iv=NULL,motive_cipher_key_id=NULL,motive_author_account_id=NULL,motive_created_at=NULL,motive_purged_at=NULL," +
+                            "classification=NULL,created_at=?,updated_at=? WHERE id=? AND company_id=?",
+                    siteId.toString(), employeeId.toString(), timestamp(now), timestamp(now), deviationId.toString(), companyId.toString());
+        }
+        jdbc.update("INSERT INTO deviation_audits(id,company_id,deviation_id,change_type,after_type,created_at) VALUES(?,?,?,'CREATED','FUERA_DE_SEDE',?)",
+                UUID.randomUUID().toString(), companyId.toString(), deviationId.toString(), timestamp(now));
+    }
+
+    /** Retracts the geofence deviation for one invalidated mark; callers lock jornada before mark/deviation rows. */
+    @Transactional
+    public void retractOutOfSiteForMark(UUID companyId, UUID jornadaId, UUID markId, Instant now) {
+        ExistingDeviation deviation = jdbc.query("SELECT id,type,active,source_mark_id,classification FROM deviations " +
+                        "WHERE company_id=? AND jornada_id=? AND source_mark_id=? AND type='FUERA_DE_SEDE' FOR UPDATE",
+                rs -> rs.next() ? new ExistingDeviation(UUID.fromString(rs.getString("id")), DeviationType.valueOf(rs.getString("type")),
+                        rs.getBoolean("active"), UUID.fromString(rs.getString("source_mark_id")), rs.getString("classification")) : null,
+                companyId.toString(), jornadaId.toString(), markId.toString());
+        if (deviation != null && deviation.active()) retract(companyId, deviation, now);
     }
 
     private List<ExistingDeviation> lockDeviations(UUID companyId, UUID jornadaId) {
@@ -348,10 +389,14 @@ public class DeviationService {
         String classification = rs.getString("classification");
         String status = classification != null ? classification : rs.getTimestamp("motive_created_at") != null ? "PENDIENTE_REVISION" : "MOTIVO_PENDIENTE";
         DeviationType type = DeviationType.valueOf(rs.getString("type"));
+        long sourceMarkSequenceValue = rs.getLong("source_mark_sequence");
+        Long sourceMarkSequence = rs.wasNull() ? null : sourceMarkSequenceValue;
+        String sourceMarkIdValue = rs.getString("source_mark_id");
         return new DeviationView(id, UUID.fromString(rs.getString("jornada_id")), UUID.fromString(rs.getString("site_id")),
                 UUID.fromString(rs.getString("employee_id")), rs.getString("employee_display_name"), type.name(), status, category, text,
                 rs.getTimestamp("occurred_at") == null ? rs.getTimestamp("created_at").toInstant() : rs.getTimestamp("occurred_at").toInstant(),
-                rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant(), type.isPushEligible());
+                rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant(), type.isPushEligible(),
+                sourceMarkIdValue == null ? null : UUID.fromString(sourceMarkIdValue), rs.getString("source_mark_action"), sourceMarkSequence);
     }
 
     private boolean isEgress(DeviationType type) {
@@ -393,5 +438,6 @@ public class DeviationService {
     public record InboxPage(List<DeviationView> items, String nextCursor) { }
     public record MarkFact(UUID id, MarkAction action, Instant occurredAt) { }
     public record DeviationView(UUID id, UUID jornadaId, UUID siteId, UUID employeeId, String employeeDisplayName, String type, String status,
-                                String category, String motiveText, Instant occurredAt, Instant createdAt, Instant updatedAt, boolean pushEligible) { }
+                                String category, String motiveText, Instant occurredAt, Instant createdAt, Instant updatedAt, boolean pushEligible,
+                                UUID sourceMarkId, String sourceMarkAction, Long sourceMarkSequence) { }
 }

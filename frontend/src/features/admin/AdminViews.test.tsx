@@ -276,6 +276,16 @@ describe('administración de desvíos y marcas', () => {
     expect(await screen.findByText('Egreso sin marcar')).toBeInTheDocument()
   })
 
+  it('identifica la marca que originó un FUERA_DE_SEDE en la bandeja', async () => {
+    const previous = apiMocks.get.getMockImplementation()!
+    apiMocks.get.mockImplementation((path: string) => path.startsWith('/inbox')
+      ? Promise.resolve({ items: [{ ...deviation, type: 'FUERA_DE_SEDE' as const, sourceMarkId: 'm-2', sourceMarkAction: 'SALIDA_ALMUERZO' as const, sourceMarkSequence: 2, pushEligible: false }], nextCursor: null })
+      : previous(path))
+    render(<AdminInbox />)
+    expect(await screen.findByText('Fuera de sede')).toBeInTheDocument()
+    expect(screen.getByText('Marca: Salida almuerzo · secuencia 2')).toBeInTheDocument()
+  })
+
   it('permite corregir una clasificación existente y exige motivo de auditoría', async () => {
     render(<AdminInbox />)
     const correctButton = await screen.findByRole('button', { name: 'Corregir a no justificado' })

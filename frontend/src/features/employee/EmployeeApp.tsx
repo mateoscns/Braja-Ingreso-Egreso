@@ -211,13 +211,14 @@ export function EmployeeApp() {
           const values = motiveValues[item.id] ?? { category: 'OTRA', text: '' }
           const editing = editingMotives.includes(item.id)
           return <Fragment key={item.id}><form className="motive-card" aria-busy={savingMotive === item.id} onSubmit={(event) => void saveMotive(event, item)}><div><strong>{deviationName(item.type)}</strong><span className="status-chip">{localTime(item.occurredAt ?? item.createdAt, item.siteId ? sites.find((site) => site.id === item.siteId)?.timeZone : undefined)}</span></div>
+            {deviationMarkName(item) && <p className="muted small-copy">Marca: {deviationMarkName(item)}</p>}
             <div className="form-grid"><FormField label="Categoría"><select required value={values.category} onChange={(e) => updateMotive(item.id, { category: e.target.value })}><option value="SALUD">Salud</option><option value="TRANSPORTE">Transporte</option><option value="EMERGENCIA">Emergencia</option><option value="OTRA">Otra</option></select></FormField><FormField label="Motivo"><textarea required maxLength={4000} rows={3} value={values.text} onChange={(e) => updateMotive(item.id, { text: e.target.value })} placeholder="Contanos qué pasó…" /></FormField></div>
             <button className="button button-primary button-small" disabled={savingMotive === item.id || !values.text.trim()}>{savingMotive === item.id ? 'Guardando…' : item.status === 'PENDIENTE_REVISION' ? 'Guardar corrección' : 'Enviar motivo'}</button>
             {editing && <button type="button" className="button button-quiet button-small" disabled={savingMotive === item.id} onClick={() => cancelMotiveEdit(item.id)}>Cancelar</button>}
           </form>{savingMotive === item.id && <p role="status" aria-live="polite">Enviando el motivo al servidor…</p>}</Fragment>
         })}</div>}
       </Panel>
-      <Panel title="Desvíos de esta fecha">{loading ? <Loading label="Consultando desvíos…" /> : loadFailed ? <Empty>No se pudieron consultar los desvíos.</Empty> : deviations.length ? <div className="deviation-list">{deviations.map((item) => <article className="deviation-card" key={item.id}><div className="deviation-symbol">!</div><div className="deviation-main"><div className="deviation-title"><strong>{deviationName(item.type)}</strong><span className="status-chip">{statusName(item.status)}</span></div>{item.category && <p className="reason-line"><b>Motivo:</b> {categoryName(item.category)}{item.motiveText ? ` · ${item.motiveText}` : ''}</p>}
+      <Panel title="Desvíos de esta fecha">{loading ? <Loading label="Consultando desvíos…" /> : loadFailed ? <Empty>No se pudieron consultar los desvíos.</Empty> : deviations.length ? <div className="deviation-list">{deviations.map((item) => <article className="deviation-card" key={item.id}><div className="deviation-symbol">!</div><div className="deviation-main"><div className="deviation-title"><strong>{deviationName(item.type)}</strong><span className="status-chip">{statusName(item.status)}</span></div>{deviationMarkName(item) && <p className="muted small-copy">Marca: {deviationMarkName(item)}</p>}{item.category && <p className="reason-line"><b>Motivo:</b> {categoryName(item.category)}{item.motiveText ? ` · ${item.motiveText}` : ''}</p>}
         {!editingMotives.includes(item.id) && item.status === 'PENDIENTE_REVISION' && <button type="button" className="button button-quiet button-small" onClick={() => startMotiveEdit(item)}>Corregir motivo</button>}
         {!editingMotives.includes(item.id) && canAddFirstMotive(item) && <button type="button" className="button button-quiet button-small" onClick={() => startMotiveEdit(item)}>Agregar motivo</button>}</div></article>)}</div> : <Empty>No hay desvíos para esta fecha.</Empty>}</Panel>
     </main>
@@ -241,6 +242,11 @@ function allowedActions(jornada: Jornada): MarkAction[] {
   if (!marked.has('SALIDA_ALMUERZO')) actions.unshift('SALIDA_ALMUERZO')
   return actions
 }
-function deviationName(type: Deviation['type']) { return ({ SIN_INGRESO: 'Sin ingreso', LLEGADA_TARDE: 'Llegada tarde', EGRESO_TEMPRANO: 'Egreso temprano', EGRESO_TARDIO: 'Egreso tardío', MARCA_FALTANTE: 'Egreso sin marcar', EXCESO_DESAYUNO: 'Exceso de desayuno', EXCESO_ALMUERZO: 'Exceso de almuerzo' } as const)[type] }
+function deviationName(type: Deviation['type']) { return ({ SIN_INGRESO: 'Sin ingreso', LLEGADA_TARDE: 'Llegada tarde', EGRESO_TEMPRANO: 'Egreso temprano', EGRESO_TARDIO: 'Egreso tardío', MARCA_FALTANTE: 'Egreso sin marcar', EXCESO_DESAYUNO: 'Exceso de desayuno', EXCESO_ALMUERZO: 'Exceso de almuerzo', FUERA_DE_SEDE: 'Fuera de sede' } as const)[type] }
+function deviationMarkName(item: Deviation) {
+  const action = item.sourceMarkAction ? actionLabel[item.sourceMarkAction] : null
+  if (!action) return ''
+  return `${action}${item.sourceMarkSequence ? ` · secuencia ${item.sourceMarkSequence}` : ''}`
+}
 function statusName(status: Deviation['status']) { return ({ MOTIVO_PENDIENTE: 'Falta motivo', PENDIENTE_REVISION: 'A revisar', JUSTIFICADO: 'Justificado', NO_JUSTIFICADO: 'No justificado' } as const)[status] }
 function categoryName(category: NonNullable<Deviation['category']>) { return ({ SALUD: 'Salud', TRANSPORTE: 'Transporte', EMERGENCIA: 'Emergencia', OTRA: 'Otra' } as const)[category] }

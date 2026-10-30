@@ -2,6 +2,7 @@ package com.braja.fichaje.timekeeping;
 
 import com.braja.fichaje.api.ApiException;
 import com.braja.fichaje.deviations.DeviationService;
+import com.braja.fichaje.deviations.GeofencePolicy;
 import com.braja.fichaje.organization.OrganizationController;
 import com.braja.fichaje.security.ScopeService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -35,6 +36,7 @@ public class MarkService {
     private final DeviationService deviations;
     private final TransactionTemplate isolatedTransaction;
     private final MarkTransitionPolicy transitions = new MarkTransitionPolicy();
+    private final GeofencePolicy geofence = new GeofencePolicy();
 
     public MarkService(JdbcTemplate jdbc, ScopeService scopes, ObjectMapper objectMapper, DeviationService deviations,
                        PlatformTransactionManager transactionManager) {
@@ -135,18 +137,35 @@ public class MarkService {
                 || !Double.isFinite(accuracyMeters) || accuracyMeters < 0 || accuracyMeters > 100000) throw ApiException.invalid("Location coordinates or accuracy are outside valid bounds");
         UUID jornadaId = jornadaIdForMark(scope.companyId(), markId);
         if (jornadaId == null) throw ApiException.notFound();
-        lockJornada(scope.companyId(), jornadaId);
-        MarkRow mark = jdbc.query("SELECT m.id,m.jornada_id,m.action,m.sequence_number,m.accepted_at,m.occurred_at,m.recorded_at,m.location_status,m.latitude,m.longitude,j.employee_id " +
+        JornadaLock jornada = lockJornada(scope.companyId(), jornadaId);
+        requireNotCancelled(jornada);
+        MarkRow mark = jdbc.query("SELECT m.id,m.jornada_id,m.action,m.sequence_number,m.accepted_at,m.occurred_at,m.recorded_at,m.location_status,m.latitude,m.longitude,m.accuracy_meters,m.origin,m.voided_at,j.employee_id " +
                         "FROM mark_events m JOIN jornadas j ON j.id=m.jornada_id AND j.company_id=m.company_id WHERE m.id=? AND m.company_id=? FOR UPDATE",
                 rs -> rs.next() ? new MarkRow(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("jornada_id")), UUID.fromString(rs.getString("employee_id")),
                         MarkAction.valueOf(rs.getString("action")), rs.getLong("sequence_number"), rs.getTimestamp("accepted_at").toInstant(),
                         rs.getTimestamp("occurred_at").toInstant(), rs.getTimestamp("recorded_at").toInstant(), rs.getString("location_status"),
-                        rs.getBigDecimal("latitude"), rs.getBigDecimal("longitude")) : null, markId.toString(), scope.companyId().toString());
+                        rs.getBigDecimal("latitude"), rs.getBigDecimal("longitude"), rs.getBigDecimal("accuracy_meters"), rs.getString("origin"),
+                        rs.getTimestamp("voided_at") != null) : null, markId.toString(), scope.companyId().toString());
         if (mark == null || !mark.employeeId().equals(scopes.employeeIdFor(scope))) throw ApiException.notFound();
-        if (!"PENDIENTE".equals(mark.locationStatus())) throw ApiException.conflict("LOCATION_ALREADY_FINAL", "Location is no longer pending");
-        if (receivedAt.isAfter(mark.acceptedAt().plusSeconds(30))) throw ApiException.conflict("LOCATION_WINDOW_EXPIRED", "Location must arrive within 30 seconds of the mark");
-        jdbc.update("UPDATE mark_events SET location_status='RECIBIDA',latitude=?,longitude=?,accuracy_meters=?,location_received_at=? WHERE id=? AND company_id=? AND location_status='PENDIENTE'",
+        if (mark.voided()) throw markVoided();
+        boolean withinLocationWindow = !receivedAt.isAfter(mark.acceptedAt().plusSeconds(30));
+        boolean timeoutFinalizedWhileWaiting = "SIN_UBICACION".equals(mark.locationStatus()) && withinLocationWindow;
+        if (!"PENDIENTE".equals(mark.locationStatus()) && !timeoutFinalizedWhileWaiting) {
+            throw ApiException.conflict("LOCATION_ALREADY_FINAL", "Location is no longer pending");
+        }
+        if (!withinLocationWindow) throw ApiException.conflict("LOCATION_WINDOW_EXPIRED", "Location must arrive within 30 seconds of the mark");
+        jdbc.update("UPDATE mark_events SET location_status='RECIBIDA',latitude=?,longitude=?,accuracy_meters=?,location_received_at=? WHERE id=? AND company_id=? AND location_status IN ('PENDIENTE','SIN_UBICACION')",
                 BigDecimal.valueOf(latitude), BigDecimal.valueOf(longitude), BigDecimal.valueOf(accuracyMeters), timestamp(receivedAt), markId.toString(), scope.companyId().toString());
+        if ("EMPLEADO".equals(mark.origin()) && jornada.siteGeofenceLatitude() != null) {
+            if (geofence.isOutside(jornada.siteGeofenceLatitude().doubleValue(), jornada.siteGeofenceLongitude().doubleValue(),
+                    latitude, longitude, accuracyMeters, jornada.siteGeofenceRadius())) {
+                deviations.recordOutOfSiteMark(scope.companyId(), jornada.id(), jornada.siteId(), jornada.employeeId(), mark.id(), Instant.now());
+            } else {
+                // A timely location may arrive after the timeout worker finalized SIN_UBICACION while this request waited
+                // for the jornada lock. Correct the provisional deviation in the same serialized transaction.
+                deviations.retractOutOfSiteForMark(scope.companyId(), jornada.id(), mark.id(), Instant.now());
+            }
+        }
         return new LocationResult(markId, "RECIBIDA");
     }
 
@@ -246,6 +265,9 @@ public class MarkService {
                 timestamp(mark.occurredAt()), scope.accountId().toString(), reason, timestamp(now));
         jdbc.update("UPDATE mark_events SET voided_at=?,voided_by=?,void_reason=? WHERE id=? AND company_id=? AND voided_at IS NULL",
                 timestamp(now), scope.accountId().toString(), reason, markId.toString(), scope.companyId().toString());
+        jdbc.update("UPDATE mark_events SET location_status='SIN_UBICACION' WHERE id=? AND company_id=? AND location_status='PENDIENTE'",
+                markId.toString(), scope.companyId().toString());
+        deviations.retractOutOfSiteForMark(scope.companyId(), jornadaId, markId, now);
         jdbc.update("UPDATE jornadas SET state=? WHERE id=? AND company_id=?",
                 MarkState.from(remaining.stream().map(HistoryRow::action).toList()), jornadaId.toString(), scope.companyId().toString());
         reconcile(scope.companyId(), jornada, remaining, now);
@@ -315,10 +337,38 @@ public class MarkService {
         }
     }
 
-    @Transactional
     public void resolveLocationTimeouts(Instant now) {
-        jdbc.update("UPDATE mark_events SET location_status='SIN_UBICACION' WHERE location_status='PENDIENTE' AND accepted_at < ?",
-                timestamp(now.minusSeconds(30)));
+        List<LocationCandidate> candidates = jdbc.query("SELECT id,company_id,jornada_id FROM mark_events " +
+                        "WHERE location_status='PENDIENTE' AND location_expires_at<? ORDER BY location_expires_at,id LIMIT 200",
+                (rs, row) -> new LocationCandidate(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("company_id")),
+                        UUID.fromString(rs.getString("jornada_id"))), timestamp(now));
+        for (LocationCandidate candidate : candidates) {
+            try {
+                isolatedTransaction.executeWithoutResult(status -> resolveLocationTimeout(candidate, now));
+            } catch (RuntimeException failure) {
+                LOGGER.warn("Location timeout could not be resolved for mark {} in company {} (failureType={})",
+                        candidate.markId(), candidate.companyId(), failure.getClass().getSimpleName());
+            }
+        }
+    }
+
+    private void resolveLocationTimeout(LocationCandidate candidate, Instant now) {
+        JornadaLock jornada = lockJornada(candidate.companyId(), candidate.jornadaId());
+        MarkRow mark = jdbc.query("SELECT m.id,m.jornada_id,m.action,m.sequence_number,m.accepted_at,m.occurred_at,m.recorded_at,m.location_status,m.latitude,m.longitude," +
+                        "m.accuracy_meters,m.origin,m.voided_at,j.employee_id FROM mark_events m " +
+                        "JOIN jornadas j ON j.id=m.jornada_id AND j.company_id=m.company_id " +
+                        "WHERE m.id=? AND m.company_id=? FOR UPDATE",
+                rs -> rs.next() ? new MarkRow(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("jornada_id")), UUID.fromString(rs.getString("employee_id")),
+                        MarkAction.valueOf(rs.getString("action")), rs.getLong("sequence_number"), rs.getTimestamp("accepted_at").toInstant(),
+                        rs.getTimestamp("occurred_at").toInstant(), rs.getTimestamp("recorded_at").toInstant(), rs.getString("location_status"),
+                        rs.getBigDecimal("latitude"), rs.getBigDecimal("longitude"), rs.getBigDecimal("accuracy_meters"), rs.getString("origin"),
+                        rs.getTimestamp("voided_at") != null) : null, candidate.markId().toString(), candidate.companyId().toString());
+        if (mark == null || !"PENDIENTE".equals(mark.locationStatus()) || !mark.acceptedAt().plusSeconds(30).isBefore(now)) return;
+        jdbc.update("UPDATE mark_events SET location_status='SIN_UBICACION' WHERE id=? AND company_id=? AND location_status='PENDIENTE'",
+                mark.id().toString(), candidate.companyId().toString());
+        if (!mark.voided() && !CANCELADA.equals(jornada.state()) && "EMPLEADO".equals(mark.origin()) && jornada.siteGeofenceLatitude() != null) {
+            deviations.recordOutOfSiteMark(candidate.companyId(), jornada.id(), jornada.siteId(), jornada.employeeId(), mark.id(), now);
+        }
     }
 
     private void createAbsenceIfStillDue(UUID companyId, UUID jornadaId, Instant now) {
@@ -388,10 +438,12 @@ public class MarkService {
     }
 
     private JornadaLock lockJornada(UUID companyId, UUID jornadaId) {
-        JornadaLock row = jdbc.query("SELECT id,employee_id,site_id,schedule_snapshot,tolerance_minutes,scheduled_start_at,scheduled_end_at,next_sequence,state FROM jornadas WHERE id=? AND company_id=? FOR UPDATE",
+        JornadaLock row = jdbc.query("SELECT id,employee_id,site_id,schedule_snapshot,tolerance_minutes,scheduled_start_at,scheduled_end_at,next_sequence,state," +
+                        "site_geofence_latitude_snapshot,site_geofence_longitude_snapshot,site_geofence_radius_snapshot FROM jornadas WHERE id=? AND company_id=? FOR UPDATE",
                 rs -> rs.next() ? new JornadaLock(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("employee_id")), UUID.fromString(rs.getString("site_id")),
                         rs.getString("schedule_snapshot"), rs.getInt("tolerance_minutes"), rs.getTimestamp("scheduled_start_at").toInstant(),
-                        rs.getTimestamp("scheduled_end_at").toInstant(), rs.getLong("next_sequence"), rs.getString("state")) : null, jornadaId.toString(), companyId.toString());
+                        rs.getTimestamp("scheduled_end_at").toInstant(), rs.getLong("next_sequence"), rs.getString("state"), rs.getBigDecimal("site_geofence_latitude_snapshot"),
+                        rs.getBigDecimal("site_geofence_longitude_snapshot"), rs.getObject("site_geofence_radius_snapshot", Integer.class)) : null, jornadaId.toString(), companyId.toString());
         if (row == null) throw ApiException.notFound();
         return row;
     }
@@ -486,10 +538,11 @@ public class MarkService {
     public record CancellationResult(UUID jornadaId, String state, Instant cancelledAt, UUID cancelledBy, String cancelReason) { }
     private record HistoryRow(UUID id, long sequence, long timelineOrder, MarkAction action, Instant occurredAt) { }
     private record JornadaLock(UUID id, UUID employeeId, UUID siteId, String snapshot, int toleranceMinutes, Instant scheduledStart, Instant scheduledEnd, long nextSequence,
-                               String state) { }
+                               String state, BigDecimal siteGeofenceLatitude, BigDecimal siteGeofenceLongitude, Integer siteGeofenceRadius) { }
     private record LockedMark(UUID id, UUID jornadaId, MarkAction action, Instant occurredAt, boolean voided) { }
+    private record LocationCandidate(UUID markId, UUID companyId, UUID jornadaId) { }
     private record Candidate(UUID jornadaId, UUID companyId, int failureCount) { }
     private record RetrySchedule(int failureCount, Instant retryAt) { }
     private record MarkRow(UUID id, UUID jornadaId, UUID employeeId, MarkAction action, long sequence, Instant acceptedAt, Instant occurredAt, Instant recordedAt,
-                           String locationStatus, BigDecimal latitude, BigDecimal longitude) { }
+                           String locationStatus, BigDecimal latitude, BigDecimal longitude, BigDecimal accuracyMeters, String origin, boolean voided) { }
 }

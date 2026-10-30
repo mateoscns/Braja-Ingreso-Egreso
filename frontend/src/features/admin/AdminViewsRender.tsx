@@ -1,7 +1,8 @@
 import { Fragment, type FormEvent, type ReactNode } from 'react'
 import { Empty, FormField, Loading, PageMessage, Panel } from '../../app/ui'
-import type { BulkDeclarationResult, BulkSkipReason, Deviation, Employee, Jornada, JornadaAudit, JornadaAuditEntry, JornadaSummary, Mark, MarkAction, Site, Template, TemplateAssignment, TemplateBlock } from '../../shared/api/types'
+import type { BulkDeclarationResult, BulkSkipReason, Deviation, Employee, Jornada, JornadaAudit, JornadaAuditEntry, JornadaSummary, Mark, MarkAction, Site, SiteCoordinates, Template, TemplateAssignment, TemplateBlock } from '../../shared/api/types'
 import { formatBlock, formatDateTime, formatLocalDate, jornadaStateLabel } from '../../shared/format'
+import type { SiteLocationErrorKind } from './siteLocation'
 
 const stateLabel = jornadaStateLabel
 /** L30: cancel and void reasons are kept as free-text audit, so the form warns against health data. */
@@ -9,6 +10,17 @@ const HEALTH_DATA_HINT = 'No escribas datos de salud; alcanza con «Licencia».'
 
 export type DeviationClassification = 'JUSTIFICADO' | 'NO_JUSTIFICADO'
 export type JourneyRow = Pick<Jornada, 'id' | 'employeeId' | 'siteId' | 'localDate' | 'state'>
+export type SiteLocationEditDraft = {
+  siteId: string; latitude: string; longitude: string; geofenceRadiusMeters: string
+  locationStatus: 'idle' | 'loading' | 'selected' | 'error'; locationMessage: string; locationErrorKind: SiteLocationErrorKind | null
+  locationAccuracyMeters: number | null; locationConfirmed: boolean; locationSource: 'device' | null
+}
+export type SiteLocationAuditEntry = {
+  id: string; changedAt: string; actorDisplayName: string | null
+  beforeLatitude: number | null; beforeLongitude: number | null; afterLatitude: number | null; afterLongitude: number | null
+  beforeRadiusMeters: number | null; afterRadiusMeters: number | null
+}
+export type SiteLocationAuditResponse = { entries: SiteLocationAuditEntry[] }
 
 export type InboxFilterValues = { employeeId: string; siteId: string; from: string; to: string }
 export const EMPTY_INBOX_FILTERS: InboxFilterValues = { employeeId: '', siteId: '', from: '', to: '' }
@@ -66,6 +78,7 @@ function DeviationList({ items, filtered, loading, busy, onClassify, targetId, t
     <div className="deviation-symbol">{item.type === 'SIN_INGRESO' ? '!' : '↗'}</div>
     <div className="deviation-main"><div className="deviation-title"><strong>{deviationName(item.type)}</strong><span className={`status-chip status-${item.status.toLowerCase()}`}>{statusName(item.status)}</span></div>
       <p>{item.employeeDisplayName?.trim() || 'Registro de jornada'} · {dateTime(item.occurredAt ?? item.createdAt, item.siteId ? timeZones.get(item.siteId) : undefined)}</p>
+      {item.sourceMarkAction && <p className="muted small-copy">Marca: {actionName(item.sourceMarkAction)}{item.sourceMarkSequence ? ` · secuencia ${item.sourceMarkSequence}` : ''}</p>}
       {item.category && <p className="reason-line"><b>Motivo:</b> {categoryName(item.category)}{item.motiveText ? ` · ${item.motiveText}` : ''}</p>}
     </div>
     <div className="deviation-actions">
@@ -82,18 +95,105 @@ function DeviationList({ items, filtered, loading, busy, onClassify, targetId, t
   </article>)}</div>
 }
 
-export function SitesViewRender({ sites, loading, loadError, error, notice, name, timeZone, busy, onReload, onSubmit, onNameChange, onTimeZoneChange }: {
+export function SitesViewRender({ sites, loading, loadError, error, notice, name, timeZone, busy, siteLocation, locationStatus, locationMessage, locating, locationErrorKind = null, locationAccuracyMeters = null, locationConfirmed = false, createRadiusMeters = '100', locationEdit = null, siteLocationAuditFor = '', siteLocationAudit = null, siteLocationAuditLoading = false, siteLocationAuditError = '', onLocationConfirmedChange = () => undefined, onCancelLocationCapture = () => undefined, onCreateRadiusMetersChange = () => undefined, onBeginLocationEdit = () => undefined, onCancelLocationEdit = () => undefined, onLocationEditChange = () => undefined, onCaptureEditLocation = () => undefined, onClearEditLocation = () => undefined, onSaveLocationEdit = () => undefined, onToggleSiteLocationAudit = () => undefined, onRetrySiteLocationAudit = () => undefined, onReload, onSubmit, onNameChange, onTimeZoneChange, onCaptureLocation, onClearLocation }: {
   sites: Site[]; loading: boolean; loadError: string; error: string; notice: string; name: string; timeZone: string; busy: boolean
+  siteLocation: SiteCoordinates | null; locationStatus: 'idle' | 'loading' | 'selected' | 'error'; locationMessage: string; locating: boolean
+  locationErrorKind?: SiteLocationErrorKind | null; locationAccuracyMeters?: number | null; locationConfirmed?: boolean
+  createRadiusMeters?: string; locationEdit?: SiteLocationEditDraft | null; siteLocationAuditFor?: string; siteLocationAudit?: SiteLocationAuditResponse | null
+  siteLocationAuditLoading?: boolean; siteLocationAuditError?: string
+  onLocationConfirmedChange?: (confirmed: boolean) => void; onCancelLocationCapture?: () => void; onCreateRadiusMetersChange?: (value: string) => void
+  onBeginLocationEdit?: (site: Site) => void; onCancelLocationEdit?: () => void; onLocationEditChange?: (patch: Partial<SiteLocationEditDraft>) => void
+  onCaptureEditLocation?: (siteId: string) => void; onClearEditLocation?: () => void
+  onSaveLocationEdit?: (event: FormEvent<HTMLFormElement>) => void; onToggleSiteLocationAudit?: (siteId: string) => void; onRetrySiteLocationAudit?: () => void
   onReload: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onNameChange: (value: string) => void; onTimeZoneChange: (value: string) => void
+  onCaptureLocation: () => void; onClearLocation: () => void
 }) {
+  const locationErrorTitle = (kind: SiteLocationErrorKind | null) => kind === 'permission-denied' ? 'Permiso de ubicación' :
+    kind === 'insecure-context' ? 'Conexión no segura' :
+      kind === 'timeout' ? 'La ubicación tardó demasiado' :
+        kind === 'unsupported' ? 'Geolocalización no disponible' :
+          kind === 'precision-insufficient' ? 'Precisión insuficiente' :
+            kind === 'invalid-position' ? 'Datos de ubicación inválidos' :
+              kind === 'request-failed' ? 'No se pudo iniciar la captura' : 'No se pudo determinar la ubicación'
   return <>
     <PageHeading eyebrow="ORGANIZACIÓN" title="Sedes" subtitle="Cada sede define su zona horaria y sus plantillas." />
     {error && <PageMessage kind="error">{error}</PageMessage>}
     {notice && <PageMessage kind="success">{notice}</PageMessage>}
-    <div className="content-grid"><Panel title="Sedes registradas">{loading ? <Loading /> : loadError ? <LoadFailure message={loadError} onRetry={onReload} /> : sites.length ? <div className="simple-list">{sites.map((site) => <div key={site.id} className="simple-row"><span className="row-avatar">⌖</span><span><strong>{site.name}</strong><small>{site.timeZone}</small></span></div>)}</div> : <Empty>Todavía no hay sedes.</Empty>}</Panel>
-      <Panel title="Agregar sede"><form className="form-stack" onSubmit={onSubmit}><FormField label="Nombre de la sede"><input required maxLength={120} value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="Ej. Local Centro" /></FormField><FormField label="Zona horaria" hint="Usá un identificador IANA, como America/Argentina/Buenos_Aires."><input required maxLength={120} value={timeZone} onChange={(event) => onTimeZoneChange(event.target.value)} placeholder="America/Argentina/Buenos_Aires" /></FormField><button className="button button-primary" disabled={busy}>{busy ? 'Guardando…' : 'Crear sede'}</button></form></Panel>
+    <div className="content-grid"><Panel title="Sedes registradas">{loading ? <Loading /> : loadError ? <LoadFailure message={loadError} onRetry={onReload} /> : sites.length ? <div className="simple-list">{sites.map((site) => <article key={site.id} className="form-stack">
+      <div className="simple-row"><span className="row-avatar">⌖</span><span><strong>{site.name}</strong><small>{site.timeZone}</small><small>{typeof site.latitude === 'number' && typeof site.longitude === 'number' ? 'Ubicación configurada' : 'Sin coordenadas configuradas'}</small><small>Radio: {site.geofenceRadiusMeters ?? '—'} m</small></span></div>
+      <div className="button-row"><button type="button" className="button button-small button-quiet" disabled={busy} aria-label={`Editar ubicación y radio de ${site.name}`} onClick={() => onBeginLocationEdit(site)}>Editar ubicación y radio</button><button type="button" className="button button-small button-quiet" disabled={busy} aria-expanded={siteLocationAuditFor === site.id} aria-controls={`site-location-audit-${site.id}`} onClick={() => onToggleSiteLocationAudit(site.id)}>{siteLocationAuditFor === site.id ? 'Ocultar historial' : 'Ver historial de ubicación'}</button></div>
+      {locationEdit?.siteId === site.id && <form className="form-stack" aria-label={`Editar ubicación y radio de ${site.name}`} onSubmit={onSaveLocationEdit}>
+        <fieldset className="site-location-field fieldset-plain">
+          <legend className="field-label">Ubicación de la sede</legend>
+          <div className="site-location-actions">
+            <button type="button" className="button button-outline" disabled={busy} onClick={() => locationEdit.locationStatus === 'loading' ? onCancelLocationCapture() : onCaptureEditLocation(site.id)}>{locationEdit.locationStatus === 'loading' ? 'Cancelar búsqueda' : locationEdit.latitude && locationEdit.longitude ? 'Capturar otra ubicación' : 'Capturar ubicación del dispositivo'}</button>
+            {(locationEdit.latitude || locationEdit.longitude) && <button type="button" className="button button-quiet" disabled={busy || locationEdit.locationStatus === 'loading'} onClick={onClearEditLocation}>Quitar ubicación</button>}
+          </div>
+          <span className="field-hint">El navegador informa una estimación del proveedor de ubicación del dispositivo; puede combinar GPS, redes Wi-Fi y otros datos, y no garantiza exactitud. El límite local propuesto es de 25 m, la mitad del radio mínimo permitido de 50 m; espera confirmación de Mateo. Podés quitar el centro guardado.</span>
+          {locationEdit.locationMessage && <span className={`site-location-message site-location-message-${locationEdit.locationStatus}`} role={locationEdit.locationStatus === 'error' ? 'alert' : 'status'} aria-live={locationEdit.locationStatus === 'error' ? 'assertive' : 'polite'}>{locationEdit.locationStatus === 'error' && <strong>{locationErrorTitle(locationEdit.locationErrorKind)}: </strong>}{locationEdit.locationMessage}</span>}
+          {locationEdit.latitude && locationEdit.longitude && <div className="site-location-selection">
+            <span className="site-location-coordinates">Latitud {Number(locationEdit.latitude).toFixed(7)} · Longitud {Number(locationEdit.longitude).toFixed(7)}</span>
+            <span className="field-hint">{locationEdit.locationSource === 'device'
+              ? `Precisión informada por el dispositivo: ±${locationEdit.locationAccuracyMeters?.toFixed(1) ?? '—'} m (estimación; no garantiza exactitud).`
+              : 'Coordenadas guardadas actualmente para esta sede.'}</span>
+            {locationEdit.locationSource !== null && <label className="site-location-confirmation"><input type="checkbox" checked={locationEdit.locationConfirmed} disabled={busy || locationEdit.locationStatus === 'loading'} onChange={(event) => onLocationEditChange({ locationConfirmed: event.target.checked })} /><span>Confirmo que este punto corresponde a la sede.</span></label>}
+          </div>}
+        </fieldset>
+        <FormField label="Radio de la sede (metros)" hint="Ingresá un valor entero entre 50 y 500 metros."><input type="number" required min="50" max="500" step="1" value={locationEdit.geofenceRadiusMeters} onChange={(event) => onLocationEditChange({ geofenceRadiusMeters: event.target.value })} /></FormField>
+        <div className="button-row"><button className="button button-small button-primary" disabled={busy || locationEdit.locationStatus === 'loading'}>{busy ? 'Guardando…' : 'Guardar ubicación y radio'}</button><button type="button" className="button button-small button-quiet" disabled={busy} onClick={onCancelLocationEdit}>Cancelar</button></div>
+      </form>}
+      {siteLocationAuditFor === site.id && <SiteLocationAuditSection siteId={site.id} siteName={site.name} timeZone={site.timeZone} audit={siteLocationAudit} loading={siteLocationAuditLoading} error={siteLocationAuditError} onRetry={onRetrySiteLocationAudit} />}
+    </article>)}</div> : <Empty>Todavía no hay sedes.</Empty>}</Panel>
+      <Panel title="Agregar sede"><form className="form-stack" onSubmit={onSubmit}>
+        <FormField label="Nombre de la sede"><input required maxLength={120} value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="Ej. Local Centro" /></FormField>
+        <fieldset className="site-location-field fieldset-plain" aria-describedby="site-location-help">
+          <legend className="field-label">Ubicación de la sede</legend>
+          <div className="site-location-actions">
+            <button type="button" className="button button-outline" disabled={busy} onClick={locating ? onCancelLocationCapture : onCaptureLocation}>{locating ? 'Cancelar búsqueda' : siteLocation ? 'Capturar otra ubicación' : 'Capturar ubicación del dispositivo'}</button>
+            {siteLocation && <button type="button" className="button button-quiet" disabled={busy || locating} onClick={onClearLocation}>Quitar ubicación</button>}
+          </div>
+          <span id="site-location-help" className="field-hint">Opcional. El navegador usa los proveedores de ubicación disponibles en el dispositivo y muestra su estimación; puede combinar GPS, redes Wi-Fi y otros datos, y no garantiza exactitud. El límite local propuesto es de 25 m, la mitad del radio mínimo permitido de 50 m; espera confirmación de Mateo. Podés crear la sede sin centro.</span>
+          {locationMessage && <span className={`site-location-message site-location-message-${locationStatus}`} role={locationStatus === 'error' ? 'alert' : 'status'} aria-live={locationStatus === 'error' ? 'assertive' : 'polite'}>
+            {locationStatus === 'error' && <strong>{locationErrorTitle(locationErrorKind)}: </strong>}{locationMessage}
+          </span>}
+          {siteLocation && <div className="site-location-selection">
+            <span className="site-location-coordinates">Latitud {siteLocation.latitude.toFixed(7)} · Longitud {siteLocation.longitude.toFixed(7)}</span>
+            <span className="field-hint">Precisión informada por el dispositivo: ±{locationAccuracyMeters?.toFixed(1) ?? '—'} m (estimación; no garantiza exactitud).</span>
+            <label className="site-location-confirmation"><input type="checkbox" checked={locationConfirmed} disabled={busy || locating} onChange={(event) => onLocationConfirmedChange(event.target.checked)} />
+              <span>Confirmo que este punto corresponde a la sede.</span>
+            </label>
+          </div>}
+        </fieldset>
+        <FormField label="Radio de la sede (metros)" hint="Ingresá un valor entero entre 50 y 500 metros. Valor inicial: 100 m."><input type="number" required min="50" max="500" step="1" value={createRadiusMeters} onChange={(event) => onCreateRadiusMetersChange(event.target.value)} /></FormField>
+        <FormField label="Zona horaria" hint="Usá un identificador IANA, como America/Argentina/Buenos_Aires."><input required maxLength={120} value={timeZone} onChange={(event) => onTimeZoneChange(event.target.value)} placeholder="America/Argentina/Buenos_Aires" /></FormField>
+        <button className="button button-primary" disabled={busy || locating}>{busy ? 'Guardando…' : 'Crear sede'}</button>
+      </form></Panel>
     </div>
   </>
+}
+
+function siteCenter(latitude: number | null, longitude: number | null) {
+  if (latitude === null && longitude === null) return 'Sin coordenadas'
+  if (latitude === null || longitude === null) return 'Coordenadas incompletas'
+  return `${latitude.toFixed(7)}, ${longitude.toFixed(7)}`
+}
+
+export function SiteLocationAuditSection({ siteId, siteName, timeZone, audit, loading, error, onRetry }: {
+  siteId: string; siteName: string; timeZone: string; audit: SiteLocationAuditResponse | null; loading: boolean; error: string; onRetry: () => void
+}) {
+  return <section id={`site-location-audit-${siteId}`} aria-label={`Historial de ubicación de ${siteName}`} className="audit-history">
+    <h3>Historial de ubicación</h3>
+    {loading ? <Loading label="Cargando historial de ubicación…" /> : error ? <LoadFailure message={error} onRetry={onRetry} /> : !audit ? null : audit.entries.length === 0 ? <Empty>Esta sede todavía no tiene cambios de ubicación auditados.</Empty> : <ol className="history-items audit-items" aria-label={`Cambios de ubicación de ${siteName}`}>{audit.entries.map((entry) => {
+      const initial = entry.beforeLatitude === null && entry.beforeLongitude === null && entry.beforeRadiusMeters === null
+      return <li key={entry.id}>
+        <strong>{initial ? 'Configuración inicial de ubicación' : 'Ubicación y radio actualizados'}</strong>
+        <span>{dateTime(entry.changedAt, timeZone)}</span>
+        <small>Por {entry.actorDisplayName?.trim() || 'un administrador'}</small>
+        <small>Centro anterior: {siteCenter(entry.beforeLatitude, entry.beforeLongitude)} · radio: {entry.beforeRadiusMeters === null ? '—' : `${entry.beforeRadiusMeters} m`}</small>
+        <small>Centro nuevo: {siteCenter(entry.afterLatitude, entry.afterLongitude)} · radio: {entry.afterRadiusMeters === null ? '—' : `${entry.afterRadiusMeters} m`}</small>
+      </li>
+    })}</ol>}
+  </section>
 }
 
 export function EmployeesViewRender({ employees, sites, loading, loadError, error, notice, busy, dni, displayName, siteIds, tolerance, temporaryPassword, draft, assignmentsPanel, onReload, onCreate, onDniChange, onDisplayNameChange, onToggleSite, onToleranceChange, onTemporaryPasswordChange, onSave, onDraftChange, onStartEditing, onCancelEditing, onOpenAssignments, resetTarget, issuedPassword, onAskReset, onConfirmReset, onCancelReset, onDismissIssuedPassword }: {
@@ -382,7 +482,7 @@ export function AdminHistoryRender({ employees, sites, loadingOptions, optionsEr
         return <article className="history-card" key={row.id} aria-label={`Jornada del ${formatLocalDate(row.localDate)} de ${person}`}>
           <div className="history-head"><strong>{formatLocalDate(row.localDate)}</strong><span>{person}</span><span className="muted">{siteById.get(row.siteId)?.name ?? 'Sede'}</span><span className="status-chip">{stateLabel(row.state)}</span></div>
           {marks.length ? <ul className="history-items" aria-label="Marcas">{marks.map((mark) => <li key={mark.id} className={mark.voided ? 'mark-voided' : undefined}><strong>{mark.voided ? <s>{actionName(mark.action)}</s> : actionName(mark.action)}</strong><span>{dateTime(mark.occurredAt ?? mark.acceptedAt, timeZone)}</span><small>{mark.voided ? `Anulada${mark.voidReason ? ` · ${mark.voidReason}` : ''}` : locationName(mark.locationStatus)}</small></li>)}</ul> : <p className="muted small-copy">Sin marcas.</p>}
-          {deviations.length ? <ul className="history-items history-deviations" aria-label="Desvíos">{deviations.map((item) => <li key={item.id}><strong>{deviationName(item.type)}</strong><span>{dateTime(item.occurredAt ?? item.createdAt, timeZone)}</span><span className={`status-chip status-${item.status.toLowerCase()}`}>{statusName(item.status)}</span>{item.category && <small>{categoryName(item.category)}{item.motiveText ? ` · ${item.motiveText}` : ''}</small>}</li>)}</ul> : <p className="muted small-copy">Sin desvíos.</p>}
+          {deviations.length ? <ul className="history-items history-deviations" aria-label="Desvíos">{deviations.map((item) => <li key={item.id}><strong>{deviationName(item.type)}</strong><span>{dateTime(item.occurredAt ?? item.createdAt, timeZone)}</span>{item.sourceMarkAction && <small>Marca: {actionName(item.sourceMarkAction)}{item.sourceMarkSequence ? ` · secuencia ${item.sourceMarkSequence}` : ''}</small>}<span className={`status-chip status-${item.status.toLowerCase()}`}>{statusName(item.status)}</span>{item.category && <small>{categoryName(item.category)}{item.motiveText ? ` · ${item.motiveText}` : ''}</small>}</li>)}</ul> : <p className="muted small-copy">Sin desvíos.</p>}
         </article>
       })}</div>}
     </Panel>
@@ -402,7 +502,7 @@ function PageHeading({ eyebrow, title, subtitle }: { eyebrow: string; title: str
 const dateTime = formatDateTime
 const MARK_ACTIONS: MarkAction[] = ['INGRESO', 'EGRESO', 'SALIDA_DESAYUNO', 'VUELTA_DESAYUNO', 'SALIDA_ALMUERZO', 'VUELTA_ALMUERZO']
 function actionName(action: MarkAction) { return ({ INGRESO: 'Ingreso', EGRESO: 'Egreso', SALIDA_DESAYUNO: 'Salida desayuno', VUELTA_DESAYUNO: 'Vuelta desayuno', SALIDA_ALMUERZO: 'Salida almuerzo', VUELTA_ALMUERZO: 'Vuelta almuerzo' } as const)[action] }
-function deviationName(type: Deviation['type']) { return ({ SIN_INGRESO: 'Sin ingreso', LLEGADA_TARDE: 'Llegada tarde', EGRESO_TEMPRANO: 'Egreso temprano', EGRESO_TARDIO: 'Egreso tardío', MARCA_FALTANTE: 'Egreso sin marcar', EXCESO_DESAYUNO: 'Exceso de desayuno', EXCESO_ALMUERZO: 'Exceso de almuerzo' } as const)[type] }
+function deviationName(type: Deviation['type']) { return ({ SIN_INGRESO: 'Sin ingreso', LLEGADA_TARDE: 'Llegada tarde', EGRESO_TEMPRANO: 'Egreso temprano', EGRESO_TARDIO: 'Egreso tardío', MARCA_FALTANTE: 'Egreso sin marcar', EXCESO_DESAYUNO: 'Exceso de desayuno', EXCESO_ALMUERZO: 'Exceso de almuerzo', FUERA_DE_SEDE: 'Fuera de sede' } as const)[type] }
 function statusName(status: Deviation['status']) { return ({ MOTIVO_PENDIENTE: 'Falta motivo', PENDIENTE_REVISION: 'A revisar', JUSTIFICADO: 'Justificado', NO_JUSTIFICADO: 'No justificado' } as const)[status] }
 function categoryName(category: NonNullable<Deviation['category']>) { return ({ SALUD: 'Salud', TRANSPORTE: 'Transporte', EMERGENCIA: 'Emergencia', OTRA: 'Otra' } as const)[category] }
 function locationName(status: string) { return ({ PENDIENTE: 'Ubicación pendiente', RECIBIDA: 'Ubicación recibida', SIN_UBICACION: 'Sin ubicación', PURGADA: 'Ubicación depurada', NO_APLICA: 'No aplica' } as Record<string, string>)[status] ?? '—' }
