@@ -157,11 +157,15 @@ public class MarkService {
             throw ApiException.conflict("LOCATION_ALREADY_FINAL", "Location is no longer pending");
         }
         if (!withinLocationWindow) throw ApiException.conflict("LOCATION_WINDOW_EXPIRED", "Location must arrive within 30 seconds of the mark");
+        // Issue #77: judge the values exactly as stored, the same ones a later re-anchoring reads back.
+        BigDecimal storedLatitude = GeofencePolicy.storedCoordinate(latitude);
+        BigDecimal storedLongitude = GeofencePolicy.storedCoordinate(longitude);
+        BigDecimal storedAccuracy = GeofencePolicy.storedAccuracy(accuracyMeters);
         jdbc.update("UPDATE mark_events SET location_status='RECIBIDA',latitude=?,longitude=?,accuracy_meters=?,location_received_at=? WHERE id=? AND company_id=? AND location_status IN ('PENDIENTE','SIN_UBICACION')",
-                BigDecimal.valueOf(latitude), BigDecimal.valueOf(longitude), BigDecimal.valueOf(accuracyMeters), timestamp(receivedAt), markId.toString(), scope.companyId().toString());
+                storedLatitude, storedLongitude, storedAccuracy, timestamp(receivedAt), markId.toString(), scope.companyId().toString());
         if ("EMPLEADO".equals(mark.origin()) && jornada.siteGeofenceLatitude() != null) {
-            if (geofence.isOutside(jornada.siteGeofenceLatitude().doubleValue(), jornada.siteGeofenceLongitude().doubleValue(),
-                    latitude, longitude, accuracyMeters, jornada.siteGeofenceRadius())) {
+            if (geofence.isOutside(jornada.siteGeofenceLatitude(), jornada.siteGeofenceLongitude(),
+                    storedLatitude, storedLongitude, storedAccuracy, jornada.siteGeofenceRadius())) {
                 deviations.recordOutOfSiteMark(scope.companyId(), jornada.id(), jornada.siteId(), jornada.employeeId(), mark.id(), clock.instant());
             } else {
                 // A timely location may arrive after the timeout worker finalized SIN_UBICACION while this request waited

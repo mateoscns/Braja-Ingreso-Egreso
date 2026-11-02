@@ -117,48 +117,84 @@ class GeofenceSpecTest extends CampaignTestBase {
         assertEquals("MOTIVO_PENDIENTE", listed.get("status").asText());
     }
 
-    // S41: the center is frozen at declaration (D-20261030-02). The change happens between the declaration and the marks.
+    // S41 + R4 (D-20261102-01, which replaces the freeze-at-declaration part of D-20261030-02): a site change reaches the
+    // jornadas of that site not started yet (NO_INGRESO, no mark) dated today or later in the site's zone, and the ones declared
+    // after it. A started jornada and a past one keep the center and radius they froze.
 
-    @ParameterizedTest(name = "center {0} after the first declaration")
+    @ParameterizedTest(name = "center {0} while one jornada is started and the next one is not")
     @CsvSource({"MOVED, true", "REMOVED, false", "RADIUS_SHRUNK_TO_50, true"})
-    void s41SiteChangesReachOnlyJornadasDeclaredAfterThem(String change, boolean laterJornadaOutside) {
+    void s41SiteChangesReachNotStartedJornadasFromTodayButNeverAStartedOrPastOne(String change, boolean outsideUnderTheNewFence) {
         fixture.siteCenter(company, site, CENTER_LAT, LON, 500);
-        UUID earlier = declare(DAY);
+        UUID past = declare(DAY.minusDays(1));
+        UUID started = declare(DAY);
+        UUID notStarted = declare(DAY.plusDays(1));
+        location(mark(started, at(DAY, "12:00:00"), "INGRESO"), NEAR_LAT, LON, 11.04).expect(202);
         Map<String, Object> body = new HashMap<>();
         switch (change) {
             case "MOVED" -> { body.put("latitude", FAR_LAT); body.put("longitude", LON); body.put("geofenceRadiusMeters", 500); body.put("locationSource", "MANUAL"); }
             case "REMOVED" -> { body.put("latitude", null); body.put("longitude", null); body.put("geofenceRadiusMeters", 500); }
             default -> { body.put("latitude", CENTER_LAT); body.put("longitude", LON); body.put("geofenceRadiusMeters", 50); }
         }
+        clock.set(at(DAY, "12:01:00"));
         company.admin().put("/api/v1/sites/" + site + "/location", body).expect(200);
-        UUID later = declare(DAY.plusDays(1));
+        UUID later = declare(DAY.plusDays(2));
 
-        Map<String, Object> frozen = jdbc.queryForMap("SELECT site_geofence_latitude_snapshot lat,site_geofence_radius_snapshot radius FROM jornadas WHERE id=?",
-                earlier.toString());
-        assertEquals(0, new BigDecimal("-34.6037").compareTo((BigDecimal) frozen.get("lat")));
-        assertEquals(500, ((Number) frozen.get("radius")).intValue());
+        String newFence = switch (change) {
+            case "MOVED" -> "-34.5937/500";
+            case "REMOVED" -> "null/null";
+            default -> "-34.6037/50";
+        };
+        assertEquals(List.of("-34.6037/500", "-34.6037/500", newFence, newFence), List.of(fence(past), fence(started), fence(notStarted), fence(later)));
 
-        // 88.956 + 11.04 m: inside the frozen 500 m, outside a 50 m radius and far from the moved center.
-        location(mark(earlier, at(DAY, "12:00:00"), "INGRESO"), NEAR_LAT, LON, 11.04).expect(202);
-        UUID laterIngreso = mark(later, at(DAY.plusDays(1), "12:00:00"), "INGRESO");
-        location(laterIngreso, NEAR_LAT, LON, 11.04).expect(202);
+        // 88.956 + 11.04 m: inside the 500 m the started jornada froze, outside a 50 m radius and far from the moved center.
+        location(mark(started, at(DAY, "14:00:00"), "SALIDA_DESAYUNO"), NEAR_LAT, LON, 11.04).expect(202);
+        UUID nextDay = mark(notStarted, at(DAY.plusDays(1), "12:00:00"), "INGRESO");
+        location(nextDay, NEAR_LAT, LON, 11.04).expect(202);
 
-        assertEquals(0, count("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE'", earlier));
-        assertEquals(laterJornadaOutside ? laterIngreso.toString() : null, activeAnchor(later));
+        assertEquals(0, count("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE'", started));
+        assertEquals(outsideUnderTheNewFence ? nextDay.toString() : null, activeAnchor(notStarted));
+    }
+
+    // R4 edges: "today" is the site's local date (01:00Z is still the previous day in Buenos Aires); a jornada whose only mark was
+    // voided was started and keeps its fence; a cancelled jornada and the jornadas of another site are not touched.
+    @Test
+    void r4TodayIsTheSitesLocalDateAVoidedMarkStillCountsAsStartedAndOtherSitesAreUntouched() {
+        fixture.siteCenter(company, site, CENTER_LAT, LON, 100);
+        UUID norte = fixture.site(company, "Norte", "America/Argentina/Buenos_Aires");
+        fixture.siteCenter(company, norte, CENTER_LAT, LON, 100);
+        UUID norteTemplate = fixture.template(company, norte, "Norte", List.of(Fixture.Block.sameDay("09:00", "17:00")), 20, 30);
+        Fixture.Employee beto = fixture.employee(company, "Beto", List.of(site), 10);
+        Fixture.Employee carla = fixture.employee(company, "Carla", List.of(site, norte), 10);
+        UUID voided = declare(DAY);
+        UUID absent = fixture.declare(company, beto.id(), site, DAY, template);
+        UUID cancelled = fixture.declare(company, carla.id(), site, DAY, template);
+        UUID otherSite = fixture.declare(company, carla.id(), norte, DAY.plusDays(1), norteTemplate);
+        UUID ingreso = mark(voided, at(DAY, "12:00:00"), "INGRESO");
+        clock.set(at(DAY, "12:01:00"));
+        voidMark(ingreso).expect(200);
+        company.admin().post("/api/v1/admin/jornadas/" + cancelled + "/cancellation", Map.of("reason", "Store closed")).expect(200);
+        assertEquals("NO_INGRESO", jdbc.queryForObject("SELECT state FROM jornadas WHERE id=?", String.class, voided.toString()));
+
+        clock.set(at(DAY.plusDays(1), "01:00:00")); // 22:00 of DAY in Buenos Aires
+        fixture.siteCenter(company, site, FAR_LAT, LON, 200);
+
+        assertEquals(List.of("-34.6037/100", "-34.5937/200", "-34.6037/100", "-34.6037/100"),
+                List.of(fence(voided), fence(absent), fence(cancelled), fence(otherSite)));
     }
 
     // S41 and an employee without GPS: no location becomes SIN_UBICACION; it is FUERA_DE_SEDE only where the jornada has a
-    // center, because D-20261027-12 and ESPECIFICACION.md say a missing location generates FUERA_DE_SEDE.
+    // center, because D-20261027-12 and ESPECIFICACION.md say a missing location generates FUERA_DE_SEDE. A jornada started
+    // while the site had no center is never evaluated, even after the center is set (R4 only reaches jornadas not started).
     @Test
-    void s41JornadaDeclaredWithoutCenterIsNeverEvaluatedAndANoGpsEmployeeIsOutsideOnlyWhereThereIsACenter() {
+    void s41JornadaStartedWithoutCenterIsNeverEvaluatedAndANoGpsEmployeeIsOutsideOnlyWhereThereIsACenter() {
         UUID withoutCenter = declare(DAY);
+        UUID first = mark(withoutCenter, at(DAY, "12:00:00"), "INGRESO");
+        clock.set(at(DAY, "12:00:31"));
+        scheduler.resolveLocationTimeouts();
         fixture.siteCenter(company, site, CENTER_LAT, LON, 100);
         UUID withCenter = declare(DAY.plusDays(1));
         assertNull(jdbc.queryForObject("SELECT site_geofence_radius_snapshot FROM jornadas WHERE id=?", Integer.class, withoutCenter.toString()));
 
-        UUID first = mark(withoutCenter, at(DAY, "12:00:00"), "INGRESO");
-        clock.set(at(DAY, "12:00:31"));
-        scheduler.resolveLocationTimeouts();
         location(mark(withoutCenter, at(DAY, "14:00:00"), "SALIDA_DESAYUNO"), FAR_LAT, LON, 5).expect(202);
         assertEquals("SIN_UBICACION", locationStatus(first));
         assertEquals(0, count("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE'", withoutCenter));
@@ -286,10 +322,12 @@ class GeofenceSpecTest extends CampaignTestBase {
         assertEquals(ingreso.toString(), jdbc.queryForObject("SELECT id FROM mark_events WHERE jornada_id=? AND voided_at IS NULL", String.class, jornada.toString()));
     }
 
-    // CHAR: re-anchoring ignores a mark whose location is still PENDIENTE, so the deviation is retracted; when that location
-    // then arrives outside, the same row reopens as a new fact without the motive the employee had written — confirm with Mateo.
-    @Test
-    void s42VoidedAnchorWithTheOtherLocationStillPendingIsRetractedAndReopensWithoutTheMotive() {
+    // S42 with the other location still PENDIENTE (issue #77; it was retracted and then reopened without the motive): that
+    // location may still arrive outside or expire to SIN_UBICACION, which is outside where there is a center (D-20261027-12), so
+    // the deviation moves to that mark and keeps the motive; it is retracted only if the location then arrives inside.
+    @ParameterizedTest(name = "the pending location then {0}")
+    @ValueSource(strings = {"ARRIVES_OUTSIDE", "EXPIRES", "ARRIVES_INSIDE"})
+    void s42VoidedAnchorWithTheOtherLocationStillPendingKeepsTheDeviationAndItsMotiveUntilThatLocationSettles(String then) {
         fixture.siteCenter(company, site, CENTER_LAT, LON, 100);
         UUID jornada = declare(DAY);
         UUID ingreso = mark(jornada, at(DAY, "12:00:00"), "INGRESO");
@@ -297,21 +335,59 @@ class GeofenceSpecTest extends CampaignTestBase {
         location(anchor, FAR_LAT, LON, 5).expect(202);
         UUID deviation = UUID.fromString(activeAnchorDeviation(jornada));
         employee.client().put("/api/v1/deviations/" + deviation + "/motive", Map.of("category", "OTRA", "text", "Picked up keys next door")).expect(200);
+        classify(deviation).expect(200);
 
         clock.set(at(DAY, "12:00:10"));
         voidMark(anchor).expect(200);
-        assertNull(activeAnchor(jornada));
 
-        clock.set(at(DAY, "12:00:20"));
-        location(ingreso, FAR_LAT, LON, 5).expect(202);
         assertEquals(ingreso.toString(), activeAnchor(jornada));
         assertEquals(deviation.toString(), activeAnchorDeviation(jornada));
-        assertNull(jdbc.queryForMap("SELECT motive_category FROM deviations WHERE id=?", deviation.toString()).get("motive_category"));
+        assertEquals(1, count("SELECT COUNT(*) FROM deviation_audits WHERE deviation_id=? AND change_type='CLASSIFICATION_RESET' "
+                + "AND before_classification='JUSTIFICADO' AND audit_reason='Source mark changed'", deviation));
+        assertEquals("PENDIENTE_REVISION", only(company.admin().get("/api/v1/deviations").expect(200).body(), "FUERA_DE_SEDE").get("status").asText());
+
+        switch (then) {
+            case "ARRIVES_OUTSIDE" -> { clock.set(at(DAY, "12:00:20")); location(ingreso, FAR_LAT, LON, 5).expect(202); }
+            case "EXPIRES" -> { clock.set(at(DAY, "12:00:31")); scheduler.resolveLocationTimeouts(); }
+            default -> { clock.set(at(DAY, "12:00:20")); location(ingreso, CENTER_LAT, LON, 5).expect(202); }
+        }
+
+        Map<String, Object> row = jdbc.queryForMap("SELECT active,motive_category,classification FROM deviations WHERE id=?", deviation.toString());
+        assertEquals("OTRA", row.get("motive_category"));
+        assertNull(row.get("classification"));
+        assertEquals(1, count("SELECT COUNT(*) FROM deviation_audits WHERE deviation_id=? AND change_type='CREATED'", deviation));
+        if ("ARRIVES_INSIDE".equals(then)) {
+            assertNull(activeAnchor(jornada));
+            assertEquals(1, count("SELECT COUNT(*) FROM deviation_audits WHERE deviation_id=? AND change_type='RETRACTED'", deviation));
+        } else {
+            assertEquals(ingreso.toString(), activeAnchor(jornada));
+            assertEquals(0, count("SELECT COUNT(*) FROM deviation_audits WHERE deviation_id=? AND change_type='RETRACTED'", deviation));
+        }
     }
 
-    // S39 x S42: the second evaluation reads the stored accuracy (DECIMAL(9,2)) while the first used the reported value.
+    // S42: a mark already outside takes the anchor before one whose location is still pending, even if it comes later.
     @Test
-    @KnownDefect(issue = "#77", reason = "Re-anchoring evaluates the stored accuracy rounded to 2 decimals, so a mark reported 100.004 m off a 100 m radius counts as outside at receipt and inside after the anchor is voided.")
+    void s42ReAnchoringPrefersAMarkAlreadyOutsideOverAnEarlierOneStillPending() {
+        fixture.siteCenter(company, site, CENTER_LAT, LON, 100);
+        UUID jornada = declare(DAY);
+        mark(jornada, at(DAY, "12:00:00"), "INGRESO"); // its location never arrives in this test
+        UUID salida = mark(jornada, at(DAY, "12:00:05"), "SALIDA_DESAYUNO");
+        UUID vuelta = mark(jornada, at(DAY, "12:00:08"), "VUELTA_DESAYUNO");
+        clock.set(at(DAY, "12:00:09"));
+        location(vuelta, FAR_LAT, LON, 5).expect(202);
+        clock.set(at(DAY, "12:00:10"));
+        location(salida, FAR_LAT, LON, 5).expect(202);
+        assertEquals(vuelta.toString(), activeAnchor(jornada));
+
+        clock.set(at(DAY, "12:00:15"));
+        voidMark(vuelta).expect(200);
+
+        assertEquals(salida.toString(), activeAnchor(jornada));
+    }
+
+    // S39 x S42 (issue #77): both evaluations judge the values as stored. The accuracy is stored rounded up to the centimeter
+    // (100.004 -> 100.01), never down, so a mark outside by the reported value is outside at receipt and after re-anchoring.
+    @Test
     void s42ReAnchoringJudgesTheOtherMarkWithTheAccuracyItReported() {
         fixture.siteCenter(company, site, CENTER_LAT, LON, 100);
         UUID jornada = declare(DAY);
@@ -320,6 +396,8 @@ class GeofenceSpecTest extends CampaignTestBase {
         location(anchor, FAR_LAT, LON, 5).expect(202);
         clock.set(at(DAY, "12:00:10"));
         location(ingreso, CENTER_LAT, LON, 100.004).expect(202); // 0 + 100.004 > 100: outside by the rule
+        assertEquals(0, new BigDecimal("100.01").compareTo(jdbc.queryForObject("SELECT accuracy_meters FROM mark_events WHERE id=?",
+                BigDecimal.class, ingreso.toString())));
         clock.set(at(DAY, "12:01:00"));
         voidMark(anchor).expect(200);
 
@@ -451,6 +529,15 @@ class GeofenceSpecTest extends CampaignTestBase {
 
     private String activeAnchorDeviation(UUID jornada) {
         return jdbc.queryForObject("SELECT id FROM deviations WHERE jornada_id=? AND type='FUERA_DE_SEDE' AND active", String.class, jornada.toString());
+    }
+
+    /** The jornada's frozen fence as "latitude/radius", or "null/null" without one. */
+    private String fence(UUID jornada) {
+        Map<String, Object> row = jdbc.queryForMap("SELECT site_geofence_latitude_snapshot lat,site_geofence_radius_snapshot radius FROM jornadas WHERE id=?",
+                jornada.toString());
+        Object latitude = row.get("lat"), radius = row.get("radius");
+        return (latitude == null ? "null" : ((BigDecimal) latitude).stripTrailingZeros().toPlainString()) + "/"
+                + (radius == null ? "null" : String.valueOf(((Number) radius).intValue()));
     }
 
     private String locationStatus(UUID markId) {

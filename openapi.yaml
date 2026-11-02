@@ -265,9 +265,11 @@ paths:
         supplied. Automatic capture uses high accuracy, maximumAge=0, a 30-second total deadline, and accepts only a
         finite reported accuracy from 0 through 25 meters. Manual coordinates use the same latitude and longitude bounds.
         `locationSource` records CAPTURED or MANUAL in the location audit and is required when the center is set or moved
-        (422 VALIDATION_ERROR otherwise); a radius-only change or a cleared center takes none. Each jornada keeps the center
-        and radius in force when it was declared (D-20261030-02): a jornada declared while the site has no center snapshots
-        no geofence and is not evaluated later, even if the site is configured afterward. Every successful change is audited with its actor, server time, previous
+        (422 VALIDATION_ERROR otherwise); a radius-only change or a cleared center takes none. A jornada freezes the center
+        and radius in force when it is declared (D-20261030-02), and a change made here also replaces them, in the same
+        transaction, on the site's jornadas not started yet (NO_INGRESO with no mark, even a voided one) whose local date is
+        today in the site's zone or later (D-20261102-01). A started, past or cancelled jornada keeps what it froze; one started
+        while the site had no center is never evaluated. Every successful change is audited with its actor, server time, previous
         center/radius, and new center/radius. Creating a site with a configured center or non-default radius also creates
         an audit entry; a site created with no center and the default radius has no location-change entry.
       parameters:
@@ -835,8 +837,10 @@ paths:
         seconds. The deviation refers to the first triggering mark; later marks remain allowed and visible in mark history. If that
         mark stops supporting it (voided, or its on-time location falls inside) and another employee mark of the jornada is still
         outside or unknown, the same deviation moves to that mark, keeps its motive, and its classification goes back to review
-        (audited as CLASSIFICATION_RESET); otherwise it is retracted. A jornada
-        declared without a site center has no geofence assessment (D-20261030-02). This evaluation
+        (audited as CLASSIFICATION_RESET); a mark whose location is still pending also keeps it, after any mark already outside or
+        unknown, and the rule applies again if that location then falls inside; otherwise it is retracted. Every evaluation uses
+        the values as stored: coordinates rounded to 7 decimals and accuracyMeters rounded up to the centimeter. A jornada
+        without a site center has no geofence assessment (D-20261030-02, D-20261102-01). This evaluation
         never blocks a mark and FUERA_DE_SEDE is not push-eligible.
       parameters:
         - $ref: '#/components/parameters/MarkId'
