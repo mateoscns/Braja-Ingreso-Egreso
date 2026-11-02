@@ -27,8 +27,9 @@ chequeo estático. Una instrucción en lenguaje natural no es una garantía.
 
 Estado al 2026-11-02 (tercera verificación completa, §9: sobre la rama de
 integración `0be9c05`, que reúne sobre `main` `1288e23` los PRs #84 a #94 de la
-campaña de pruebas previa a producción, issue #72; al fusionarse, `main` en
-`<sha de main tras el merge>`): hay backend, frontend, `openapi.yaml`, CI, la
+campaña de pruebas previa a producción, issue #72; `./mvnw verify` 682 tests y la
+simulación de 90 días en verde ahí, y `c6a04ad` suma #95, la regla final de zonas
+y los ajustes del deploy, validado por el CI del PR de release): hay backend, frontend, `openapi.yaml`, CI, la
 campaña de pruebas con su simulación, la pila de deploy de `deploy/`
 (`backend/Dockerfile`, compose, Caddy y scripts) y 66 decisiones adoptadas (0
 propuestas). La geocerca de sedes (issue #67) entró con el PR #69 el
@@ -1126,5 +1127,6 @@ si cada clon hace `git config core.hooksPath .githooks`**. Hoy no existe
    2026-10-20, sobre `main` en `5e61d0a5bb6b81c26603f42e9093bf85e9baab4a`.
    Segunda: 2026-10-28, sobre `main` en
    `f3c96357b9b0e40a29b56880ca8c1850ca6a6481`. Tercera: 2026-11-02, sobre la
-   rama de integración `0be9c05` de los PRs #84 a #94; al fusionarse, `main` en
-   `<sha de main tras el merge>`. Se repite al cerrar cada hueco de §7.
+   rama de integración `0be9c05` de los PRs #84 a #94 (682 tests y la simulación
+   de 90 días en verde), más `c6a04ad` con #95, validado por el CI del PR de
+   release. Se repite al cerrar cada hueco de §7.
