@@ -101,7 +101,7 @@ public class SecurityConfiguration {
                 .securityContext(context -> context.securityContextRepository(contextRepository))
                 .sessionManagement(session -> session.sessionFixation(fixation -> fixation.changeSessionId()))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/v1/public-config", "/api/v1/csrf", "/error").permitAll()
+                        .requestMatchers("/api/v1/public-config", "/api/v1/csrf", "/api/v1/health", "/error").permitAll()
                         .requestMatchers("/api/v1/session").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(errors -> errors

@@ -43,7 +43,7 @@ class EndpointContractSpecTest extends CampaignTestBase {
     private static final Path MAIN_SOURCES = Path.of("src", "main", "java");
     private static final LocalDate DAY = LocalDate.parse("2027-03-02");
     private static final String ENDPOINT = "https://fcm.googleapis.com/fcm/send/";
-    private static final Set<String> PUBLIC = Set.of("GET /public-config", "GET /csrf", "POST /session");
+    private static final Set<String> PUBLIC = Set.of("GET /public-config", "GET /csrf", "POST /session", "GET /health");
     /** S13: operations no HTTP test outside campaign/ called before the campaign (grep of backend/src/test/java on 2026-11-02). */
     private static final Set<String> PREVIOUSLY_UNTESTED = Set.of("GET /public-config", "GET /companies", "POST /sites", "GET /employees",
             "GET /templates", "GET /jornadas/mine", "PUT /push/subscriptions", "DELETE /push/subscriptions/{subscriptionId}");
@@ -143,13 +143,14 @@ class EndpointContractSpecTest extends CampaignTestBase {
             }
         }
         assertEquals(documentedOperations(), backend, "openapi.yaml and the backend's /api/v1 routes must list the same operations");
-        assertEquals(41, backend.size());
+        assertEquals(42, backend.size());
     }
 
     @Test
     void s9EveryDocumentedOperationAnswersItsDocumentedStatusAndShapeOnAHappyPath() {
         ApiClient anonymous = fixture.client("anonymous");
         ok("GET /public-config", anonymous.get(API + "/public-config"));
+        ok("GET /health", anonymous.get(API + "/health"));
         ok("GET /csrf", anonymous.get(API + "/csrf"));
 
         Fixture.Company company = fixture.company("Contrato");

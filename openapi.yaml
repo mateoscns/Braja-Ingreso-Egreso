@@ -21,7 +21,30 @@ tags:
   - name: Deviations
   - name: Inbox
   - name: Push
+  - name: Operations
 paths:
+  /health:
+    get:
+      tags: [Operations]
+      summary: Report whether the backend can reach its database
+      description: >-
+        Anonymous health gate for the deploy script and the container healthchecks. Runs SELECT 1 on MySQL and returns
+        no data, opens no session and needs no CSRF token. Never cached.
+      security: []
+      responses:
+        '200':
+          description: The backend is up and its database answers
+          headers:
+            Cache-Control:
+              schema: { type: string, enum: [no-store] }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+        '503':
+          description: The database does not answer (code DATABASE_UNAVAILABLE)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
   /public-config:
     get:
       tags: [Session]
@@ -1247,6 +1270,11 @@ components:
       schema: { $ref: '#/components/schemas/Id' }
   schemas:
     Id: { type: string, format: uuid }
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [UP] }
     PublicConfig:
       type: object
       required: [pushEnabled, vapidPublicKey]

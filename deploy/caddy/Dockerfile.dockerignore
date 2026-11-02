@@ -1,0 +1,11 @@
+# BuildKit reads this file instead of a root .dockerignore because it sits next to deploy/caddy/Dockerfile.
+# The context is the repository root; only the frontend sources and the Caddyfile go in.
+*
+!frontend/
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/.env
+frontend/.env.*
+frontend/*.tsbuildinfo
+!deploy/caddy/Caddyfile
