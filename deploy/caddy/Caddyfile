@@ -8,7 +8,10 @@
 
 {$BRAJA_DOMAIN} {
 	root * /srv
-	encode zstd gzip
+	# Static files only: /api is never compressed, so a response carrying a secret (the CSRF token) cannot be
+	# probed by its compressed length (BREACH).
+	@static not path /api /api/*
+	encode @static zstd gzip
 
 	# Deferred so they also replace whatever the backend sends. The CSP allows only same-origin scripts, styles,
 	# API calls, the service worker and the manifest: the PWA loads nothing from other origins (2026-11-02).

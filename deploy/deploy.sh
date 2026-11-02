@@ -62,6 +62,13 @@ wait_healthy() {
     if [ "$body" = '{"status":"UP"}' ]; then log "Healthy"; return 0; fi
     sleep 5
   done
+  # Tell the operator which half failed: a healthy backend behind a Caddy without a certificate (DNS not pointing
+  # here yet, Let's Encrypt not issued) is a different problem from a backend that does not start.
+  if compose exec -T backend curl -fsS --max-time 5 http://127.0.0.1:8080/api/v1/health >/dev/null 2>&1; then
+    log "The backend is healthy, but https://$domain/api/v1/health does not answer through Caddy: check DNS (an A record to this server) and the certificate (docker compose -p braja logs caddy)"
+  else
+    log "The backend itself is not healthy"
+  fi
   return 1
 }
 
