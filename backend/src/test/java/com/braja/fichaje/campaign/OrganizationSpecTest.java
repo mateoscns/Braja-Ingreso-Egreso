@@ -459,18 +459,50 @@ class OrganizationSpecTest extends CampaignTestBase {
 
     // S54 ------------------------------------------------------------------------------------------------------------
 
-    @Test
-    void s54CharAPastDateIsAcceptedAndTheNextAbsenceTickFlagsItAndQueuesAPush() {
-        // CHAR: declaring a date already gone is accepted (only 2000-2100 is checked), and the next tick creates SIN_INGRESO
-        // for it at once, which also queues a push to the ADMIN for a day long past — confirm with Mateo.
+    /**
+     * R1 and R2 (D-20261102-02, D-20261102-03): declaring a date already gone is accepted (only 2000-2100 is checked). The next
+     * tick, 2027-03-01 10:00 in Buenos Aires, records SIN_INGRESO only if the date is one of the last 7 local days (from 2027-02-23)
+     * and never pushes it, because it was due days before it was detected.
+     */
+    @ParameterizedTest(name = "{0} -> {1}")
+    @CsvSource({"2027-02-22, ''", "2027-02-23, SIN_INGRESO", "2027-02-28, SIN_INGRESO"})
+    void s54APastDateIsFlaggedOnlyWithinTheLastSevenLocalDaysAndNeverPushed(LocalDate date, String expected) {
         ana = ana();
-        UUID past = fixture.declare(company, ana.id(), site, LocalDate.parse("2027-02-20"), morning);
+        UUID past = fixture.declare(company, ana.id(), site, date, morning);
         assertEquals(List.of(), activeTypes(past));
 
+        absenceJob(at(DAY, "13:00"));
+
+        assertEquals(expected.isEmpty() ? List.of() : List.of(expected), activeTypes(past));
+        assertEquals(0, count("SELECT COUNT(*) FROM notification_outbox_events"));
+    }
+
+    // R3 -------------------------------------------------------------------------------------------------------------
+
+    /**
+     * R3 (D-20261102-03): Ana is deactivated before her 2027-02-10 shift and reactivated on 2027-03-01 at 20:00 in Buenos Aires,
+     * with a jornada declared every day in between. The reactivation tick flags only the last 7 local days (02-23 to 03-01) and
+     * pushes none of them: the freshest was due almost 11 h before.
+     */
+    @Test
+    void r3AReactivationFlagsOnlyTheLastSevenLocalDaysOfTheInactiveSpanAndPushesNone() {
+        clock.set(at(LocalDate.parse("2027-02-10"), "10:00"));
+        ana = ana();
+        bulk(List.of(ana.id()), LocalDate.parse("2027-02-10"), DAY, List.of(1, 2, 3, 4, 5, 6, 7), morning).expect(200);
+        company.admin().patch("/api/v1/employees/" + ana.id(), Map.of("active", false)).expect(200);
+        absenceJob(at(DAY, "22:59"));
+        assertEquals(0, count("SELECT COUNT(*) FROM deviations"), "an inactive employee is never flagged");
+
+        Instant reactivation = at(DAY, "23:00");
+        clock.set(reactivation);
+        company.admin().patch("/api/v1/employees/" + ana.id(), Map.of("active", true)).expect(200);
         markScheduler.createDueAbsences();
 
-        assertEquals(List.of("SIN_INGRESO"), activeTypes(past));
-        assertEquals(1, count("SELECT COUNT(*) FROM notification_outbox_events WHERE deviation_id=?", onlyActiveDeviation(past)));
+        assertEquals(List.of("2027-02-23", "2027-02-24", "2027-02-25", "2027-02-26", "2027-02-27", "2027-02-28", "2027-03-01"),
+                jdbc.queryForList("SELECT DATE_FORMAT(j.local_date, '%Y-%m-%d') FROM deviations d JOIN jornadas j ON j.id = d.jornada_id"
+                        + " WHERE d.type = 'SIN_INGRESO' AND d.active AND d.created_at = ? ORDER BY j.local_date", String.class, Timestamp.from(reactivation)));
+        assertEquals(7, count("SELECT COUNT(*) FROM deviations"));
+        assertEquals(0, count("SELECT COUNT(*) FROM notification_outbox_events"));
     }
 
     // helpers --------------------------------------------------------------------------------------------------------

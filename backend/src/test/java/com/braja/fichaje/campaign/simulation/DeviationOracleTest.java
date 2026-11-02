@@ -25,6 +25,8 @@ class DeviationOracleTest {
     private static final double LAT = -34.6037, LON = -58.3816;
     private static final DeviationOracle.Geofence FENCE = new DeviationOracle.Geofence(LAT, LON, 100);
     private static final Instant LATE_NOW = END.plus(Duration.ofHours(5));
+    private static final java.time.LocalDate DATE = java.time.LocalDate.parse("2027-03-01");
+    private static final java.time.ZoneId ZONE = java.time.ZoneId.of("America/Argentina/Buenos_Aires");
 
     private int ids;
 
@@ -65,6 +67,33 @@ class DeviationOracleTest {
         assertEquals(Set.of("MARCA_FALTANTE"), expect(open, END.plus(TOL).plus(MICRO)).active());
         assertEquals("PAUSA_ABIERTA", expect(open, LATE_NOW).state());
         assertEquals(Set.of("MARCA_FALTANTE"), DeviationOracle.expect(open, LATE_NOW, false).uncertain());
+    }
+
+    // D-20261102-02: the jobs only flag jornadas of the last 7 local days, today included, in the jornada's zone.
+    @Test
+    void jobMadeDeviationsAreExpectedForTheLastSevenLocalDaysAndUncertainBefore() {
+        // 2027-03-07 23:59:59.999999 in Buenos Aires: 2027-03-01 is the oldest of the seven local days.
+        Instant lastMomentOfTheWindow = Instant.parse("2027-03-08T02:59:59.999999Z");
+        assertEquals(Set.of("SIN_INGRESO"), expect(jornada(null), lastMomentOfTheWindow).active());
+        DeviationOracle.Expectation absence = expect(jornada(null), lastMomentOfTheWindow.plus(MICRO));
+        assertEquals(Set.of(), absence.active());
+        assertEquals(Set.of("SIN_INGRESO"), absence.uncertain());
+        DeviationOracle.Jornada open = jornada(null, mark("INGRESO", START));
+        assertEquals(Set.of("MARCA_FALTANTE"), expect(open, lastMomentOfTheWindow).active());
+        assertEquals(Set.of("MARCA_FALTANTE"), expect(open, lastMomentOfTheWindow.plus(MICRO)).uncertain());
+        // A late arrival is not job-made: it stays expected however old the jornada is.
+        assertEquals(Set.of("LLEGADA_TARDE"), expect(jornada(null, mark("INGRESO", START.plus(Duration.ofHours(1))), mark("EGRESO", END)),
+                lastMomentOfTheWindow.plus(Duration.ofDays(30))).active());
+    }
+
+    @Test
+    void theSevenDaysAreCountedInTheJornadasZone() {
+        // 2027-03-07T20:00Z is 03-07 17:00 in Buenos Aires (window from 03-01) but 03-08 05:00 in Tokyo (window from 03-02).
+        Instant now = Instant.parse("2027-03-07T20:00:00Z");
+        assertEquals(Set.of("SIN_INGRESO"), expect(jornada(null), now).active());
+        DeviationOracle.Jornada tokyo = new DeviationOracle.Jornada(DATE, java.time.ZoneId.of("Asia/Tokyo"), START, END, 10, 20, 30, null, false, List.of());
+        assertEquals(Set.of(), expect(tokyo, now).active());
+        assertEquals(Set.of("SIN_INGRESO"), expect(tokyo, now).uncertain());
     }
 
     @Test
@@ -144,7 +173,7 @@ class DeviationOracleTest {
         assertEquals("EN_CURSO", expect(jornada(null, mark("INGRESO", START)), START).state());
         assertEquals("PAUSA_ABIERTA", expect(jornada(null, mark("INGRESO", START), mark("SALIDA_ALMUERZO", START)), START).state());
         assertEquals("EGRESADA", expect(jornada(null, mark("INGRESO", START), mark("EGRESO", END)), END).state());
-        DeviationOracle.Jornada cancelled = new DeviationOracle.Jornada(START, END, 10, 20, 30, FENCE, true, List.of());
+        DeviationOracle.Jornada cancelled = new DeviationOracle.Jornada(DATE, ZONE, START, END, 10, 20, 30, FENCE, true, List.of());
         assertEquals(new DeviationOracle.Expectation("CANCELADA", Set.of(), Set.of(), Set.of()), DeviationOracle.expect(cancelled, LATE_NOW, true));
     }
 
@@ -190,7 +219,7 @@ class DeviationOracleTest {
     }
 
     private static DeviationOracle.Jornada jornada(DeviationOracle.Geofence fence, DeviationOracle.Mark... marks) {
-        return new DeviationOracle.Jornada(START, END, 10, 20, 30, fence, false, new ArrayList<>(Arrays.asList(marks)));
+        return new DeviationOracle.Jornada(DATE, ZONE, START, END, 10, 20, 30, fence, false, new ArrayList<>(Arrays.asList(marks)));
     }
 
     private DeviationOracle.Mark mark(String action, Instant at) {

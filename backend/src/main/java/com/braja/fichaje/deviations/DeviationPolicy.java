@@ -2,10 +2,33 @@ package com.braja.fichaje.deviations;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Objects;
 import java.util.Optional;
 
 public final class DeviationPolicy {
+    /**
+     * D-20261102-02: the absence and MARCA_FALTANTE jobs only consider jornadas whose local date falls in the last 7 local days,
+     * today included; older jornadas are never flagged automatically (a first deploy or a reactivation does not flag months).
+     */
+    public static final int JOB_LOOKBACK_DAYS = 7;
+    /**
+     * D-20261102-03: a push-eligible deviation queues a push only when it is detected at most 2 h after its fact (SIN_INGRESO:
+     * first block start + tolerance; LLEGADA_TARDE: the ingress mark's time). Older facts are still recorded, without a push.
+     */
+    public static final Duration PUSH_FRESHNESS = Duration.ofHours(2);
+
+    /** The oldest local date the deviation jobs still consider when the jornada's local date today is {@code today}. */
+    public LocalDate oldestJobDate(LocalDate today) {
+        return Objects.requireNonNull(today, "today").minusDays(JOB_LOOKBACK_DAYS - 1L);
+    }
+
+    /** Whether a deviation whose fact happened at {@code occurredAt} and is detected at {@code detectedAt} still notifies. */
+    public boolean freshForPush(Instant occurredAt, Instant detectedAt) {
+        Objects.requireNonNull(occurredAt, "occurredAt");
+        Objects.requireNonNull(detectedAt, "detectedAt");
+        return !detectedAt.isAfter(occurredAt.plus(PUSH_FRESHNESS));
+    }
 
     public Optional<DeviationType> arrival(Instant scheduledStart, int toleranceMinutes, Instant occurredAt) {
         validateTolerance(toleranceMinutes);

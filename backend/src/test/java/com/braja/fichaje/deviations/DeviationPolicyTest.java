@@ -55,4 +55,21 @@ class DeviationPolicyTest {
         assertEquals(Optional.of(DeviationType.EXCESO_ALMUERZO),
                 policy.pause(Duration.ofMinutes(15).plusSeconds(1), 15, DeviationType.EXCESO_ALMUERZO));
     }
+
+    // D-20261102-02: the jobs look at the last 7 local days, today included.
+    @Test
+    void theJobsOldestDateIsSixDaysBeforeTodaySoTheWindowHoldsSevenLocalDays() {
+        assertEquals(java.time.LocalDate.parse("2027-02-23"), policy.oldestJobDate(java.time.LocalDate.parse("2027-03-01")));
+        assertEquals(7, DeviationPolicy.JOB_LOOKBACK_DAYS);
+    }
+
+    // D-20261102-03: a push only for a fact detected at most 2 h after it happened.
+    @Test
+    void aDeviationIsFreshForAPushUpToExactlyTwoHoursAfterItsFact() {
+        Instant due = scheduledStart.plus(Duration.ofMinutes(10));
+        assertTrue(policy.freshForPush(due, due));
+        assertTrue(policy.freshForPush(due, due.plus(Duration.ofHours(2))));
+        assertEquals(false, policy.freshForPush(due, due.plus(Duration.ofHours(2)).plusNanos(1000)));
+        assertTrue(policy.freshForPush(due, due.minusSeconds(1)), "a fact after its detection (clock skew) still notifies");
+    }
 }

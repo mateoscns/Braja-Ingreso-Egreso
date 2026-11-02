@@ -117,7 +117,7 @@ public class DeviationService {
                     jdbc.update("INSERT INTO deviation_audits(id,company_id,deviation_id,change_type,before_type,after_type,actor_account_id,audit_reason,created_at) VALUES(?,?,?,'TYPE_REPLACED',?,?,NULL,'Corrected event reconciliation',?)",
                             UUID.randomUUID().toString(), companyId.toString(), current.id().toString(), current.type().name(), wanted.name(), timestamp(now));
                     auditClassificationReset(companyId, current.id(), current.classification(), current.type(), wanted, null, "Deviation type changed", now);
-                    if (wanted.isPushEligible()) notifications.enqueue(companyId, siteId, current.id(), wanted.name(), fact.occurredAt());
+                    enqueueIfFresh(companyId, siteId, current.id(), wanted, fact.occurredAt(), now);
                 } else if (!Objects.equals(current.sourceMarkId(), fact.markId())) {
                     // Only a real change touches the row: a no-op reconcile must not move updated_at.
                     jdbc.update("UPDATE deviations SET source_mark_id=?,updated_at=? WHERE id=? AND company_id=?",
@@ -141,7 +141,7 @@ public class DeviationService {
                         UUID.randomUUID().toString(), companyId.toString(), deviationId.toString(), wanted.name(), timestamp(now));
                 if (historical != null) auditClassificationReset(companyId, deviationId, historical.classification(), historical.type(), wanted, null, "Deviation reactivated", now);
                 active.put(wanted, new ExistingDeviation(deviationId, wanted, true, fact.markId(), null));
-                if (wanted.isPushEligible()) notifications.enqueue(companyId, siteId, deviationId, wanted.name(), fact.occurredAt());
+                enqueueIfFresh(companyId, siteId, deviationId, wanted, fact.occurredAt(), now);
             }
         }
 
@@ -255,6 +255,22 @@ public class DeviationService {
                 (rs, row) -> new ExistingDeviation(UUID.fromString(rs.getString("id")), DeviationType.valueOf(rs.getString("type")), rs.getBoolean("active"),
                         rs.getString("source_mark_id") == null ? null : UUID.fromString(rs.getString("source_mark_id")), rs.getString("classification")),
                 companyId.toString(), jornadaId.toString());
+    }
+
+    /**
+     * D-20261102-03: a deviation detected more than {@link DeviationPolicy#PUSH_FRESHNESS} after its fact is recorded without a
+     * push (a past date, a reactivation backlog, a first deploy or a forgotten mark loaded days later). Replacements and
+     * reactivations keep their outbox rules (rule 8) when they are fresh.
+     */
+    private void enqueueIfFresh(UUID companyId, UUID siteId, UUID deviationId, DeviationType type, Instant occurredAt, Instant now) {
+        if (!type.isPushEligible()) return;
+        if (policy.freshForPush(occurredAt, now)) {
+            notifications.enqueue(companyId, siteId, deviationId, type.name(), occurredAt);
+        } else {
+            // The operator must be able to tell "no push because it was stale" from a lost push (no personal data logged).
+            org.slf4j.LoggerFactory.getLogger(DeviationService.class)
+                    .info("Deviation {} {} recorded without push: detected after the freshness window", deviationId, type);
+        }
     }
 
     private void retract(UUID companyId, ExistingDeviation deviation, Instant now) {

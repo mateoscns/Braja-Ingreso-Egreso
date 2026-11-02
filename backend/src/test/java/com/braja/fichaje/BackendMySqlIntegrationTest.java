@@ -1083,11 +1083,23 @@ class BackendMySqlIntegrationTest {
         Instant start = now.minusSeconds(3600);
         Instant end = now.minusSeconds(600);
         String snapshot = "{\"siteId\":\"" + siteId + "\",\"name\":\"Turno\",\"blocks\":[{\"startDayOffset\":0,\"start\":\"08:00:00\",\"end\":\"16:00:00\",\"endDayOffset\":0}],\"breakfastLimitMinutes\":20,\"lunchLimitMinutes\":30}";
-        for (int i = 1; i <= 205; i++) {
-            UUID jornada = UUID.randomUUID();
-            jdbc.update("INSERT INTO jornadas(id,company_id,employee_id,site_id,template_id,local_date,time_zone,schedule_snapshot,tolerance_minutes,scheduled_start_at,scheduled_end_at,state,next_sequence,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,0,?,?,'NO_INGRESO',1,?,?)",
-                    jornada.toString(), companyId.toString(), employeeId.toString(), siteId.toString(), templateId.toString(), java.time.LocalDate.now().minusDays(i),
-                    "America/Argentina/Buenos_Aires", snapshot, java.sql.Timestamp.from(start), java.sql.Timestamp.from(end), accountId.toString(), java.sql.Timestamp.from(now));
+        // 205 candidates inside the jobs' 7-day window (D-20261102-02): 41 employees x the 5 previous local days.
+        java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneId.of("America/Argentina/Buenos_Aires"));
+        for (int e = 1; e <= 41; e++) {
+            UUID account = UUID.randomUUID();
+            UUID employee = UUID.randomUUID();
+            String dni = String.format("88%06d", e);
+            jdbc.update("INSERT INTO accounts(id,dni_normalized,dni_display,password_hash,must_change_password,active,created_at,updated_at) VALUES(?,?,?,?,FALSE,TRUE,?,?)",
+                    account.toString(), dni, dni, "unused-test-hash", java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
+            jdbc.update("INSERT INTO company_memberships(id,company_id,account_id,role,active,created_at) VALUES(?,?,?,'EMPLOYEE',TRUE,?)",
+                    UUID.randomUUID().toString(), companyId.toString(), account.toString(), java.sql.Timestamp.from(now));
+            jdbc.update("INSERT INTO employees(id,company_id,account_id,display_name,tolerance_minutes,active,created_at,updated_at) VALUES(?,?,?,?,?,TRUE,?,?)",
+                    employee.toString(), companyId.toString(), account.toString(), "Persona " + e, 10, java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
+            for (int d = 1; d <= 5; d++) {
+                jdbc.update("INSERT INTO jornadas(id,company_id,employee_id,site_id,template_id,local_date,time_zone,schedule_snapshot,tolerance_minutes,scheduled_start_at,scheduled_end_at,state,next_sequence,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,0,?,?,'NO_INGRESO',1,?,?)",
+                        UUID.randomUUID().toString(), companyId.toString(), employee.toString(), siteId.toString(), templateId.toString(), today.minusDays(d),
+                        "America/Argentina/Buenos_Aires", snapshot, java.sql.Timestamp.from(start), java.sql.Timestamp.from(end), accountId.toString(), java.sql.Timestamp.from(now));
+            }
         }
 
         marks.createDueAbsences(now, 200);

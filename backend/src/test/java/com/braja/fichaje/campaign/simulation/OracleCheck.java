@@ -23,7 +23,7 @@ import java.util.TreeSet;
  * geofence the model says were in force when it was declared). Three queries for the whole database, no N+1.
  */
 final class OracleCheck {
-    private record Row(String id, String employeeId, String state, Instant start, Instant end, int tolerance, String snapshot,
+    private record Row(String id, String employeeId, String state, java.time.LocalDate localDate, String zone, Instant start, Instant end, int tolerance, String snapshot,
                        BigDecimal latitude, BigDecimal longitude, Integer radius, boolean jobsSeeIt, boolean hasMembership) { }
 
     private record Active(String type, String sourceMarkId) { }
@@ -55,15 +55,16 @@ final class OracleCheck {
             activeByType.merge(rs.getString(2), 1L, Long::sum);
         });
         List<Row> rows = jdbc.query("""
-                SELECT j.id, j.employee_id, j.state, j.scheduled_start_at, j.scheduled_end_at, j.tolerance_minutes, j.schedule_snapshot,
+                SELECT j.id, j.employee_id, j.state, j.local_date, j.time_zone, j.scheduled_start_at, j.scheduled_end_at, j.tolerance_minutes, j.schedule_snapshot,
                        j.site_geofence_latitude_snapshot, j.site_geofence_longitude_snapshot, j.site_geofence_radius_snapshot,
                        (e.active AND a.active AND cm.active) AS jobs_see_it, cm.account_id IS NOT NULL AS has_membership
                 FROM jornadas j JOIN employees e ON e.id = j.employee_id AND e.company_id = j.company_id
                 JOIN accounts a ON a.id = e.account_id
                 LEFT JOIN company_memberships cm ON cm.company_id = e.company_id AND cm.account_id = e.account_id""",
-                (rs, n) -> new Row(rs.getString(1), rs.getString(2), rs.getString(3), rs.getTimestamp(4).toInstant(), rs.getTimestamp(5).toInstant(),
-                        rs.getInt(6), rs.getString(7), rs.getBigDecimal(8), rs.getBigDecimal(9), rs.getObject(10, Integer.class), rs.getBoolean(11),
-                        rs.getBoolean(12)));
+                (rs, n) -> new Row(rs.getString(1), rs.getString(2), rs.getString(3), rs.getObject(4, java.time.LocalDate.class), rs.getString(5),
+                        rs.getTimestamp(6).toInstant(), rs.getTimestamp(7).toInstant(),
+                        rs.getInt(8), rs.getString(9), rs.getBigDecimal(10), rs.getBigDecimal(11), rs.getObject(12, Integer.class), rs.getBoolean(13),
+                        rs.getBoolean(14)));
         for (Row row : rows) {
             SimWorld.Jornada model = world.jornadas.get(java.util.UUID.fromString(row.id()));
             String tag = model == null ? row.id() : model.tag();
@@ -79,7 +80,7 @@ final class OracleCheck {
             violations.addAll(frozen(tag, model, row, snapshot));
             DeviationOracle.Geofence fence = row.latitude() == null ? null
                     : new DeviationOracle.Geofence(row.latitude().doubleValue(), row.longitude().doubleValue(), row.radius());
-            DeviationOracle.Jornada facts = new DeviationOracle.Jornada(row.start(), row.end(), row.tolerance(),
+            DeviationOracle.Jornada facts = new DeviationOracle.Jornada(row.localDate(), java.time.ZoneId.of(row.zone()), row.start(), row.end(), row.tolerance(),
                     snapshot.get("breakfastLimitMinutes").asInt(), snapshot.get("lunchLimitMinutes").asInt(), fence,
                     "CANCELADA".equals(row.state()), marks.getOrDefault(row.id(), List.of()));
             DeviationOracle.Expectation expected = DeviationOracle.expect(facts, now, row.jobsSeeIt());

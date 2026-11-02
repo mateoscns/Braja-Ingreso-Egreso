@@ -150,17 +150,24 @@ final class SimulationDriver {
         if (instant.isAfter(ctx.now())) ctx.clock.set(instant);
     }
 
-    /** S77 (CHAR): the reactivation tick creates the backlog of the inactive days at once; the model predicts how many. */
+    /**
+     * S77 (R3, D-20261102-02/-03): the reactivation tick flags at once the inactive days of the last 7 local days only, and
+     * queues a push only for a SIN_INGRESO detected at most 2 h after it was due; the model predicts both counts.
+     */
     private String pinReactivationBacklog() {
         SimWorld.Employee rocio = ctx.world.employees.get(WorldSetup.DEACTIVATED);
         Instant from = chaos.deactivatedAt(), to = chaos.reactivatedAt();
         if (from == null || to == null) return "not reached";
-        int sinIngreso = 0, missing = 0;
+        int sinIngreso = 0, missing = 0, fresh = 0;
         for (SimWorld.Jornada jornada : ctx.world.jornadas.values()) {
             if (jornada.employee != rocio || jornada.cancelled) continue;
+            if (jornada.date.isBefore(LocalDate.ofInstant(to, jornada.site.zone).minusDays(DeviationOracle.JOB_LOOKBACK_DAYS - 1))) continue;
             List<String> actions = ctx.jornada(jornada.id).validActions();
             Instant absenceDue = jornada.start.plus(Duration.ofMinutes(jornada.tolerance)), egressDue = jornada.end.plus(Duration.ofMinutes(jornada.tolerance));
-            if (!actions.contains("INGRESO") && absenceDue.isAfter(from) && absenceDue.isBefore(to)) sinIngreso++;
+            if (!actions.contains("INGRESO") && absenceDue.isAfter(from) && absenceDue.isBefore(to)) {
+                sinIngreso++;
+                if (!to.isAfter(absenceDue.plus(DeviationOracle.PUSH_FRESHNESS))) fresh++;
+            }
             if (actions.contains("INGRESO") && !actions.contains("EGRESO") && egressDue.isAfter(from) && egressDue.isBefore(to)) missing++;
         }
         UUID employeeId = rocio.memberships.values().iterator().next().employeeId;
@@ -168,23 +175,23 @@ final class SimulationDriver {
                 employeeId.toString(), Timestamp.from(to));
         int pushes = ctx.count("SELECT COUNT(*) FROM notification_outbox_events e JOIN deviations d ON d.id=e.deviation_id WHERE d.employee_id=? AND d.created_at=?",
                 employeeId.toString(), Timestamp.from(to));
-        String pin = "S77 CHAR: reactivation at " + to + " created " + created + " deviations at once (model: " + sinIngreso + " SIN_INGRESO + "
-                + missing + " MARCA_FALTANTE of the inactive days), " + pushes + " of them queued for push";
+        String pin = "S77: reactivation at " + to + " created " + created + " deviations at once (model: " + sinIngreso + " SIN_INGRESO + "
+                + missing + " MARCA_FALTANTE of the inactive days within the last 7 local days), " + pushes + " of them queued for push (model: " + fresh + ")";
         ctx.ledger.note("S77", pin);
         ctx.ledger.count("S77 reactivation backlog", created);
-        if (created != sinIngreso + missing) ctx.ledger.violation(rocio.tag(), pin);
+        if (created != sinIngreso + missing || pushes != fresh) ctx.ledger.violation(rocio.tag(), pin);
         return pin;
     }
 
-    /** S54 (CHAR): a jornada declared for a past date gets SIN_INGRESO on the next tick and queues a push. */
+    /** S54 (R2, D-20261102-03): a jornada declared for a past date within the last 7 days gets SIN_INGRESO on the next tick, without a push. */
     private String pinPastDeclaration() {
         SimWorld.Jornada past = chaos.pastDeclared();
         if (past == null) return "not reached";
         int absences = ctx.count("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO'", past.id.toString());
         int pushes = ctx.count("SELECT COUNT(*) FROM notification_outbox_events e JOIN deviations d ON d.id=e.deviation_id WHERE d.jornada_id=?", past.id.toString());
-        String pin = "S54 CHAR: the jornada declared on " + ctx.ledger.date() + " for " + past.date + " got " + absences + " SIN_INGRESO and " + pushes + " push event(s)";
+        String pin = "S54: the jornada declared on " + ctx.ledger.date() + " for " + past.date + " got " + absences + " SIN_INGRESO and " + pushes + " push event(s)";
         ctx.ledger.note("S54", pin);
-        if (absences != 1 || pushes != 1) ctx.ledger.violation("admin:Braja", pin);
+        if (absences != 1 || pushes != 0) ctx.ledger.violation("admin:Braja", pin);
         return pin;
     }
 

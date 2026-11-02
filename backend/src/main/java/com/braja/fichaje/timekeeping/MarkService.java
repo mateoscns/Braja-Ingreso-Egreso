@@ -29,6 +29,7 @@ public class MarkService {
     private static final Duration EARLY_INGRESS_WINDOW = Duration.ofMinutes(30);
     private static final Duration ADMIN_EVENT_MARGIN = Duration.ofHours(24);
     private static final DeviationWorkerRetryPolicy DEVIATION_WORKER_RETRY_POLICY = new DeviationWorkerRetryPolicy();
+    private static final com.braja.fichaje.deviations.DeviationPolicy DEVIATION_POLICY = new com.braja.fichaje.deviations.DeviationPolicy();
 
     private final JdbcTemplate jdbc;
     private final ScopeService scopes;
@@ -282,24 +283,26 @@ public class MarkService {
                 "JOIN employees e ON e.id=j.employee_id AND e.company_id=j.company_id AND e.active=TRUE " +
                 "JOIN accounts a ON a.id=e.account_id AND a.active=TRUE " +
                 "JOIN company_memberships cm ON cm.company_id=e.company_id AND cm.account_id=e.account_id AND cm.active=TRUE ";
+        JobWindow window = jobWindow(now);
+        if (window == null) return;
         List<Candidate> candidates = new ArrayList<>(isolatedTransaction.execute(status -> jdbc.query("SELECT j.id,j.company_id,j.deviation_worker_failure_count " + activeJoins +
                         "WHERE j.state='NO_INGRESO' AND DATE_ADD(j.scheduled_start_at, INTERVAL j.tolerance_minutes MINUTE) < ? " +
-                        "AND (j.deviation_worker_retry_at IS NULL OR j.deviation_worker_retry_at<=?) " +
+                        "AND (j.deviation_worker_retry_at IS NULL OR j.deviation_worker_retry_at<=?) " + window.predicate() +
                         "AND NOT EXISTS (SELECT 1 FROM mark_events m WHERE m.jornada_id=j.id AND m.action='INGRESO' AND m.voided_at IS NULL) " +
                         "AND NOT EXISTS (SELECT 1 FROM deviations d WHERE d.jornada_id=j.id AND d.type='SIN_INGRESO' AND d.active=TRUE) " +
                         "ORDER BY j.scheduled_start_at,j.id LIMIT ?",
                 (rs, row) -> new Candidate(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("company_id")), rs.getInt("deviation_worker_failure_count")),
-                timestamp(now), timestamp(now), batchSize)));
+                window.arguments(timestamp(now), timestamp(now), batchSize))));
         // MARCA_FALTANTE (D-20261018-01): INGRESO without EGRESO past scheduled end + tolerance, not yet flagged.
         candidates.addAll(isolatedTransaction.execute(status -> jdbc.query("SELECT j.id,j.company_id,j.deviation_worker_failure_count " + activeJoins +
                         "WHERE j.state IN ('EN_CURSO','PAUSA_ABIERTA') AND DATE_ADD(j.scheduled_end_at, INTERVAL j.tolerance_minutes MINUTE) < ? " +
-                        "AND (j.deviation_worker_retry_at IS NULL OR j.deviation_worker_retry_at<=?) " +
+                        "AND (j.deviation_worker_retry_at IS NULL OR j.deviation_worker_retry_at<=?) " + window.predicate() +
                         "AND EXISTS (SELECT 1 FROM mark_events m WHERE m.jornada_id=j.id AND m.company_id=j.company_id AND m.action='INGRESO' AND m.voided_at IS NULL) " +
                         "AND NOT EXISTS (SELECT 1 FROM mark_events m WHERE m.jornada_id=j.id AND m.company_id=j.company_id AND m.action='EGRESO' AND m.voided_at IS NULL) " +
                         "AND NOT EXISTS (SELECT 1 FROM deviations d WHERE d.jornada_id=j.id AND d.company_id=j.company_id AND d.type='MARCA_FALTANTE' AND d.active=TRUE) " +
                         "ORDER BY j.scheduled_end_at,j.id LIMIT ?",
                 (rs, row) -> new Candidate(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("company_id")), rs.getInt("deviation_worker_failure_count")),
-                timestamp(now), timestamp(now), batchSize)));
+                window.arguments(timestamp(now), timestamp(now), batchSize))));
         for (Candidate candidate : candidates) {
             try {
                 isolatedTransaction.executeWithoutResult(status -> {
@@ -311,6 +314,33 @@ public class MarkService {
                 recordDeviationWorkerFailure(candidate, now, ex);
             }
         }
+    }
+
+    /**
+     * D-20261102-02: the predicate that keeps both jobs on jornadas whose local date is one of the last
+     * {@link com.braja.fichaje.deviations.DeviationPolicy#JOB_LOOKBACK_DAYS} local days. A jornada's local date is in its own
+     * zone (jornadas.time_zone, copied from its site, whose zone never changes), so each zone gets its own oldest date. The
+     * scheduled_start_at bound is implied by it (the first block starts on the local date, and that local day began less than
+     * JOB_LOOKBACK_DAYS + 1 days before now) and lets the queries range-scan ix_jornada_due_absence (scheduled_start_at, state).
+     * Null when there is no site, hence no jornada.
+     */
+    private JobWindow jobWindow(Instant now) {
+        Map<LocalDate, List<String>> zonesByOldestDate = new TreeMap<>();
+        for (String zone : jdbc.queryForList("SELECT DISTINCT time_zone FROM sites", String.class)) {
+            ZoneId zoneId;
+            try { zoneId = ZoneId.of(zone); } catch (DateTimeException invalid) { zoneId = ZoneOffset.UTC; } // validated on site creation
+            zonesByOldestDate.computeIfAbsent(DEVIATION_POLICY.oldestJobDate(LocalDate.ofInstant(now, zoneId)), date -> new ArrayList<>()).add(zone);
+        }
+        if (zonesByOldestDate.isEmpty()) return null;
+        StringJoiner perZone = new StringJoiner(" OR ", "AND j.scheduled_start_at>=? AND (", ") ");
+        List<Object> arguments = new ArrayList<>();
+        arguments.add(timestamp(now.minus(Duration.ofDays(com.braja.fichaje.deviations.DeviationPolicy.JOB_LOOKBACK_DAYS + 1L))));
+        zonesByOldestDate.forEach((oldest, zones) -> {
+            perZone.add("(j.local_date>=? AND j.time_zone IN (" + String.join(",", Collections.nCopies(zones.size(), "?")) + "))");
+            arguments.add(oldest);
+            arguments.addAll(zones);
+        });
+        return new JobWindow(perZone.toString(), List.copyOf(arguments));
     }
 
     private void recordDeviationWorkerFailure(Candidate candidate, Instant now, RuntimeException failure) {
@@ -544,6 +574,15 @@ public class MarkService {
     private record LockedMark(UUID id, UUID jornadaId, MarkAction action, Instant occurredAt, boolean voided) { }
     private record LocationCandidate(UUID markId, UUID companyId, UUID jornadaId) { }
     private record Candidate(UUID jornadaId, UUID companyId, int failureCount) { }
+    /** The job date bound (D-20261102-02): a SQL fragment and its arguments, placed after the due and retry instants. */
+    private record JobWindow(String predicate, List<Object> bound) {
+        Object[] arguments(java.sql.Timestamp due, java.sql.Timestamp retry, int batchSize) {
+            List<Object> all = new ArrayList<>(List.of(due, retry));
+            all.addAll(bound);
+            all.add(batchSize);
+            return all.toArray();
+        }
+    }
     private record RetrySchedule(int failureCount, Instant retryAt) { }
     private record MarkRow(UUID id, UUID jornadaId, UUID employeeId, MarkAction action, long sequence, Instant acceptedAt, Instant occurredAt, Instant recordedAt,
                            String locationStatus, BigDecimal latitude, BigDecimal longitude, BigDecimal accuracyMeters, String origin, boolean voided) { }
