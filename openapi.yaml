@@ -13,14 +13,17 @@ info:
     400 MISSING_PARAMETER (a required query parameter is absent), 400 IDEMPOTENCY_KEY_REQUIRED (a mark without its
     Idempotency-Key header), 404 NOT_FOUND (unknown route, including a trailing slash), 405 METHOD_NOT_ALLOWED (with an
     Allow header), 406 NOT_ACCEPTABLE (an Accept header without JSON), 415 UNSUPPORTED_MEDIA_TYPE (a body that is not
-    application/json), 409 CONFLICT (a request that collides with an existing record), 503 SERVICE_UNAVAILABLE and
+    application/json), 409 CONFLICT (a request that collides with an existing record), 413 PAYLOAD_TOO_LARGE (a body
+    over 1 MB, answered by the reverse proxy), 503 SERVICE_UNAVAILABLE (also from the reverse proxy while the backend
+    restarts, with Retry-After) and
     500 INTERNAL_ERROR.
     
     Free text that another person reads (site, employee and template names, the deviation
     motive text and every ADMIN reason: correctionReason, auditReason, reason) is cleaned
     before validation (CLAUDE.md rule 25): control characters, bidi marks, embeddings,
     overrides and isolates, zero-width and other default-ignorable characters are removed,
-    a zero width joiner is kept only inside an emoji sequence, and the result is NFC.
+    a zero width joiner is kept only inside an emoji sequence, a variation selector only after an emoji (FE0E/FE0F) or
+    a Han character (E0100-E01EF), U+FFF9-U+FFFC are removed, and the result is NFC.
     Line feeds are kept in the motive and reasons; in names a line break or tab becomes a
     space and the value is trimmed. Length limits count the cleaned text, and a value left
     blank answers 422 VALIDATION_ERROR like any blank value.
@@ -191,7 +194,7 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
               examples:
                 PASSWORD_TOO_LONG:
-                  value: { type: about:blank, title: Unprocessable Entity, status: 422, code: PASSWORD_TOO_LONG, detail: The password must not exceed 72 bytes in UTF-8 }
+                  value: { type: about:blank, title: Unprocessable Entity, status: 422, code: PASSWORD_TOO_LONG, detail: The password must not exceed 72 bytes in UTF-8, traceId: 3f1c2a9e-5b7d-4e8f-9a0b-1c2d3e4f5a6b }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/AuthenticationUnavailable' }
   /companies:
