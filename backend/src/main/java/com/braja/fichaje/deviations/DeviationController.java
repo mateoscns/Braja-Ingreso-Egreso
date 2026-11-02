@@ -54,6 +54,6 @@ public class DeviationController {
         return deviations.inbox(scopes.require(authentication, session), cursor, limit, new DeviationService.InboxFilter(employeeId, siteId, from, to));
     }
 
-    public record MotiveInput(@NotBlank String category, @NotBlank @Size(max=4000) String text) { }
-    public record ClassificationInput(@NotBlank String classification, @Size(max=2000) String correctionReason) { }
+    public record MotiveInput(@NotBlank String category, @NotBlank @Size(max=4000) String text) { public MotiveInput { text = com.braja.fichaje.api.HostileText.multiline(text); } }
+    public record ClassificationInput(@NotBlank String classification, @Size(max=2000) String correctionReason) { public ClassificationInput { correctionReason = com.braja.fichaje.api.HostileText.multiline(correctionReason); } }
 }
