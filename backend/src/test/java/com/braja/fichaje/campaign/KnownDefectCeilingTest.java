@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** A ceiling that only goes down (CLAUDE.md §3): a new known defect needs its issue and a raised number in review. */
 class KnownDefectCeilingTest {
-    private static final int CEILING = 3;
+    private static final int CEILING = 2;
     /** The extension's own test annotates a sample method; it is not a defect. */
     private static final String SELF_TEST = "KnownDefectExtensionTest.java";
     private static final Pattern USE = Pattern.compile("^\\s*@KnownDefect\\(", Pattern.MULTILINE);

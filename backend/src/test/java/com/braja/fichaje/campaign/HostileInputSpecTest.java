@@ -26,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * S22 (CLAUDE.md rule 25): every text the ADMIN sees must come back without control, bidi or zero-width characters and
- * within its length cap. Today only the caps exist; the cleaning is the known defect.
+ * within its length cap. {@code api.HostileText} cleans every such field in its request record, before validation (#76).
  *
  * Decision for the expected cleaning (an assumption until Mateo confirms): forbidden are C0 controls U+0000-U+001F, DEL
  * and C1 U+007F-U+009F, bidi embeddings and overrides U+202A-U+202E, bidi isolates U+2066-U+2069, zero-width
@@ -118,11 +118,14 @@ class HostileInputSpecTest extends CampaignTestBase {
         });
         // CHAR: a name made only of a NUL is not blank to @NotBlank and is stored (201), a lone surrogate is accepted and stored
         // as '?' by the MySQL driver, and a NUL inside a name is kept — confirm with Mateo.
+        // Since #76 the cleaner removes NULs and lone surrogates before validation: "only " is trimmed to "only" (still 201),
+        // and the stored names no longer carry a NUL or a '?'.
         assertEquals(201, sent.get("only \\u0000").status());
+        assertEquals("only", jdbc.queryForObject("SELECT name FROM sites WHERE id=?", String.class, sent.get("only \\u0000").id().toString()));
         assertEquals(201, sent.get("lone \\ud800 high").status(), sent.get("lone \\ud800 high").raw());
-        assertEquals("lone ? high", jdbc.queryForObject("SELECT name FROM sites WHERE id=?", String.class, sent.get("lone \\ud800 high").id().toString()));
+        assertEquals("lone  high", jdbc.queryForObject("SELECT name FROM sites WHERE id=?", String.class, sent.get("lone \\ud800 high").id().toString()));
         assertEquals(201, sent.get("nul\\u0000inside").status());
-        assertEquals("nul\u0000inside", jdbc.queryForObject("SELECT name FROM sites WHERE id=?", String.class, sent.get("nul\\u0000inside").id().toString()));
+        assertEquals("nulinside", jdbc.queryForObject("SELECT name FROM sites WHERE id=?", String.class, sent.get("nul\\u0000inside").id().toString()));
 
         for (String hex : List.of("c328", "eda080", "c080", "ff", "f4908080")) {
             int status = postBytes("/api/v1/session", "{\"dni\":\"20000001\",\"password\":\"x\u0001\"}", hex);
@@ -133,6 +136,7 @@ class HostileInputSpecTest extends CampaignTestBase {
 
     // CHAR: a site name that differs from another only by a zero-width character is a duplicate (409 CONFLICT), because
     // utf8mb4_0900_ai_ci ignores it; the unique key, not a cleaner, is what stops this look-alike — confirm with Mateo.
+    // Since #76 the cleaner also removes the zero-width space, so the name is stored as "Centro" and the unique key still answers 409.
     @Test
     void s22AZeroWidthLookAlikeSiteNameIsADuplicate() {
         Fixture.Company company = fixture.company("Gemelas");
@@ -143,7 +147,6 @@ class HostileInputSpecTest extends CampaignTestBase {
     }
 
     @Test
-    @KnownDefect(issue = "#76", reason = "Rule 25: no text the ADMIN sees is cleaned of control, bidi or zero-width characters; only length caps exist")
     void s22EveryTextTheAdminSeesIsCleaned() {
         Submitted submitted = submitHostileEverywhere();
         Map<String, String> seen = adminView(submitted);

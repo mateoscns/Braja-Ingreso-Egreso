@@ -148,6 +148,7 @@ public class OrganizationController {
                             @DecimalMin("-180") @DecimalMax("180") @Digits(integer=3,fraction=7) BigDecimal longitude,
                             @Min(50) @Max(500) Integer geofenceRadiusMeters,
                             @Pattern(regexp="CAPTURED|MANUAL") String locationSource) {
+        public SiteInput { name = com.braja.fichaje.api.HostileText.singleLine(name); }
         public SiteInput(String name, String timeZone, BigDecimal latitude, BigDecimal longitude, Integer geofenceRadiusMeters) {
             this(name, timeZone, latitude, longitude, geofenceRadiusMeters, null);
         }
@@ -168,15 +169,17 @@ public class OrganizationController {
     public record SiteLocationAuditResponse(List<SiteLocationAuditEntry> entries) { }
     public record EmployeeInput(@NotBlank @Size(min=7,max=12) String dni, @NotBlank @Size(max=160) String displayName,
                                 @NotEmpty List<@NotNull UUID> siteIds, @Min(0) @Max(240) int toleranceMinutes,
-                                @Size(min=12) String temporaryPassword) { } // upper bound: 72 UTF-8 bytes, PASSWORD_TOO_LONG (D-20261102-04)
+                                @Size(min=12) String temporaryPassword) { // upper bound: 72 UTF-8 bytes, PASSWORD_TOO_LONG (D-20261102-04)
+        public EmployeeInput { displayName = com.braja.fichaje.api.HostileText.singleLine(displayName); }
+    }
     public record EmployeePatch(@Size(min=1,max=160) String displayName, List<@NotNull UUID> siteIds,
-                                @Min(0) @Max(240) Integer toleranceMinutes, Boolean active) { }
+                                @Min(0) @Max(240) Integer toleranceMinutes, Boolean active) { public EmployeePatch { displayName = com.braja.fichaje.api.HostileText.singleLine(displayName); } }
     public record EmployeeView(UUID id, String displayName, String dni, List<UUID> siteIds, int toleranceMinutes, boolean active, boolean mustChangePassword) { }
     public record PasswordResetView(String temporaryPassword) {
         @Override public String toString() { return "PasswordResetView[temporaryPassword=<redacted>]"; }
     }
     public record BlockInput(@Min(0) @Max(1) int startDayOffset, @NotNull java.time.LocalTime start, @NotNull java.time.LocalTime end, @Min(0) @Max(1) int endDayOffset) { }
     public record TemplateInput(@NotNull UUID siteId, @NotBlank @Size(max=120) String name, @NotEmpty @Size(max=4) List<@NotNull @Valid BlockInput> blocks,
-                                @Min(0) @Max(240) int breakfastLimitMinutes, @Min(0) @Max(240) int lunchLimitMinutes) { }
+                                @Min(0) @Max(240) int breakfastLimitMinutes, @Min(0) @Max(240) int lunchLimitMinutes) { public TemplateInput { name = com.braja.fichaje.api.HostileText.singleLine(name); } }
     public record TemplateView(UUID id, UUID siteId, String name, List<BlockInput> blocks, int breakfastLimitMinutes, int lunchLimitMinutes, boolean active) { }
 }

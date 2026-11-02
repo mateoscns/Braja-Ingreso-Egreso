@@ -15,6 +15,15 @@ info:
     Allow header), 406 NOT_ACCEPTABLE (an Accept header without JSON), 415 UNSUPPORTED_MEDIA_TYPE (a body that is not
     application/json), 409 CONFLICT (a request that collides with an existing record), 503 SERVICE_UNAVAILABLE and
     500 INTERNAL_ERROR.
+    
+    Free text that another person reads (site, employee and template names, the deviation
+    motive text and every ADMIN reason: correctionReason, auditReason, reason) is cleaned
+    before validation (CLAUDE.md rule 25): control characters, bidi marks, embeddings,
+    overrides and isolates, zero-width and other default-ignorable characters are removed,
+    a zero width joiner is kept only inside an emoji sequence, and the result is NFC.
+    Line feeds are kept in the motive and reasons; in names a line break or tab becomes a
+    space and the value is trimmed. Length limits count the cleaned text, and a value left
+    blank answers 422 VALIDATION_ERROR like any blank value.
 servers:
   - url: /api/v1
 security:

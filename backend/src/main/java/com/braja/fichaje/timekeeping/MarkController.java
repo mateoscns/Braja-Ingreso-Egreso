@@ -82,7 +82,7 @@ public class MarkController {
     public record LocationInput(@NotNull @DecimalMin("-90.0") @DecimalMax("90.0") Double latitude,
                                 @NotNull @DecimalMin("-180.0") @DecimalMax("180.0") Double longitude,
                                 @NotNull @DecimalMin("0.0") @DecimalMax("100000.0") Double accuracyMeters) { }
-    public record ForgottenMarkInput(@NotBlank String action, @NotNull Instant occurredAt, @NotBlank @Size(max=2000) String auditReason) { }
-    public record CorrectionInput(@NotBlank String correctedAction, @NotNull Instant correctedOccurredAt, @NotBlank @Size(max=2000) String auditReason) { }
-    public record ReasonInput(@NotBlank @Size(max=2000) String reason) { }
+    public record ForgottenMarkInput(@NotBlank String action, @NotNull Instant occurredAt, @NotBlank @Size(max=2000) String auditReason) { public ForgottenMarkInput { auditReason = com.braja.fichaje.api.HostileText.multiline(auditReason); } }
+    public record CorrectionInput(@NotBlank String correctedAction, @NotNull Instant correctedOccurredAt, @NotBlank @Size(max=2000) String auditReason) { public CorrectionInput { auditReason = com.braja.fichaje.api.HostileText.multiline(auditReason); } }
+    public record ReasonInput(@NotBlank @Size(max=2000) String reason) { public ReasonInput { reason = com.braja.fichaje.api.HostileText.multiline(reason); } }
 }

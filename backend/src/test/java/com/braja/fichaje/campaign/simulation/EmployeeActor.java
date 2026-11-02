@@ -192,7 +192,7 @@ final class EmployeeActor {
             String category = draw < 0.15 ? "SALUD" : draw < 0.5 ? "TRANSPORTE" : draw < 0.65 ? "EMERGENCIA" : "OTRA";
             String text = employee.persona == Persona.MALICIOUS ? HOSTILE
                     : "SALUD".equals(category) ? "Turno médico por fiebre" : "Motivo " + type.toLowerCase() + " del " + jornada.date;
-            if (employee.persona == Persona.MALICIOUS) ctx.ledger.count("hostile motive sent (S22 not cleaned)");
+            if (employee.persona == Persona.MALICIOUS) ctx.ledger.count("hostile motive sent (S22: cleaned on input)");
             UUID id = UUID.fromString(item.get("id").asText());
             ApiClient.Response response = withSession(() -> employee.browser().put("/api/v1/deviations/" + id + "/motive",
                     Map.of("category", category, "text", text)));
