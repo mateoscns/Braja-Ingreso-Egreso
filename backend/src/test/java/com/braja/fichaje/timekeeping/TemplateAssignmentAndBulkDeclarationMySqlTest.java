@@ -227,9 +227,12 @@ class TemplateAssignmentAndBulkDeclarationMySqlTest {
         // Previous behaviour kept: a second live declaration, with or without template, is JORNADA_EXISTS.
         assertProblem(send(admin, post("/api/v1/jornadas"), declareBody(first, siteId, "2026-11-04", afternoon)), 409, "JORNADA_EXISTS");
         assertProblem(send(admin, post("/api/v1/jornadas"), declareBody(first, siteId, "2026-11-04", null)), 409, "JORNADA_EXISTS");
-        // A template of another site, or an employee not at the site, is still NOT_FOUND.
+        // A template of another site, an unknown employee or an unknown site is still NOT_FOUND.
         assertProblem(send(admin, post("/api/v1/jornadas"), declareBody(first, siteId, "2026-11-05", otherSiteTemplate)), 404, "NOT_FOUND");
-        assertProblem(send(admin, post("/api/v1/jornadas"), declareBody(otherSiteOnly, siteId, "2026-11-05", morning)), 404, "NOT_FOUND");
+        assertProblem(send(admin, post("/api/v1/jornadas"), declareBody(UUID.randomUUID(), siteId, "2026-11-05", morning)), 404, "NOT_FOUND");
+        assertProblem(send(admin, post("/api/v1/jornadas"), declareBody(first, UUID.randomUUID(), "2026-11-05", morning)), 404, "NOT_FOUND");
+        // An employee of the company not assigned to the site has its own code (D-20261102-07).
+        assertProblem(send(admin, post("/api/v1/jornadas"), declareBody(otherSiteOnly, siteId, "2026-11-05", morning)), 409, "EMPLOYEE_NOT_IN_SITE");
         assertEquals(1, count("SELECT COUNT(*) FROM jornadas WHERE employee_id=?", first.toString()));
     }
 
@@ -334,7 +337,7 @@ class TemplateAssignmentAndBulkDeclarationMySqlTest {
         Login admin = login(adminDni);
         UUID inactive = employee(companyId, "6" + suffix, 5, false, siteId);
 
-        assertProblem(send(admin, post("/api/v1/jornadas/bulk"), bulkBody(List.of(first, otherSiteOnly), siteId, "2026-11-02", "2026-11-06", List.of(1, 2, 3, 4, 5), morning)), 422, "VALIDATION_ERROR");
+        assertProblem(send(admin, post("/api/v1/jornadas/bulk"), bulkBody(List.of(first, otherSiteOnly), siteId, "2026-11-02", "2026-11-06", List.of(1, 2, 3, 4, 5), morning)), 409, "EMPLOYEE_NOT_IN_SITE");
         assertProblem(send(admin, post("/api/v1/jornadas/bulk"), bulkBody(List.of(first, inactive), siteId, "2026-11-02", "2026-11-06", List.of(1, 2, 3, 4, 5), morning)), 422, "VALIDATION_ERROR");
         assertProblem(send(admin, post("/api/v1/jornadas/bulk"), bulkBody(List.of(first, UUID.randomUUID()), siteId, "2026-11-02", "2026-11-06", List.of(1), morning)), 404, "NOT_FOUND");
 

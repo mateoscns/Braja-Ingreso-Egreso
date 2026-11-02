@@ -205,7 +205,8 @@ class OrganizationSpecTest extends CampaignTestBase {
     @Test
     void removingTheSiteFromAnEmployeeMidJornadaStillLetsThemFinishIt() {
         // CHAR: marks never check employee_sites, so a jornada already declared at a site the employee lost can still be
-        // worked to the end; only new declarations there are refused — confirm with Mateo.
+        // worked to the end; only new declarations there are refused, single or by lot, with 409 EMPLOYEE_NOT_IN_SITE
+        // (D-20261102-07).
         UUID other = fixture.site(company, "Norte", "America/Argentina/Buenos_Aires");
         ana = fixture.employee(company, "Ana", List.of(site, other), 10);
         UUID jornada = fixture.declare(company, ana.id(), site, DAY, morning);
@@ -217,7 +218,9 @@ class OrganizationSpecTest extends CampaignTestBase {
         ana.client().mark(jornada, "EGRESO", UUID.randomUUID()).expect(201);
 
         assertEquals("EGRESADA", state(jornada));
-        assertProblem(declare(ana.id(), DAY.plusDays(1), morning), 404, "NOT_FOUND");
+        assertProblem(declare(ana.id(), DAY.plusDays(1), morning), 409, "EMPLOYEE_NOT_IN_SITE");
+        assertProblem(bulk(List.of(ana.id()), DAY.plusDays(1), DAY.plusDays(1), List.of(2), morning), 409, "EMPLOYEE_NOT_IN_SITE");
+        assertEquals(1, count("SELECT COUNT(*) FROM jornadas WHERE employee_id=?", ana.id()));
     }
 
     // S51 ------------------------------------------------------------------------------------------------------------
@@ -343,6 +346,9 @@ class OrganizationSpecTest extends CampaignTestBase {
         company.admin().patch("/api/v1/employees/" + bruno.id(), Map.of("active", false)).expect(200);
 
         assertProblem(bulk(List.of(ana.id(), bruno.id()), DAY, DAY.plusDays(4), List.of(1, 2, 3, 4, 5), morning), 422, "VALIDATION_ERROR");
+        // An employee not assigned to the site also rejects the whole lot, with its own code, before the inactive one (D-20261102-07).
+        Fixture.Employee carla = fixture.employee(company, "Carla", List.of(fixture.site(company, "Norte", "America/Argentina/Buenos_Aires")), 10);
+        assertProblem(bulk(List.of(ana.id(), bruno.id(), carla.id()), DAY, DAY.plusDays(4), List.of(1, 2, 3, 4, 5), morning), 409, "EMPLOYEE_NOT_IN_SITE");
         assertEquals(0, count("SELECT COUNT(*) FROM jornadas WHERE company_id=?", company.id()));
     }
 
@@ -427,9 +433,10 @@ class OrganizationSpecTest extends CampaignTestBase {
 
     @Test
     void aTemplateDeactivatedWithFutureJornadasKeepsThemWorkableButCannotBeDeclaredOrAssignedAgain() {
-        // CHAR: no endpoint deactivates a template (OrganizationService never writes active=FALSE), so this sets it in SQL;
-        // a PATCH silently reactivates it, and a single declaration through its assignment answers 404 while the bulk path
-        // reports TEMPLATE_INVALID — confirm with Mateo.
+        // CHAR: no endpoint deactivates a template (OrganizationService never writes active=FALSE), so this sets it in SQL,
+        // and a PATCH silently reactivates it. Single and bulk declarations both answer TEMPLATE_INVALID (D-20261102-06):
+        // 422 for the request when the template is named, or used through the assignment by a single declaration; a skipped
+        // date when a lot uses it through the assignment. An assignment to it still answers 404.
         ana = ana();
         fixture.assign(company, ana.id(), morning, DAY);
         UUID future = fixture.declare(company, ana.id(), site, LocalDate.parse("2027-03-10"), null);
@@ -437,11 +444,21 @@ class OrganizationSpecTest extends CampaignTestBase {
         String frozen = row(future);
         jdbc.update("UPDATE schedule_templates SET active=FALSE WHERE id=?", morning.toString());
 
-        assertProblem(declare(ana.id(), LocalDate.parse("2027-03-12"), morning), 404, "NOT_FOUND");
-        assertProblem(declare(ana.id(), LocalDate.parse("2027-03-12"), null), 404, "NOT_FOUND");
+        assertProblem(declare(ana.id(), LocalDate.parse("2027-03-12"), morning), 422, "TEMPLATE_INVALID");
+        assertProblem(declare(ana.id(), LocalDate.parse("2027-03-12"), null), 422, "TEMPLATE_INVALID");
+        assertProblem(bulk(List.of(ana.id()), LocalDate.parse("2027-03-12"), LocalDate.parse("2027-03-12"), List.of(5), morning),
+                422, "TEMPLATE_INVALID");
         assertProblem(assign(ana.id(), morning, LocalDate.parse("2027-04-01")), 404, "NOT_FOUND");
         assertEquals("TEMPLATE_INVALID", bulk(List.of(ana.id()), LocalDate.parse("2027-03-12"), LocalDate.parse("2027-03-12"),
                 List.of(5), null).expect(200).body().get("skipped").get(0).get("reason").asText());
+        // A template of another site, active or not, still looks unknown at this site.
+        UUID elsewhere = fixture.site(company, "Norte", "America/Argentina/Buenos_Aires");
+        UUID foreign = fixture.template(company, elsewhere, "Norte", List.of(Fixture.Block.sameDay("09:00", "17:00")), 20, 30);
+        jdbc.update("UPDATE schedule_templates SET active=FALSE WHERE id=?", foreign.toString());
+        assertProblem(declare(ana.id(), LocalDate.parse("2027-03-12"), foreign), 404, "NOT_FOUND");
+        assertProblem(bulk(List.of(ana.id()), LocalDate.parse("2027-03-12"), LocalDate.parse("2027-03-12"), List.of(5), foreign),
+                404, "NOT_FOUND");
+        assertEquals(2, count("SELECT COUNT(*) FROM jornadas WHERE employee_id=?", ana.id()));
         assertEquals("false", templateListed(morning).get("active").asText());
 
         clock.set(at(LocalDate.parse("2027-03-10"), "12:00"));
@@ -455,6 +472,23 @@ class OrganizationSpecTest extends CampaignTestBase {
 
         company.admin().patch("/api/v1/templates/" + morning, templateBody(site, "Mañana", MORNING, 20, 30)).expect(200);
         assertEquals("true", templateListed(morning).get("active").asText());
+    }
+
+    // Site time zone --------------------------------------------------------------------------------------------------
+
+    /** D-20261102-05: a site zone is a region id of the IANA database; a fixed offset has no daylight saving rules. */
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"-03:00", "+00:00", "Z", "UTC+3", "UTC-03:00", "GMT-3", "UT+1", "America/Nowhere", "america/argentina/buenos_aires"})
+    void aSiteZoneThatIsNotAnIanaRegionIsRejectedAndNothingIsStored(String zone) {
+        assertProblem(company.admin().post("/api/v1/sites", Map.of("name", "Zona", "timeZone", zone)), 422, "VALIDATION_ERROR");
+        assertEquals(0, count("SELECT COUNT(*) FROM sites WHERE company_id=? AND name='Zona'", company.id()));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"America/Argentina/Buenos_Aires", "America/Argentina/Mendoza", "America/Santiago", "Europe/Madrid", "UTC", "Etc/GMT+3"})
+    void aSiteZoneThatIsAnIanaRegionIsStoredAsGiven(String zone) {
+        UUID created = company.admin().post("/api/v1/sites", Map.of("name", "Zona", "timeZone", zone)).expect(201).id();
+        assertEquals(zone, jdbc.queryForObject("SELECT time_zone FROM sites WHERE id=?", String.class, created.toString()));
     }
 
     // S54 ------------------------------------------------------------------------------------------------------------

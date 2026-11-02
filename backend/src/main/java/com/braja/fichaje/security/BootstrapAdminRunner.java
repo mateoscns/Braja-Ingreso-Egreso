@@ -38,8 +38,14 @@ public class BootstrapAdminRunner implements ApplicationRunner {
         String companyName = required("braja.bootstrap-company-name");
         String siteName = required("braja.bootstrap-site-name");
         String timeZone = required("braja.bootstrap-time-zone");
-        if (password.length() < 16 || password.length() > 256) throw new IllegalStateException("Bootstrap password must contain 16 to 256 characters");
-        ZoneId.of(timeZone);
+        // D-20261102-04: BCrypt ignores bytes after the 72nd, so a longer password would not be the one stored.
+        if (password.length() < 16 || AccountService.exceedsPasswordBytes(password)) {
+            throw new IllegalStateException("Bootstrap password must contain 16 characters to 72 UTF-8 bytes");
+        }
+        // D-20261102-05: the site zone is an IANA region id, never a fixed offset.
+        if (!ZoneId.getAvailableZoneIds().contains(timeZone)) {
+            throw new IllegalStateException("Bootstrap time zone must be an IANA region such as America/Argentina/Buenos_Aires");
+        }
         String dni = DniNormalizer.normalize(dniInput);
 
         Integer companyCount = jdbc.queryForObject("SELECT COUNT(*) FROM companies", Integer.class);

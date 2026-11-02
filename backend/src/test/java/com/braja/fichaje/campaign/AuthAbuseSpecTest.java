@@ -598,20 +598,34 @@ class AuthAbuseSpecTest extends CampaignTestBase {
         return responses;
     }
 
-    // CHAR: bodies have no size cap (an unknown 8 MB field is parsed and ignored), and a new password longer than BCrypt's
-    // 72 bytes is refused with a generic 422 although the API documents 12 to 256 characters — confirm with Mateo.
+    // CHAR: bodies have no size cap (an unknown 8 MB field is parsed and ignored) — confirm with Mateo. A new password is 12
+    // characters to 72 UTF-8 bytes, BCrypt's limit; longer answers 422 PASSWORD_TOO_LONG (D-20261102-04).
     @Test
-    void s23TheEffectivePasswordLimitIs72BytesAndBodiesHaveNoSizeCap() {
+    void s23ANewPasswordIsAtMost72Utf8BytesAndBodiesHaveNoSizeCap() {
         Fixture.Company company = fixture.company("Limite");
-        Fixture.Employee ana = fixture.employee(company, "Ana", List.of(fixture.site(company, "Centro", BA)), 10);
+        UUID centro = fixture.site(company, "Centro", BA);
+        Fixture.Employee ana = fixture.employee(company, "Ana", List.of(centro), 10);
         String hashBefore = jdbc.queryForObject("SELECT password_hash FROM accounts WHERE id = ?", String.class, ana.accountId().toString());
+        String enye = "ñ"; // two bytes in UTF-8
 
-        ApiClient.Response longPassword = ana.client().put("/api/v1/session/password",
-                Map.of("currentPassword", Fixture.PASSWORD, "newPassword", "p".repeat(73)));
-        assertEquals(422, longPassword.status());
-        assertEquals("VALIDATION_ERROR", longPassword.code());
+        for (String tooLong : List.of("p".repeat(73), enye.repeat(37), "p".repeat(300))) {
+            ApiClient.Response refused = ana.client().put("/api/v1/session/password",
+                    Map.of("currentPassword", Fixture.PASSWORD, "newPassword", tooLong));
+            assertEquals(422, refused.status(), tooLong.length() + " characters");
+            assertEquals("PASSWORD_TOO_LONG", refused.code());
+        }
+        assertEquals("VALIDATION_ERROR", ana.client().put("/api/v1/session/password",
+                Map.of("currentPassword", Fixture.PASSWORD, "newPassword", "p".repeat(11))).expect(422).code());
         assertEquals(hashBefore, jdbc.queryForObject("SELECT password_hash FROM accounts WHERE id = ?", String.class, ana.accountId().toString()));
-        ana.client().put("/api/v1/session/password", Map.of("currentPassword", Fixture.PASSWORD, "newPassword", "p".repeat(72))).expect(204);
+        ana.client().put("/api/v1/session/password", Map.of("currentPassword", Fixture.PASSWORD, "newPassword", enye.repeat(36))).expect(204);
+        fixture.client("ana-72-bytes").login(ana.dni(), enye.repeat(36)).expect(200);
+
+        String dni = Fixture.nextDni();
+        assertEquals("PASSWORD_TOO_LONG", company.admin().post("/api/v1/employees", Map.of("dni", dni, "displayName", "Bruno",
+                "siteIds", List.of(centro), "toleranceMinutes", 10, "temporaryPassword", enye.repeat(37))).expect(422).code());
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM accounts WHERE dni_normalized = ?", Integer.class, dni));
+        company.admin().post("/api/v1/employees", Map.of("dni", dni, "displayName", "Bruno",
+                "siteIds", List.of(centro), "toleranceMinutes", 10, "temporaryPassword", enye.repeat(36))).expect(201);
 
         String padded = "{\"dni\":\"" + Fixture.nextDni() + "\",\"password\":\"whatever\",\"pad\":\"" + "z".repeat(8 << 20) + "\"}";
         assertEquals("UNAUTHORIZED", fixture.client("padded").send("POST", "/api/v1/session", padded, Map.of()).expect(401).code());

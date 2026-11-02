@@ -135,7 +135,14 @@ paths:
               required: [currentPassword, newPassword]
               properties:
                 currentPassword: { type: string, minLength: 1, maxLength: 256, writeOnly: true }
-                newPassword: { type: string, minLength: 12, maxLength: 256, writeOnly: true }
+                newPassword:
+                  type: string
+                  minLength: 12
+                  maxLength: 72
+                  writeOnly: true
+                  description: >-
+                    12 characters to 72 UTF-8 bytes, BCrypt's limit (D-20261102-04). It is checked before the current
+                    password: above 72 bytes answers 422 PASSWORD_TOO_LONG, changes nothing and counts no attempt.
       responses:
         '204': { description: Password changed; temporary-password requirement cleared }
         '401':
@@ -145,7 +152,14 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
-        '422': { $ref: '#/components/responses/ValidationError' }
+        '422':
+          description: A new password shorter than 12 characters (VALIDATION_ERROR) or above 72 UTF-8 bytes (PASSWORD_TOO_LONG).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                PASSWORD_TOO_LONG:
+                  value: { type: about:blank, title: Unprocessable Entity, status: 422, code: PASSWORD_TOO_LONG, detail: The password must not exceed 72 bytes in UTF-8 }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/AuthenticationUnavailable' }
   /companies:
@@ -223,7 +237,13 @@ paths:
               required: [name, timeZone]
               properties:
                 name: { type: string, minLength: 1, maxLength: 120 }
-                timeZone: { type: string, description: IANA time zone, example: America/Argentina/Buenos_Aires }
+                timeZone:
+                  type: string
+                  maxLength: 64
+                  example: America/Argentina/Buenos_Aires
+                  description: >-
+                    Region id of the IANA time zone database, exactly as listed there (UTC is one). A fixed offset such
+                    as -03:00, Z, UTC+3 or GMT-3 answers 422 VALIDATION_ERROR (D-20261102-05).
                 latitude: { type: [number, 'null'], minimum: -90, maximum: 90, description: Optional latitude; must be sent together with longitude. }
                 longitude: { type: [number, 'null'], minimum: -180, maximum: 180, description: Optional longitude; must be sent together with latitude. }
                 locationSource: { type: string, enum: [CAPTURED, MANUAL], description: Origin of the configured point; omit when no point is supplied. }
@@ -331,7 +351,14 @@ paths:
                   uniqueItems: true
                   items: { $ref: '#/components/schemas/Id' }
                 toleranceMinutes: { type: integer, minimum: 0, maximum: 240 }
-                temporaryPassword: { type: string, minLength: 12, maxLength: 256, writeOnly: true }
+                temporaryPassword:
+                  type: string
+                  minLength: 12
+                  maxLength: 72
+                  writeOnly: true
+                  description: >-
+                    12 characters to 72 UTF-8 bytes, BCrypt's limit (D-20261102-04). Above 72 bytes answers 422
+                    PASSWORD_TOO_LONG. maxLength counts characters; the server enforces bytes.
       responses:
         '201':
           description: Employee membership created
@@ -340,7 +367,11 @@ paths:
               schema: { $ref: '#/components/schemas/Employee' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
-        '422': { $ref: '#/components/responses/ValidationError' }
+        '422':
+          description: Field or domain constraint violated (VALIDATION_ERROR), or a temporary password above 72 UTF-8 bytes (PASSWORD_TOO_LONG).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
   /employees/{employeeId}:
     patch:
       tags: [Employees]
@@ -584,7 +615,9 @@ paths:
         does not start on day offset 0 (saved before that rule) answers 422 VALIDATION_ERROR until it is updated.
         templateId is optional (D-20261015-02): without it, the employee's assignment in force at the site on localDate
         (latest validFrom on or before it) is used, and none answers 422 TEMPLATE_REQUIRED; with it, that template is used
-        for this day only.
+        for this day only. An inactive template of the site, chosen or assigned, answers 422 TEMPLATE_INVALID
+        (D-20261102-06); an unknown template or one of another site answers 404. An employee of the company not assigned
+        to the site answers 409 EMPLOYEE_NOT_IN_SITE (D-20261102-07); an unknown employee or site answers 404.
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
       requestBody:
@@ -609,13 +642,17 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422':
-          description: Field or domain constraint violated (VALIDATION_ERROR), or no templateId and no assignment in force (TEMPLATE_REQUIRED).
+          description: >-
+            Field or domain constraint violated (VALIDATION_ERROR), no templateId and no assignment in force
+            (TEMPLATE_REQUIRED), or the chosen or assigned template is inactive (TEMPLATE_INVALID).
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
               examples:
                 TEMPLATE_REQUIRED:
                   value: { type: about:blank, title: Unprocessable Entity, status: 422, code: TEMPLATE_REQUIRED, detail: The employee has no template assigned at this site on that date; choose a template, traceId: 3f1c2a9e-5b7d-4e8f-9a0b-1c2d3e4f5a6b }
+                TEMPLATE_INVALID:
+                  value: { type: about:blank, title: Unprocessable Entity, status: 422, code: TEMPLATE_INVALID, detail: The template is inactive; choose another template, traceId: 3f1c2a9e-5b7d-4e8f-9a0b-1c2d3e4f5a6b }
   /jornadas/bulk:
     post:
       tags: [Jornadas]
@@ -626,9 +663,11 @@ paths:
         tolerance, scheduled start and end), with templateId if given or else the employee's assignment in force on that date.
         No rule is stored (D-20261015-01). Dates with a non-cancelled jornada are skipped as JORNADA_EXISTS (also when a
         concurrent declaration wins the date), dates without an assignment in force as TEMPLATE_REQUIRED and dates whose
-        assigned template cannot be declared as TEMPLATE_INVALID. An employee of another company answers 404, and an inactive
-        employee or one not assigned to the site answers 422 for the whole request; nothing is written in either case. One
-        transaction; created and skipped are ordered by employee id, then date.
+        assigned template cannot be declared (inactive included) as TEMPLATE_INVALID. A chosen templateId that is inactive
+        answers 422 TEMPLATE_INVALID (D-20261102-06). An employee of another company answers 404; an employee not assigned to
+        the site answers 409 EMPLOYEE_NOT_IN_SITE (D-20261102-07), reported before an inactive employee, which answers 422
+        VALIDATION_ERROR; the whole request is rejected and nothing is written in any of these cases. One transaction;
+        created and skipped are ordered by employee id, then date.
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
       requestBody:
@@ -1623,8 +1662,9 @@ components:
         (MEMBERSHIP_EXISTS), a location that is no longer pending (LOCATION_ALREADY_FINAL) or arrives after the 30-second
         window (LOCATION_WINDOW_EXPIRED), invalid state transition (INVALID_MARK_TRANSITION) or history
         (INVALID_MARK_HISTORY), cancelled jornada (JORNADA_CANCELLED), jornada with marks (JORNADA_HAS_MARKS), voided mark
-        (MARK_VOIDED), any other collision with an existing record (CONFLICT), or retryable transaction conflict
-        (RETRYABLE_TRANSACTION_CONFLICT, with Retry-After).
+        (MARK_VOIDED), employee not assigned to the site of a declaration (EMPLOYEE_NOT_IN_SITE), any other collision with
+        an existing record (CONFLICT), or retryable transaction conflict (RETRYABLE_TRANSACTION_CONFLICT, with
+        Retry-After).
       headers:
         Retry-After:
           description: Present when the conflict is retryable.

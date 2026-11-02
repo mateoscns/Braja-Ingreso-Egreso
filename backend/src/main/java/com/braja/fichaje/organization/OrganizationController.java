@@ -168,7 +168,7 @@ public class OrganizationController {
     public record SiteLocationAuditResponse(List<SiteLocationAuditEntry> entries) { }
     public record EmployeeInput(@NotBlank @Size(min=7,max=12) String dni, @NotBlank @Size(max=160) String displayName,
                                 @NotEmpty List<@NotNull UUID> siteIds, @Min(0) @Max(240) int toleranceMinutes,
-                                @Size(min=12,max=256) String temporaryPassword) { }
+                                @Size(min=12) String temporaryPassword) { } // upper bound: 72 UTF-8 bytes, PASSWORD_TOO_LONG (D-20261102-04)
     public record EmployeePatch(@Size(min=1,max=160) String displayName, List<@NotNull UUID> siteIds,
                                 @Min(0) @Max(240) Integer toleranceMinutes, Boolean active) { }
     public record EmployeeView(UUID id, String displayName, String dni, List<UUID> siteIds, int toleranceMinutes, boolean active, boolean mustChangePassword) { }

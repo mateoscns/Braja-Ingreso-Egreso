@@ -47,6 +47,7 @@ public class OrganizationService {
     /** Creates the site and its first location audit atomically when the initial configuration differs from defaults. */
     @Transactional
     public SiteView createSite(UUID companyId, UUID actorAccountId, SiteInput input) {
+        requireRegionTimeZone(input.timeZone());
         validateSiteCoordinates(input.latitude(), input.longitude());
         validateLocationSource(input.locationSource());
         requireSourceForNewCenter(input.latitude() != null, input.locationSource());
@@ -60,6 +61,16 @@ public class OrganizationService {
                     input.latitude(), input.longitude(), radiusMeters, input.latitude() == null ? null : input.locationSource());
         }
         return new SiteView(siteId, name, input.timeZone(), input.latitude(), input.longitude(), radiusMeters);
+    }
+
+    /**
+     * D-20261102-05: a site zone is a region id of the IANA database, written exactly as listed there (UTC is one). A fixed
+     * offset (-03:00, Z, UTC+3, GMT-3) has no zone rules; ZoneId.of accepted it (2026-11-02, campaign #72 stored "-03:00").
+     */
+    static void requireRegionTimeZone(String timeZone) {
+        if (timeZone == null || !java.time.ZoneId.getAvailableZoneIds().contains(timeZone)) {
+            throw ApiException.invalid("timeZone must be a valid IANA time zone");
+        }
     }
 
     @Transactional
@@ -162,9 +173,9 @@ public class OrganizationService {
         UUID accountId;
         boolean mustChange;
         if (existing.isEmpty()) {
-            if (input.temporaryPassword() == null || input.temporaryPassword().length() < 12 || input.temporaryPassword().length() > 256) {
-                throw ApiException.invalid("A new account requires a temporary password of at least 12 characters");
-            }
+            // D-20261102-04: 12 characters to 72 UTF-8 bytes; above 72 bytes is PASSWORD_TOO_LONG.
+            com.braja.fichaje.security.AccountService.requireStorablePassword(input.temporaryPassword(),
+                    "A new account requires a temporary password of at least 12 characters");
             accountId = UUID.randomUUID();
             mustChange = true;
             jdbc.update("INSERT INTO accounts(id,dni_normalized,dni_display,password_hash,must_change_password,active,created_at,updated_at) VALUES(?,?,?,?,TRUE,TRUE,?,?)",
