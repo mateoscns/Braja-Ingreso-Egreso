@@ -61,13 +61,13 @@
 		@apiTooLarge expression `{http.request.uri.path}.startsWith("/api") && {err.status_code} == 413`
 		handle @apiTooLarge {
 			header Content-Type "application/problem+json"
-			respond `{"type":"about:blank","title":"Payload Too Large","status":413,"detail":"Request body too large","code":"PAYLOAD_TOO_LARGE"}` 413
+			respond `{"type":"about:blank","title":"Payload Too Large","status":413,"detail":"Request body too large","code":"PAYLOAD_TOO_LARGE","traceId":"{http.request.uuid}"}` 413
 		}
 		@apiError path /api /api/*
 		handle @apiError {
 			header Content-Type "application/problem+json"
 			header Retry-After "30"
-			respond `{"type":"about:blank","title":"Service Unavailable","status":503,"detail":"The service is unavailable; retry later","code":"SERVICE_UNAVAILABLE"}` 503
+			respond `{"type":"about:blank","title":"Service Unavailable","status":503,"detail":"The service is unavailable; retry later","code":"SERVICE_UNAVAILABLE","traceId":"{http.request.uuid}"}` 503
 		}
 	}
 }
