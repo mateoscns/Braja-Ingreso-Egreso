@@ -290,14 +290,15 @@ class MarkStateMachineSpecTest extends CampaignTestBase {
         assertEquals(0, markCount(jornada));
     }
 
-    /** Only the missing code is the defect; the status and the empty history are pinned by the test above. */
+    /** The status and the empty history are pinned by the test above; #73 gave the 400 its problem code. */
     @Test
-    @KnownDefect(issue = "#73", reason = "A mark without Idempotency-Key gets Spring's default 400 error body, which has no problem+json code.")
     void s28AMarkWithoutIdempotencyKeyCarriesAProblemCode() {
         UUID jornada = declare(DAY);
         clock.set(START);
         ApiClient.Response response = markWithoutKey(jornada);
         assertNotNull(response.code(), "no problem+json code: " + response.raw());
+        assertEquals("IDEMPOTENCY_KEY_REQUIRED", response.code());
+        assertTrue(response.header("Content-Type").startsWith("application/problem+json"), response.header("Content-Type"));
     }
 
     private ApiClient.Response markWithoutKey(UUID jornada) {

@@ -1,5 +1,6 @@
 package com.braja.fichaje.security;
 
+import com.braja.fichaje.api.Problem;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
@@ -105,7 +106,7 @@ public class SecurityConfiguration {
                         .requestMatchers("/api/v1/session").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(errors -> errors
-                        .authenticationEntryPoint((request, response, ex) -> writeProblem(response, 401, "UNAUTHORIZED", "Authentication required"))
+                        .authenticationEntryPoint((request, response, ex) -> writeProblem(request, response, 401, "UNAUTHORIZED", "Authentication required"))
                         .accessDeniedHandler(SecurityConfiguration::denied))
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
@@ -121,13 +122,13 @@ public class SecurityConfiguration {
      */
     private static void denied(HttpServletRequest request, HttpServletResponse response, AccessDeniedException ex) throws java.io.IOException {
         boolean authenticated = TRUST_RESOLVER.isAuthenticated(SecurityContextHolder.getContext().getAuthentication());
-        if (ex instanceof CsrfException && !authenticated) writeProblem(response, 401, "SESSION_EXPIRED", "Session expired; fetch a new CSRF token and sign in again");
-        else writeProblem(response, 403, "FORBIDDEN", "Request rejected");
+        if (ex instanceof CsrfException && !authenticated) writeProblem(request, response, 401, "SESSION_EXPIRED", "Session expired; fetch a new CSRF token and sign in again");
+        else writeProblem(request, response, 403, "FORBIDDEN", "Request rejected");
     }
 
-    private static void writeProblem(HttpServletResponse response, int status, String code, String detail) throws java.io.IOException {
-        response.setStatus(status);
-        response.setContentType("application/problem+json");
-        response.getWriter().write("{\"type\":\"about:blank\",\"title\":\"Request rejected\",\"status\":" + status + ",\"detail\":\"" + detail + "\",\"code\":\"" + code + "\"}");
+    /** The same Problem as Spring MVC's, traceId included (2026-11-02, #73: these carried none). */
+    private static void writeProblem(HttpServletRequest request, HttpServletResponse response, int status, String code, String detail)
+            throws java.io.IOException {
+        Problem.write(request, response, status, code, detail);
     }
 }

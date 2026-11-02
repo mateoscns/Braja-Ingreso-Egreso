@@ -39,7 +39,7 @@ class ErrorContractSpecTest extends CampaignTestBase {
 
     @Autowired private MarkScheduler scheduler;
 
-    /** {@code code} is the code the response carries today; null means today it has none (the S73 known defect). */
+    /** {@code code} is the code the response must carry (#73 gave one to every case that had none). */
     private record Case(String name, int status, String code, ApiClient.Response response) { }
 
     private record Setup(Fixture.Company company, UUID site, Fixture.Employee ana, UUID jornada, UUID deviation) { }
@@ -65,10 +65,8 @@ class ErrorContractSpecTest extends CampaignTestBase {
         assertEquals(List.of(), failures);
     }
 
-    /** The statuses are pinned by the test above; only the missing problem body, code or traceId is the defect. */
+    /** The statuses and codes are pinned by the test above; this one pins the problem+json body and its traceId (#73). */
     @Test
-    @KnownDefect(issue = "#73", reason = "Spring MVC errors (415, 405, 404, 406, missing body) fall through to Boot's /error page and the "
-            + "security entry point writes problems without traceId")
     void s73EveryMalformedRequestIsAProblemWithCodeAndTraceId() {
         List<String> notProblems = new ArrayList<>();
         for (Case sent : sendMalformedRequests(setUp())) {
@@ -93,11 +91,11 @@ class ErrorContractSpecTest extends CampaignTestBase {
         List<Case> cases = new ArrayList<>();
 
         // Wrong or missing Content-Type on a JSON route.
-        cases.add(new Case("text/plain body", 415, null, admin.raw("POST", "/api/v1/sites", "text/plain", site, csrf)));
-        cases.add(new Case("form-urlencoded body", 415, null,
+        cases.add(new Case("text/plain body", 415, "UNSUPPORTED_MEDIA_TYPE", admin.raw("POST", "/api/v1/sites", "text/plain", site, csrf)));
+        cases.add(new Case("form-urlencoded body", 415, "UNSUPPORTED_MEDIA_TYPE",
                 admin.raw("POST", "/api/v1/sites", "application/x-www-form-urlencoded", "name=Norte&timeZone=" + BA, csrf)));
-        cases.add(new Case("body without Content-Type", 415, null, admin.raw("POST", "/api/v1/sites", null, site, csrf)));
-        cases.add(new Case("JSON route without body", 400, null, admin.raw("POST", "/api/v1/sites", JSON, null, csrf)));
+        cases.add(new Case("body without Content-Type", 415, "UNSUPPORTED_MEDIA_TYPE", admin.raw("POST", "/api/v1/sites", null, site, csrf)));
+        cases.add(new Case("JSON route without body", 400, "MALFORMED_REQUEST", admin.raw("POST", "/api/v1/sites", JSON, null, csrf)));
         cases.add(new Case("empty JSON object", 422, "VALIDATION_ERROR", admin.raw("POST", "/api/v1/sites", JSON, "{}", csrf)));
 
         // Unknown enum values.
@@ -121,13 +119,13 @@ class ErrorContractSpecTest extends CampaignTestBase {
                 admin.raw("GET", "/api/v1/jornadas/not-a-uuid", null, null, Map.of("Accept", "text/html"))));
 
         // Wrong method, unknown route, unacceptable representation.
-        cases.add(new Case("DELETE on a collection", 405, null, admin.delete("/api/v1/sites")));
-        cases.add(new Case("GET on a PUT-only route", 405, null, admin.get("/api/v1/session/password")));
-        cases.add(new Case("PATCH on a GET-only route", 405, null, admin.patch("/api/v1/jornadas/" + random, Map.of("state", "EGRESADA"))));
-        cases.add(new Case("unknown route", 404, null, admin.get("/api/v1/does-not-exist")));
-        cases.add(new Case("trailing slash", 404, null, admin.get("/api/v1/sites/")));
+        cases.add(new Case("DELETE on a collection", 405, "METHOD_NOT_ALLOWED", admin.delete("/api/v1/sites")));
+        cases.add(new Case("GET on a PUT-only route", 405, "METHOD_NOT_ALLOWED", admin.get("/api/v1/session/password")));
+        cases.add(new Case("PATCH on a GET-only route", 405, "METHOD_NOT_ALLOWED", admin.patch("/api/v1/jornadas/" + random, Map.of("state", "EGRESADA"))));
+        cases.add(new Case("unknown route", 404, "NOT_FOUND", admin.get("/api/v1/does-not-exist")));
+        cases.add(new Case("trailing slash", 404, "NOT_FOUND", admin.get("/api/v1/sites/")));
         cases.add(new Case("unknown route, anonymous", 401, "UNAUTHORIZED", anonymous.get("/api/v1/does-not-exist")));
-        cases.add(new Case("XML asked for", 406, null, admin.raw("GET", "/api/v1/sites", null, null, Map.of("Accept", "application/xml"))));
+        cases.add(new Case("XML asked for", 406, "NOT_ACCEPTABLE", admin.raw("GET", "/api/v1/sites", null, null, Map.of("Accept", "application/xml"))));
         return cases;
     }
 
