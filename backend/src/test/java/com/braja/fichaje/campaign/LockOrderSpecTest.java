@@ -226,7 +226,7 @@ class LockOrderSpecTest extends CampaignTestBase {
 
     /** The TEMPLATE_SAVE x BULK_DECLARATION pair of S63, checked for what each declared jornada froze. */
     @Test
-    @KnownDefect(issue = "TBD", reason = "A bulk declaration that waits for a template save reads the template row (FOR SHARE) after the"
+    @KnownDefect(issue = "#74", reason = "A bulk declaration that waits for a template save reads the template row (FOR SHARE) after the"
             + " save but its blocks from the REPEATABLE READ snapshot taken before it: the jornada freezes one version's name and limits"
             + " with the other version's blocks.")
     void s63ABulkDeclarationRacingATemplateSaveFreezesOneWholeTemplateVersion() throws Exception {
@@ -406,7 +406,7 @@ class LockOrderSpecTest extends CampaignTestBase {
     // S64 ------------------------------------------------------------------------------------------------------------
 
     @Test
-    @KnownDefect(issue = "TBD", reason = "First marks on different jornadas at once deadlock: each loadHistory FOR UPDATE on an empty"
+    @KnownDefect(issue = "#74", reason = "First marks on different jornadas at once deadlock: each loadHistory FOR UPDATE on an empty"
             + " jornada takes the same gap lock of uq_mark_jornada_sequence and every INSERT then waits for the others' gap (409 RETRYABLE).")
     void s64TwentyLateIngresosWithTheAbsenceJobAndTheDispatcherOpenOnePushWindowCountedPerSite() throws Exception {
         conflictsAssertedByTheTest = true;

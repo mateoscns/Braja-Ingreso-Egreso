@@ -311,7 +311,7 @@ class GeofenceSpecTest extends CampaignTestBase {
 
     // S39 x S42: the second evaluation reads the stored accuracy (DECIMAL(9,2)) while the first used the reported value.
     @Test
-    @KnownDefect(issue = "TBD", reason = "Re-anchoring evaluates the stored accuracy rounded to 2 decimals, so a mark reported 100.004 m off a 100 m radius counts as outside at receipt and inside after the anchor is voided.")
+    @KnownDefect(issue = "#77", reason = "Re-anchoring evaluates the stored accuracy rounded to 2 decimals, so a mark reported 100.004 m off a 100 m radius counts as outside at receipt and inside after the anchor is voided.")
     void s42ReAnchoringJudgesTheOtherMarkWithTheAccuracyItReported() {
         fixture.siteCenter(company, site, CENTER_LAT, LON, 100);
         UUID jornada = declare(DAY);

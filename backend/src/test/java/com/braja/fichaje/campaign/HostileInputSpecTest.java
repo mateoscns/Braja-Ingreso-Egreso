@@ -143,7 +143,7 @@ class HostileInputSpecTest extends CampaignTestBase {
     }
 
     @Test
-    @KnownDefect(issue = "TBD", reason = "Rule 25: no text the ADMIN sees is cleaned of control, bidi or zero-width characters; only length caps exist")
+    @KnownDefect(issue = "#76", reason = "Rule 25: no text the ADMIN sees is cleaned of control, bidi or zero-width characters; only length caps exist")
     void s22EveryTextTheAdminSeesIsCleaned() {
         Submitted submitted = submitHostileEverywhere();
         Map<String, String> seen = adminView(submitted);

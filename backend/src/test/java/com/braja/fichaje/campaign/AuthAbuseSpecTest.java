@@ -576,7 +576,7 @@ class AuthAbuseSpecTest extends CampaignTestBase {
 
     /** Only the missing code is the defect; the 4xx status and the untouched database are pinned by the test above. */
     @Test
-    @KnownDefect(issue = "TBD", reason = "An unreadable JSON body falls through ApiExceptionHandler to Spring Boot's /error page: 400 without problem+json or code")
+    @KnownDefect(issue = "#73", reason = "An unreadable JSON body falls through ApiExceptionHandler to Spring Boot's /error page: 400 without problem+json or code")
     void s23MalformedJsonCarriesAProblemCode() {
         List<String> withoutCode = new ArrayList<>();
         for (Map.Entry<String, ApiClient.Response> sent : sendMalformedJson(fixture.company("Roto")).entrySet()) {

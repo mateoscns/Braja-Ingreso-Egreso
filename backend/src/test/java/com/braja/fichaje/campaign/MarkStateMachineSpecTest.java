@@ -292,7 +292,7 @@ class MarkStateMachineSpecTest extends CampaignTestBase {
 
     /** Only the missing code is the defect; the status and the empty history are pinned by the test above. */
     @Test
-    @KnownDefect(issue = "TBD", reason = "A mark without Idempotency-Key gets Spring's default 400 error body, which has no problem+json code.")
+    @KnownDefect(issue = "#73", reason = "A mark without Idempotency-Key gets Spring's default 400 error body, which has no problem+json code.")
     void s28AMarkWithoutIdempotencyKeyCarriesAProblemCode() {
         UUID jornada = declare(DAY);
         clock.set(START);

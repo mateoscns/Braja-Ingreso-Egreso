@@ -275,7 +275,7 @@ class EndpointContractSpecTest extends CampaignTestBase {
 
     /** The S10 matrix sees GET /templates?siteId=<unknown> answer 404 NOT_FOUND; openapi.yaml lists only 200 and 403 for it. */
     @Test
-    @KnownDefect(issue = "TBD", reason = "GET /templates answers 404 for an unknown siteId but openapi.yaml documents no 404 for it")
+    @KnownDefect(issue = "#73", reason = "GET /templates answers 404 for an unknown siteId but openapi.yaml documents no 404 for it")
     void s10EveryStatusTheMatrixSeesIsDocumented() {
         List<String> missing = new ArrayList<>();
         for (String entry : UNDOCUMENTED_STATUSES) {
@@ -309,7 +309,7 @@ class EndpointContractSpecTest extends CampaignTestBase {
     }
 
     @Test
-    @KnownDefect(issue = "TBD", reason = "Problems written by the security filter (401 UNAUTHORIZED, 401 SESSION_EXPIRED, CSRF 403) carry no traceId")
+    @KnownDefect(issue = "#73", reason = "Problems written by the security filter (401 UNAUTHORIZED, 401 SESSION_EXPIRED, CSRF 403) carry no traceId")
     void s11SecurityFilterProblemsCarryATraceId() {
         List<String> failures = new ArrayList<>();
         for (Route route : ROUTES) {
@@ -321,7 +321,7 @@ class EndpointContractSpecTest extends CampaignTestBase {
     }
 
     @Test
-    @KnownDefect(issue = "TBD", reason = "Unknown routes, wrong methods, unsupported media types and missing query parameters bypass ApiExceptionHandler and get Spring Boot's error body without code")
+    @KnownDefect(issue = "#73", reason = "Unknown routes, wrong methods, unsupported media types and missing query parameters bypass ApiExceptionHandler and get Spring Boot's error body without code")
     void s11FrameworkErrorsAreProblemJsonWithCode() {
         ApiClient admin = fixture.company("Marco").admin();
         Map<String, ApiClient.Response> sent = new LinkedHashMap<>();

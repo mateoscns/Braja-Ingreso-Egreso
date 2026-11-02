@@ -67,7 +67,7 @@ class ErrorContractSpecTest extends CampaignTestBase {
 
     /** The statuses are pinned by the test above; only the missing problem body, code or traceId is the defect. */
     @Test
-    @KnownDefect(issue = "TBD", reason = "Spring MVC errors (415, 405, 404, 406, missing body) fall through to Boot's /error page and the "
+    @KnownDefect(issue = "#73", reason = "Spring MVC errors (415, 405, 404, 406, missing body) fall through to Boot's /error page and the "
             + "security entry point writes problems without traceId")
     void s73EveryMalformedRequestIsAProblemWithCodeAndTraceId() {
         List<String> notProblems = new ArrayList<>();

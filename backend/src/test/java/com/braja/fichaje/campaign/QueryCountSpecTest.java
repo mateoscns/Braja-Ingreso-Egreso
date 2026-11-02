@@ -251,7 +251,7 @@ class QueryCountSpecTest extends CampaignTestBase {
     }
 
     @Test
-    @KnownDefect(issue = "TBD", reason = "GET /employees reads the sites of each employee in its own query (OrganizationService.employeeView): N+1, CLAUDE.md rule 17.")
+    @KnownDefect(issue = "#75", reason = "GET /employees reads the sites of each employee in its own query (OrganizationService.employeeView): N+1, CLAUDE.md rule 17.")
     void s67EmployeesRunsAConstantNumberOfStatements() {
         Growth growth = employeesGrowth();
         assertEquals(growth.statementsAtOne(), growth.statementsAtMany(), growth.describe("GET /employees"));
@@ -266,7 +266,7 @@ class QueryCountSpecTest extends CampaignTestBase {
     }
 
     @Test
-    @KnownDefect(issue = "TBD", reason = "GET /templates reads the blocks of each template in its own query (OrganizationService.templateView): N+1, CLAUDE.md rule 17.")
+    @KnownDefect(issue = "#75", reason = "GET /templates reads the blocks of each template in its own query (OrganizationService.templateView): N+1, CLAUDE.md rule 17.")
     void s67TemplatesRunsAConstantNumberOfStatements() {
         Growth growth = templatesGrowth();
         assertEquals(growth.statementsAtOne(), growth.statementsAtMany(), growth.describe("GET /templates"));
@@ -281,7 +281,7 @@ class QueryCountSpecTest extends CampaignTestBase {
     }
 
     @Test
-    @KnownDefect(issue = "TBD", reason = "GET /jornadas/mine loads each jornada, the caller's employee id and its marks one jornada at a time (JornadaController.getJornada): N+1, CLAUDE.md rule 17.")
+    @KnownDefect(issue = "#75", reason = "GET /jornadas/mine loads each jornada, the caller's employee id and its marks one jornada at a time (JornadaController.getJornada): N+1, CLAUDE.md rule 17.")
     void s67MineRunsAConstantNumberOfStatements() {
         Growth growth = mineGrowth();
         assertEquals(growth.statementsAtOne(), growth.statementsAtMany(), growth.describe("GET /jornadas/mine"));
