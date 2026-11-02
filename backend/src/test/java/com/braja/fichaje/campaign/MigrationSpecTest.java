@@ -211,57 +211,95 @@ class MigrationSpecTest extends CampaignTestBase {
 
     // S76 -------------------------------------------------------------------------------------------------------------
 
-    /** Old open jornadas from months before "now", one closed, one never started and one of today (BA, 09:00-17:00). */
+    /**
+     * R1 and R2 (D-20261102-02, D-20261102-03) on the first tick after the deploy: open and never-started jornadas from months
+     * before "now" (2027-03-01 10:00 in Buenos Aires), one closed, and both edges of the last 7 local days, 2027-02-23 to today
+     * (BA, 09:00-17:00). Only the 7 days are flagged, and only today's absence, 50 min after it was due, queues a push.
+     */
     @Test
-    void s76FirstMissingEgressRunFlagsEveryHistoricOpenJornadaAndNoneOfThemNotifies() {
+    void s76FirstTickAfterDeployFlagsOnlyTheLastSevenLocalDaysAndPushesOnlyTheFreshAbsence() {
         clock.set(Instant.parse("2026-10-01T12:00:00Z"));
         Fixture.Company company = fixture.company("Historic");
         UUID site = fixture.site(company, "Centro", BUENOS_AIRES);
         Fixture.Employee ana = fixture.employee(company, "Ana", List.of(site), 10);
+        Fixture.Employee beto = fixture.employee(company, "Beto", List.of(site), 10);
         UUID template = fixture.template(company, site, "Day", List.of(Fixture.Block.sameDay("09:00", "17:00")), 20, 30);
-        List<UUID> open = new ArrayList<>();
-        open.add(openJornada(company, site, template, ana, "2026-10-15"));
+        List<UUID> old = new ArrayList<>();
+        old.add(openJornada(company, site, template, ana, "2026-10-15"));
         UUID closed = openJornada(company, site, template, ana, "2026-11-02");
         mark(ana, closed, "EGRESO", "2026-11-02T20:00:00Z");
-        open.add(openJornada(company, site, template, ana, "2026-11-16"));
+        old.add(openJornada(company, site, template, ana, "2026-11-16"));
         clock.set(Instant.parse("2026-12-01T11:00:00Z"));
-        UUID absent = fixture.declare(company, ana.id(), site, LocalDate.parse("2026-12-01"), template);
-        for (String day : List.of("2026-12-15", "2027-01-15", "2027-02-15")) open.add(openJornada(company, site, template, ana, day));
+        old.add(fixture.declare(company, beto.id(), site, LocalDate.parse("2026-12-01"), template));
+        for (String day : List.of("2026-12-15", "2027-01-15", "2027-02-15")) old.add(openJornada(company, site, template, ana, day));
         UUID paused = openJornada(company, site, template, ana, "2027-02-16");
         mark(ana, paused, "SALIDA_ALMUERZO", "2027-02-16T16:00:00Z");
-        open.add(paused);
+        old.add(paused);
+        old.add(openJornada(company, site, template, ana, "2027-02-22"));
+        old.add(fixture.declare(company, beto.id(), site, LocalDate.parse("2027-02-22"), template));
+        UUID oldestOpen = openJornada(company, site, template, ana, "2027-02-23");
+        UUID oldestAbsent = fixture.declare(company, beto.id(), site, LocalDate.parse("2027-02-23"), template);
         UUID today = openJornada(company, site, template, ana, "2027-03-01");
+        UUID todayAbsent = fixture.declare(company, beto.id(), site, LocalDate.parse("2027-03-01"), template);
 
         clock.set(NOW);
         scheduler.createDueAbsences();
 
-        // CHAR: the MARCA_FALTANTE query has no date bound, so the first tick flags every historic open jornada, up to
-        // 4.5 months old here, all with created_at = now — confirm with Mateo.
-        assertEquals(new TreeSet<>(open.stream().map(UUID::toString).toList()), new TreeSet<>(jdbc.queryForList(
-                "SELECT jornada_id FROM deviations WHERE type = 'MARCA_FALTANTE' AND active = TRUE AND created_at = ?",
-                String.class, Timestamp.from(NOW))));
+        assertEquals(List.of(oldestOpen.toString()), jdbc.queryForList(
+                "SELECT jornada_id FROM deviations WHERE type = 'MARCA_FALTANTE' AND active = TRUE AND created_at = ?", String.class, Timestamp.from(NOW)));
+        assertEquals(new TreeSet<>(List.of(oldestAbsent.toString(), todayAbsent.toString())), new TreeSet<>(jdbc.queryForList(
+                "SELECT jornada_id FROM deviations WHERE type = 'SIN_INGRESO' AND active = TRUE AND created_at = ?", String.class, Timestamp.from(NOW))));
+        for (UUID jornada : old) assertEquals(0, count(jdbc, "SELECT COUNT(*) FROM deviations WHERE jornada_id = ?", jornada.toString()));
         assertEquals(0, count(jdbc, "SELECT COUNT(*) FROM deviations WHERE jornada_id IN (?, ?)", closed.toString(), today.toString()));
-        // CHAR: the absence query has no date bound either: the never-started jornada of three months ago becomes SIN_INGRESO
-        // now, and it is the only one that enqueues a push (MARCA_FALTANTE never notifies, rule 8) — confirm with Mateo.
-        assertEquals(List.of("SIN_INGRESO"), jdbc.queryForList("SELECT type FROM deviations WHERE jornada_id = ?", String.class,
-                absent.toString()));
-        assertEquals(List.of("SIN_INGRESO"), jdbc.queryForList("SELECT deviation_type FROM notification_outbox_events", String.class));
+        // The absence of 2027-02-23 is recorded but was due 6 days ago; MARCA_FALTANTE never notifies (rule 8).
+        assertEquals(List.of(todayAbsent.toString()), jdbc.queryForList("SELECT d.jornada_id FROM notification_outbox_events e"
+                + " JOIN deviations d ON d.id = e.deviation_id", String.class));
 
         scheduler.createDueAbsences();
-        assertEquals(open.size() + 1, count(jdbc, "SELECT COUNT(*) FROM deviations"), "a second tick adds nothing");
+        assertEquals(3, count(jdbc, "SELECT COUNT(*) FROM deviations"), "a second tick adds nothing");
         assertEquals(List.of(), new InvariantChecker(jdbc).always());
         assertEquals(List.of(), httpLog.serverErrors());
     }
 
-    /** 205 historic open jornadas: the backlog drains at 200 per tick (MarkScheduler batch), oldest first. */
+    /**
+     * R1: the 7 days are local to each site. At 2027-03-01T16:00Z it is 13:00 of 03-01 in Buenos Aires (window from 02-23) and
+     * 01:00 of 03-02 in Tokyo (window from 02-24), so of two open jornadas dated 2027-02-23 only the Buenos Aires one is flagged.
+     */
     @Test
-    void s76HistoricBacklogLargerThanOneBatchDrainsAtTwoHundredPerTick() {
+    void s76TheSevenLocalDaysAreCountedInTheZoneOfEachSite() {
+        clock.set(Instant.parse("2027-02-20T00:00:00Z"));
+        Fixture.Company company = fixture.company("Zones");
+        UUID buenosAires = fixture.site(company, "Centro", BUENOS_AIRES);
+        UUID tokyo = fixture.site(company, "Tokio", "Asia/Tokyo");
+        Fixture.Employee ana = fixture.employee(company, "Ana", List.of(buenosAires), 10);
+        Fixture.Employee kenji = fixture.employee(company, "Kenji", List.of(tokyo), 10);
+        UUID baTemplate = fixture.template(company, buenosAires, "Day", List.of(Fixture.Block.sameDay("09:00", "17:00")), 20, 30);
+        UUID tokyoTemplate = fixture.template(company, tokyo, "Day", List.of(Fixture.Block.sameDay("09:00", "17:00")), 20, 30);
+        clock.set(Instant.parse("2027-02-22T23:00:00Z"));
+        UUID outside = fixture.declare(company, kenji.id(), tokyo, LocalDate.parse("2027-02-23"), tokyoTemplate);
+        mark(kenji, outside, "INGRESO", "2027-02-23T00:00:00Z");  // 09:00 in Tokyo
+        UUID inside = openJornada(company, buenosAires, baTemplate, ana, "2027-02-23");
+
+        clock.set(Instant.parse("2027-03-01T16:00:00Z"));
+        scheduler.createDueAbsences();
+
+        assertEquals(List.of(inside.toString()), jdbc.queryForList("SELECT jornada_id FROM deviations WHERE type = 'MARCA_FALTANTE'", String.class));
+        assertEquals(0, count(jdbc, "SELECT COUNT(*) FROM deviations WHERE jornada_id = ?", outside.toString()));
+        assertEquals(List.of(), httpLog.serverErrors());
+    }
+
+    /**
+     * R1: 205 open jornadas, one per day back from today (2027-03-01, BA): the tick at 20:00 local flags the 7 of the last 7
+     * local days, and the 198 older ones stay unflagged tick after tick instead of draining 200 per tick.
+     */
+    @Test
+    void s76AHistoricBacklogOlderThanTheLastSevenLocalDaysIsNeverFlagged() {
         clock.set(Instant.parse("2026-06-01T12:00:00Z"));
         Fixture.Company company = fixture.company("Backlog");
         UUID site = fixture.site(company, "Centro", BUENOS_AIRES);
         Fixture.Employee beto = fixture.employee(company, "Beto", List.of(site), 10);
         UUID template = fixture.template(company, site, "Day", List.of(Fixture.Block.sameDay("09:00", "17:00")), 20, 30);
-        UUID newest = openJornada(company, site, template, beto, "2026-12-31");
+        UUID newest = openJornada(company, site, template, beto, "2027-03-01");
         List<Object[]> jornadas = new ArrayList<>();
         List<Object[]> marks = new ArrayList<>();
         for (int daysBack = 1; daysBack <= 204; daysBack++) {
@@ -281,13 +319,15 @@ class MigrationSpecTest extends CampaignTestBase {
                 + "'SIN_UBICACION' FROM mark_events WHERE jornada_id = ?", marks);
         assertEquals(205, count(jdbc, "SELECT COUNT(*) FROM jornadas WHERE state = 'EN_CURSO'"));
 
-        clock.set(NOW);
+        Instant evening = Instant.parse("2027-03-01T23:00:00Z");
+        clock.set(evening);
         scheduler.createDueAbsences();
-        // CHAR: one tick flags 200 of them (the batch limit), the oldest first; the rest wait 15 s for the next tick — confirm with Mateo.
-        assertEquals(200, count(jdbc, "SELECT COUNT(*) FROM deviations WHERE type = 'MARCA_FALTANTE'"));
-        assertEquals(0, count(jdbc, "SELECT COUNT(*) FROM deviations WHERE jornada_id = ?", newest.toString()));
+        List<String> recent = jdbc.queryForList("SELECT DATE_FORMAT(j.local_date, '%Y-%m-%d') FROM deviations d JOIN jornadas j ON j.id = d.jornada_id"
+                + " WHERE d.type = 'MARCA_FALTANTE' ORDER BY j.local_date", String.class);
+        assertEquals(List.of("2027-02-23", "2027-02-24", "2027-02-25", "2027-02-26", "2027-02-27", "2027-02-28", "2027-03-01"), recent);
+        clock.set(evening.plusSeconds(15));
         scheduler.createDueAbsences();
-        assertEquals(205, count(jdbc, "SELECT COUNT(*) FROM deviations WHERE type = 'MARCA_FALTANTE'"));
+        assertEquals(7, count(jdbc, "SELECT COUNT(*) FROM deviations"), "the older ones are never flagged");
         assertEquals(0, count(jdbc, "SELECT COUNT(*) FROM notification_outbox_events"));
     }
 

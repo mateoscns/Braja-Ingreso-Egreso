@@ -49,10 +49,10 @@ class Simulation90DaysTest extends CampaignTestBase {
                     + "): " + ingresos + " INGRESO accepted, expected at least " + MIN_ACCEPTED_INGRESOS_PER_DAY + ": " + line);
         }
         if (settings.days() > AdminChaos.REACTIVATION_DAY) {
-            assertTrue(result.s77().startsWith("S77 CHAR: reactivation"), result.s77());
+            assertTrue(result.s77().startsWith("S77: reactivation"), result.s77());
             assertTrue(result.totals().getOrDefault("S77 reactivation backlog", 0L) > 0, result.s77());
         }
-        if (settings.days() > AdminChaos.PAST_DECLARATION_DAY) assertTrue(result.s54().startsWith("S54 CHAR"), result.s54());
+        if (settings.days() > AdminChaos.PAST_DECLARATION_DAY) assertTrue(result.s54().startsWith("S54: "), result.s54());
     }
 
     @Test

@@ -2,6 +2,8 @@ package com.braja.fichaje.campaign.simulation;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -14,8 +16,15 @@ import java.util.TreeSet;
  * tolerance, break limits and geofence snapshot and its valid marks. It never calls DeviationPolicy, GeofencePolicy,
  * MarkTransitionPolicy or MarkState. Job-made deviations (SIN_INGRESO, MARCA_FALTANTE) are expected only when
  * {@code jobsSeeTheEmployee}: the absence job skips inactive employees (S19), so while one is inactive they are uncertain.
+ * They are also expected only for jornadas of the last {@link #JOB_LOOKBACK_DAYS} local days, today included, in the
+ * jornada's zone ("Ventana de los jobs", D-20261102-02): older jornadas are never flagged by the jobs, so a job-made deviation
+ * of an older jornada is uncertain (it stays if the jobs flagged it while the jornada was recent, or if an ADMIN change did).
  */
 final class DeviationOracle {
+    /** The spec's "últimos 7 días locales, contando hoy" (D-20261102-02); written here, not read from DeviationPolicy. */
+    static final int JOB_LOOKBACK_DAYS = 7;
+    /** The spec's "a más tardar 2 h después de su hecho" for a push (D-20261102-03); the simulation's push model uses it. */
+    static final Duration PUSH_FRESHNESS = Duration.ofHours(2);
     /** IUGG mean Earth radius; the spec only says "distancia", the edge band below absorbs any formula difference. */
     static final double EARTH_RADIUS_METERS = 6_371_008.8;
     /** Distances this close to the radius are not asserted either way (the simulation never sends them). */
@@ -26,8 +35,9 @@ final class DeviationOracle {
 
     record Geofence(double latitude, double longitude, int radiusMeters) { }
 
-    record Jornada(Instant scheduledStart, Instant scheduledEnd, int toleranceMinutes, int breakfastLimitMinutes,
-                   int lunchLimitMinutes, Geofence geofence, boolean cancelled, List<Mark> validMarks) { }
+    /** {@code localDate} and {@code zone}: the jornada's local date and its site's zone, for the job date bound. */
+    record Jornada(LocalDate localDate, ZoneId zone, Instant scheduledStart, Instant scheduledEnd, int toleranceMinutes,
+                   int breakfastLimitMinutes, int lunchLimitMinutes, Geofence geofence, boolean cancelled, List<Mark> validMarks) { }
 
     /**
      * {@code active}: must be active; {@code uncertain}: may or may not be; {@code outsideAnchors}: the marks a
@@ -45,10 +55,13 @@ final class DeviationOracle {
         Duration tolerance = Duration.ofMinutes(jornada.toleranceMinutes());
         Mark ingreso = first(jornada.validMarks(), "INGRESO");
         Mark egreso = first(jornada.validMarks(), "EGRESO");
+        LocalDate today = LocalDate.ofInstant(now, jornada.zone());
+        boolean recent = !jornada.localDate().isBefore(today.minusDays(JOB_LOOKBACK_DAYS - 1));
+        Set<String> jobMade = jobsSeeTheEmployee && recent ? active : uncertain;
 
         // Arrival: SIN_INGRESO once start + tolerance has passed without INGRESO; LLEGADA_TARDE when it came later.
         if (ingreso == null) {
-            if (now.isAfter(jornada.scheduledStart().plus(tolerance))) (jobsSeeTheEmployee ? active : uncertain).add("SIN_INGRESO");
+            if (now.isAfter(jornada.scheduledStart().plus(tolerance))) jobMade.add("SIN_INGRESO");
         } else if (ingreso.occurredAt().isAfter(jornada.scheduledStart().plus(tolerance))) {
             active.add("LLEGADA_TARDE");
         }
@@ -58,7 +71,7 @@ final class DeviationOracle {
             if (egreso.occurredAt().isBefore(jornada.scheduledEnd().minus(tolerance))) active.add("EGRESO_TEMPRANO");
             else if (egreso.occurredAt().isAfter(jornada.scheduledEnd().plus(tolerance))) active.add("EGRESO_TARDIO");
         } else if (ingreso != null && now.isAfter(jornada.scheduledEnd().plus(tolerance))) {
-            (jobsSeeTheEmployee ? active : uncertain).add("MARCA_FALTANTE");
+            jobMade.add("MARCA_FALTANTE");
         }
 
         // Breaks: a closed break longer than its frozen limit; an open break is not measured yet.

@@ -278,6 +278,75 @@ class DeviationLifecycleSpecTest extends CampaignTestBase {
         assertEquals(2, count("SELECT COUNT(*) FROM notification_windows WHERE company_id = ?", company.id()));
     }
 
+    /** R2 (D-20261102-03): a reactivation more than 2 h after its fact is recorded again but does not notify again. */
+    @Test
+    void s37ADeviationReactivatedMoreThanTwoHoursAfterItsIngressComesBackWithoutANewPush() {
+        UUID deviation = lateArrival();
+        UUID ingreso = UUID.fromString(jdbc.queryForObject("SELECT id FROM mark_events WHERE jornada_id = ?", String.class, jornada.toString()));
+        String sentWindow = dispatchWindowOf(deviation);
+
+        clock.set(START.plus(Duration.ofHours(3)));
+        correctIngreso(ingreso, START).expect(200);
+        assertEquals(List.of(), activeTypes());
+        clock.set(START.plus(Duration.ofHours(3)).plusSeconds(60));
+        correctIngreso(ingreso, START.plus(Duration.ofMinutes(30))).expect(200);  // the fact is 2 h 31 min old
+
+        assertEquals(deviation, onlyActiveDeviation());
+        assertEquals("LLEGADA_TARDE", deviationRow(deviation).get("type"));
+        assertEquals("MOTIVO_PENDIENTE", employeeStatus(deviation));
+        assertEquals(sentWindow, windowOf(deviation), "the event stays in the window that was already sent");
+        assertEquals(1, count("SELECT COUNT(*) FROM notification_windows WHERE company_id = ?", company.id()));
+    }
+
+    // R2 -------------------------------------------------------------------------------------------------------------
+
+    /** R2 (D-20261102-03): an absence detected at most 2 h after it was due (09:10) queues a push; one microsecond later it does not. */
+    @ParameterizedTest(name = "detected {0} µs after due + 2 h -> {1} push event(s)")
+    @CsvSource({"-1, 1", "0, 1", "1, 0"})
+    void r2AnAbsenceIsAlwaysRecordedButPushedOnlyWhenDetectedAtMostTwoHoursAfterItWasDue(long offsetMicros, int events) {
+        runAbsenceJob(START.plus(TOLERANCE).plus(Duration.ofHours(2)).plus(offsetMicros, ChronoUnit.MICROS));
+
+        assertEquals(List.of("SIN_INGRESO"), activeTypes());
+        assertEquals(events, count("SELECT COUNT(*) FROM notification_outbox_events WHERE deviation_id = ?", onlyActiveDeviation()));
+    }
+
+    /**
+     * R2: a late INGRESO the ADMIN loads afterwards (09:30, no absence job ran) notifies only while it is at most 2 h old; loaded
+     * three days later it is a LLEGADA_TARDE without a push (and, with no EGRESO, also a MARCA_FALTANTE, which never notifies).
+     */
+    @ParameterizedTest(name = "loaded {0} µs after the ingress -> {1} push event(s)")
+    @CsvSource({"7200000000, 1", "7200000001, 0", "259200000000, 0"})
+    void r2ALateArrivalLoadedByTheAdminIsPushedOnlyWhileItsIngressIsAtMostTwoHoursOld(long loadedAfterMicros, int events) {
+        Instant ingress = START.plus(Duration.ofMinutes(30));
+        clock.set(ingress.plus(loadedAfterMicros, ChronoUnit.MICROS));
+        company.admin().post("/api/v1/admin/jornadas/" + jornada + "/forgotten-marks",
+                Map.of("action", "INGRESO", "occurredAt", ingress.toString(), "auditReason", "Employee forgot to mark")).expect(201);
+
+        assertTrue(activeTypes().contains("LLEGADA_TARDE"), activeTypes().toString());
+        assertEquals(events, count("SELECT COUNT(*) FROM notification_outbox_events"));
+        assertEquals(events, count("SELECT COUNT(*) FROM notification_outbox_events e JOIN deviations d ON d.id = e.deviation_id"
+                + " WHERE d.jornada_id = ? AND d.type = 'LLEGADA_TARDE'", jornada));
+    }
+
+    /**
+     * R2 with rule 8: an absence first detected at 11:30, 2 h 20 min after 09:10, is recorded without a push; when a fresh INGRESO
+     * at 11:35 turns it into LLEGADA_TARDE, the ADMIN is told once, about the late arrival (the absence never notified).
+     */
+    @Test
+    void r2AnUnpushedAbsenceReplacedByAFreshLateArrivalNotifiesOnceForTheArrival() {
+        runAbsenceJob(START.plus(Duration.ofMinutes(150)));
+        UUID deviation = onlyActiveDeviation();
+        assertEquals(0, count("SELECT COUNT(*) FROM notification_outbox_events"));
+
+        clock.set(START.plus(Duration.ofMinutes(155)));
+        employee.client().mark(jornada, "INGRESO", UUID.randomUUID()).expect(201);
+
+        assertEquals(deviation, onlyActiveDeviation());
+        assertEquals("LLEGADA_TARDE", deviationRow(deviation).get("type"));
+        assertEquals(List.of("LLEGADA_TARDE"), jdbc.queryForList("SELECT deviation_type FROM notification_outbox_events WHERE deviation_id = ?",
+                String.class, deviation.toString()));
+    }
+
     // S38 ------------------------------------------------------------------------------------------------------------
 
     @Test

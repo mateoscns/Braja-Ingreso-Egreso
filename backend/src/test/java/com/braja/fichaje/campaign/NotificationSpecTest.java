@@ -119,6 +119,29 @@ class NotificationSpecTest extends CampaignTestBase {
         assertEquals(3, push.deliveries().size());
     }
 
+    /**
+     * R2 (D-20261102-03) end to end: the same tick records today's absence (1 min after 09:10) and the absence of a date the ADMIN
+     * declared for three days ago; the ADMIN's only push counts today's, and the old one waits in the inbox without a notice.
+     */
+    @Test
+    void s55AnAbsenceDetectedMoreThanTwoHoursAfterItWasDueIsRecordedButCountedInNoPush() {
+        Shop shop = shop("Frescos", "Ana");
+        Fixture.Employee beto = fixture.employee(shop.company(), "Beto", List.of(shop.site()), 10);
+        UUID template = UUID.fromString(jdbc.queryForObject("SELECT template_id FROM jornadas WHERE id = ?", String.class, shop.jornada().toString()));
+        UUID old = fixture.declare(shop.company(), beto.id(), shop.site(), DAY.minusDays(3), template);
+        String endpoint = subscribe(shop.company().admin());
+
+        runAbsenceJob(utc("12:11:00"));
+        dispatch(utc("12:16:00"));
+
+        assertEquals("SIN_INGRESO", jdbc.queryForObject("SELECT type FROM deviations WHERE jornada_id = ? AND active", String.class, old.toString()));
+        assertEquals(List.of(shop.jornada().toString()), jdbc.queryForList("SELECT d.jornada_id FROM notification_outbox_events e"
+                + " JOIN deviations d ON d.id = e.deviation_id", String.class));
+        List<JsonNode> sent = payloadsTo(endpoint);
+        assertEquals(1, sent.size());
+        assertPayload(sent.get(0), 1, "Hay 1 desvío nuevo para revisar.", Map.of("Local Frescos", 1L));
+    }
+
     // S56 ------------------------------------------------------------------------------------------------------------
 
     @ParameterizedTest(name = "provider answers {0}")
