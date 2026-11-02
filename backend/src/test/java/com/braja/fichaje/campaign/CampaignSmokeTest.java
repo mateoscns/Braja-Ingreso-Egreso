@@ -59,6 +59,7 @@ class CampaignSmokeTest extends CampaignTestBase {
         assertEquals(Timestamp.from(Instant.parse("2027-03-01T12:00:00Z")),
                 jdbc.queryForObject("SELECT recorded_at FROM mark_events WHERE jornada_id = ?", Timestamp.class, jornada.toString()));
         assertEquals(List.of(), httpLog.serverErrors());
+        assertEquals(List.of(), new InvariantChecker(jdbc).always());
     }
 
     @Test
