@@ -15,11 +15,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** A ceiling that only goes down (CLAUDE.md §3): a new known defect needs its issue and a raised number in review. */
 class KnownDefectCeilingTest {
-    /** Known defects open on 2026-11-02. Lower it when one is fixed; raise it only with the defect's issue. */
-    private static final int CEILING = 0;
+    /** Known defects open on 2026-11-02 (S28 missing Idempotency-Key code). Lower it when one is fixed; raise it only with the defect's issue. */
+    private static final int CEILING = 1;
     /** The extension's own test annotates a sample method; it is not a defect. */
     private static final String SELF_TEST = "KnownDefectExtensionTest.java";
-    private static final Pattern USE =Pattern.compile("^\\s*@KnownDefect\\(", Pattern.MULTILINE);
+    private static final Pattern USE = Pattern.compile("^\\s*@KnownDefect\\(", Pattern.MULTILINE);
 
     @Test
     void knownDefectsNeverGrowPastTheCeiling() throws IOException {
