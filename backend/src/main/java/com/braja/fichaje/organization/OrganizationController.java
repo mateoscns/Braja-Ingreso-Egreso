@@ -68,9 +68,10 @@ public class OrganizationController {
     @GetMapping("/employees")
     public List<EmployeeView> employees(Authentication auth, HttpSession session) {
         var scope = scopes.requireAdmin(auth, session);
-        return jdbc.query("SELECT e.id,e.display_name,e.tolerance_minutes,e.active,a.dni_display,a.must_change_password FROM employees e JOIN accounts a ON a.id=e.account_id WHERE e.company_id=? ORDER BY e.display_name,e.id",
-                (rs, row) -> service.employeeView(scope.companyId(), UUID.fromString(rs.getString("id")), rs.getString("display_name"), rs.getInt("tolerance_minutes"), rs.getBoolean("active"), rs.getString("dni_display"), rs.getBoolean("must_change_password")),
+        List<OrganizationService.EmployeeRow> rows = jdbc.query("SELECT e.id,e.display_name,e.tolerance_minutes,e.active,a.dni_display,a.must_change_password FROM employees e JOIN accounts a ON a.id=e.account_id WHERE e.company_id=? ORDER BY e.display_name,e.id",
+                (rs, row) -> new OrganizationService.EmployeeRow(UUID.fromString(rs.getString("id")), rs.getString("display_name"), rs.getInt("tolerance_minutes"), rs.getBoolean("active"), rs.getString("dni_display"), rs.getBoolean("must_change_password")),
                 scope.companyId().toString());
+        return service.employeeViews(scope.companyId(), rows);
     }
 
     @PostMapping("/employees")
@@ -114,7 +115,8 @@ public class OrganizationController {
             args.add(siteId.toString());
         }
         sql.append(" ORDER BY name,id");
-        return jdbc.query(sql.toString(), (rs, row) -> service.templateView(scope.companyId(), UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("site_id")), rs.getString("name"), rs.getInt("breakfast_limit_minutes"), rs.getInt("lunch_limit_minutes"), rs.getBoolean("active")), args.toArray());
+        List<OrganizationService.TemplateRow> rows = jdbc.query(sql.toString(), (rs, row) -> new OrganizationService.TemplateRow(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("site_id")), rs.getString("name"), rs.getInt("breakfast_limit_minutes"), rs.getInt("lunch_limit_minutes"), rs.getBoolean("active")), args.toArray());
+        return service.templateViews(scope.companyId(), rows);
     }
 
     @PostMapping("/templates")

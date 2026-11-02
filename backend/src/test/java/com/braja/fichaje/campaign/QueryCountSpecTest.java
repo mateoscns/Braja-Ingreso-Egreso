@@ -1,5 +1,6 @@
 package com.braja.fichaje.campaign;
 
+import com.braja.fichaje.organization.OrganizationController;
 import com.braja.fichaje.timekeeping.MarkScheduler;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.AfterEach;
@@ -11,6 +12,7 @@ import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -251,7 +253,6 @@ class QueryCountSpecTest extends CampaignTestBase {
     }
 
     @Test
-    @KnownDefect(issue = "#75", reason = "GET /employees reads the sites of each employee in its own query (OrganizationService.employeeView): N+1, CLAUDE.md rule 17.")
     void s67EmployeesRunsAConstantNumberOfStatements() {
         Growth growth = employeesGrowth();
         assertEquals(growth.statementsAtOne(), growth.statementsAtMany(), growth.describe("GET /employees"));
@@ -266,7 +267,6 @@ class QueryCountSpecTest extends CampaignTestBase {
     }
 
     @Test
-    @KnownDefect(issue = "#75", reason = "GET /templates reads the blocks of each template in its own query (OrganizationService.templateView): N+1, CLAUDE.md rule 17.")
     void s67TemplatesRunsAConstantNumberOfStatements() {
         Growth growth = templatesGrowth();
         assertEquals(growth.statementsAtOne(), growth.statementsAtMany(), growth.describe("GET /templates"));
@@ -281,7 +281,6 @@ class QueryCountSpecTest extends CampaignTestBase {
     }
 
     @Test
-    @KnownDefect(issue = "#75", reason = "GET /jornadas/mine loads each jornada, the caller's employee id and its marks one jornada at a time (JornadaController.getJornada): N+1, CLAUDE.md rule 17.")
     void s67MineRunsAConstantNumberOfStatements() {
         Growth growth = mineGrowth();
         assertEquals(growth.statementsAtOne(), growth.statementsAtMany(), growth.describe("GET /jornadas/mine"));
@@ -310,6 +309,84 @@ class QueryCountSpecTest extends CampaignTestBase {
             if (growth.statementsAtOne() != growth.statementsAtMany()) growing.add(growth.describe(path));
         });
         assertEquals(List.of(), growing);
+    }
+
+    /**
+     * #75: loading the nested lists in one query per listing keeps every body byte for byte: the same items in the same
+     * order, each with its sites, blocks or marks in the same order, filtered by company and by the caller's role.
+     */
+    @Test
+    void s67ListingsReturnTheSameBodyAsTheRowByRowReads() throws Exception {
+        Fixture.Company other = fixture.company("Otra");
+        UUID otherSite = fixture.site(other, "Ajena", "America/Argentina/Buenos_Aires");
+        Fixture.Employee stranger = fixture.employee(other, "Ana Ajena", List.of(otherSite), 5);
+        UUID otherTemplate = fixture.template(other, otherSite, "Ajena", List.of(Fixture.Block.sameDay("08:00", "12:00")), 15, 30);
+        UUID otherJornada = fixture.declare(other, stranger.id(), otherSite, DAY, otherTemplate);
+        UUID north = fixture.site(company, "Norte", "America/Argentina/Buenos_Aires");
+        UUID south = fixture.site(company, "Sur", "America/Argentina/Buenos_Aires");
+
+        // Employees: several sites each (listed in site id order), a pending password and an inactive one.
+        Fixture.Employee ana = fixture.employee(company, "Ana", List.of(north, site), 10);
+        String brunoDni = Fixture.nextDni();
+        UUID bruno = company.admin().post("/api/v1/employees", Map.of("dni", brunoDni, "displayName", "Bruno", "siteIds", List.of(south),
+                "toleranceMinutes", 0, "temporaryPassword", "temporary-pass-" + brunoDni)).expect(201).id();
+        Fixture.Employee carla = fixture.employee(company, "Carla", List.of(south, north, site), 240);
+        company.admin().patch("/api/v1/employees/" + carla.id(), Map.of("active", false)).expect(200);
+        List<OrganizationController.EmployeeView> employees = List.of(
+                new OrganizationController.EmployeeView(ana.id(), "Ana", ana.dni(), sorted(north, site), 10, true, false),
+                new OrganizationController.EmployeeView(bruno, "Bruno", brunoDni, List.of(south), 0, true, true),
+                new OrganizationController.EmployeeView(carla.id(), "Carla", carla.dni(), sorted(south, north, site), 240, false, false));
+        assertEquals(json.writeValueAsString(employees), company.admin().get("/api/v1/employees").expect(200).raw());
+
+        // Templates: blocks in their sequence, listed by name, narrowed by site and by the employee's sites.
+        List<Fixture.Block> lateBlocks = List.of(Fixture.Block.sameDay("14:00", "16:00"), Fixture.Block.sameDay("16:30", "20:00"));
+        List<Fixture.Block> nightBlocks = List.of(Fixture.Block.overnight("22:00", "02:00"),
+                new Fixture.Block(1, LocalTime.parse("02:30"), LocalTime.parse("06:00"), 1));
+        UUID tarde = fixture.template(company, north, "Tarde", lateBlocks, 15, 45);
+        UUID manana = morning("Mañana");
+        UUID noche = fixture.template(company, south, "Noche", nightBlocks, 0, 60);
+        OrganizationController.TemplateView tardeView = templateView(tarde, north, "Tarde", lateBlocks, 15, 45);
+        OrganizationController.TemplateView mananaView = templateView(manana, site, "Mañana", List.of(Fixture.Block.sameDay("09:00", "17:00")), 20, 30);
+        OrganizationController.TemplateView nocheView = templateView(noche, south, "Noche", nightBlocks, 0, 60);
+        assertEquals(json.writeValueAsString(List.of(mananaView, nocheView, tardeView)), company.admin().get("/api/v1/templates").expect(200).raw());
+        assertEquals(json.writeValueAsString(List.of(tardeView)), company.admin().get("/api/v1/templates?siteId=" + north).expect(200).raw());
+        assertEquals(json.writeValueAsString(List.of(mananaView, tardeView)), ana.client().get("/api/v1/templates").expect(200).raw());
+
+        // Jornadas of the day, in declaration order, each equal to its own GET; marks without coordinates for the employee.
+        UUID first = fixture.declare(company, ana.id(), site, DAY, manana);
+        clock.advance(Duration.ofMinutes(1));
+        UUID second = fixture.declare(company, ana.id(), north, DAY, tarde);
+        fixture.declare(company, ana.id(), site, DAY.plusDays(1), manana);
+        clock.set(START);
+        UUID ingreso = ana.client().mark(first, "INGRESO", UUID.randomUUID()).expect(201).id();
+        ana.client().post("/api/v1/marks/" + ingreso + "/location",
+                Map.of("latitude", -34.6, "longitude", -58.38, "accuracyMeters", 15.0)).expect(202);
+        clock.advance(Duration.ofMinutes(90));
+        ana.client().mark(first, "SALIDA_DESAYUNO", UUID.randomUUID()).expect(201);
+
+        ApiClient.Response mine = ana.client().get("/api/v1/jornadas/mine?localDate=" + DAY).expect(200);
+        String one = ana.client().get("/api/v1/jornadas/" + first).expect(200).raw();
+        String two = ana.client().get("/api/v1/jornadas/" + second).expect(200).raw();
+        assertEquals("[" + one + "," + two + "]", mine.raw());
+        JsonNode marks = mine.body().get(0).get("marks");
+        assertEquals(List.of("INGRESO", "SALIDA_DESAYUNO"), List.of(marks.get(0).get("action").asText(), marks.get(1).get("action").asText()));
+        assertEquals("RECIBIDA", marks.get(0).get("locationStatus").asText());
+        assertTrue(marks.get(0).path("latitude").isMissingNode() || marks.get(0).get("latitude").isNull(), "the employee never reads coordinates");
+        assertEquals(0, mine.body().get(1).get("marks").size());
+        ApiClient.Response strangers = stranger.client().get("/api/v1/jornadas/mine?localDate=" + DAY).expect(200);
+        assertEquals("[" + stranger.client().get("/api/v1/jornadas/" + otherJornada).expect(200).raw() + "]", strangers.raw());
+    }
+
+    private static List<UUID> sorted(UUID... ids) {
+        return java.util.Arrays.stream(ids).sorted(java.util.Comparator.comparing(UUID::toString)).toList();
+    }
+
+    private static OrganizationController.TemplateView templateView(UUID id, UUID siteId, String name, List<Fixture.Block> blocks,
+                                                                    int breakfast, int lunch) {
+        List<OrganizationController.BlockInput> inputs = blocks.stream()
+                .map(block -> new OrganizationController.BlockInput(block.startDayOffset(), block.start(), block.end(), block.endDayOffset()))
+                .toList();
+        return new OrganizationController.TemplateView(id, siteId, name, inputs, breakfast, lunch, true);
     }
 
     // Helpers --------------------------------------------------------------------------------------------------------
