@@ -206,7 +206,10 @@ public class DeviationService {
 
     /**
      * Moves the daily deviation to another outside/unknown employee mark when its anchor is invalidated (the classification is
-     * cleared and audited, the motive is kept); otherwise retracts it.
+     * cleared and audited, the motive is kept); otherwise retracts it. A mark whose location is still PENDIENTE also keeps it,
+     * after any mark already outside or unknown: that location may still arrive outside or expire to SIN_UBICACION, which is
+     * outside where there is a center (D-20261027-12). If it then arrives inside, attachLocation calls this method again for it.
+     * (Issue #77: ignoring it retracted the deviation, which then reopened as a new fact without the employee's motive.)
      */
     @Transactional
     public void retractOutOfSiteForMark(UUID companyId, UUID jornadaId, UUID markId, Instant now) {
@@ -224,14 +227,16 @@ public class DeviationService {
                 jornadaId.toString(), companyId.toString());
         List<OutsideMarkCandidate> candidates = jdbc.query("SELECT id,location_status,latitude,longitude,accuracy_meters FROM mark_events " +
                         "WHERE company_id=? AND jornada_id=? AND id<>? AND origin='EMPLEADO' AND voided_at IS NULL " +
-                        "AND location_status IN ('RECIBIDA','SIN_UBICACION') ORDER BY sequence_number",
+                        "AND location_status IN ('RECIBIDA','SIN_UBICACION','PENDIENTE') ORDER BY sequence_number",
                 (rs, row) -> new OutsideMarkCandidate(UUID.fromString(rs.getString("id")), rs.getString("location_status"),
                         rs.getBigDecimal("latitude"), rs.getBigDecimal("longitude"), rs.getBigDecimal("accuracy_meters")),
                 companyId.toString(), jornadaId.toString(), markId.toString());
 
         UUID replacementMarkId = candidates.stream()
                 .filter(candidate -> candidate.isUnknownLocation() || isOutside(center, candidate))
-                .map(OutsideMarkCandidate::id).findFirst().orElse(null);
+                .map(OutsideMarkCandidate::id).findFirst()
+                .or(() -> candidates.stream().filter(OutsideMarkCandidate::isPendingLocation).map(OutsideMarkCandidate::id).findFirst())
+                .orElse(null);
         if (replacementMarkId != null) {
             // D-20261027-01 applied to the anchor: a classification decided for another mark goes back to review; the motive stays.
             jdbc.update("UPDATE deviations SET source_mark_id=?,classification=NULL,updated_at=? WHERE id=? AND company_id=? AND active=TRUE",
@@ -246,8 +251,8 @@ public class DeviationService {
     private boolean isOutside(JornadaGeofence center, OutsideMarkCandidate candidate) {
         return center != null && center.latitude() != null && center.longitude() != null && center.radiusMeters() != null
                 && candidate.latitude() != null && candidate.longitude() != null && candidate.accuracyMeters() != null
-                && geofence.isOutside(center.latitude().doubleValue(), center.longitude().doubleValue(), candidate.latitude().doubleValue(),
-                        candidate.longitude().doubleValue(), candidate.accuracyMeters().doubleValue(), center.radiusMeters());
+                && geofence.isOutside(center.latitude(), center.longitude(), candidate.latitude(), candidate.longitude(),
+                        candidate.accuracyMeters(), center.radiusMeters());
     }
 
     private List<ExistingDeviation> lockDeviations(UUID companyId, UUID jornadaId) {
@@ -469,6 +474,7 @@ public class DeviationService {
     private record JornadaGeofence(BigDecimal latitude, BigDecimal longitude, Integer radiusMeters) { }
     private record OutsideMarkCandidate(UUID id, String locationStatus, BigDecimal latitude, BigDecimal longitude, BigDecimal accuracyMeters) {
         boolean isUnknownLocation() { return "SIN_UBICACION".equals(locationStatus); }
+        boolean isPendingLocation() { return "PENDIENTE".equals(locationStatus); }
     }
     private record DeviationRow(UUID id, UUID employeeId, String classification, String motiveCategory, Instant motiveCreatedAt) { }
     private record Cursor(Instant occurredAt, String filters, UUID id) { }

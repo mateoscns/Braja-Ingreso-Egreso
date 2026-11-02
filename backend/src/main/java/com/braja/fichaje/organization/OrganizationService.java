@@ -21,9 +21,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -65,6 +71,7 @@ public class OrganizationService {
     @Transactional
     public SiteView updateSiteLocation(UUID companyId, UUID actorAccountId, UUID siteId, SiteLocationInput input) {
         validateSiteLocation(input);
+        Set<String> notStarted = lockNotStartedJornadas(companyId, siteId);
         SiteState before = jdbc.query("SELECT name,time_zone,latitude,longitude,geofence_radius_meters FROM sites WHERE id=? AND company_id=? FOR UPDATE",
                 rs -> rs.next() ? new SiteState(rs.getString("name"), rs.getString("time_zone"), rs.getBigDecimal("latitude"),
                         rs.getBigDecimal("longitude"), rs.getInt("geofence_radius_meters")) : null,
@@ -76,11 +83,78 @@ public class OrganizationService {
         if (coordinatesChanged || before.radiusMeters() != input.geofenceRadiusMeters()) {
             jdbc.update("UPDATE sites SET latitude=?,longitude=?,geofence_radius_meters=? WHERE id=? AND company_id=?",
                     input.latitude(), input.longitude(), input.geofenceRadiusMeters(), siteId.toString(), companyId.toString());
+            notStarted.addAll(notStartedJornadasDeclaredMeanwhile(companyId, siteId, localToday(before.timeZone())));
+            refreezeGeofence(companyId, notStarted, input);
             recordSiteLocationAudit(companyId, siteId, actorAccountId, before.latitude(), before.longitude(), before.radiusMeters(),
                     input.latitude(), input.longitude(), input.geofenceRadiusMeters(),
                     coordinatesChanged && input.latitude() != null ? input.locationSource() : null);
         }
         return new SiteView(siteId, before.name(), before.timeZone(), input.latitude(), input.longitude(), input.geofenceRadiusMeters());
+    }
+
+    /** A jornada not started yet: NO_INGRESO and no mark ever (next_sequence is still 1; a voided mark keeps it moved). */
+    private static final String NOT_STARTED = "state='NO_INGRESO' AND next_sequence=1 "
+            + "AND NOT EXISTS (SELECT 1 FROM mark_events m WHERE m.company_id=jornadas.company_id AND m.jornada_id=jornadas.id)";
+    private static final int ID_CHUNK = 500;
+
+    /**
+     * D-20261102-01: the site's jornadas not started yet, dated today or later in the site's zone, take the new fence. They are
+     * locked here, by primary key and before the site row: a mark or the absence job holds a jornada and then takes the site row
+     * in share mode through the foreign key of the deviation it inserts, so holding the site and then waiting for a jornada
+     * would deadlock with them. Two site edits lock in the same id order. The locking read sees the latest row, so a jornada
+     * started in the meantime drops out.
+     */
+    private Set<String> lockNotStartedJornadas(UUID companyId, UUID siteId) {
+        String timeZone = jdbc.query("SELECT time_zone FROM sites WHERE id=? AND company_id=?", rs -> rs.next() ? rs.getString("time_zone") : null,
+                siteId.toString(), companyId.toString());
+        Set<String> locked = new LinkedHashSet<>();
+        if (timeZone == null) return locked;
+        List<String> candidates = jdbc.queryForList("SELECT id FROM jornadas WHERE company_id=? AND site_id=? AND local_date>=? AND " + NOT_STARTED
+                + " ORDER BY id", String.class, companyId.toString(), siteId.toString(), localToday(timeZone));
+        for (int from = 0; from < candidates.size(); from += ID_CHUNK) {
+            List<String> chunk = candidates.subList(from, Math.min(from + ID_CHUNK, candidates.size()));
+            List<Object> args = new ArrayList<>();
+            args.add(companyId.toString());
+            args.addAll(chunk);
+            locked.addAll(jdbc.queryForList("SELECT id FROM jornadas WHERE company_id=? AND id IN (" + placeholders(chunk.size()) + ") AND "
+                    + NOT_STARTED + " ORDER BY id FOR UPDATE", String.class, args.toArray()));
+        }
+        return locked;
+    }
+
+    /**
+     * A jornada declared between the read above and the site lock froze the previous fence; the site lock now keeps any other
+     * declaration out. SKIP LOCKED never waits while the site row is held (see lockNotStartedJornadas): a jornada that another
+     * transaction holds at this instant keeps the previous fence (documented in ESPECIFICACION.md).
+     */
+    private List<String> notStartedJornadasDeclaredMeanwhile(UUID companyId, UUID siteId, LocalDate today) {
+        return jdbc.queryForList("SELECT id FROM jornadas WHERE company_id=? AND site_id=? AND local_date>=? AND " + NOT_STARTED + " FOR UPDATE SKIP LOCKED",
+                String.class, companyId.toString(), siteId.toString(), today);
+    }
+
+    /** Same shape as a declaration's snapshot: no center means no radius either (chk_jornada_site_geofence_snapshot). */
+    private void refreezeGeofence(UUID companyId, Set<String> jornadaIds, SiteLocationInput input) {
+        List<String> ids = new ArrayList<>(jornadaIds);
+        Integer radius = input.latitude() == null ? null : input.geofenceRadiusMeters();
+        for (int from = 0; from < ids.size(); from += ID_CHUNK) {
+            List<String> chunk = ids.subList(from, Math.min(from + ID_CHUNK, ids.size()));
+            List<Object> args = new ArrayList<>();
+            args.add(input.latitude());
+            args.add(input.longitude());
+            args.add(radius);
+            args.add(companyId.toString());
+            args.addAll(chunk);
+            jdbc.update("UPDATE jornadas SET site_geofence_latitude_snapshot=?,site_geofence_longitude_snapshot=?,site_geofence_radius_snapshot=? "
+                    + "WHERE company_id=? AND id IN (" + placeholders(chunk.size()) + ")", args.toArray());
+        }
+    }
+
+    private static String placeholders(int count) {
+        return String.join(",", Collections.nCopies(count, "?"));
+    }
+
+    private LocalDate localToday(String timeZone) {
+        return clock.instant().atZone(ZoneId.of(timeZone)).toLocalDate();
     }
 
     public SiteLocationAuditResponse siteLocationAudit(UUID companyId, UUID siteId) {

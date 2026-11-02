@@ -10,6 +10,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
@@ -72,12 +73,14 @@ class OrganizationSpecTest extends CampaignTestBase {
     /**
      * Each edit would flip the day's outcome if it reached the jornada: INGRESO 30 min late (LLEGADA_TARDE), a 15 min breakfast,
      * EGRESO at 17:00 and both locations at the declared center. Frozen, the only deviation is the original LLEGADA_TARDE.
+     * SITE_CENTER before the INGRESO is not here: since D-20261102-01 a site change reaches a jornada not started yet
+     * (s50ASiteCenterChangedAfterDeclaringReachesTheJornadaOnlyUntilItStarts).
      */
     @ParameterizedTest(name = "{0} {1}")
     @CsvSource({
             "TEMPLATE_BLOCKS, BEFORE_INGRESO", "TEMPLATE_BLOCKS, EN_CURSO", "TEMPLATE_LIMITS, BEFORE_INGRESO", "TEMPLATE_LIMITS, EN_CURSO",
             "TOLERANCE, BEFORE_INGRESO", "TOLERANCE, EN_CURSO", "ASSIGNMENT, BEFORE_INGRESO", "ASSIGNMENT, EN_CURSO",
-            "SITE_CENTER, BEFORE_INGRESO", "SITE_CENTER, EN_CURSO"})
+            "SITE_CENTER, EN_CURSO"})
     void s50EditsAfterDeclaringNeverReachTheDeclaredJornadaNorItsDeviations(Edit edit, Timing timing) {
         fixture.siteCenter(company, site, CENTER_LAT, CENTER_LON, 100);
         ana = ana();
@@ -127,18 +130,37 @@ class OrganizationSpecTest extends CampaignTestBase {
         assertEquals(List.of("SIN_INGRESO"), activeTypes(jornada));
     }
 
-    @Test
-    void s50ACenterAddedToTheSiteAfterDeclaringIsNotAppliedToThatJornada() {
+    /**
+     * D-20261102-01 (R4, replaces the freeze-at-declaration part of D-20261030-02): a center set or moved after declaring
+     * reaches the jornada while it has not started (NO_INGRESO, no mark, dated today or later in the site's zone); once started,
+     * the jornada keeps the fence it had, or none.
+     */
+    @ParameterizedTest(name = "center {0} {1}")
+    @CsvSource({"ADDED, BEFORE_INGRESO", "ADDED, EN_CURSO", "MOVED, BEFORE_INGRESO", "MOVED, EN_CURSO"})
+    void s50ASiteCenterChangedAfterDeclaringReachesTheJornadaOnlyUntilItStarts(String change, Timing timing) {
+        if ("MOVED".equals(change)) fixture.siteCenter(company, site, 0.0, 0.0, 500);
         ana = ana();
         UUID jornada = fixture.declare(company, ana.id(), site, DAY, morning);
-        fixture.siteCenter(company, site, CENTER_LAT, CENTER_LON, 50);
-
+        String declared = fence(jornada);
         clock.set(at(DAY, "12:00"));
-        UUID ingreso = ana.client().mark(jornada, "INGRESO", UUID.randomUUID()).expect(201).id();
-        ana.client().post("/api/v1/marks/" + ingreso + "/location", Map.of("latitude", 0.0, "longitude", 0.0, "accuracyMeters", 5.0)).expect(202);
+        if (timing == Timing.EN_CURSO) ana.client().mark(jornada, "INGRESO", UUID.randomUUID()).expect(201);
 
-        assertEquals(List.of(), activeTypes(jornada));
-        assertEquals(0, count("SELECT COUNT(*) FROM jornadas WHERE id=? AND site_geofence_latitude_snapshot IS NOT NULL", jornada));
+        fixture.siteCenter(company, site, CENTER_LAT, CENTER_LON, 50);
+        UUID located = ana.client().mark(jornada, timing == Timing.EN_CURSO ? "SALIDA_DESAYUNO" : "INGRESO", UUID.randomUUID()).expect(201).id();
+        ana.client().post("/api/v1/marks/" + located + "/location", Map.of("latitude", 0.0, "longitude", 0.0, "accuracyMeters", 5.0)).expect(202);
+
+        boolean reached = timing == Timing.BEFORE_INGRESO;
+        assertEquals(reached ? List.of("FUERA_DE_SEDE") : List.of(), activeTypes(jornada));
+        assertEquals(reached ? BigDecimal.valueOf(CENTER_LAT).stripTrailingZeros().toPlainString() + "/50" : declared, fence(jornada));
+    }
+
+    /** The jornada's frozen fence as "latitude/radius", or "null/null" without one. */
+    private String fence(UUID jornada) {
+        Map<String, Object> row = jdbc.queryForMap("SELECT site_geofence_latitude_snapshot lat,site_geofence_radius_snapshot radius FROM jornadas WHERE id=?",
+                jornada.toString());
+        Object latitude = row.get("lat"), radius = row.get("radius");
+        return (latitude == null ? "null" : ((BigDecimal) latitude).stripTrailingZeros().toPlainString()) + "/"
+                + (radius == null ? "null" : String.valueOf(((Number) radius).intValue()));
     }
 
     @Test

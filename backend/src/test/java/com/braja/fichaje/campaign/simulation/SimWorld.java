@@ -144,7 +144,8 @@ final class SimWorld {
         final Template template;
         final Version version;
         final int tolerance;
-        final Center center;
+        /** The fence frozen at declaration; a site change refreezes it while the jornada has not started (D-20261102-01). */
+        Center center;
         final Instant start, end;
         boolean cancelled;
 

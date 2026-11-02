@@ -233,6 +233,33 @@ class OrganizationTransactionMySqlTest {
         assertEquals(1, count("SELECT COUNT(*) FROM site_location_audits WHERE site_id=? AND company_id=?", siteId.toString(), companyId.toString()));
     }
 
+    /** D-20261102-01 (R4): the not-started jornadas take the new fence in the site change's transaction, or not at all. */
+    @Test
+    void siteLocationChangeRefreezesNotStartedJornadasInTheSameTransaction() {
+        var employee = organizations.createEmployee(adminAuthentication, adminSession,
+                new OrganizationController.EmployeeInput("52" + suffix.substring(0, 6), "Persona " + suffix, List.of(siteId), 10, "TemporaryPass123"));
+        var template = organizations.createTemplate(adminAuthentication, adminSession, new OrganizationController.TemplateInput(siteId, "Turno " + suffix,
+                List.of(new OrganizationController.BlockInput(0, LocalTime.of(9, 0), LocalTime.of(17, 0), 0)), 20, 30));
+        java.time.LocalDate tomorrow = java.time.LocalDate.now(java.time.ZoneId.of("America/Argentina/Buenos_Aires")).plusDays(1);
+        UUID jornadaId = UUID.randomUUID();
+        jdbc.update("INSERT INTO jornadas(id,company_id,employee_id,site_id,template_id,local_date,time_zone,schedule_snapshot,tolerance_minutes,"
+                        + "scheduled_start_at,scheduled_end_at,state,next_sequence,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,10,?,?,'NO_INGRESO',1,?,?)",
+                jornadaId.toString(), companyId.toString(), employee.id().toString(), siteId.toString(), template.id().toString(), tomorrow,
+                "America/Argentina/Buenos_Aires", "{}", Timestamp.from(tomorrow.atTime(12, 0).toInstant(java.time.ZoneOffset.UTC)),
+                Timestamp.from(tomorrow.atTime(20, 0).toInstant(java.time.ZoneOffset.UTC)), adminAccountId.toString(), Timestamp.from(Instant.now()));
+
+        inject("site_location_audits", "after_radius_meters <> 275");
+        assertThrows(DataAccessException.class, () -> organizations.updateSiteLocation(adminAuthentication, adminSession, siteId,
+                new OrganizationController.SiteLocationInput(new BigDecimal("-34.6"), new BigDecimal("-58.4"), 275, "MANUAL")));
+        assertNull(jdbc.queryForObject("SELECT site_geofence_radius_snapshot FROM jornadas WHERE id=?", Integer.class, jornadaId.toString()));
+
+        organizations.updateSiteLocation(adminAuthentication, adminSession, siteId,
+                new OrganizationController.SiteLocationInput(new BigDecimal("-34.6"), new BigDecimal("-58.4"), 200, "MANUAL"));
+        assertEquals(200, jdbc.queryForObject("SELECT site_geofence_radius_snapshot FROM jornadas WHERE id=?", Integer.class, jornadaId.toString()));
+        assertEquals(0, new BigDecimal("-34.6").compareTo(jdbc.queryForObject("SELECT site_geofence_latitude_snapshot FROM jornadas WHERE id=?",
+                BigDecimal.class, jornadaId.toString())));
+    }
+
     @Test
     void siteLocationValidationRejectsInvalidRadiusAndPartialCenterBeforeWriting() {
         assertThrows(com.braja.fichaje.api.ApiException.class, () -> organizations.updateSiteLocation(adminAuthentication, adminSession,

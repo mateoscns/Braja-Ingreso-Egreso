@@ -463,7 +463,8 @@ class BackendMySqlIntegrationTest {
         assertEquals(-65.21, jdbc.queryForObject("SELECT site_geofence_longitude_snapshot FROM jornadas WHERE id=?", Double.class, geofenceJornada.toString()));
         assertEquals(100, jdbc.queryForObject("SELECT site_geofence_radius_snapshot FROM jornadas WHERE id=?", Integer.class, geofenceJornada.toString()));
 
-        // Later ADMIN changes affect future declarations only.
+        // A raw row change does not touch the frozen snapshot; only PUT /sites/{id}/location refreezes not-started jornadas
+        // (D-20261102-01, covered by GeofenceSpecTest and OrganizationTransactionMySqlTest).
         jdbc.update("UPDATE sites SET latitude=-30.0000000,longitude=-60.0000000,geofence_radius_meters=500 WHERE id=? AND company_id=?",
                 siteId.toString(), companyId.toString());
         assertEquals(-26.82, jdbc.queryForObject("SELECT site_geofence_latitude_snapshot FROM jornadas WHERE id=?", Double.class, geofenceJornada.toString()));

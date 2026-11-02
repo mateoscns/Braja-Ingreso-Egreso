@@ -257,7 +257,16 @@ final class AdminActor {
     void siteCenter(SimWorld.Site site, SimWorld.Center center) {
         ApiClient.Response response = call(site.company, () -> site.company.admin().put("/api/v1/sites/" + site.id + "/location", Map.of("latitude", center.latitude(),
                 "longitude", center.longitude(), "geofenceRadiusMeters", center.radiusMeters(), "locationSource", "MANUAL")));
-        if ("200".equals(ctx.ledger.expect(tag(site.company), "admin.site-center", response, "200"))) site.center = center;
+        if (!"200".equals(ctx.ledger.expect(tag(site.company), "admin.site-center", response, "200"))) return;
+        site.center = center;
+        // D-20261102-01: the new fence also reaches this site's jornadas dated today or later (site zone) that have not
+        // started, i.e. have no mark at all (a voided one counts as started) and are not cancelled.
+        LocalDate today = LocalDate.ofInstant(ctx.now(), site.zone);
+        for (SimWorld.Jornada jornada : ctx.world.jornadas.values()) {
+            if (jornada.site != site || jornada.cancelled || jornada.date.isBefore(today)) continue;
+            Integer marks = ctx.jdbc.queryForObject("SELECT COUNT(*) FROM mark_events WHERE jornada_id=?", Integer.class, jornada.id.toString());
+            if (marks != null && marks == 0) jornada.center = center;
+        }
     }
 
     void subscribe(SimWorld.Company company) {
