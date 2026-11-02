@@ -47,11 +47,13 @@ class EndpointContractSpecTest extends CampaignTestBase {
     /** S13: operations no HTTP test outside campaign/ called before the campaign (grep of backend/src/test/java on 2026-11-02). */
     private static final Set<String> PREVIOUSLY_UNTESTED = Set.of("GET /public-config", "GET /companies", "POST /sites", "GET /employees",
             "GET /templates", "GET /jornadas/mine", "PUT /push/subscriptions", "DELETE /push/subscriptions/{subscriptionId}");
-    /** S12: codes the backend emits that openapi.yaml never names, on 2026-11-02. A ceiling that only goes down (CLAUDE.md §3). */
-    private static final Set<String> UNDOCUMENTED_CODES = Set.of("ACCOUNT_INACTIVE", "CONFLICT", "IDEMPOTENCY_CONFLICT",
-            "INVALID_MARK_TRANSITION", "LOCATION_ALREADY_FINAL", "LOCATION_WINDOW_EXPIRED", "MEMBERSHIP_EXISTS", "PASSWORD_CHANGE_REQUIRED");
-    /** Statuses the S10 matrix sees that openapi.yaml does not list for the operation, on 2026-11-02 (the @KnownDefect below). */
-    private static final Set<String> UNDOCUMENTED_STATUSES = Set.of("GET /templates 404");
+    /**
+     * S12: codes the backend emits that openapi.yaml never names. A ceiling that only goes down (CLAUDE.md §3): eight on
+     * 2026-11-02, none since #73 documented them.
+     */
+    private static final Set<String> UNDOCUMENTED_CODES = Set.of();
+    /** Statuses the S10 matrix sees that openapi.yaml does not list for the operation: GET /templates 404 until #73, none since. */
+    private static final Set<String> UNDOCUMENTED_STATUSES = Set.of();
     private static final String TEMPLATE = "{\"siteId\":\"{site}\",\"name\":\"Tarde\",\"blocks\":[{\"startDayOffset\":0,\"start\":\"14:00\","
             + "\"end\":\"18:00\",\"endDayOffset\":0}],\"breakfastLimitMinutes\":15,\"lunchLimitMinutes\":30}";
     private static final String REASON = "{\"reason\":\"Contract probe\"}";
@@ -230,11 +232,9 @@ class EndpointContractSpecTest extends CampaignTestBase {
         assertEquals(documentedSuccess(), observed, "every documented operation needs a probe that sees each documented 2xx");
         assertTrue(observed.keySet().containsAll(PREVIOUSLY_UNTESTED), "S13: the routes without an HTTP test before the campaign");
         assertEquals(List.of(), shapeFailures);
-        // CHAR: these fields are required and nullable in openapi.yaml, but the server omits null fields
-        // (spring.jackson.default-property-inclusion=non_null), so a strict generated client would reject the response — confirm with Mateo.
-        assertEquals(Set.of("GET /sites/{siteId}/location-audit 200 $.entries[].beforeLatitude",
-                "GET /sites/{siteId}/location-audit 200 $.entries[].beforeLongitude", "POST /sites 201 $.latitude", "POST /sites 201 $.longitude"),
-                omittedNullables);
+        // The server omits null fields (spring.jackson.default-property-inclusion=non_null), so no nullable field may be
+        // required in openapi.yaml (#73: location-audit before*, POST /sites latitude/longitude and others were).
+        assertEquals(Set.of(), omittedNullables);
         assertClean();
     }
 
@@ -275,7 +275,6 @@ class EndpointContractSpecTest extends CampaignTestBase {
 
     /** The S10 matrix sees GET /templates?siteId=<unknown> answer 404 NOT_FOUND; openapi.yaml lists only 200 and 403 for it. */
     @Test
-    @KnownDefect(issue = "#73", reason = "GET /templates answers 404 for an unknown siteId but openapi.yaml documents no 404 for it")
     void s10EveryStatusTheMatrixSeesIsDocumented() {
         List<String> missing = new ArrayList<>();
         for (String entry : UNDOCUMENTED_STATUSES) {
@@ -309,7 +308,6 @@ class EndpointContractSpecTest extends CampaignTestBase {
     }
 
     @Test
-    @KnownDefect(issue = "#73", reason = "Problems written by the security filter (401 UNAUTHORIZED, 401 SESSION_EXPIRED, CSRF 403) carry no traceId")
     void s11SecurityFilterProblemsCarryATraceId() {
         List<String> failures = new ArrayList<>();
         for (Route route : ROUTES) {
@@ -321,7 +319,6 @@ class EndpointContractSpecTest extends CampaignTestBase {
     }
 
     @Test
-    @KnownDefect(issue = "#73", reason = "Unknown routes, wrong methods, unsupported media types and missing query parameters bypass ApiExceptionHandler and get Spring Boot's error body without code")
     void s11FrameworkErrorsAreProblemJsonWithCode() {
         ApiClient admin = fixture.company("Marco").admin();
         Map<String, ApiClient.Response> sent = new LinkedHashMap<>();
