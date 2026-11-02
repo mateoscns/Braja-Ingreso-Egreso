@@ -11,7 +11,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.time.ZoneId;
 import java.util.UUID;
 
 @Component
@@ -43,7 +42,7 @@ public class BootstrapAdminRunner implements ApplicationRunner {
             throw new IllegalStateException("Bootstrap password must contain 16 characters to 72 UTF-8 bytes");
         }
         // D-20261102-05: the site zone is an IANA region id, never a fixed offset.
-        if (!ZoneId.getAvailableZoneIds().contains(timeZone)) {
+        if (!com.braja.fichaje.organization.OrganizationService.isRegionTimeZone(timeZone)) {
             throw new IllegalStateException("Bootstrap time zone must be an IANA region such as America/Argentina/Buenos_Aires");
         }
         String dni = DniNormalizer.normalize(dniInput);

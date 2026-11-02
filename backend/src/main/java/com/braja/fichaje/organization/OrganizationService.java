@@ -64,13 +64,18 @@ public class OrganizationService {
     }
 
     /**
-     * D-20261102-05: a site zone is a region id of the IANA database, written exactly as listed there (UTC is one). A fixed
-     * offset (-03:00, Z, UTC+3, GMT-3) has no zone rules; ZoneId.of accepted it (2026-11-02, campaign #72 stored "-03:00").
+     * D-20261102-05: a site zone is an Area/Location region id of the IANA database, written exactly as listed there.
+     * A fixed offset (-03:00, Z, UTC+3, GMT-3) and the offset-only ids (UTC, GMT, Etc/GMT+3) have no daylight saving rules
+     * of a place; ZoneId.of accepted them (2026-11-02, campaign #72 stored "-03:00").
      */
     static void requireRegionTimeZone(String timeZone) {
-        if (timeZone == null || !java.time.ZoneId.getAvailableZoneIds().contains(timeZone)) {
-            throw ApiException.invalid("timeZone must be a valid IANA time zone");
-        }
+        if (!isRegionTimeZone(timeZone)) throw ApiException.invalid("timeZone must be a valid IANA time zone");
+    }
+
+    /** The one check of D-20261102-05, shared with the first-ADMIN bootstrap. */
+    public static boolean isRegionTimeZone(String timeZone) {
+        return timeZone != null && timeZone.contains("/") && !timeZone.startsWith("Etc/")
+                && java.time.ZoneId.getAvailableZoneIds().contains(timeZone);
     }
 
     @Transactional

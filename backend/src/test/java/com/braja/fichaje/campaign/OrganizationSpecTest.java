@@ -478,14 +478,14 @@ class OrganizationSpecTest extends CampaignTestBase {
 
     /** D-20261102-05: a site zone is a region id of the IANA database; a fixed offset has no daylight saving rules. */
     @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {"-03:00", "+00:00", "Z", "UTC+3", "UTC-03:00", "GMT-3", "UT+1", "America/Nowhere", "america/argentina/buenos_aires"})
+    @ValueSource(strings = {"-03:00", "+00:00", "Z", "UTC+3", "UTC-03:00", "GMT-3", "UT+1", "America/Nowhere", "america/argentina/buenos_aires", "UTC", "GMT", "Etc/GMT+3", "EST", "Etc/UTC"})
     void aSiteZoneThatIsNotAnIanaRegionIsRejectedAndNothingIsStored(String zone) {
         assertProblem(company.admin().post("/api/v1/sites", Map.of("name", "Zona", "timeZone", zone)), 422, "VALIDATION_ERROR");
         assertEquals(0, count("SELECT COUNT(*) FROM sites WHERE company_id=? AND name='Zona'", company.id()));
     }
 
     @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {"America/Argentina/Buenos_Aires", "America/Argentina/Mendoza", "America/Santiago", "Europe/Madrid", "UTC", "Etc/GMT+3"})
+    @ValueSource(strings = {"America/Argentina/Buenos_Aires", "America/Argentina/Mendoza", "America/Santiago", "Europe/Madrid", "Asia/Tokyo"})
     void aSiteZoneThatIsAnIanaRegionIsStoredAsGiven(String zone) {
         UUID created = company.admin().post("/api/v1/sites", Map.of("name", "Zona", "timeZone", zone)).expect(201).id();
         assertEquals(zone, jdbc.queryForObject("SELECT time_zone FROM sites WHERE id=?", String.class, created.toString()));
