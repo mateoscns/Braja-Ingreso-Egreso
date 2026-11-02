@@ -1,16 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../../shared/api/client'
 import type { CurrentPushSubscription, PublicConfig } from '../../shared/api/types'
 import { PageMessage } from '../../app/ui'
+import { decodeVapidKey, isSubscriptionChangedMessage } from './subscriptionChange'
 
 type SubscriptionRecord = { id: string }
 type BrowserSubscription = PushSubscription
-
-function decodeVapidKey(value: string): Uint8Array {
-  const base64 = value.replace(/-/g, '+').replace(/_/g, '/')
-  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')
-  return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0))
-}
 
 const pushSupported = () => typeof navigator !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
 
@@ -29,17 +24,36 @@ export function AdminPushControl({ companyName }: { companyName: string }) {
   const [configAttempt, setConfigAttempt] = useState(0)
   const [busy, setBusy] = useState(false)
   const [supported, setSupported] = useState(pushSupported)
+  // Endpoint the server confirmed for this company on this device; kept in memory only, never in browser storage.
+  const knownEndpoint = useRef('')
 
-  async function registerWithServer(subscription: BrowserSubscription) {
+  async function registerWithServer(subscription: BrowserSubscription, notice = `Avisos activados para ${companyName} en este dispositivo.`) {
     const json = subscription.toJSON()
     if (!json.endpoint || !json.keys?.p256dh || !json.keys.auth) throw new Error('La suscripción del navegador está incompleta.')
     const saved = await api.put<SubscriptionRecord>('/push/subscriptions', {
       endpoint: json.endpoint,
       keys: { p256dh: json.keys.p256dh, auth: json.keys.auth }
     })
+    knownEndpoint.current = json.endpoint
     setSubscriptionId(saved.id)
     setEnabled(true)
-    setMessage(`Avisos activados para ${companyName} en este dispositivo.`)
+    setMessage(notice)
+  }
+
+  /**
+   * The browser can renew a subscription (pushsubscriptionchange) and the old endpoint stops receiving alerts. The current
+   * one is re-registered only where the device was subscribed: the endpoint this panel saw confirmed, or the old endpoint
+   * the service worker reports, checked with the server. A company where alerts were never enabled stays off (D-20261027-04).
+   */
+  async function syncRenewedSubscription(oldEndpoint: string | null) {
+    const registration = await navigator.serviceWorker.ready
+    const current = await registration.pushManager.getSubscription()
+    if (!current?.endpoint || current.endpoint === knownEndpoint.current) return
+    let wasSubscribed = Boolean(knownEndpoint.current)
+    if (!wasSubscribed && oldEndpoint) {
+      wasSubscribed = (await api.post<CurrentPushSubscription>('/push/subscriptions/current', { endpoint: oldEndpoint })).subscribed
+    }
+    if (wasSubscribed) await registerWithServer(current, `El navegador renovó la suscripción; los avisos siguen activos para ${companyName}.`)
   }
 
   useEffect(() => {
@@ -67,12 +81,36 @@ export function AdminPushControl({ companyName }: { companyName: string }) {
         if (!active) return
         setEnabled(current.subscribed && Boolean(current.id))
         setSubscriptionId(current.subscribed && current.id ? current.id : '')
+        knownEndpoint.current = current.subscribed && current.id ? existing.endpoint : ''
       } catch (reason) {
         if (active) setError(reason instanceof Error ? reason.message : 'No se pudo consultar la suscripción de avisos.')
       }
     })()
     return () => { active = false }
   }, [configAttempt])
+
+  // Renewal notices from the service worker, and a re-check whenever the app comes back to the foreground.
+  useEffect(() => {
+    const container = typeof navigator !== 'undefined' && 'serviceWorker' in navigator ? navigator.serviceWorker : undefined
+    if (!container || typeof container.addEventListener !== 'function') return
+    let active = true
+    const sync = (oldEndpoint: string | null) => {
+      syncRenewedSubscription(oldEndpoint).catch((reason: unknown) => {
+        if (active) setError(reason instanceof Error ? reason.message : 'No se pudo renovar la suscripción de avisos.')
+      })
+    }
+    const onMessage = (event: MessageEvent) => { if (isSubscriptionChangedMessage(event.data)) sync(event.data.oldEndpoint) }
+    const onVisible = () => { if (document.visibilityState === 'visible' && knownEndpoint.current) sync(null) }
+    container.addEventListener('message', onMessage)
+    container.startMessages?.()
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      active = false
+      container.removeEventListener('message', onMessage)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  // The listeners live as long as the panel, which is remounted per company; syncRenewedSubscription reads the endpoint from a ref.
+  }, [])
 
   function retryConfig() {
     setError('')
@@ -100,7 +138,7 @@ export function AdminPushControl({ companyName }: { companyName: string }) {
     setBusy(true); setError(''); setMessage('')
     try {
       if (subscriptionId) await api.delete(`/push/subscriptions/${encodeURIComponent(subscriptionId)}`)
-      setSubscriptionId(''); setEnabled(false); setMessage(`Avisos desactivados para ${companyName} en este dispositivo.`)
+      knownEndpoint.current = ''; setSubscriptionId(''); setEnabled(false); setMessage(`Avisos desactivados para ${companyName} en este dispositivo.`)
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'No se pudieron desactivar los avisos.') }
     finally { setBusy(false) }
   }

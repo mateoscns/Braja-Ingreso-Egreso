@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { api, queryString } from '../../shared/api/client'
 import type { BulkDeclarationResult, Deviation, Employee, Jornada, JornadaAudit, JornadaSummary, Mark, MarkAction, PasswordReset, Site, SiteCoordinates, Template, TemplateAssignment, TemplateBlock, TemplateInput } from '../../shared/api/types'
 import { deviceDate, validateDateRange, DATE_PAIR_MESSAGE } from '../../shared/dateRange'
-import { validateBulkDeclaration } from './bulkDeclaration'
+import { declarationFailureMessage, validateBulkDeclaration } from './bulkDeclaration'
+import { isRegionTimeZone, REGION_TIME_ZONE_MESSAGE } from './siteZone'
+import { PASSWORD_TOO_LONG_MESSAGE, passwordTooLong } from '../../shared/password'
 import { captureSiteCoordinates, parseGeofenceRadiusMeters, SiteLocationError, type SiteLocationErrorKind } from './siteLocation'
 import {
   AdminHistoryRender,
@@ -460,9 +462,8 @@ export function SitesView() {
         return
       }
     }
+    if (!isRegionTimeZone(timeZone)) { setError(REGION_TIME_ZONE_MESSAGE); return }
     setBusy(true)
-    try { new Intl.DateTimeFormat('en-US', { timeZone }).format(new Date()) }
-    catch { setError('Usá una zona horaria IANA válida, por ejemplo America/Argentina/Buenos_Aires.'); setBusy(false); return }
     try {
       const created = await api.post<Site>('/sites', {
         name: name.trim(), timeZone,
@@ -540,7 +541,9 @@ export function EmployeesView() {
   useEffect(() => { void reload() }, [])
   function toggleSite(id: string) { setSiteIds((current) => current.includes(id) ? current.filter((siteId) => siteId !== id) : [...current, id]) }
   async function create(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setError(''); setNotice(''); setBusy(true)
+    event.preventDefault(); setError(''); setNotice('')
+    if (temporaryPassword && passwordTooLong(temporaryPassword)) { setError(PASSWORD_TOO_LONG_MESSAGE); return }
+    setBusy(true)
     try {
       const created = await api.post<Employee>('/employees', { dni: dni.trim(), displayName: displayName.trim(), siteIds, toleranceMinutes: Number(tolerance), ...(temporaryPassword ? { temporaryPassword } : {}) })
       setEmployees((current) => [...current, created]); setDni(''); setDisplayName(''); setSiteIds([]); setTolerance('5'); setTemporaryPassword(''); setNotice('Empleado creado.')
@@ -706,7 +709,7 @@ export function JourneysView() {
   async function declare(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError(''); setNotice(''); setBusy(true)
     try { await api.post('/jornadas', { employeeId, siteId, localDate: date, ...(templateId ? { templateId } : {}) }); setNotice('Jornada declarada.'); await loadJourneys(date, true) }
-    catch (reason) { setError(errText(reason)) } finally { setBusy(false) }
+    catch (reason) { setError(declarationFailureMessage(reason, 'single') ?? errText(reason)) } finally { setBusy(false) }
   }
   const bulkEmployees = useMemo(() => employees.filter((person) => person.active && person.siteIds.includes(bulkSiteId)), [employees, bulkSiteId])
   function changeBulkSite(id: string) {
@@ -725,7 +728,7 @@ export function JourneysView() {
       })
       setBulkResult(result)
       if (date) await loadJourneys(date, true)
-    } catch (reason) { setBulkError(errText(reason)) } finally { setBulkBusy(false) }
+    } catch (reason) { setBulkError(declarationFailureMessage(reason, 'bulk') ?? errText(reason)) } finally { setBulkBusy(false) }
   }
   /** refreshAudit: after a change made from the detail, an open history is reloaded; opening a jornada starts it collapsed. */
   async function showDetail(jornadaId: string, refreshAudit = false) {

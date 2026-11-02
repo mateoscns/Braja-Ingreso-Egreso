@@ -554,6 +554,37 @@ describe('administración de desvíos y marcas', () => {
     })
   })
 
+  describe('temporary password of a new employee (12 characters to 72 UTF-8 bytes)', () => {
+    async function fillNewEmployee(password: string) {
+      render(<EmployeesView />)
+      fireEvent.change(await screen.findByLabelText('Nombre y apellido'), { target: { value: 'Ana Ñandú' } })
+      fireEvent.change(screen.getByLabelText('DNI'), { target: { value: '30111222' } })
+      fireEvent.click(await screen.findByRole('checkbox', { name: 'Local Centro' }))
+      fireEvent.change(screen.getByLabelText(/Contraseña provisoria/), { target: { value: password } })
+      fireEvent.click(screen.getByRole('button', { name: 'Crear empleado' }))
+    }
+
+    it('does not call the API with a 73-byte password that fits in 72 characters and explains the limit', async () => {
+      await fillNewEmployee(`ñ${'a'.repeat(71)}`)
+      expect(await screen.findByText('La contraseña es demasiado larga: puede tener hasta 72 bytes. Las letras con tilde y la ñ ocupan 2 cada una.')).toBeInTheDocument()
+      expect(apiMocks.post).not.toHaveBeenCalled()
+    })
+
+    it('sends a 72-byte password', async () => {
+      apiMocks.post.mockResolvedValueOnce({ id: 'e-9', displayName: 'Ana Ñandú', dni: '30111222', siteIds: ['s-1'], toleranceMinutes: 5, active: true })
+      await fillNewEmployee('ñ'.repeat(36))
+      expect(await screen.findByText('Empleado creado.')).toBeInTheDocument()
+      expect(apiMocks.post).toHaveBeenCalledWith('/employees', expect.objectContaining({ temporaryPassword: 'ñ'.repeat(36) }))
+    })
+
+    it('limits the field to 72 characters and states the limit in its hint', async () => {
+      render(<EmployeesView />)
+      const field = await screen.findByLabelText(/Contraseña provisoria/)
+      expect(field).toHaveAttribute('maxlength', '72')
+      expect(field).toHaveAccessibleDescription(/De 12 a 72 caracteres/)
+    })
+  })
+
   describe('restablecer la contraseña de un empleado', () => {
     const TEMPORARY = 'Abcd-Efgh-Jkmn-Pqrs'
     const resetButton = () => screen.findByRole('button', { name: 'Restablecer contraseña de Lucía Pérez' })
@@ -865,6 +896,47 @@ describe('administración de desvíos y marcas', () => {
 
       expect(await screen.findByRole('alert')).toHaveTextContent('Ese empleado ya tiene una plantilla asignada')
       expect(within(screen.getByRole('list', { name: 'Historial de plantillas de Lucía Pérez' })).getAllByRole('listitem')).toHaveLength(1)
+    })
+  })
+
+  describe('declaration rejected for an employee outside the site or an inactive template (D-20261102-06, D-20261102-07)', () => {
+    // The client is mocked here: the rejection carries the code the real ApiClient exposes.
+    const rejection = (status: number, code: string) => Object.assign(new Error('mensaje genérico del cliente'), { name: 'ApiError', status, code })
+
+    it.each([
+      [409, 'EMPLOYEE_NOT_IN_SITE', 'Ese empleado no está asignado a esta sede. Agregale la sede desde Empleados y volvé a declarar.'],
+      [422, 'TEMPLATE_INVALID', 'La plantilla elegida, o la que el empleado tiene asignada, está inactiva. Elegí otra plantilla.']
+    ])('a single declaration answered %i %s shows its specific message', async (status, code, message) => {
+      apiMocks.post.mockRejectedValueOnce(rejection(status, code))
+      render(<JourneysView />)
+      await screen.findByRole('row', { name: /Lucía Pérez/ })
+      fireEvent.click(screen.getByRole('button', { name: 'Declarar jornada' }))
+      expect(await screen.findByText(message)).toBeInTheDocument()
+    })
+
+    it.each([
+      [409, 'EMPLOYEE_NOT_IN_SITE', 'No se declaró ninguna jornada: al menos un empleado elegido no está asignado a esta sede. Revisá sus sedes en Empleados y volvé a intentar.'],
+      [422, 'TEMPLATE_INVALID', 'No se declaró ninguna jornada: la plantilla elegida está inactiva. Elegí otra o usá la plantilla vigente de cada empleado.']
+    ])('a bulk declaration answered %i %s says no jornada was declared', async (status, code, message) => {
+      apiMocks.post.mockRejectedValueOnce(rejection(status, code))
+      render(<JourneysView />)
+      const panel = within(await screen.findByRole('region', { name: 'Declarar por lote' }))
+      fireEvent.click(panel.getByRole('checkbox', { name: 'Lucía Pérez' }))
+      fireEvent.change(panel.getByLabelText('Desde'), { target: { value: '2026-11-02' } })
+      fireEvent.change(panel.getByLabelText('Hasta'), { target: { value: '2026-11-04' } })
+      fireEvent.click(panel.getByRole('button', { name: 'Declarar lote' }))
+      expect(await panel.findByText(message)).toBeInTheDocument()
+    })
+
+    it('a bulk declaration failing with another error keeps the client message', async () => {
+      apiMocks.post.mockRejectedValueOnce(rejection(409, 'RETRYABLE_TRANSACTION_CONFLICT'))
+      render(<JourneysView />)
+      const panel = within(await screen.findByRole('region', { name: 'Declarar por lote' }))
+      fireEvent.click(panel.getByRole('checkbox', { name: 'Lucía Pérez' }))
+      fireEvent.change(panel.getByLabelText('Desde'), { target: { value: '2026-11-02' } })
+      fireEvent.change(panel.getByLabelText('Hasta'), { target: { value: '2026-11-04' } })
+      fireEvent.click(panel.getByRole('button', { name: 'Declarar lote' }))
+      expect(await panel.findByText('mensaje genérico del cliente')).toBeInTheDocument()
     })
   })
 
