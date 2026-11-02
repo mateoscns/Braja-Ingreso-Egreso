@@ -7,6 +7,9 @@ import { NetworkOnly } from 'workbox-strategies'
 import { API_PATH_PATTERN, isApiPath } from './shared/pwa/routePolicy'
 import { safeDeviationNotification } from './device/push/safeNotification'
 import { focusOrOpenAdmin } from './device/push/notificationClick'
+import { renewPushSubscription } from './device/push/subscriptionChange'
+import { api } from './shared/api/client'
+import type { PublicConfig } from './shared/api/types'
 
 declare let self: ServiceWorkerGlobalScope & { __WB_MANIFEST: Array<{ url: string; revision?: string | null }> }
 
@@ -35,6 +38,20 @@ self.addEventListener('notificationclick', (event) => {
   const target = new URL(typeof event.notification.data?.url === 'string' ? event.notification.data.url : '/admin', self.location.origin)
   const safeUrl = target.origin === self.location.origin && target.pathname === '/admin' ? `${target.pathname}${target.search}` : '/admin'
   event.waitUntil(focusOrOpenAdmin(self.clients, self.location.origin, safeUrl))
+})
+
+// The browser renewed or dropped the subscription: subscribe again and let open ADMIN windows re-register it with the server.
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(renewPushSubscription({
+    pushManager: self.registration.pushManager,
+    clients: self.clients,
+    oldSubscription: event.oldSubscription,
+    newSubscription: event.newSubscription,
+    loadVapidKey: async () => {
+      const config = await api.publicConfig<PublicConfig>()
+      return config.pushEnabled ? config.vapidPublicKey : null
+    }
+  }))
 })
 
 self.addEventListener('message', (event) => {

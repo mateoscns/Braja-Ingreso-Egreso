@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { PageMessage, FormField } from '../../app/ui'
 import type { Session } from '../../shared/api/types'
+import { PASSWORD_MAX_CHARACTERS, PASSWORD_TOO_LONG_MESSAGE, passwordTooLong } from '../../shared/password'
 
 export function LoginScreen({ onSignIn, error }: { onSignIn: (dni: string, password: string) => Promise<void>; error?: string }) {
   const [dni, setDni] = useState('')
@@ -53,19 +54,20 @@ export function PasswordChangeScreen({ onChange, onSignOut }: { onChange: (curre
   async function submit(event: FormEvent) {
     event.preventDefault(); setError('')
     if (next.length < 12) { setError('La contraseña nueva debe tener al menos 12 caracteres.'); return }
+    if (passwordTooLong(next)) { setError(PASSWORD_TOO_LONG_MESSAGE); return }
     if (next !== confirm) { setError('Las contraseñas nuevas no coinciden.'); return }
     setBusy(true)
     try { await onChange(current, next) } catch (reason) { setError(reason instanceof Error ? reason.message : 'No se pudo cambiar la contraseña.') }
     finally { setBusy(false) }
   }
   return <main className="auth-page"><div className="auth-brand"><span className="brand-mark">B</span><span>Fichaje<span className="brand-light">Braja</span></span></div>
-    <section className="auth-card"><p className="eyebrow">PRIMER INGRESO</p><h1>Cambiá tu contraseña</h1><p className="muted">Tu contraseña provisoria ya cumplió su función. Elegí una de al menos 12 caracteres.</p>
+    <section className="auth-card"><p className="eyebrow">PRIMER INGRESO</p><h1>Cambiá tu contraseña</h1><p className="muted">Tu contraseña provisoria ya cumplió su función. Elegí una nueva: de 12 a 72 caracteres; las letras con tilde y la ñ cuentan como 2.</p>
       {error && <PageMessage kind="error">{error}</PageMessage>}
       {busy && <p role="status" aria-live="polite" aria-atomic="true">Esperando confirmación del servidor…</p>}
       <form onSubmit={submit} className="form-stack" aria-busy={busy}>
         <FormField label="Contraseña actual"><input type="password" autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} /></FormField>
-        <FormField label="Nueva contraseña"><input type="password" autoComplete="new-password" minLength={12} required value={next} onChange={(e) => setNext(e.target.value)} /></FormField>
-        <FormField label="Repetí la nueva contraseña"><input type="password" autoComplete="new-password" minLength={12} required value={confirm} onChange={(e) => setConfirm(e.target.value)} /></FormField>
+        <FormField label="Nueva contraseña"><input type="password" autoComplete="new-password" minLength={12} maxLength={PASSWORD_MAX_CHARACTERS} required value={next} onChange={(e) => setNext(e.target.value)} /></FormField>
+        <FormField label="Repetí la nueva contraseña"><input type="password" autoComplete="new-password" minLength={12} maxLength={PASSWORD_MAX_CHARACTERS} required value={confirm} onChange={(e) => setConfirm(e.target.value)} /></FormField>
         <button className="button button-primary button-wide" disabled={busy}>{busy ? 'Guardando…' : 'Guardar contraseña'}</button>
         <button type="button" className="button button-quiet button-wide" onClick={onSignOut}>Cerrar sesión</button>
       </form>
