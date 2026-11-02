@@ -21,12 +21,12 @@ class BootstrapAdminValidationTest {
     void aPasswordAbove72Utf8BytesStopsTheStartup() {
         IllegalStateException failure = assertThrows(IllegalStateException.class, () -> run("ñ".repeat(37), "America/Argentina/Buenos_Aires"));
         assertEquals("Bootstrap password must contain 16 characters to 72 UTF-8 bytes", failure.getMessage());
-        assertEquals(failure.getMessage(), assertThrows(IllegalStateException.class, () -> run("p".repeat(73), "UTC")).getMessage());
-        assertEquals(failure.getMessage(), assertThrows(IllegalStateException.class, () -> run("p".repeat(15), "UTC")).getMessage());
+        assertEquals(failure.getMessage(), assertThrows(IllegalStateException.class, () -> run("p".repeat(73), "America/Argentina/Buenos_Aires")).getMessage());
+        assertEquals(failure.getMessage(), assertThrows(IllegalStateException.class, () -> run("p".repeat(15), "America/Argentina/Buenos_Aires")).getMessage());
     }
 
     @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {"-03:00", "Z", "UTC+3", "GMT-3", "America/Nowhere"})
+    @ValueSource(strings = {"-03:00", "Z", "UTC+3", "GMT-3", "America/Nowhere", "UTC", "GMT", "Etc/GMT+3", "EST"})
     void aSiteZoneThatIsNotAnIanaRegionStopsTheStartup(String zone) {
         IllegalStateException failure = assertThrows(IllegalStateException.class, () -> run(VALID_PASSWORD, zone));
         assertEquals("Bootstrap time zone must be an IANA region such as America/Argentina/Buenos_Aires", failure.getMessage());
@@ -36,7 +36,7 @@ class BootstrapAdminValidationTest {
     void a72BytePasswordAndARegionZonePassValidationAndReachTheDatabase() {
         // Validation passed when the runner reaches the (absent) JdbcTemplate.
         assertThrows(NullPointerException.class, () -> run("ñ".repeat(36), "America/Argentina/Buenos_Aires"));
-        assertThrows(NullPointerException.class, () -> run("p".repeat(16), "UTC"));
+        assertThrows(NullPointerException.class, () -> run("p".repeat(16), "America/Santiago"));
     }
 
     private static void run(String password, String zone) {
