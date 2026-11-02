@@ -412,10 +412,6 @@ public class OrganizationService {
                 sites.getOrDefault(employee.id(), List.of()), employee.toleranceMinutes(), employee.active(), employee.mustChangePassword())).toList();
     }
 
-    private static String placeholders(int count) {
-        return String.join(",", java.util.Collections.nCopies(count, "?"));
-    }
-
     private EmployeeView loadEmployee(UUID companyId, UUID employeeId) {
         return jdbc.query("SELECT e.display_name,e.tolerance_minutes,e.active,a.dni_display,a.must_change_password FROM employees e JOIN accounts a ON a.id=e.account_id WHERE e.id=? AND e.company_id=?",
                 rs -> rs.next() ? employeeView(companyId, employeeId, rs.getString("display_name"), rs.getInt("tolerance_minutes"), rs.getBoolean("active"), rs.getString("dni_display"), rs.getBoolean("must_change_password")) : null,
