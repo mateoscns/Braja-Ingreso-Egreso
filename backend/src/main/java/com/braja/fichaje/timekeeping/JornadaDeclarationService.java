@@ -16,6 +16,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -30,6 +31,10 @@ import java.util.*;
  * tolerance and scheduled start and end. Without a template, the employee's assignment in force on that date is used
  * (D-20261015-02). Locks: the templates used are read FOR SHARE (a move to another site waits) and then the jornadas are
  * inserted; uq_jornada_employee_site_active_date (V19) stays the last defence against a second live jornada.
+ * Both run at READ COMMITTED: a template save holds the template FOR UPDATE while it rewrites the row and its blocks, so once
+ * the FOR SHARE is granted the blocks read next are those of the same committed version. Under REPEATABLE READ the blocks came
+ * from the snapshot of the first plain read, taken before the lock, and a declaration racing a save froze one version's name
+ * and limits with the other's blocks (2026-11-02, #74; LockOrderSpecTest S63).
  */
 @Service
 public class JornadaDeclarationService {
@@ -53,7 +58,7 @@ public class JornadaDeclarationService {
         this.clock = clock;
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public UUID declare(ScopeService.Scope scope, JornadaController.DeclareJornada input) {
         UUID companyId = scope.companyId();
         DateRanges.validateDate(input.localDate());
@@ -85,7 +90,7 @@ public class JornadaDeclarationService {
      * jornada committed by a concurrent declaration after the read makes its insert hit the unique key: MySQL rolls back only
      * that statement, and the date is reported as JORNADA_EXISTS instead of failing the lot.
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public BulkResult declareBulk(ScopeService.Scope scope, BulkDeclaration input) {
         UUID companyId = scope.companyId();
         List<LocalDate> dates = bulkDates(input);

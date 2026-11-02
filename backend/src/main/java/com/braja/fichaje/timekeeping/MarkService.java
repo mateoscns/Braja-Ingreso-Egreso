@@ -16,6 +16,7 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -23,6 +24,15 @@ import java.time.*;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 
+/**
+ * Every write of a jornada's marks runs at READ COMMITTED, like the jobs ({@link #isolatedTransaction}). Each path locks the
+ * jornada row FOR UPDATE before it reads or writes that jornada's marks and deviations (CLAUDE.md §5.11), so that row lock is
+ * what serializes them, not gap locks. Under REPEATABLE READ, the locking history read of a jornada without marks took a gap
+ * lock on uq_mark_jornada_sequence (and lockDeviations one on uq_deviation_jornada_active_type) that other jornadas share, and
+ * first marks on different jornadas deadlocked on each other's insert intention (2026-11-02, #74: 16 of 20 simultaneous
+ * first INGRESO answered 409 RETRYABLE_TRANSACTION_CONFLICT; LockOrderSpecTest S64). READ COMMITTED locks only the rows it
+ * finds, and every statement reads the latest committed rows. The unique keys stay the last defence.
+ */
 @Service
 public class MarkService {
     private static final Logger LOGGER = LoggerFactory.getLogger(MarkService.class);
@@ -52,7 +62,7 @@ public class MarkService {
     }
 
     /** Records with a fixed server instant; for callers that already hold it (tests). The HTTP path passes the system clock. */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public MarkResult recordEmployeeMark(ScopeService.Scope scope, UUID jornadaId, MarkAction action, UUID idempotencyKey, Instant receivedAt) {
         return recordEmployeeMark(scope, jornadaId, action, idempotencyKey, Clock.fixed(receivedAt, ZoneOffset.UTC));
     }
@@ -61,7 +71,7 @@ public class MarkService {
      * The server instant is read from {@code serverClock} only after the account, membership and jornada locks are held
      * (D-20261015-06), so a higher sequence never carries an earlier time than a mark committed while this request waited.
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public MarkResult recordEmployeeMark(ScopeService.Scope scope, UUID jornadaId, MarkAction action, UUID idempotencyKey, Clock serverClock) {
         if (!"EMPLOYEE".equals(scope.role())) throw ApiException.forbidden();
         String fingerprint = MarkRequestFingerprint.sha256(jornadaId, action);
@@ -132,7 +142,7 @@ public class MarkService {
         return mark.view();
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public LocationResult attachLocation(ScopeService.Scope scope, UUID markId, double latitude, double longitude, double accuracyMeters, Instant receivedAt) {
         if ("EMPLOYEE".equals(scope.role()) == false) throw ApiException.forbidden();
         if (!Double.isFinite(latitude) || latitude < -90 || latitude > 90 || !Double.isFinite(longitude) || longitude < -180 || longitude > 180
@@ -171,7 +181,7 @@ public class MarkService {
         return new LocationResult(markId, "RECIBIDA");
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public JornadaController.MarkView forgottenMark(ScopeService.Scope scope, UUID jornadaId, MarkAction action, Instant occurredAt, String auditReason) {
         JornadaLock jornada = lockJornada(scope.companyId(), jornadaId);
         requireNotCancelled(jornada);
@@ -195,7 +205,7 @@ public class MarkService {
         return toView(markId, jornadaId, action, sequence, now, occurredAt, now, "NO_APLICA", null, null);
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public JornadaController.MarkView correctMark(ScopeService.Scope scope, UUID markId, MarkAction newAction, Instant newOccurredAt, String reason) {
         UUID jornadaId = jornadaIdForMark(scope.companyId(), markId);
         if (jornadaId == null) throw ApiException.notFound();
@@ -228,7 +238,7 @@ public class MarkService {
      * D-20261027-07: cancels a declared jornada that has no valid mark (voided marks do not count and stay visible). The jornada lock
      * is taken first, then its marks and deviations (CLAUDE.md §5.11); its active deviations are retracted and audited.
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public CancellationResult cancelJornada(ScopeService.Scope scope, UUID jornadaId, String reason) {
         if (!"ADMIN".equals(scope.role())) throw ApiException.forbidden();
         JornadaLock jornada = lockJornada(scope.companyId(), jornadaId);
@@ -250,7 +260,7 @@ public class MarkService {
      * transitions and the deviations, which are recomputed in the same transaction. Only allowed when the remaining history is
      * valid; the void is audited in mark_correction_audits (change_kind VOID).
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public JornadaController.MarkView voidMark(ScopeService.Scope scope, UUID markId, String reason) {
         if (!"ADMIN".equals(scope.role())) throw ApiException.forbidden();
         UUID jornadaId = jornadaIdForMark(scope.companyId(), markId);
