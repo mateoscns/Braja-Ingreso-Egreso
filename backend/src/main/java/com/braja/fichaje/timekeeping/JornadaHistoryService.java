@@ -63,7 +63,11 @@ public class JornadaHistoryService {
                 marksByJornada.getOrDefault(r.id(), List.of()), deviationsByJornada.getOrDefault(r.id(), List.of()))).toList();
     }
 
-    private Map<UUID, List<JornadaController.MarkView>> marks(ScopeService.Scope scope, List<UUID> jornadaIds) {
+    /**
+     * The marks of every given jornada of the scope's company, in timeline order, with one IN query (CLAUDE.md rule 17).
+     * Also used by JornadaController for one jornada and for /jornadas/mine (#75).
+     */
+    public Map<UUID, List<JornadaController.MarkView>> marks(ScopeService.Scope scope, List<UUID> jornadaIds) {
         if (jornadaIds.isEmpty()) return Map.of();
         boolean admin = "ADMIN".equals(scope.role());
         StringBuilder sql = new StringBuilder("SELECT " + MARK_COLUMNS + " FROM mark_events WHERE company_id=? AND jornada_id IN (");

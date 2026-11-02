@@ -271,16 +271,64 @@ public class OrganizationService {
         }
     }
 
+    /** A schedule_templates row before its blocks are attached. */
+    public record TemplateRow(UUID id, UUID siteId, String name, int breakfastLimitMinutes, int lunchLimitMinutes, boolean active) { }
+
+    /** An employees row (with its account's DNI and password flag) before its sites are attached. */
+    public record EmployeeRow(UUID id, String displayName, int toleranceMinutes, boolean active, String dni, boolean mustChangePassword) { }
+
     public TemplateView templateView(UUID companyId, UUID id, UUID siteId, String name, int breakfast, int lunch, boolean active) {
-        List<BlockInput> blocks = jdbc.query("SELECT start_day_offset,starts_at,ends_at,end_day_offset FROM template_blocks WHERE template_id=? AND company_id=? ORDER BY sequence_number",
-                (rs, row) -> new BlockInput(rs.getInt("start_day_offset"), rs.getTime("starts_at").toLocalTime(), rs.getTime("ends_at").toLocalTime(), rs.getInt("end_day_offset")), id.toString(), companyId.toString());
-        return new TemplateView(id, siteId, name, blocks, breakfast, lunch, active);
+        return templateViews(companyId, List.of(new TemplateRow(id, siteId, name, breakfast, lunch, active))).getFirst();
+    }
+
+    /**
+     * Attaches the blocks of every template with one IN query, never one per template (CLAUDE.md rule 17, #75). The ids are
+     * templates of one company, so the IN list is bounded by that company's templates.
+     */
+    public List<TemplateView> templateViews(UUID companyId, List<TemplateRow> templates) {
+        java.util.Map<UUID, List<BlockInput>> blocks = new java.util.HashMap<>();
+        if (!templates.isEmpty()) {
+            List<Object> args = new java.util.ArrayList<>();
+            args.add(companyId.toString());
+            templates.forEach(template -> args.add(template.id().toString()));
+            jdbc.query("SELECT template_id,start_day_offset,starts_at,ends_at,end_day_offset FROM template_blocks WHERE company_id=? AND template_id IN ("
+                            + placeholders(templates.size()) + ") ORDER BY template_id,sequence_number",
+                    rs -> {
+                        blocks.computeIfAbsent(UUID.fromString(rs.getString("template_id")), key -> new java.util.ArrayList<>())
+                                .add(new BlockInput(rs.getInt("start_day_offset"), rs.getTime("starts_at").toLocalTime(), rs.getTime("ends_at").toLocalTime(), rs.getInt("end_day_offset")));
+                    }, args.toArray());
+        }
+        return templates.stream().map(template -> new TemplateView(template.id(), template.siteId(), template.name(),
+                blocks.getOrDefault(template.id(), List.of()), template.breakfastLimitMinutes(), template.lunchLimitMinutes(), template.active())).toList();
     }
 
     public EmployeeView employeeView(UUID companyId, UUID employeeId, String name, int tolerance, boolean active, String dni, boolean mustChange) {
-        List<UUID> siteIds = jdbc.query("SELECT site_id FROM employee_sites WHERE company_id=? AND employee_id=? ORDER BY site_id",
-                (rs, row) -> UUID.fromString(rs.getString(1)), companyId.toString(), employeeId.toString());
-        return new EmployeeView(employeeId, name, dni, siteIds, tolerance, active, mustChange);
+        return employeeViews(companyId, List.of(new EmployeeRow(employeeId, name, tolerance, active, dni, mustChange))).getFirst();
+    }
+
+    /**
+     * Attaches the sites of every employee with one IN query, never one per employee (CLAUDE.md rule 17, #75). The ids are
+     * employees of one company, so the IN list is bounded by that company's employees.
+     */
+    public List<EmployeeView> employeeViews(UUID companyId, List<EmployeeRow> employees) {
+        java.util.Map<UUID, List<UUID>> sites = new java.util.HashMap<>();
+        if (!employees.isEmpty()) {
+            List<Object> args = new java.util.ArrayList<>();
+            args.add(companyId.toString());
+            employees.forEach(employee -> args.add(employee.id().toString()));
+            jdbc.query("SELECT employee_id,site_id FROM employee_sites WHERE company_id=? AND employee_id IN ("
+                            + placeholders(employees.size()) + ") ORDER BY employee_id,site_id",
+                    rs -> {
+                        sites.computeIfAbsent(UUID.fromString(rs.getString("employee_id")), key -> new java.util.ArrayList<>())
+                                .add(UUID.fromString(rs.getString("site_id")));
+                    }, args.toArray());
+        }
+        return employees.stream().map(employee -> new EmployeeView(employee.id(), employee.displayName(), employee.dni(),
+                sites.getOrDefault(employee.id(), List.of()), employee.toleranceMinutes(), employee.active(), employee.mustChangePassword())).toList();
+    }
+
+    private static String placeholders(int count) {
+        return String.join(",", java.util.Collections.nCopies(count, "?"));
     }
 
     private EmployeeView loadEmployee(UUID companyId, UUID employeeId) {

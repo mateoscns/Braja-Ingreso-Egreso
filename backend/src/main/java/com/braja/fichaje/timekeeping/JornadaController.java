@@ -19,6 +19,8 @@ import java.util.*;
 @RestController
 @RequestMapping("/api/v1/jornadas")
 public class JornadaController {
+    private static final String JORNADA_COLUMNS = "id,employee_id,site_id,local_date,state,next_sequence,schedule_snapshot,tolerance_minutes,cancelled_at,cancel_reason";
+
     private final JdbcTemplate jdbc;
     private final ScopeService scopes;
     private final ObjectMapper objectMapper;
@@ -60,9 +62,11 @@ public class JornadaController {
         var scope = scopes.require(auth, session);
         UUID employeeId = scopes.employeeIdFor(scope);
         if (employeeId == null) return List.of();
-        List<String> ids = jdbc.query("SELECT id FROM jornadas WHERE company_id=? AND employee_id=? AND local_date=? ORDER BY created_at,id",
-                (rs, row) -> rs.getString(1), scope.companyId().toString(), employeeId.toString(), localDate);
-        return ids.stream().map(id -> getJornada(scope, UUID.fromString(id))).toList();
+        // One query for the jornadas and one for all their marks, never one per jornada (CLAUDE.md rule 17, #75). The list is
+        // bounded: one active jornada per site and date (uq_jornada_employee_site_active_date) plus cancelled ones.
+        List<JornadaRow> rows = jdbc.query("SELECT " + JORNADA_COLUMNS + " FROM jornadas WHERE company_id=? AND employee_id=? AND local_date=? ORDER BY created_at,id",
+                (rs, row) -> jornadaRow(rs), scope.companyId().toString(), employeeId.toString(), localDate);
+        return jornadaViews(scope, rows);
     }
 
     @GetMapping("/{jornadaId}")
@@ -71,21 +75,33 @@ public class JornadaController {
     }
 
     private JornadaView getJornada(ScopeService.Scope scope, UUID jornadaId) {
-        JornadaRow row = jdbc.query("SELECT id,employee_id,site_id,local_date,state,next_sequence,schedule_snapshot,tolerance_minutes,cancelled_at,cancel_reason FROM jornadas WHERE id=? AND company_id=?",
-                rs -> rs.next() ? new JornadaRow(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("employee_id")), UUID.fromString(rs.getString("site_id")), rs.getObject("local_date", LocalDate.class), rs.getString("state"), rs.getLong("next_sequence") - 1, rs.getString("schedule_snapshot"), rs.getInt("tolerance_minutes"),
-                        rs.getTimestamp("cancelled_at") == null ? null : rs.getTimestamp("cancelled_at").toInstant(), rs.getString("cancel_reason")) : null,
-                jornadaId.toString(), scope.companyId().toString());
+        JornadaRow row = jdbc.query("SELECT " + JORNADA_COLUMNS + " FROM jornadas WHERE id=? AND company_id=?",
+                rs -> rs.next() ? jornadaRow(rs) : null, jornadaId.toString(), scope.companyId().toString());
         if (row == null) throw ApiException.notFound();
         if ("EMPLOYEE".equals(scope.role()) && !row.employeeId().equals(scopes.employeeIdFor(scope))) throw ApiException.notFound();
-        OrganizationController.TemplateInput snapshot;
-        try { snapshot = objectMapper.readValue(row.snapshot(), OrganizationController.TemplateInput.class); }
-        catch (Exception ex) { throw new IllegalStateException("Stored schedule snapshot is invalid", ex); }
+        return jornadaViews(scope, List.of(row)).getFirst();
+    }
+
+    /** Builds the views of jornadas the caller may read, loading the marks of all of them in one query. */
+    private List<JornadaView> jornadaViews(ScopeService.Scope scope, List<JornadaRow> rows) {
         boolean admin = "ADMIN".equals(scope.role());
-        List<MarkView> marks = jdbc.query("SELECT id,jornada_id,action,sequence_number,accepted_at,occurred_at,recorded_at,location_status,latitude,longitude,voided_at,void_reason FROM mark_events WHERE company_id=? AND jornada_id=? ORDER BY timeline_order,sequence_number",
-                (rs, index) -> markView(rs, admin), scope.companyId().toString(), jornadaId.toString());
+        Map<UUID, List<MarkView>> marks = history.marks(scope, rows.stream().map(JornadaRow::id).toList());
         // The cancellation reason is written by the ADMIN and may name a licence: only the ADMIN reads it.
-        return new JornadaView(row.id(), row.employeeId(), row.siteId(), row.localDate(), row.state(), snapshot, row.toleranceMinutes(), row.sequence(), marks,
-                row.cancelledAt(), admin ? row.cancelReason() : null);
+        return rows.stream().map(row -> new JornadaView(row.id(), row.employeeId(), row.siteId(), row.localDate(), row.state(), snapshot(row),
+                row.toleranceMinutes(), row.sequence(), marks.getOrDefault(row.id(), List.of()), row.cancelledAt(), admin ? row.cancelReason() : null)).toList();
+    }
+
+    private OrganizationController.TemplateInput snapshot(JornadaRow row) {
+        try { return objectMapper.readValue(row.snapshot(), OrganizationController.TemplateInput.class); }
+        catch (Exception ex) { throw new IllegalStateException("Stored schedule snapshot is invalid", ex); }
+    }
+
+    /** Maps a jornadas row selected with {@link #JORNADA_COLUMNS}. */
+    private static JornadaRow jornadaRow(java.sql.ResultSet rs) throws java.sql.SQLException {
+        java.sql.Timestamp cancelledAt = rs.getTimestamp("cancelled_at");
+        return new JornadaRow(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("employee_id")), UUID.fromString(rs.getString("site_id")),
+                rs.getObject("local_date", LocalDate.class), rs.getString("state"), rs.getLong("next_sequence") - 1, rs.getString("schedule_snapshot"),
+                rs.getInt("tolerance_minutes"), cancelledAt == null ? null : cancelledAt.toInstant(), rs.getString("cancel_reason"));
     }
 
     /**
