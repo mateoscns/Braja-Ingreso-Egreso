@@ -317,7 +317,7 @@ class AdminCorrectionSpecTest extends CampaignTestBase {
         }
     }
 
-    // CHAR: past 500 entries the history keeps the OLDEST 500 and drops the newest changes (truncated=true) — confirm with Mateo.
+    // D-20261102-09: past 500 entries the history keeps the NEWEST 500, oldest first, and flags truncated=true.
     @Test
     void s49HistoryStopsAtFiveHundredEntriesAndFlagsTheTruncation() {
         UUID ingreso = employeeMark("12:00", "INGRESO");
@@ -336,7 +336,7 @@ class AdminCorrectionSpecTest extends CampaignTestBase {
         assertTrue(capped.body().get("truncated").asBoolean());
         for (int i = 0; i < entries.size(); i++) {
             assertEquals("MARK_CORRECTION", entries.get(i).get("kind").asText());
-            assertEquals(first.plusSeconds(i), Instant.parse(entries.get(i).get("changedAt").asText()));
+            assertEquals(first.plusSeconds(i + 1), Instant.parse(entries.get(i).get("changedAt").asText()));
         }
         assertEquals(501, count("SELECT COUNT(*) FROM mark_correction_audits WHERE mark_id=?", ingreso));
     }

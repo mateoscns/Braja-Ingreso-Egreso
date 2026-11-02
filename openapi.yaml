@@ -944,7 +944,7 @@ paths:
         (active or retracted). Changes written in the same transaction keep their causal order (for example a forgotten mark
         before the deviation change it caused). Each entry names its actor (employee name in the company, else the membership
         name, else "DNI <dni>"); a change made by the system has no actor. Motive text of any category is never returned: a
-        motive change carries only its categories. Coordinates are never returned. At most 500 entries; truncated is true when
+        motive change carries only its categories. Coordinates are never returned. At most 500 entries (the newest, D-20261102-09); truncated is true when
         the jornada has more.
       parameters:
         - $ref: '#/components/parameters/JornadaId'
@@ -1436,7 +1436,7 @@ components:
           type: array
           maxItems: 500
           items: { $ref: '#/components/schemas/JornadaAuditEntry' }
-        truncated: { type: boolean, description: True when the jornada has more than 500 changes; entries holds the oldest 500. }
+        truncated: { type: boolean, description: True when the jornada has more than 500 changes; entries then holds the newest 500, oldest first (D-20261102-09). }
     JornadaAuditEntry:
       type: object
       description: Fields that do not apply to an entry's kind are omitted.

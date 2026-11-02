@@ -23,7 +23,10 @@ import java.util.regex.Pattern;
  */
 @Service
 public class JornadaAuditService {
-    /** Upper bound of entries in one answer; a jornada's history is naturally far smaller. */
+    /**
+     * Upper bound of entries in one answer; a jornada's history is naturally far smaller. Past it the newest entries are kept
+     * (D-20261102-09): each source reads its newest MAX_ENTRIES + 1 rows, so the newest MAX_ENTRIES overall are always among them.
+     */
     static final int MAX_ENTRIES = 500;
     private static final Pattern MOTIVE_CATEGORIES =
             Pattern.compile("^Motive category (SALUD|TRANSPORTE|EMERGENCIA|OTRA)(?: -> (SALUD|TRANSPORTE|EMERGENCIA|OTRA))?$");
@@ -55,7 +58,7 @@ public class JornadaAuditService {
 
         jdbc.query("SELECT f.id,f.mark_id,m.sequence_number,m.original_action,m.original_occurred_at,f.actor_account_id,f.audit_reason,f.recorded_at " +
                         "FROM forgotten_mark_audits f JOIN mark_events m ON m.id=f.mark_id AND m.company_id=f.company_id " +
-                        "WHERE f.company_id=? AND f.jornada_id=? ORDER BY f.recorded_at,f.id LIMIT ?",
+                        "WHERE f.company_id=? AND f.jornada_id=? ORDER BY f.recorded_at DESC,f.id DESC LIMIT ?",
                 rs -> { rows.add(new Ranked(new Entry("FORGOTTEN_MARK", instant(rs, "recorded_at"), uuid(rs, "actor_account_id"), null, rs.getString("audit_reason"),
                         uuid(rs, "mark_id"), rs.getLong("sequence_number"), null, rs.getString("original_action"), null, instant(rs, "original_occurred_at"),
                         null, null, null, null, null, null, null, null, null), 1, rs.getString("id"))); },
@@ -63,7 +66,7 @@ public class JornadaAuditService {
 
         jdbc.query("SELECT a.id,a.mark_id,m.sequence_number,a.change_kind,a.before_action,a.after_action,a.before_occurred_at,a.after_occurred_at," +
                         "a.actor_account_id,a.audit_reason,a.corrected_at FROM mark_correction_audits a JOIN mark_events m ON m.id=a.mark_id AND m.company_id=a.company_id " +
-                        "WHERE m.company_id=? AND m.jornada_id=? ORDER BY a.corrected_at,a.id LIMIT ?",
+                        "WHERE m.company_id=? AND m.jornada_id=? ORDER BY a.corrected_at DESC,a.id DESC LIMIT ?",
                 rs -> { rows.add(new Ranked(new Entry("VOID".equals(rs.getString("change_kind")) ? "MARK_VOID" : "MARK_CORRECTION", instant(rs, "corrected_at"),
                         uuid(rs, "actor_account_id"), null, rs.getString("audit_reason"), uuid(rs, "mark_id"), rs.getLong("sequence_number"),
                         rs.getString("before_action"), rs.getString("after_action"), instant(rs, "before_occurred_at"), instant(rs, "after_occurred_at"),
@@ -72,12 +75,12 @@ public class JornadaAuditService {
 
         jdbc.query("SELECT a.id,a.deviation_id,d.type AS deviation_type,a.change_type,a.before_type,a.after_type,a.before_classification,a.after_classification," +
                         "a.actor_account_id,a.audit_reason,a.created_at FROM deviation_audits a JOIN deviations d ON d.id=a.deviation_id AND d.company_id=a.company_id " +
-                        "WHERE d.company_id=? AND d.jornada_id=? ORDER BY a.created_at,a.id LIMIT ?",
+                        "WHERE d.company_id=? AND d.jornada_id=? ORDER BY a.created_at DESC,a.id DESC LIMIT ?",
                 rs -> { rows.add(deviationEntry(rs)); }, company, jornada, MAX_ENTRIES + 1);
 
         rows.sort(Comparator.comparing((Ranked row) -> row.entry().changedAt()).thenComparingInt(Ranked::rank).thenComparing(Ranked::tie));
         boolean truncated = rows.size() > MAX_ENTRIES;
-        List<Entry> entries = rows.subList(0, Math.min(rows.size(), MAX_ENTRIES)).stream().map(Ranked::entry).toList();
+        List<Entry> entries = rows.subList(Math.max(0, rows.size() - MAX_ENTRIES), rows.size()).stream().map(Ranked::entry).toList();
         Map<UUID, String> names = actorNames(company, entries.stream().map(Entry::actorAccountId).filter(Objects::nonNull).distinct().toList());
         return new JornadaAudit(jornadaId, timeZone, entries.stream().map(entry -> entry.withActorName(names.get(entry.actorAccountId()))).toList(), truncated);
     }
@@ -137,7 +140,8 @@ public class JornadaAuditService {
 
     private record Ranked(Entry entry, int rank, String tie) { }
 
-    /** entries are chronological (oldest first); truncated is true when the jornada has more than MAX_ENTRIES changes. */
+    /** entries are chronological (oldest first); truncated is true when the jornada has more than MAX_ENTRIES changes, and then
+     *  entries holds the newest MAX_ENTRIES. */
     public record JornadaAudit(UUID jornadaId, String timeZone, List<Entry> entries, boolean truncated) { }
 
     /**
