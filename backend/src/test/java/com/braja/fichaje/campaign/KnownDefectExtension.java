@@ -29,7 +29,10 @@ public final class KnownDefectExtension implements InvocationInterceptor {
         try {
             invocation.proceed();
         } catch (AssertionError expected) {
-            context.publishReportEntry("known-defect", defect.issue() + ": " + defect.reason() + " | " + firstLine(expected));
+            String entry = defect.issue() + ": " + defect.reason() + " | " + firstLine(expected);
+            context.publishReportEntry("known-defect", entry);
+            // Printed too, so the Maven output shows which assertion the known defect tripped.
+            System.out.println("[known-defect] " + method.getDeclaringClass().getSimpleName() + "." + method.getName() + " -> " + entry);
             return;
         }
         throw new AssertionError("This test passes now: " + defect.issue() + " looks fixed. Remove @KnownDefect from "
