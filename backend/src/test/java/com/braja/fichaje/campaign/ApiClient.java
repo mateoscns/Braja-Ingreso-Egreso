@@ -14,6 +14,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -22,10 +23,18 @@ import java.util.UUID;
  * through X-Forwarded-For (the campaign trusts 127.0.0.1 as the proxy). Every exchange goes to the HttpLog.
  */
 public final class ApiClient {
-    public record Response(int status, JsonNode body, String raw, String code) {
+    public record Response(int status, JsonNode body, String raw, String code, Map<String, List<String>> headers) {
         public Response expect(int expected) {
             if (status != expected) throw new AssertionError("expected HTTP " + expected + " but got " + status + ": " + raw);
             return this;
+        }
+
+        /** First value of a response header, case-insensitive, or null. */
+        public String header(String name) {
+            for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
+                if (entry.getKey().equalsIgnoreCase(name) && !entry.getValue().isEmpty()) return entry.getValue().getFirst();
+            }
+            return null;
         }
 
         public UUID id() {
@@ -123,7 +132,7 @@ public final class ApiClient {
             JsonNode body = raw == null || raw.isBlank() ? MissingNode.getInstance() : parse(raw);
             String code = body.hasNonNull("code") ? body.get("code").asText() : null;
             log.record(new HttpLog.Exchange(actor, method, path, response.statusCode(), code, raw));
-            return new Response(response.statusCode(), body, raw, code);
+            return new Response(response.statusCode(), body, raw, code, response.headers().map());
         } catch (IOException ex) {
             throw new UncheckedIOException(actor + " " + method + " " + path, ex);
         } catch (InterruptedException ex) {
