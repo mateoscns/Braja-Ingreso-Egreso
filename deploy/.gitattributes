@@ -1,0 +1,2 @@
+# The scripts and the Caddyfile run on Linux: keep LF even in a Windows checkout.
+* text=auto eol=lf

@@ -1,0 +1,101 @@
+# Production stack (CLAUDE.md rules 30-34): MySQL 8.4, the backend (with its @Scheduled jobs) and Caddy serving the PWA.
+# Run it through deploy/deploy.sh. Values come from deploy/.env (created by deploy/gen-secrets.sh, mode 600, never in git):
+# compose reads it for ${...} interpolation and the backend receives it as its environment.
+# No Spring profile is set on purpose: "local" is the only profile that allows a non-Secure session cookie (rule 22).
+name: braja
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: braja
+      MYSQL_USER: braja_app
+      MYSQL_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:?run deploy/gen-secrets.sh first}
+      MYSQL_ROOT_PASSWORD: ${BRAJA_DB_ROOT_PASSWORD:?run deploy/gen-secrets.sh first}
+    command:
+      - --default-time-zone=+00:00
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --innodb-buffer-pool-size=512M
+      - --max-connections=60
+      - --performance-schema=OFF
+      - --skip-name-resolve
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks: [braja]
+    healthcheck:
+      # ping answers alive even when access is denied, so no password goes on the command line.
+      test: [CMD-SHELL, "mysqladmin ping -h 127.0.0.1 --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    mem_limit: 1g
+    logging: *logging
+
+  backend:
+    image: braja-backend:${BRAJA_IMAGE_TAG:-latest}
+    build:
+      context: ../backend
+    restart: unless-stopped
+    env_file:
+      - path: ${BRAJA_ENV_FILE:-.env}
+        required: true
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/braja?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
+      SPRING_DATASOURCE_USERNAME: braja_app
+      # Only Caddy's fixed address may set X-Forwarded-For (rule 21: the login IP throttle uses the real client address).
+      BRAJA_TRUSTED_PROXY_CIDRS: ${BRAJA_CADDY_IPV4:-172.31.81.10}/32
+      BRAJA_SESSION_COOKIE_SECURE: "true"
+      SPRING_PROFILES_ACTIVE: ""
+      # The root password is only for the mysql service; blank it here so the backend never holds it.
+      BRAJA_DB_ROOT_PASSWORD: ""
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks: [braja]
+    mem_limit: 1280m
+    cpus: 1.5
+    logging: *logging
+
+  caddy:
+    image: braja-caddy:${BRAJA_IMAGE_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: deploy/caddy/Dockerfile
+    restart: unless-stopped
+    environment:
+      BRAJA_DOMAIN: ${BRAJA_DOMAIN:?run deploy/gen-secrets.sh first}
+    ports:
+      - "${BRAJA_HTTP_PORT:-80}:80"
+      - "${BRAJA_HTTPS_PORT:-443}:443"
+      - "${BRAJA_HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - backend
+    networks:
+      braja:
+        ipv4_address: ${BRAJA_CADDY_IPV4:-172.31.81.10}
+    mem_limit: 256m
+    logging: *logging
+
+networks:
+  braja:
+    ipam:
+      config:
+        - subnet: ${BRAJA_NETWORK_SUBNET:-172.31.81.0/24}
+
+volumes:
+  mysql-data:
+  # Caddy keeps its certificates and ACME account here; losing it means re-issuing (rate limited by Let's Encrypt).
+  caddy-data:
+  caddy-config:
