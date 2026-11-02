@@ -24,7 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.Instant;
+import java.time.Clock;
 import java.util.*;
 
 @Service
@@ -41,13 +41,15 @@ public class AccountService {
     private final BrajaProperties properties;
     private final LoginThrottleService throttle;
     private final ClientAddressResolver clientAddressResolver;
+    private final Clock clock;
 
     public AccountService(JdbcTemplate jdbc, AuthenticationManager authenticationManager, PasswordEncoder passwordEncoder,
                           CurrentActor currentActor, SessionAuthenticationStrategy sessionStrategy,
                           SecurityContextRepository contextRepository, CsrfTokenRepository csrfRepository,
                           BrajaProperties properties, LoginThrottleService throttle, ClientAddressResolver clientAddressResolver,
-                          PlatformTransactionManager transactionManager) {
+                          PlatformTransactionManager transactionManager, Clock clock) {
         this.jdbc = jdbc;
+        this.clock = clock;
         this.transactions = new TransactionTemplate(transactionManager);
         this.authenticationManager = authenticationManager;
         this.passwordEncoder = passwordEncoder;
@@ -170,7 +172,7 @@ public class AccountService {
             attempt.held = false;
             String newHash = passwordEncoder.encode(newPassword);
             transactions.executeWithoutResult(status -> {
-                jdbc.update("UPDATE accounts SET password_hash=?, must_change_password=FALSE, updated_at=? WHERE id=?", newHash, Instant.now(), accountId.toString());
+                jdbc.update("UPDATE accounts SET password_hash=?, must_change_password=FALSE, updated_at=? WHERE id=?", newHash, clock.instant(), accountId.toString());
                 jdbc.update("DELETE FROM SPRING_SESSION WHERE PRINCIPAL_NAME=? AND SESSION_ID<>?", account.principalName(), currentSessionId);
             });
         } catch (EmptyResultDataAccessException ex) {

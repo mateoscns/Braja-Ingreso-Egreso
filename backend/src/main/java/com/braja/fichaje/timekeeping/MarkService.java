@@ -35,12 +35,14 @@ public class MarkService {
     private final ObjectMapper objectMapper;
     private final DeviationService deviations;
     private final TransactionTemplate isolatedTransaction;
+    private final Clock clock;
     private final MarkTransitionPolicy transitions = new MarkTransitionPolicy();
     private final GeofencePolicy geofence = new GeofencePolicy();
 
     public MarkService(JdbcTemplate jdbc, ScopeService scopes, ObjectMapper objectMapper, DeviationService deviations,
-                       PlatformTransactionManager transactionManager) {
+                       PlatformTransactionManager transactionManager, Clock clock) {
         this.jdbc = jdbc;
+        this.clock = clock;
         this.scopes = scopes;
         this.objectMapper = objectMapper;
         this.deviations = deviations;
@@ -91,7 +93,7 @@ public class MarkService {
         UUID markId = UUID.randomUUID();
         long sequence = jornada.nextSequence();
         long timelineOrder = history.isEmpty() ? 1000 : history.getLast().timelineOrder() + 1000;
-        Instant recordedAt = Instant.now();
+        Instant recordedAt = clock.instant();
         jdbc.update("INSERT INTO mark_events(id,company_id,jornada_id,sequence_number,timeline_order,action,original_action,occurred_at,original_occurred_at,accepted_at,recorded_at,origin,created_by,location_status,location_expires_at) " +
                         "VALUES(?,?,?,?,?,?,?,?,?,?,?,'EMPLEADO',?,'PENDIENTE',?)",
                 markId.toString(), scope.companyId().toString(), jornadaId.toString(), sequence, timelineOrder, action.name(), action.name(),
@@ -102,14 +104,14 @@ public class MarkService {
                 MarkState.from(actions), jornadaId.toString(), scope.companyId().toString());
         List<HistoryRow> updated = new ArrayList<>(history);
         updated.add(new HistoryRow(markId, sequence, timelineOrder, action, receivedAt));
-        reconcile(scope.companyId(), jornada, updated, Instant.now());
+        reconcile(scope.companyId(), jornada, updated, clock.instant());
         JornadaController.MarkView view = toView(markId, jornadaId, action, sequence, receivedAt, receivedAt, recordedAt, "PENDIENTE", null, null);
         String response;
         try { response = objectMapper.writeValueAsString(view); }
         catch (Exception ex) { throw new IllegalStateException("Unable to serialize idempotent mark response", ex); }
         try {
             jdbc.update("INSERT INTO mark_idempotency(account_id,idempotency_key,request_hash,response_body,mark_id,created_at) VALUES(?,?,?,?,?,?)",
-                    scope.accountId().toString(), idempotencyKey.toString(), fingerprint, response, markId.toString(), timestamp(Instant.now()));
+                    scope.accountId().toString(), idempotencyKey.toString(), fingerprint, response, markId.toString(), timestamp(clock.instant()));
         } catch (DuplicateKeyException ex) {
             throw ApiException.conflict("IDEMPOTENCY_CONFLICT", "This idempotency key is already in use");
         }
@@ -159,11 +161,11 @@ public class MarkService {
         if ("EMPLEADO".equals(mark.origin()) && jornada.siteGeofenceLatitude() != null) {
             if (geofence.isOutside(jornada.siteGeofenceLatitude().doubleValue(), jornada.siteGeofenceLongitude().doubleValue(),
                     latitude, longitude, accuracyMeters, jornada.siteGeofenceRadius())) {
-                deviations.recordOutOfSiteMark(scope.companyId(), jornada.id(), jornada.siteId(), jornada.employeeId(), mark.id(), Instant.now());
+                deviations.recordOutOfSiteMark(scope.companyId(), jornada.id(), jornada.siteId(), jornada.employeeId(), mark.id(), clock.instant());
             } else {
                 // A timely location may arrive after the timeout worker finalized SIN_UBICACION while this request waited
                 // for the jornada lock. Correct the provisional deviation in the same serialized transaction.
-                deviations.retractOutOfSiteForMark(scope.companyId(), jornada.id(), mark.id(), Instant.now());
+                deviations.retractOutOfSiteForMark(scope.companyId(), jornada.id(), mark.id(), clock.instant());
             }
         }
         return new LocationResult(markId, "RECIBIDA");
@@ -173,7 +175,7 @@ public class MarkService {
     public JornadaController.MarkView forgottenMark(ScopeService.Scope scope, UUID jornadaId, MarkAction action, Instant occurredAt, String auditReason) {
         JornadaLock jornada = lockJornada(scope.companyId(), jornadaId);
         requireNotCancelled(jornada);
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         validateAdminEventTime(jornada, occurredAt, now);
         List<HistoryRow> history = loadHistory(scope.companyId(), jornadaId);
         UUID markId = UUID.randomUUID();
@@ -201,7 +203,7 @@ public class MarkService {
         LockedMark mark = lockMark(scope.companyId(), markId);
         if (mark == null) throw ApiException.notFound();
         if (mark.voided()) throw markVoided();
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         // Only a new event time is bounded: keeping the stored time (an action-only fix) must stay possible even for an
         // employee mark recorded outside the window (2026-10-27 review finding).
         if (!newOccurredAt.equals(mark.occurredAt())) validateAdminEventTime(jornada, newOccurredAt, now);
@@ -236,7 +238,7 @@ public class MarkService {
         if (!"NO_INGRESO".equals(jornada.state()) || marks == null || marks > 0) {
             throw ApiException.conflict("JORNADA_HAS_MARKS", "A jornada with valid marks cannot be cancelled; correct or void its marks instead");
         }
-        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         jdbc.update("UPDATE jornadas SET state='CANCELADA',cancelled_at=?,cancelled_by=?,cancel_reason=? WHERE id=? AND company_id=? AND state='NO_INGRESO'",
                 timestamp(now), scope.accountId().toString(), reason, jornadaId.toString(), scope.companyId().toString());
         deviations.retractAll(scope.companyId(), jornadaId, now);
@@ -259,7 +261,7 @@ public class MarkService {
         if (mark.voided()) throw markVoided();
         List<HistoryRow> remaining = loadHistory(scope.companyId(), jornadaId).stream().filter(row -> !row.id().equals(markId)).toList();
         validateHistory(remaining, "INVALID_MARK_HISTORY");
-        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         jdbc.update("INSERT INTO mark_correction_audits(id,company_id,mark_id,before_action,after_action,before_occurred_at,after_occurred_at,actor_account_id,audit_reason,corrected_at,change_kind) VALUES(?,?,?,?,?,?,?,?,?,?,'VOID')",
                 UUID.randomUUID().toString(), scope.companyId().toString(), markId.toString(), mark.action().name(), mark.action().name(), timestamp(mark.occurredAt()),
                 timestamp(mark.occurredAt()), scope.accountId().toString(), reason, timestamp(now));

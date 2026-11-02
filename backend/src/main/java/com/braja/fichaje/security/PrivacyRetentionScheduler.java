@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 
@@ -13,12 +14,17 @@ import java.time.Instant;
 public class PrivacyRetentionScheduler {
     private final JdbcTemplate jdbc;
 
-    public PrivacyRetentionScheduler(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    private final Clock clock;
+
+    public PrivacyRetentionScheduler(JdbcTemplate jdbc, Clock clock) {
+        this.jdbc = jdbc;
+        this.clock = clock;
+    }
 
     @Scheduled(fixedDelayString = "PT15M")
     @Transactional
     public void purgeSensitiveData() {
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         Timestamp cutoff = Timestamp.from(now.minus(java.time.Duration.ofDays(90)));
         jdbc.update("UPDATE mark_events SET latitude=NULL,longitude=NULL,accuracy_meters=NULL,location_status='PURGADA',location_purged_at=? " +
                 "WHERE location_status='RECIBIDA' AND location_received_at < ?", Timestamp.from(now), cutoff);

@@ -2,6 +2,7 @@ package com.braja.fichaje.notifications;
 
 import com.braja.fichaje.config.BrajaProperties;
 import java.sql.Timestamp;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -29,12 +30,14 @@ class JdbcDeviationNotificationOutbox implements DeviationNotificationPort {
     private final JdbcTemplate jdbcTemplate;
     private final BrajaProperties properties;
     private final NotificationWindowPolicy windowPolicy;
+    private final Clock clock;
 
     JdbcDeviationNotificationOutbox(JdbcTemplate jdbcTemplate, BrajaProperties properties,
-                                     NotificationWindowPolicy windowPolicy) {
+                                     NotificationWindowPolicy windowPolicy, Clock clock) {
         this.jdbcTemplate = jdbcTemplate;
         this.properties = properties;
         this.windowPolicy = windowPolicy;
+        this.clock = clock;
     }
 
     @Override
@@ -47,7 +50,7 @@ class JdbcDeviationNotificationOutbox implements DeviationNotificationPort {
             throw new IllegalArgumentException("Faltan datos requeridos para emitir el aviso.");
         }
 
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         jdbcTemplate.update("""
                 INSERT INTO notification_company_state (company_id, active_window_id, updated_at)
                 VALUES (?, NULL, ?)

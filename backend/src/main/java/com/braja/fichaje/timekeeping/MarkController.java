@@ -18,17 +18,19 @@ import java.util.UUID;
 public class MarkController {
     private final ScopeService scopes;
     private final MarkService marks;
+    private final Clock clock;
 
-    public MarkController(ScopeService scopes, MarkService marks) {
+    public MarkController(ScopeService scopes, MarkService marks, Clock clock) {
         this.scopes = scopes;
         this.marks = marks;
+        this.clock = clock;
     }
 
     @PostMapping("/jornadas/{jornadaId}/marks")
     public ResponseEntity<JornadaController.MarkView> record(Authentication auth, HttpSession session, @PathVariable UUID jornadaId,
             @RequestHeader("Idempotency-Key") UUID idempotencyKey, @Valid @RequestBody MarkInput input) {
         // The service reads the server clock once the account, membership and jornada locks are held (rule 1, D-20261015-06).
-        var result = marks.recordEmployeeMark(scopes.require(auth, session), jornadaId, MarkAction.valueOf(input.action()), idempotencyKey, Clock.systemUTC());
+        var result = marks.recordEmployeeMark(scopes.require(auth, session), jornadaId, MarkAction.valueOf(input.action()), idempotencyKey, clock);
         return ResponseEntity.status(result.replay() ? HttpStatus.OK : HttpStatus.CREATED).body(result.mark());
     }
 
@@ -40,7 +42,7 @@ public class MarkController {
     @PostMapping("/marks/{markId}/location")
     public ResponseEntity<MarkService.LocationResult> location(Authentication auth, HttpSession session, @PathVariable UUID markId,
             @Valid @RequestBody LocationInput input) {
-        Instant receivedAt = Instant.now();
+        Instant receivedAt = clock.instant();
         var result = marks.attachLocation(scopes.require(auth, session), markId, input.latitude(), input.longitude(), input.accuracyMeters(), receivedAt);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(result);
     }

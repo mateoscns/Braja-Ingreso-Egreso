@@ -8,6 +8,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
@@ -21,10 +22,12 @@ import java.util.*;
 public class TemplateAssignmentService {
     private final JdbcTemplate jdbc;
     private final ScopeService scopes;
+    private final Clock clock;
 
-    public TemplateAssignmentService(JdbcTemplate jdbc, ScopeService scopes) {
+    public TemplateAssignmentService(JdbcTemplate jdbc, ScopeService scopes, Clock clock) {
         this.jdbc = jdbc;
         this.scopes = scopes;
+        this.clock = clock;
     }
 
     @Transactional
@@ -39,7 +42,7 @@ public class TemplateAssignmentService {
         UUID siteId = UUID.fromString(template[0]);
         if (!scopes.employeeHasSite(companyId, employeeId, siteId)) throw ApiException.invalid("The employee is not assigned to the template's site");
         UUID id = UUID.randomUUID();
-        Instant createdAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant createdAt = clock.instant().truncatedTo(ChronoUnit.MICROS);
         try {
             jdbc.update("INSERT INTO employee_template_assignments(id,company_id,employee_id,site_id,template_id,valid_from,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)",
                     id.toString(), companyId.toString(), employeeId.toString(), siteId.toString(), input.templateId().toString(), input.validFrom(),

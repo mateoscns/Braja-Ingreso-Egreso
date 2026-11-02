@@ -39,12 +39,14 @@ public class DeviationService {
     private final ScopeService scopes;
     private final EncryptionService encryption;
     private final DeviationNotificationPort notifications;
+    private final Clock clock;
 
-    public DeviationService(JdbcTemplate jdbc, ScopeService scopes, EncryptionService encryption, DeviationNotificationPort notifications) {
+    public DeviationService(JdbcTemplate jdbc, ScopeService scopes, EncryptionService encryption, DeviationNotificationPort notifications, Clock clock) {
         this.jdbc = jdbc;
         this.scopes = scopes;
         this.encryption = encryption;
         this.notifications = notifications;
+        this.clock = clock;
     }
 
     @Transactional
@@ -363,7 +365,7 @@ public class DeviationService {
         if (deviation.classification() != null && hadMotive) throw ApiException.conflict("MOTIVE_LOCKED", "The reason is fixed once the deviation is classified");
         boolean health = "SALUD".equals(category);
         if (!health && !Set.of("TRANSPORTE", "EMERGENCIA", "OTRA").contains(category)) throw ApiException.invalid("Unknown motive category");
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         if (health) {
             var encrypted = encryption.encryptHealth(text);
             jdbc.update("UPDATE deviations SET motive_category=?,motive_text=NULL,motive_ciphertext=?,motive_iv=?,motive_cipher_key_id=?,motive_author_account_id=?,motive_created_at=?,motive_purged_at=NULL,classification=NULL,updated_at=? WHERE id=? AND company_id=?",
@@ -388,7 +390,7 @@ public class DeviationService {
             throw ApiException.invalid("A correction reason is required when changing a classification");
         }
         if (!Set.of("JUSTIFICADO", "NO_JUSTIFICADO").contains(classification)) throw ApiException.invalid("Unknown classification");
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         jdbc.update("UPDATE deviations SET classification=?,updated_at=? WHERE id=? AND company_id=?", classification, timestamp(now), deviationId.toString(), scope.companyId().toString());
         jdbc.update("INSERT INTO deviation_audits(id,company_id,deviation_id,change_type,before_classification,after_classification,actor_account_id,audit_reason,created_at) VALUES(?, ?, ?, 'CLASSIFICATION_CHANGED', ?, ?, ?, ?, ?)",
                 UUID.randomUUID().toString(), scope.companyId().toString(), deviationId.toString(), deviation.classification(), classification, scope.accountId().toString(),

@@ -19,7 +19,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
+import java.time.Clock;
 import java.math.BigDecimal;
 import java.util.HashSet;
 import java.util.List;
@@ -35,11 +35,13 @@ public class OrganizationService {
     private final JdbcTemplate jdbc;
     private final ScopeService scopes;
     private final PasswordEncoder passwords;
+    private final Clock clock;
 
-    public OrganizationService(JdbcTemplate jdbc, ScopeService scopes, PasswordEncoder passwords) {
+    public OrganizationService(JdbcTemplate jdbc, ScopeService scopes, PasswordEncoder passwords, Clock clock) {
         this.jdbc = jdbc;
         this.scopes = scopes;
         this.passwords = passwords;
+        this.clock = clock;
     }
 
     /** Creates the site and its first location audit atomically when the initial configuration differs from defaults. */
@@ -296,5 +298,5 @@ public class OrganizationService {
         jdbc.update("INSERT INTO employee_sites(company_id,employee_id,site_id,created_at) VALUES(?,?,?,?)", companyId.toString(), employeeId.toString(), siteId.toString(), now());
     }
 
-    private static java.sql.Timestamp now() { return java.sql.Timestamp.from(Instant.now()); }
+    private java.sql.Timestamp now() { return java.sql.Timestamp.from(clock.instant()); }
 }

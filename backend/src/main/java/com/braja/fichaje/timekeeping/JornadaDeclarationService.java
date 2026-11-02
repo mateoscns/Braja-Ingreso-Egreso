@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -42,12 +43,14 @@ public class JornadaDeclarationService {
     private final ScopeService scopes;
     private final ObjectMapper objectMapper;
     private final TemplateAssignmentService assignments;
+    private final Clock clock;
 
-    public JornadaDeclarationService(JdbcTemplate jdbc, ScopeService scopes, ObjectMapper objectMapper, TemplateAssignmentService assignments) {
+    public JornadaDeclarationService(JdbcTemplate jdbc, ScopeService scopes, ObjectMapper objectMapper, TemplateAssignmentService assignments, Clock clock) {
         this.jdbc = jdbc;
         this.scopes = scopes;
         this.objectMapper = objectMapper;
         this.assignments = assignments;
+        this.clock = clock;
     }
 
     @Transactional
@@ -70,7 +73,7 @@ public class JornadaDeclarationService {
         if (window == null) throw ApiException.invalid("The template must end after it starts");
         UUID jornadaId = UUID.randomUUID();
         if (!insert(jornadaId, companyId, input.employeeId(), input.siteId(), template, input.localDate(), site, snapshot(template, input.siteId()),
-                tolerance, window, scope.accountId(), Instant.now())) {
+                tolerance, window, scope.accountId(), clock.instant())) {
             throw ApiException.conflict(JORNADA_EXISTS, "A jornada already exists for this employee, site, and date");
         }
         return jornadaId;
@@ -105,7 +108,7 @@ public class JornadaDeclarationService {
         }
         Set<String> existing = new HashSet<>(existingJornadas(companyId, input.siteId(), employees, input.from(), input.to()));
         ZoneId zone = ZoneId.of(timeZone);
-        Instant createdAt = Instant.now();
+        Instant createdAt = clock.instant();
         Map<UUID, String> snapshots = new HashMap<>();
         List<CreatedJornada> created = new ArrayList<>();
         List<SkippedJornada> skipped = new ArrayList<>();

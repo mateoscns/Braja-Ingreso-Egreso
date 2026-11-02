@@ -542,13 +542,14 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     fecha de jornada es la fecha local del primer bloque en la zona de la
     sede (CA5). La fecha de jornada se lee sin conversión por la zona de la JVM
     (2026-10-20, PR #28: `rs.getDate` dependía de esa zona; guarda:
-    `IT.journeyDatesDoNotDependOnJvmDefaultTimeZone`). **Brecha**: no hay
-    `Clock` inyectado como bean; al 2026-10-28 `Instant.now()` aparece 31 veces
-    en 16 archivos de `backend/src/main/java` (antes, 25 en 13). Los caminos
-    principales reciben el instante por parámetro (`createDueAbsences`,
-    `reconcile`) y `recordEmployeeMark` recibe un `Clock`
-    (`MarkController` pasa `Clock.systemUTC()`). Sin test de jornada nocturna
-    ni de horario de verano. `[sin guarda: destino]`
+    `IT.journeyDatesDoNotDependOnJvmDefaultTimeZone`). **La hora del servidor sale
+    de un único bean `Clock`** (`config/TimeConfiguration`, `Clock.systemUTC()`
+    en producción), inyectado en todos los servicios, controladores y jobs; los
+    tests lo reemplazan para simular días (2026-11-01: había 33 `Instant.now()` en
+    15 archivos y no se podía simular el paso del tiempo). La única excepción es el
+    vencimiento de sesión de Spring Session, que usa su propio reloj. Guarda:
+    `NoWallClockInMainSourcesTest` (ninguna llamada al reloj del sistema fuera de
+    `TimeConfiguration`). Sin test de jornada nocturna ni de horario de verano.
 
 ### Configuración y despliegue
 
@@ -682,7 +683,7 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
   agrupación, reintento y payload del push; CI con tests en MySQL 8.4 real.
 - **Falta todavía** (inventario revalidado sobre `main` `f3c9635` el
   2026-10-28):
-  - Inyectar `Clock` (28). Agregar reglas ESLint para límites entre capas,
+  - Tests de jornada nocturna y de horario de verano (28). Agregar reglas ESLint para límites entre capas,
     ciclos y exports sin uso (35), y una prueba arquitectónica para proteger
     la separación contenedor/render (36).
   - El alta con un DNI existente filtra estado de la cuenta a otra empresa:
@@ -778,8 +779,9 @@ si cada clon hace `git config core.hooksPath .githooks`**. Hoy no existe
    5, 6, 7, 8, 10, 12, 13, 14, 21, 22, 26 y la máquina de estados; parcial: 9
    (`company_id` en cada consulta), 15, 18 (normalización), 23 (último
    `ADMIN`), 24 (`Content-Type`), 27 (front), 35 (reglas para capas, ciclos y
-   exports), 37 y 39 (cobertura). Siguen sin guarda: 3, 11 (orden de locks),
-   16, 17, 19, 20, 25, 28 (`Clock`), 29–34, 36 (separación
+   exports), 37 y 39 (cobertura); 28 tiene guarda del `Clock` desde el
+   2026-11-01 (falta nocturna y horario de verano). Siguen sin guarda: 3, 11
+   (orden de locks), 16, 17, 19, 20, 25, 29–34, 36 (separación
    contenedor/render), 38 y 40.
 6. [x] Primera verificación completa del archivo contra el código:
    2026-10-20, sobre `main` en `5e61d0a5bb6b81c26603f42e9093bf85e9baab4a`.

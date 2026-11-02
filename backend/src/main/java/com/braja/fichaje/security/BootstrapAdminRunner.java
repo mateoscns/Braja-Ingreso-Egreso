@@ -9,6 +9,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.UUID;
@@ -19,11 +20,13 @@ public class BootstrapAdminRunner implements ApplicationRunner {
     private final JdbcTemplate jdbc;
     private final PasswordEncoder passwords;
     private final Environment env;
+    private final Clock clock;
 
-    public BootstrapAdminRunner(JdbcTemplate jdbc, PasswordEncoder passwords, Environment env) {
+    public BootstrapAdminRunner(JdbcTemplate jdbc, PasswordEncoder passwords, Environment env, Clock clock) {
         this.jdbc = jdbc;
         this.passwords = passwords;
         this.env = env;
+        this.clock = clock;
     }
 
     @Override
@@ -47,7 +50,7 @@ public class BootstrapAdminRunner implements ApplicationRunner {
         if (jdbc.queryForObject("SELECT COUNT(*) FROM accounts WHERE dni_normalized=?", Integer.class, dni) != 0) {
             throw new IllegalStateException("Bootstrap DNI already exists");
         }
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         UUID accountId = UUID.randomUUID();
         UUID companyId = UUID.randomUUID();
         UUID siteId = UUID.randomUUID();
