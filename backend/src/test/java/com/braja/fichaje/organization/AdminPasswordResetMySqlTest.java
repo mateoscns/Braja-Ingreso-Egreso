@@ -214,6 +214,39 @@ class AdminPasswordResetMySqlTest {
         assertEquals(before, snapshot(accountId, dni));
     }
 
+    /**
+     * 2026-11-02 (campaign #72 simulation): after a reset, the employee's first login from the same browser answered 401
+     * SESSION_EXPIRED and the retry worked. Root cause, by design: the CSRF token lives in the HTTP session
+     * (HttpSessionCsrfTokenRepository) and the reset deletes every session of the account, so the token that browser held
+     * died with it, exactly as on idle expiry (rule 24). The login is refused by the CSRF filter before any credential check,
+     * so it costs no attempt; a token fetched after that is valid. The PWA already drops its token on every 401 and retries
+     * the login once on SESSION_EXPIRED (frontend/src/shared/api/client.ts).
+     */
+    @Test
+    void loginWithTheCsrfTokenOfASessionTheResetClosedIsSessionExpiredAndAFreshTokenSignsIn() throws Exception {
+        String dni = uniqueDni();
+        UUID accountId = account(dni, EMPLOYEE_PASSWORD, false, true);
+        UUID employeeId = employee(companyId, accountId, true);
+        HttpLogin browser = login(dni, EMPLOYEE_PASSWORD);
+        String temporary = objectMapper.readTree(reset(admin, employeeId).andExpect(status().isOk()).andReturn()
+                .getResponse().getContentAsString()).get("temporaryPassword").asText();
+        assertEquals(0, sessions(dni));
+
+        mockMvc.perform(post("/api/v1/session").cookie(browser.sessionCookie()).header("X-CSRF-TOKEN", browser.csrfToken())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"dni\":\"" + dni + "\",\"password\":\"" + temporary + "\"}"))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("SESSION_EXPIRED"));
+        assertEquals(0, sessions(dni));
+        assertEquals(0, throttleRows(), "a CSRF rejection is not a credential attempt");
+
+        MvcResult fresh = mockMvc.perform(get("/api/v1/csrf").cookie(browser.sessionCookie())).andExpect(status().isOk()).andReturn();
+        String token = objectMapper.readTree(fresh.getResponse().getContentAsString()).get("token").asText();
+        assertNotEquals(browser.csrfToken(), token);
+        Cookie session = new Cookie("BRAJA_SESSION", cookieValue(setCookieHeader(fresh, "BRAJA_SESSION")));
+        mockMvc.perform(post("/api/v1/session").cookie(session).header("X-CSRF-TOKEN", token)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"dni\":\"" + dni + "\",\"password\":\"" + temporary + "\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.mustChangePassword").value(true));
+    }
+
     private ResultActions reset(HttpLogin caller, UUID employeeId) throws Exception {
         return mockMvc.perform(post("/api/v1/employees/{id}/password-reset", employeeId)
                 .cookie(caller.sessionCookie()).header("X-CSRF-TOKEN", caller.csrfToken()));

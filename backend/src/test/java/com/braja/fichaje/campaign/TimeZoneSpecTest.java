@@ -288,13 +288,13 @@ class TimeZoneSpecTest extends CampaignTestBase {
         assertEquals(Set.of(BUENOS_AIRES, MENDOZA), listed);
     }
 
-    // CHAR: the site zone accepts any ZoneId, so a fixed offset like "-03:00" (no DST, not an IANA zone) is stored as given, though
-    // the spec says "zona horaria IANA" and the error message says "valid IANA time zone" — confirm with Mateo.
+    // D-20261102-05: a site zone must be an IANA region id; a fixed offset like "-03:00" (no DST rules) is rejected.
     @Test
-    void s71AFixedOffsetIsAcceptedAsASiteZoneAndStoredAsGiven() {
-        UUID site = company.admin().post("/api/v1/sites", Map.of("name", "Offset", "timeZone", "-03:00")).expect(201).id();
-
-        assertEquals("-03:00", jdbc.queryForObject("SELECT time_zone FROM sites WHERE id = ?", String.class, site.toString()));
+    void s71AFixedOffsetIsRejectedAsASiteZone() {
+        ApiClient.Response offset = company.admin().post("/api/v1/sites", Map.of("name", "Offset", "timeZone", "-03:00"));
+        assertEquals(422, offset.status());
+        assertEquals("VALIDATION_ERROR", offset.code());
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM sites WHERE name = 'Offset'", Integer.class));
         ApiClient.Response unknown = company.admin().post("/api/v1/sites", Map.of("name", "Nowhere", "timeZone", "America/Nowhere"));
         assertEquals(422, unknown.status());
         assertEquals("VALIDATION_ERROR", unknown.code());

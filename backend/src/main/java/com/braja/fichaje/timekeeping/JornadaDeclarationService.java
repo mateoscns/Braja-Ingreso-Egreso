@@ -38,6 +38,7 @@ public class JornadaDeclarationService {
     static final String JORNADA_EXISTS = "JORNADA_EXISTS";
     static final String TEMPLATE_REQUIRED = "TEMPLATE_REQUIRED";
     static final String TEMPLATE_INVALID = "TEMPLATE_INVALID";
+    static final String EMPLOYEE_NOT_IN_SITE = "EMPLOYEE_NOT_IN_SITE";
 
     private final JdbcTemplate jdbc;
     private final ScopeService scopes;
@@ -57,7 +58,7 @@ public class JornadaDeclarationService {
     public UUID declare(ScopeService.Scope scope, JornadaController.DeclareJornada input) {
         UUID companyId = scope.companyId();
         DateRanges.validateDate(input.localDate());
-        if (!scopes.employeeHasSite(companyId, input.employeeId(), input.siteId())) throw ApiException.notFound();
+        if (!scopes.employeeHasSite(companyId, input.employeeId(), input.siteId())) throw notAtSite(companyId, input.employeeId(), input.siteId());
         UUID templateId = input.templateId() != null ? input.templateId()
                 : assignments.templateInForce(companyId, input.employeeId(), input.siteId(), input.localDate());
         if (templateId == null) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, TEMPLATE_REQUIRED, "The employee has no template assigned at this site on that date; choose a template");
@@ -66,6 +67,7 @@ public class JornadaDeclarationService {
                 rs -> rs.next() ? rs.getInt(1) : null, input.employeeId().toString(), companyId.toString());
         SiteConfiguration site = siteConfiguration(companyId, input.siteId());
         String timeZone = site == null ? null : site.timeZone();
+        if (template == null && tolerance != null && timeZone != null && inactiveAtSite(companyId, input.siteId(), templateId)) throw inactiveTemplate();
         if (template == null || tolerance == null || timeZone == null) throw ApiException.notFound();
         String problem = template.problem();
         if (problem != null) throw ApiException.invalid(problem);
@@ -103,6 +105,7 @@ public class JornadaDeclarationService {
         Map<UUID, Template> templates = loadTemplates(companyId, input.siteId(), templateIds);
         if (input.templateId() != null) {
             Template chosen = templates.get(input.templateId());
+            if (chosen == null && inactiveAtSite(companyId, input.siteId(), input.templateId())) throw inactiveTemplate();
             if (chosen == null) throw ApiException.notFound();
             if (chosen.problem() != null) throw ApiException.invalid(chosen.problem());
         }
@@ -160,16 +163,41 @@ public class JornadaDeclarationService {
         List<Object> args = new ArrayList<>(List.of(siteId.toString(), companyId.toString()));
         employees.forEach(id -> args.add(id.toString()));
         Map<UUID, Integer> tolerances = new HashMap<>();
-        boolean[] ineligible = {false};
+        boolean[] inactive = {false};
+        boolean[] notAtSite = {false};
         jdbc.query("SELECT e.id,e.active,e.tolerance_minutes,EXISTS(SELECT 1 FROM employee_sites es WHERE es.company_id=e.company_id AND es.employee_id=e.id AND es.site_id=?) AS at_site " +
                         "FROM employees e WHERE e.company_id=? AND e.id IN (" + placeholders(employees.size()) + ")",
                 rs -> {
                     tolerances.put(UUID.fromString(rs.getString("id")), rs.getInt("tolerance_minutes"));
-                    if (!rs.getBoolean("active") || !rs.getBoolean("at_site")) ineligible[0] = true;
+                    if (!rs.getBoolean("active")) inactive[0] = true;
+                    if (!rs.getBoolean("at_site")) notAtSite[0] = true;
                 }, args.toArray());
         if (tolerances.size() != employees.size()) throw ApiException.notFound();
-        if (ineligible[0]) throw ApiException.invalid("Every employee must be active and assigned to the site");
+        // D-20261102-07: like a single declaration, with the same code; reported before an inactive employee.
+        if (notAtSite[0]) throw ApiException.conflict(EMPLOYEE_NOT_IN_SITE, "Every employee must be assigned to the site");
+        if (inactive[0]) throw ApiException.invalid("Every employee must be active and assigned to the site");
         return tolerances;
+    }
+
+    /**
+     * D-20261102-07: an employee and a site of the company that are not linked in employee_sites answer 409
+     * EMPLOYEE_NOT_IN_SITE (2026-11-02, campaign #72: 404, as if the employee did not exist). An unknown id, or one of
+     * another company, stays 404.
+     */
+    private ApiException notAtSite(UUID companyId, UUID employeeId, UUID siteId) {
+        if (!scopes.companyHasEmployee(companyId, employeeId) || !scopes.companyHasSite(companyId, siteId)) return ApiException.notFound();
+        return ApiException.conflict(EMPLOYEE_NOT_IN_SITE, "The employee is not assigned to this site");
+    }
+
+    /** True for an inactive template of this site, which loadTemplates leaves out like an unknown one. */
+    private boolean inactiveAtSite(UUID companyId, UUID siteId, UUID templateId) {
+        return !jdbc.queryForList("SELECT 1 FROM schedule_templates WHERE id=? AND company_id=? AND site_id=? AND active=FALSE",
+                templateId.toString(), companyId.toString(), siteId.toString()).isEmpty();
+    }
+
+    /** D-20261102-06: the code a lot already used for an unusable assigned template (2026-11-02: single answered 404). */
+    private static ApiException inactiveTemplate() {
+        return new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, TEMPLATE_INVALID, "The template is inactive; choose another template");
     }
 
     private List<String> existingJornadas(UUID companyId, UUID siteId, List<UUID> employees, LocalDate from, LocalDate to) {

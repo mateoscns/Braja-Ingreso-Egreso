@@ -257,6 +257,39 @@ class LoginHardeningMySqlTest {
         assertEquals(200, login(dni, "replacement-password-456").getResponse().getStatus());
     }
 
+    /**
+     * D-20261102-04: BCrypt reads only the first 72 bytes, so a longer new password would silently share its hash with
+     * its prefix (2026-11-02, campaign #72: 73 characters answered a generic 422 while the API documented 256). The
+     * length is checked before the current password, so a refused one changes nothing and costs no throttle attempt.
+     */
+    @Test
+    void newPasswordAbove72Utf8BytesIsPasswordTooLongBeforeTheCurrentPasswordIsChecked() throws Exception {
+        String dni = "45000009";
+        account(dni);
+        MvcResult login = login(dni, PASSWORD);
+        Cookie session = new Cookie("BRAJA_SESSION", cookieValue(login, "BRAJA_SESSION"));
+        String token = csrfToken(session);
+        String hashBefore = jdbc.queryForObject("SELECT password_hash FROM accounts WHERE dni_normalized=?", String.class, dni);
+        String twoBytes = "ñ";
+
+        for (String tooLong : List.of("x".repeat(73), twoBytes.repeat(37), "x".repeat(257))) {
+            for (String current : List.of(PASSWORD, "wrong-current-password")) {
+                MvcResult refused = changePassword(session, token, current, tooLong);
+                assertEquals(422, refused.getResponse().getStatus(), tooLong.length() + " characters");
+                assertEquals("PASSWORD_TOO_LONG", body(refused).path("code").asText());
+            }
+        }
+        MvcResult tooShort = changePassword(session, token, PASSWORD, "x".repeat(11));
+        assertEquals(422, tooShort.getResponse().getStatus());
+        assertEquals("VALIDATION_ERROR", body(tooShort).path("code").asText());
+        assertEquals(hashBefore, jdbc.queryForObject("SELECT password_hash FROM accounts WHERE dni_normalized=?", String.class, dni));
+        assertEquals(0, count("SELECT COUNT(*) FROM login_throttles"), "A refused new password is not a credential attempt");
+
+        assertEquals(204, changePassword(session, token, PASSWORD, twoBytes.repeat(36)).getResponse().getStatus());
+        assertEquals(204, changePassword(session, token, twoBytes.repeat(36), "x".repeat(12)).getResponse().getStatus(),
+                "72 bytes and 12 characters are both accepted");
+    }
+
     @Test
     void mutationWithoutAnAuthenticatedSessionIs401WhileCsrfMismatchOnALiveSessionStays403() throws Exception {
         String dni = "46000001";
@@ -411,9 +444,13 @@ class LoginHardeningMySqlTest {
     }
 
     private MvcResult changePassword(Cookie session, String token, String currentPassword) throws Exception {
+        return changePassword(session, token, currentPassword, "replacement-password-456");
+    }
+
+    private MvcResult changePassword(Cookie session, String token, String currentPassword, String newPassword) throws Exception {
         return mockMvc.perform(put("/api/v1/session/password").cookie(session).header("X-CSRF-TOKEN", token)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"currentPassword\":\"" + currentPassword + "\",\"newPassword\":\"replacement-password-456\"}")).andReturn();
+                .contentType(MediaType.APPLICATION_JSON).characterEncoding(StandardCharsets.UTF_8)
+                .content(objectMapper.writeValueAsString(Map.of("currentPassword", currentPassword, "newPassword", newPassword)))).andReturn();
     }
 
     private String cookieValue(MvcResult result, String name) {

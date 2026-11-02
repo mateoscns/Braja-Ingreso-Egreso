@@ -84,7 +84,8 @@ public class SessionController {
     }
 
     public record LoginInput(@NotBlank @Size(min = 7, max = 12) String dni, @NotBlank @Size(max = 256) String password) { }
-    public record ChangePasswordInput(@NotBlank String currentPassword, @NotBlank @Size(min = 12, max = 256) String newPassword) { }
+    /** newPassword bounds (12 characters to 72 UTF-8 bytes) live in AccountService, so every longer one is PASSWORD_TOO_LONG. */
+    public record ChangePasswordInput(@NotBlank String currentPassword, @NotBlank String newPassword) { }
     public record ActiveCompanyInput(UUID companyId) { }
     public record PublicConfig(boolean pushEnabled, String vapidPublicKey) { }
 }

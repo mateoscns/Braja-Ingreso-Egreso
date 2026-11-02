@@ -210,30 +210,36 @@ class PrivacySpecTest extends CampaignTestBase {
 
     // S61 ------------------------------------------------------------------------------------------------------------
 
-    // CHAR: the retention job never deletes login_throttles (the per-DNI HMAC rows); only a successful login does — confirm with Mateo.
+    /** D-20261102-08: the per-DNI rows (login_throttles) follow the same one-day retention as the per-address rows. */
     @Test
-    void s61LoginIpThrottleRowsAreDeletedOneMicrosecondPastADayUnlessStillLocked() {
+    void s61LoginThrottleRowsOfDniAndAddressAreDeletedOneMicrosecondPastADayUnlessStillLocked() {
         assertEquals(0, count("SELECT COUNT(*) FROM login_ip_throttles"));
+        assertEquals(0, count("SELECT COUNT(*) FROM login_throttles"));
         Instant first = utc("09:00:00");
         failLoginAt(first);
         Instant second = utc("10:00:00");
         failLoginAt(second);
         assertEquals(List.of(first, second), throttleUpdates());
+        assertEquals(List.of(second), dniThrottleUpdates(), "both failures count on the one DNI row");
 
         purgeAt(first.plus(Duration.ofDays(1)));
         assertEquals(List.of(first, second), throttleUpdates());
         purgeAt(first.plus(Duration.ofDays(1)).plus(MICRO));
         assertEquals(List.of(second), throttleUpdates());
+        assertEquals(List.of(second), dniThrottleUpdates());
+        purgeAt(second.plus(Duration.ofDays(1)));
+        assertEquals(List.of(second), dniThrottleUpdates(), "exactly one day after the last failure the DNI row stays");
 
         // The default 15-minute lock always ends before the day is over; a lock configured longer than a day keeps the row.
         Instant lockedUntil = second.plus(Duration.ofDays(1)).plus(MICRO).plus(MICRO);
         jdbc.update("UPDATE login_ip_throttles SET locked_until = ?", Timestamp.from(lockedUntil));
+        jdbc.update("UPDATE login_throttles SET locked_until = ?", Timestamp.from(lockedUntil));
         purgeAt(second.plus(Duration.ofDays(1)).plus(MICRO));
         assertEquals(List.of(second), throttleUpdates());
+        assertEquals(List.of(second), dniThrottleUpdates());
         purgeAt(lockedUntil);
         assertEquals(List.of(), throttleUpdates());
-
-        assertEquals(1, count("SELECT COUNT(*) FROM login_throttles"), "the DNI counter outlives the retention job");
+        assertEquals(List.of(), dniThrottleUpdates());
     }
 
     // helpers --------------------------------------------------------------------------------------------------------
@@ -300,6 +306,11 @@ class PrivacySpecTest extends CampaignTestBase {
 
     private List<Instant> throttleUpdates() {
         return jdbc.queryForList("SELECT updated_at FROM login_ip_throttles ORDER BY updated_at", Timestamp.class).stream()
+                .map(Timestamp::toInstant).toList();
+    }
+
+    private List<Instant> dniThrottleUpdates() {
+        return jdbc.queryForList("SELECT updated_at FROM login_throttles ORDER BY updated_at", Timestamp.class).stream()
                 .map(Timestamp::toInstant).toList();
     }
 
