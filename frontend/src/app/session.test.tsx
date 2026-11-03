@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../shared/api/client'
@@ -42,7 +42,8 @@ describe('SessionProvider', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'cambiar empresa' }))
 
     expect(await screen.findByText('sin sesión')).toBeInTheDocument()
-    expect(screen.getByTestId('error')).toHaveTextContent('Tu sesión venció. Iniciá sesión nuevamente.')
+    // #71 (2026-10-30, main CI red): the notice can render in a later commit than the session reset, so wait for it.
+    await waitFor(() => expect(screen.getByTestId('error')).toHaveTextContent('Tu sesión venció. Iniciá sesión nuevamente.'))
   })
 
   it('una contraseña actual incorrecta no cierra la sesión', async () => {
