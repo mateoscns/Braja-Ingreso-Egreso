@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ApiError, api } from '../shared/api/client'
 import type { Session } from '../shared/api/types'
 
@@ -33,7 +33,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => { void refresh() }, [refresh])
 
   const sessionRef = useRef<Session | null>(null)
-  useEffect(() => { sessionRef.current = session }, [session])
+  // A layout effect runs in the same commit that shows the session, before anything the user can click: with a passive
+  // effect a 401 right after the screen appeared found the ref still empty and dropped the expiry notice (#71, 2026-11-02).
+  useLayoutEffect(() => { sessionRef.current = session }, [session])
 
   // Any 401 outside login and password change means the server session is gone: return to the login screen.
   useEffect(() => api.onSessionExpired(() => {
