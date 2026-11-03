@@ -1,3 +1,5 @@
+import { PASSWORD_TOO_LONG_MESSAGE } from '../password'
+
 export type ApiProblem = { status?: number; code?: string }
 
 export type ApiErrorContext = { retryAfterSeconds?: number; login?: boolean; passwordChange?: boolean }
@@ -56,10 +58,13 @@ const CONFLICT_MESSAGES: Record<string, string> = {
   JORNADA_HAS_MARKS: 'La jornada ya tiene marcas y no se puede cancelar. Corregí o anulá sus marcas.',
   JORNADA_CANCELLED: 'Esta jornada fue cancelada por el administrador y no admite marcas.',
   MARK_VOIDED: 'Esa marca ya fue anulada y no se puede modificar.',
-  ASSIGNMENT_EXISTS: 'Ese empleado ya tiene una plantilla asignada en esa sede desde esa fecha. Elegí otra fecha de inicio.'
+  ASSIGNMENT_EXISTS: 'Ese empleado ya tiene una plantilla asignada en esa sede desde esa fecha. Elegí otra fecha de inicio.',
+  EMPLOYEE_NOT_IN_SITE: 'Ese empleado no está asignado a esa sede. Agregale la sede desde Empleados y volvé a intentar.'
 }
 const VALIDATION_MESSAGES: Record<string, string> = {
-  TEMPLATE_REQUIRED: 'El empleado no tiene una plantilla vigente en esa sede para esa fecha. Elegí una plantilla o asignale una desde Empleados.'
+  TEMPLATE_REQUIRED: 'El empleado no tiene una plantilla vigente en esa sede para esa fecha. Elegí una plantilla o asignale una desde Empleados.',
+  TEMPLATE_INVALID: 'La plantilla está inactiva y no se puede usar. Elegí otra plantilla o revisala en Plantillas.',
+  PASSWORD_TOO_LONG: PASSWORD_TOO_LONG_MESSAGE
 }
 
 function messageForStatus(status: number, code?: string, context: ApiErrorContext = {}): string {
@@ -73,9 +78,13 @@ function messageForStatus(status: number, code?: string, context: ApiErrorContex
   if (status === 409) return 'La información cambió o la acción ya fue procesada. Actualizá la vista.'
   if (status === 422 && code && Object.hasOwn(VALIDATION_MESSAGES, code)) return VALIDATION_MESSAGES[code]
   if (status === 422) return 'Revisá los datos ingresados.'
+  // The reverse proxy answers bodies over 1 MB, with or without a Problem body.
+  if (status === 413) return 'Los datos enviados son demasiado grandes. Acortá los textos y volvé a intentar.'
   if (status === 429) return `Hubo demasiados intentos. Esperá ${waitText(context.retryAfterSeconds)} y probá otra vez.`
   // Login and password change answer it when the database fails; the connection itself is fine.
   if (status === 503 && code === 'AUTHENTICATION_UNAVAILABLE') return 'El sistema no está disponible en este momento. Probá de nuevo en unos minutos.'
+  // The reverse proxy answers 503 SERVICE_UNAVAILABLE with Retry-After while the backend restarts during a deploy.
+  if (status === 503) return `El sistema se está actualizando o no está disponible por un momento. Probá de nuevo en ${waitText(context.retryAfterSeconds)}.`
   return 'No se pudo completar la operación. Revisá tu conexión y reintentá.'
 }
 

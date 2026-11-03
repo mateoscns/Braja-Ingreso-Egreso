@@ -72,7 +72,7 @@ class SiteCoordinatesControllerTest {
 
     @Test
     void locationInputRejectsPartialCoordinatesAndInvalidRadiusBeforeDatabaseAccess() {
-        OrganizationService realService = new OrganizationService(jdbc, scopes, mock(PasswordEncoder.class));
+        OrganizationService realService = new OrganizationService(jdbc, scopes, mock(PasswordEncoder.class), java.time.Clock.systemUTC());
         var partialCoordinates = new OrganizationController.SiteLocationInput(new BigDecimal("-34.6"), null, 100);
         var invalidRadius = new OrganizationController.SiteLocationInput(null, null, 49);
         var invalidSource = new OrganizationController.SiteLocationInput(null, null, 100, "GPS");

@@ -19,6 +19,9 @@
 
     <properties>
         <java.version>21</java.version>
+        <!-- JUnit tags surefire runs or skips. CI splits the backend in two jobs with them; see .github/workflows/ci.yml. -->
+        <junit.groups></junit.groups>
+        <junit.excludedGroups>simulation</junit.excludedGroups>
     </properties>
 
     <dependencies>
@@ -110,6 +113,29 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <groups>${junit.groups}</groups>
+                    <excludedGroups>${junit.excludedGroups}</excludedGroups>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- The 90-day simulation (JUnit tag "simulation") runs with ./mvnw -B verify -P simulation, or when -Dtest names a test. -->
+        <profile>
+            <id>simulation</id>
+            <activation>
+                <property>
+                    <name>test</name>
+                </property>
+            </activation>
+            <properties>
+                <junit.excludedGroups></junit.excludedGroups>
+            </properties>
+        </profile>
+    </profiles>
 </project>

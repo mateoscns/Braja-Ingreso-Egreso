@@ -16,6 +16,7 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -23,24 +24,36 @@ import java.time.*;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 
+/**
+ * Every write of a jornada's marks runs at READ COMMITTED, like the jobs ({@link #isolatedTransaction}). Each path locks the
+ * jornada row FOR UPDATE before it reads or writes that jornada's marks and deviations (CLAUDE.md §5.11), so that row lock is
+ * what serializes them, not gap locks. Under REPEATABLE READ, the locking history read of a jornada without marks took a gap
+ * lock on uq_mark_jornada_sequence (and lockDeviations one on uq_deviation_jornada_active_type) that other jornadas share, and
+ * first marks on different jornadas deadlocked on each other's insert intention (2026-11-02, #74: 16 of 20 simultaneous
+ * first INGRESO answered 409 RETRYABLE_TRANSACTION_CONFLICT; LockOrderSpecTest S64). READ COMMITTED locks only the rows it
+ * finds, and every statement reads the latest committed rows. The unique keys stay the last defence.
+ */
 @Service
 public class MarkService {
     private static final Logger LOGGER = LoggerFactory.getLogger(MarkService.class);
     private static final Duration EARLY_INGRESS_WINDOW = Duration.ofMinutes(30);
     private static final Duration ADMIN_EVENT_MARGIN = Duration.ofHours(24);
     private static final DeviationWorkerRetryPolicy DEVIATION_WORKER_RETRY_POLICY = new DeviationWorkerRetryPolicy();
+    private static final com.braja.fichaje.deviations.DeviationPolicy DEVIATION_POLICY = new com.braja.fichaje.deviations.DeviationPolicy();
 
     private final JdbcTemplate jdbc;
     private final ScopeService scopes;
     private final ObjectMapper objectMapper;
     private final DeviationService deviations;
     private final TransactionTemplate isolatedTransaction;
+    private final Clock clock;
     private final MarkTransitionPolicy transitions = new MarkTransitionPolicy();
     private final GeofencePolicy geofence = new GeofencePolicy();
 
     public MarkService(JdbcTemplate jdbc, ScopeService scopes, ObjectMapper objectMapper, DeviationService deviations,
-                       PlatformTransactionManager transactionManager) {
+                       PlatformTransactionManager transactionManager, Clock clock) {
         this.jdbc = jdbc;
+        this.clock = clock;
         this.scopes = scopes;
         this.objectMapper = objectMapper;
         this.deviations = deviations;
@@ -50,7 +63,7 @@ public class MarkService {
     }
 
     /** Records with a fixed server instant; for callers that already hold it (tests). The HTTP path passes the system clock. */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public MarkResult recordEmployeeMark(ScopeService.Scope scope, UUID jornadaId, MarkAction action, UUID idempotencyKey, Instant receivedAt) {
         return recordEmployeeMark(scope, jornadaId, action, idempotencyKey, Clock.fixed(receivedAt, ZoneOffset.UTC));
     }
@@ -59,7 +72,7 @@ public class MarkService {
      * The server instant is read from {@code serverClock} only after the account, membership and jornada locks are held
      * (D-20261015-06), so a higher sequence never carries an earlier time than a mark committed while this request waited.
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public MarkResult recordEmployeeMark(ScopeService.Scope scope, UUID jornadaId, MarkAction action, UUID idempotencyKey, Clock serverClock) {
         if (!"EMPLOYEE".equals(scope.role())) throw ApiException.forbidden();
         String fingerprint = MarkRequestFingerprint.sha256(jornadaId, action);
@@ -91,7 +104,7 @@ public class MarkService {
         UUID markId = UUID.randomUUID();
         long sequence = jornada.nextSequence();
         long timelineOrder = history.isEmpty() ? 1000 : history.getLast().timelineOrder() + 1000;
-        Instant recordedAt = Instant.now();
+        Instant recordedAt = clock.instant();
         jdbc.update("INSERT INTO mark_events(id,company_id,jornada_id,sequence_number,timeline_order,action,original_action,occurred_at,original_occurred_at,accepted_at,recorded_at,origin,created_by,location_status,location_expires_at) " +
                         "VALUES(?,?,?,?,?,?,?,?,?,?,?,'EMPLEADO',?,'PENDIENTE',?)",
                 markId.toString(), scope.companyId().toString(), jornadaId.toString(), sequence, timelineOrder, action.name(), action.name(),
@@ -102,14 +115,14 @@ public class MarkService {
                 MarkState.from(actions), jornadaId.toString(), scope.companyId().toString());
         List<HistoryRow> updated = new ArrayList<>(history);
         updated.add(new HistoryRow(markId, sequence, timelineOrder, action, receivedAt));
-        reconcile(scope.companyId(), jornada, updated, Instant.now());
+        reconcile(scope.companyId(), jornada, updated, clock.instant());
         JornadaController.MarkView view = toView(markId, jornadaId, action, sequence, receivedAt, receivedAt, recordedAt, "PENDIENTE", null, null);
         String response;
         try { response = objectMapper.writeValueAsString(view); }
         catch (Exception ex) { throw new IllegalStateException("Unable to serialize idempotent mark response", ex); }
         try {
             jdbc.update("INSERT INTO mark_idempotency(account_id,idempotency_key,request_hash,response_body,mark_id,created_at) VALUES(?,?,?,?,?,?)",
-                    scope.accountId().toString(), idempotencyKey.toString(), fingerprint, response, markId.toString(), timestamp(Instant.now()));
+                    scope.accountId().toString(), idempotencyKey.toString(), fingerprint, response, markId.toString(), timestamp(clock.instant()));
         } catch (DuplicateKeyException ex) {
             throw ApiException.conflict("IDEMPOTENCY_CONFLICT", "This idempotency key is already in use");
         }
@@ -130,7 +143,7 @@ public class MarkService {
         return mark.view();
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public LocationResult attachLocation(ScopeService.Scope scope, UUID markId, double latitude, double longitude, double accuracyMeters, Instant receivedAt) {
         if ("EMPLOYEE".equals(scope.role()) == false) throw ApiException.forbidden();
         if (!Double.isFinite(latitude) || latitude < -90 || latitude > 90 || !Double.isFinite(longitude) || longitude < -180 || longitude > 180
@@ -154,26 +167,30 @@ public class MarkService {
             throw ApiException.conflict("LOCATION_ALREADY_FINAL", "Location is no longer pending");
         }
         if (!withinLocationWindow) throw ApiException.conflict("LOCATION_WINDOW_EXPIRED", "Location must arrive within 30 seconds of the mark");
+        // Issue #77: judge the values exactly as stored, the same ones a later re-anchoring reads back.
+        BigDecimal storedLatitude = GeofencePolicy.storedCoordinate(latitude);
+        BigDecimal storedLongitude = GeofencePolicy.storedCoordinate(longitude);
+        BigDecimal storedAccuracy = GeofencePolicy.storedAccuracy(accuracyMeters);
         jdbc.update("UPDATE mark_events SET location_status='RECIBIDA',latitude=?,longitude=?,accuracy_meters=?,location_received_at=? WHERE id=? AND company_id=? AND location_status IN ('PENDIENTE','SIN_UBICACION')",
-                BigDecimal.valueOf(latitude), BigDecimal.valueOf(longitude), BigDecimal.valueOf(accuracyMeters), timestamp(receivedAt), markId.toString(), scope.companyId().toString());
+                storedLatitude, storedLongitude, storedAccuracy, timestamp(receivedAt), markId.toString(), scope.companyId().toString());
         if ("EMPLEADO".equals(mark.origin()) && jornada.siteGeofenceLatitude() != null) {
-            if (geofence.isOutside(jornada.siteGeofenceLatitude().doubleValue(), jornada.siteGeofenceLongitude().doubleValue(),
-                    latitude, longitude, accuracyMeters, jornada.siteGeofenceRadius())) {
-                deviations.recordOutOfSiteMark(scope.companyId(), jornada.id(), jornada.siteId(), jornada.employeeId(), mark.id(), Instant.now());
+            if (geofence.isOutside(jornada.siteGeofenceLatitude(), jornada.siteGeofenceLongitude(),
+                    storedLatitude, storedLongitude, storedAccuracy, jornada.siteGeofenceRadius())) {
+                deviations.recordOutOfSiteMark(scope.companyId(), jornada.id(), jornada.siteId(), jornada.employeeId(), mark.id(), clock.instant());
             } else {
                 // A timely location may arrive after the timeout worker finalized SIN_UBICACION while this request waited
                 // for the jornada lock. Correct the provisional deviation in the same serialized transaction.
-                deviations.retractOutOfSiteForMark(scope.companyId(), jornada.id(), mark.id(), Instant.now());
+                deviations.retractOutOfSiteForMark(scope.companyId(), jornada.id(), mark.id(), clock.instant());
             }
         }
         return new LocationResult(markId, "RECIBIDA");
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public JornadaController.MarkView forgottenMark(ScopeService.Scope scope, UUID jornadaId, MarkAction action, Instant occurredAt, String auditReason) {
         JornadaLock jornada = lockJornada(scope.companyId(), jornadaId);
         requireNotCancelled(jornada);
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         validateAdminEventTime(jornada, occurredAt, now);
         List<HistoryRow> history = loadHistory(scope.companyId(), jornadaId);
         UUID markId = UUID.randomUUID();
@@ -193,7 +210,7 @@ public class MarkService {
         return toView(markId, jornadaId, action, sequence, now, occurredAt, now, "NO_APLICA", null, null);
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public JornadaController.MarkView correctMark(ScopeService.Scope scope, UUID markId, MarkAction newAction, Instant newOccurredAt, String reason) {
         UUID jornadaId = jornadaIdForMark(scope.companyId(), markId);
         if (jornadaId == null) throw ApiException.notFound();
@@ -201,7 +218,7 @@ public class MarkService {
         LockedMark mark = lockMark(scope.companyId(), markId);
         if (mark == null) throw ApiException.notFound();
         if (mark.voided()) throw markVoided();
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         // Only a new event time is bounded: keeping the stored time (an action-only fix) must stay possible even for an
         // employee mark recorded outside the window (2026-10-27 review finding).
         if (!newOccurredAt.equals(mark.occurredAt())) validateAdminEventTime(jornada, newOccurredAt, now);
@@ -226,7 +243,7 @@ public class MarkService {
      * D-20261027-07: cancels a declared jornada that has no valid mark (voided marks do not count and stay visible). The jornada lock
      * is taken first, then its marks and deviations (CLAUDE.md §5.11); its active deviations are retracted and audited.
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public CancellationResult cancelJornada(ScopeService.Scope scope, UUID jornadaId, String reason) {
         if (!"ADMIN".equals(scope.role())) throw ApiException.forbidden();
         JornadaLock jornada = lockJornada(scope.companyId(), jornadaId);
@@ -236,7 +253,7 @@ public class MarkService {
         if (!"NO_INGRESO".equals(jornada.state()) || marks == null || marks > 0) {
             throw ApiException.conflict("JORNADA_HAS_MARKS", "A jornada with valid marks cannot be cancelled; correct or void its marks instead");
         }
-        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         jdbc.update("UPDATE jornadas SET state='CANCELADA',cancelled_at=?,cancelled_by=?,cancel_reason=? WHERE id=? AND company_id=? AND state='NO_INGRESO'",
                 timestamp(now), scope.accountId().toString(), reason, jornadaId.toString(), scope.companyId().toString());
         deviations.retractAll(scope.companyId(), jornadaId, now);
@@ -248,7 +265,7 @@ public class MarkService {
      * transitions and the deviations, which are recomputed in the same transaction. Only allowed when the remaining history is
      * valid; the void is audited in mark_correction_audits (change_kind VOID).
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public JornadaController.MarkView voidMark(ScopeService.Scope scope, UUID markId, String reason) {
         if (!"ADMIN".equals(scope.role())) throw ApiException.forbidden();
         UUID jornadaId = jornadaIdForMark(scope.companyId(), markId);
@@ -259,7 +276,7 @@ public class MarkService {
         if (mark.voided()) throw markVoided();
         List<HistoryRow> remaining = loadHistory(scope.companyId(), jornadaId).stream().filter(row -> !row.id().equals(markId)).toList();
         validateHistory(remaining, "INVALID_MARK_HISTORY");
-        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         jdbc.update("INSERT INTO mark_correction_audits(id,company_id,mark_id,before_action,after_action,before_occurred_at,after_occurred_at,actor_account_id,audit_reason,corrected_at,change_kind) VALUES(?,?,?,?,?,?,?,?,?,?,'VOID')",
                 UUID.randomUUID().toString(), scope.companyId().toString(), markId.toString(), mark.action().name(), mark.action().name(), timestamp(mark.occurredAt()),
                 timestamp(mark.occurredAt()), scope.accountId().toString(), reason, timestamp(now));
@@ -280,24 +297,26 @@ public class MarkService {
                 "JOIN employees e ON e.id=j.employee_id AND e.company_id=j.company_id AND e.active=TRUE " +
                 "JOIN accounts a ON a.id=e.account_id AND a.active=TRUE " +
                 "JOIN company_memberships cm ON cm.company_id=e.company_id AND cm.account_id=e.account_id AND cm.active=TRUE ";
+        JobWindow window = jobWindow(now);
+        if (window == null) return;
         List<Candidate> candidates = new ArrayList<>(isolatedTransaction.execute(status -> jdbc.query("SELECT j.id,j.company_id,j.deviation_worker_failure_count " + activeJoins +
                         "WHERE j.state='NO_INGRESO' AND DATE_ADD(j.scheduled_start_at, INTERVAL j.tolerance_minutes MINUTE) < ? " +
-                        "AND (j.deviation_worker_retry_at IS NULL OR j.deviation_worker_retry_at<=?) " +
+                        "AND (j.deviation_worker_retry_at IS NULL OR j.deviation_worker_retry_at<=?) " + window.predicate() +
                         "AND NOT EXISTS (SELECT 1 FROM mark_events m WHERE m.jornada_id=j.id AND m.action='INGRESO' AND m.voided_at IS NULL) " +
                         "AND NOT EXISTS (SELECT 1 FROM deviations d WHERE d.jornada_id=j.id AND d.type='SIN_INGRESO' AND d.active=TRUE) " +
                         "ORDER BY j.scheduled_start_at,j.id LIMIT ?",
                 (rs, row) -> new Candidate(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("company_id")), rs.getInt("deviation_worker_failure_count")),
-                timestamp(now), timestamp(now), batchSize)));
+                window.arguments(timestamp(now), timestamp(now), batchSize))));
         // MARCA_FALTANTE (D-20261018-01): INGRESO without EGRESO past scheduled end + tolerance, not yet flagged.
         candidates.addAll(isolatedTransaction.execute(status -> jdbc.query("SELECT j.id,j.company_id,j.deviation_worker_failure_count " + activeJoins +
                         "WHERE j.state IN ('EN_CURSO','PAUSA_ABIERTA') AND DATE_ADD(j.scheduled_end_at, INTERVAL j.tolerance_minutes MINUTE) < ? " +
-                        "AND (j.deviation_worker_retry_at IS NULL OR j.deviation_worker_retry_at<=?) " +
+                        "AND (j.deviation_worker_retry_at IS NULL OR j.deviation_worker_retry_at<=?) " + window.predicate() +
                         "AND EXISTS (SELECT 1 FROM mark_events m WHERE m.jornada_id=j.id AND m.company_id=j.company_id AND m.action='INGRESO' AND m.voided_at IS NULL) " +
                         "AND NOT EXISTS (SELECT 1 FROM mark_events m WHERE m.jornada_id=j.id AND m.company_id=j.company_id AND m.action='EGRESO' AND m.voided_at IS NULL) " +
                         "AND NOT EXISTS (SELECT 1 FROM deviations d WHERE d.jornada_id=j.id AND d.company_id=j.company_id AND d.type='MARCA_FALTANTE' AND d.active=TRUE) " +
                         "ORDER BY j.scheduled_end_at,j.id LIMIT ?",
                 (rs, row) -> new Candidate(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("company_id")), rs.getInt("deviation_worker_failure_count")),
-                timestamp(now), timestamp(now), batchSize)));
+                window.arguments(timestamp(now), timestamp(now), batchSize))));
         for (Candidate candidate : candidates) {
             try {
                 isolatedTransaction.executeWithoutResult(status -> {
@@ -309,6 +328,33 @@ public class MarkService {
                 recordDeviationWorkerFailure(candidate, now, ex);
             }
         }
+    }
+
+    /**
+     * D-20261102-02: the predicate that keeps both jobs on jornadas whose local date is one of the last
+     * {@link com.braja.fichaje.deviations.DeviationPolicy#JOB_LOOKBACK_DAYS} local days. A jornada's local date is in its own
+     * zone (jornadas.time_zone, copied from its site, whose zone never changes), so each zone gets its own oldest date. The
+     * scheduled_start_at bound is implied by it (the first block starts on the local date, and that local day began less than
+     * JOB_LOOKBACK_DAYS + 1 days before now) and lets the queries range-scan ix_jornada_due_absence (scheduled_start_at, state).
+     * Null when there is no site, hence no jornada.
+     */
+    private JobWindow jobWindow(Instant now) {
+        Map<LocalDate, List<String>> zonesByOldestDate = new TreeMap<>();
+        for (String zone : jdbc.queryForList("SELECT DISTINCT time_zone FROM sites", String.class)) {
+            ZoneId zoneId;
+            try { zoneId = ZoneId.of(zone); } catch (DateTimeException invalid) { zoneId = ZoneOffset.UTC; } // validated on site creation
+            zonesByOldestDate.computeIfAbsent(DEVIATION_POLICY.oldestJobDate(LocalDate.ofInstant(now, zoneId)), date -> new ArrayList<>()).add(zone);
+        }
+        if (zonesByOldestDate.isEmpty()) return null;
+        StringJoiner perZone = new StringJoiner(" OR ", "AND j.scheduled_start_at>=? AND (", ") ");
+        List<Object> arguments = new ArrayList<>();
+        arguments.add(timestamp(now.minus(Duration.ofDays(com.braja.fichaje.deviations.DeviationPolicy.JOB_LOOKBACK_DAYS + 1L))));
+        zonesByOldestDate.forEach((oldest, zones) -> {
+            perZone.add("(j.local_date>=? AND j.time_zone IN (" + String.join(",", Collections.nCopies(zones.size(), "?")) + "))");
+            arguments.add(oldest);
+            arguments.addAll(zones);
+        });
+        return new JobWindow(perZone.toString(), List.copyOf(arguments));
     }
 
     private void recordDeviationWorkerFailure(Candidate candidate, Instant now, RuntimeException failure) {
@@ -542,6 +588,15 @@ public class MarkService {
     private record LockedMark(UUID id, UUID jornadaId, MarkAction action, Instant occurredAt, boolean voided) { }
     private record LocationCandidate(UUID markId, UUID companyId, UUID jornadaId) { }
     private record Candidate(UUID jornadaId, UUID companyId, int failureCount) { }
+    /** The job date bound (D-20261102-02): a SQL fragment and its arguments, placed after the due and retry instants. */
+    private record JobWindow(String predicate, List<Object> bound) {
+        Object[] arguments(java.sql.Timestamp due, java.sql.Timestamp retry, int batchSize) {
+            List<Object> all = new ArrayList<>(List.of(due, retry));
+            all.addAll(bound);
+            all.add(batchSize);
+            return all.toArray();
+        }
+    }
     private record RetrySchedule(int failureCount, Instant retryAt) { }
     private record MarkRow(UUID id, UUID jornadaId, UUID employeeId, MarkAction action, long sequence, Instant acceptedAt, Instant occurredAt, Instant recordedAt,
                            String locationStatus, BigDecimal latitude, BigDecimal longitude, BigDecimal accuracyMeters, String origin, boolean voided) { }

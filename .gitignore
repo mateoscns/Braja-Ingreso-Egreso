@@ -2,6 +2,9 @@
 .env
 .env.*
 !.env.example
+# deploy/.env (secrets, mode 600) stays ignored by the rules above; the template has names only.
+!deploy/.env.template
+deploy/.deploy-state
 
 # Build outputs
 **/target/

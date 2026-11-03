@@ -166,22 +166,23 @@ class TimekeepingBoundsMySqlTest {
         insertTemplate(legacy, 1);
         Login admin = login(adminDni);
 
-        MvcResult result = send(admin, post("/api/v1/jornadas"), declareBody(legacy, "2026-11-02"));
+        MvcResult result = send(admin, post("/api/v1/jornadas"), declareBody(legacy, "2099-11-02"));
 
         assertProblem(result, 422, "VALIDATION_ERROR");
         assertEquals(0, count("SELECT COUNT(*) FROM jornadas WHERE company_id=? AND template_id=?", companyId.toString(), legacy.toString()));
     }
 
+    // 2026-11-02: with a fixed 2026-11-02 this collided with the setUp jornada of "today" (409 JORNADA_EXISTS); declared dates stay far from now.
     @Test
     void declaredJornadaKeepsTheInputDateAsTheDateOfItsFirstBlock() throws Exception {
         Login admin = login(adminDni);
 
-        MvcResult result = send(admin, post("/api/v1/jornadas"), declareBody(templateId, "2026-11-02"));
+        MvcResult result = send(admin, post("/api/v1/jornadas"), declareBody(templateId, "2099-11-02"));
 
         assertEquals(201, result.getResponse().getStatus());
         String id = json(result).get("id").asText();
-        assertEquals("2026-11-02", json(result).get("localDate").asText());
-        assertEquals(LocalDate.of(2026, 11, 2).atTime(8, 0).atZone(ZoneId.of(ZONE)).toInstant(),
+        assertEquals("2099-11-02", json(result).get("localDate").asText());
+        assertEquals(LocalDate.of(2099, 11, 2).atTime(8, 0).atZone(ZoneId.of(ZONE)).toInstant(),
                 jdbc.queryForObject("SELECT scheduled_start_at FROM jornadas WHERE id=?", Timestamp.class, id).toInstant());
     }
 

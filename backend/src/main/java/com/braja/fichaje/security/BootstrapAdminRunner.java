@@ -9,8 +9,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Instant;
-import java.time.ZoneId;
 import java.util.UUID;
 
 @Component
@@ -19,11 +19,13 @@ public class BootstrapAdminRunner implements ApplicationRunner {
     private final JdbcTemplate jdbc;
     private final PasswordEncoder passwords;
     private final Environment env;
+    private final Clock clock;
 
-    public BootstrapAdminRunner(JdbcTemplate jdbc, PasswordEncoder passwords, Environment env) {
+    public BootstrapAdminRunner(JdbcTemplate jdbc, PasswordEncoder passwords, Environment env, Clock clock) {
         this.jdbc = jdbc;
         this.passwords = passwords;
         this.env = env;
+        this.clock = clock;
     }
 
     @Override
@@ -35,8 +37,14 @@ public class BootstrapAdminRunner implements ApplicationRunner {
         String companyName = required("braja.bootstrap-company-name");
         String siteName = required("braja.bootstrap-site-name");
         String timeZone = required("braja.bootstrap-time-zone");
-        if (password.length() < 16 || password.length() > 256) throw new IllegalStateException("Bootstrap password must contain 16 to 256 characters");
-        ZoneId.of(timeZone);
+        // D-20261102-04: BCrypt ignores bytes after the 72nd, so a longer password would not be the one stored.
+        if (password.length() < 16 || AccountService.exceedsPasswordBytes(password)) {
+            throw new IllegalStateException("Bootstrap password must contain 16 characters to 72 UTF-8 bytes");
+        }
+        // D-20261102-05: the site zone is an IANA region id, never a fixed offset.
+        if (!com.braja.fichaje.organization.OrganizationService.isRegionTimeZone(timeZone)) {
+            throw new IllegalStateException("Bootstrap time zone must be an IANA region such as America/Argentina/Buenos_Aires");
+        }
         String dni = DniNormalizer.normalize(dniInput);
 
         Integer companyCount = jdbc.queryForObject("SELECT COUNT(*) FROM companies", Integer.class);
@@ -47,7 +55,7 @@ public class BootstrapAdminRunner implements ApplicationRunner {
         if (jdbc.queryForObject("SELECT COUNT(*) FROM accounts WHERE dni_normalized=?", Integer.class, dni) != 0) {
             throw new IllegalStateException("Bootstrap DNI already exists");
         }
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         UUID accountId = UUID.randomUUID();
         UUID companyId = UUID.randomUUID();
         UUID siteId = UUID.randomUUID();

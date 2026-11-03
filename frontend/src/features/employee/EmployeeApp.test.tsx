@@ -473,6 +473,24 @@ describe('EmployeeApp', () => {
       expect(mocks.createMarkAttempt).toHaveBeenCalledTimes(1)
       expect(mocks.submitMark.mock.calls[1][1]).toBe(mocks.submitMark.mock.calls[0][1])
     })
+
+    it('a 503 during a deploy says the system is unavailable, not the connection, and the retry keeps the Idempotency-Key', async () => {
+      mocks.submitMark.mockRejectedValueOnce(new ApiError(503, { status: 503, code: 'SERVICE_UNAVAILABLE' }, { retryAfterSeconds: 30 }))
+      render(<EmployeeApp />)
+      const egreso = await screen.findByRole('button', { name: /Registrar egreso/ })
+      fireEvent.click(egreso)
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('El sistema se está actualizando o no está disponible por un momento. La marca puede no haberse registrado: esperá un minuto y reintentá la misma acción, o tocá Actualizar para ver el estado.')
+      expect(alert).not.toHaveTextContent(/conexión/)
+      await waitFor(() => expect(egreso).toBeEnabled())
+      fireEvent.click(egreso)
+
+      expect(await screen.findByText(/Marca confirmada por el servidor/)).toBeInTheDocument()
+      expect(mocks.createMarkAttempt).toHaveBeenCalledTimes(1)
+      expect(mocks.submitMark.mock.calls[1][1]).toBe(mocks.submitMark.mock.calls[0][1])
+      expect(mocks.submitMark.mock.calls[1][1]).toMatchObject({ idempotencyKey: 'attempt-1' })
+    })
   })
 
   it('bloquea la elección de jornada, la fecha y la empresa mientras una marca está en vuelo', async () => {

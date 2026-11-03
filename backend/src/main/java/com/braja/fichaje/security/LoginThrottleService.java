@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
@@ -28,11 +29,13 @@ public class LoginThrottleService {
     private final JdbcTemplate jdbc;
     private final byte[] key;
     private final BrajaProperties properties;
+    private final Clock clock;
 
-    public LoginThrottleService(JdbcTemplate jdbc, BrajaProperties properties) {
+    public LoginThrottleService(JdbcTemplate jdbc, BrajaProperties properties, Clock clock) {
         this.jdbc = jdbc;
         this.key = java.util.Base64.getDecoder().decode(properties.getLoginIpThrottleKeyBase64());
         this.properties = properties;
+        this.clock = clock;
     }
 
     public void assertNotLocked(String dni, String clientAddress) {
@@ -43,7 +46,7 @@ public class LoginThrottleService {
     private void assertNotLocked(String table, String keyColumn, String keyValue) {
         Instant lockedUntil = jdbc.query("SELECT locked_until FROM " + table + " WHERE " + keyColumn + "=?", rs ->
                 rs.next() && rs.getTimestamp(1) != null ? rs.getTimestamp(1).toInstant() : null, keyValue);
-        rejectIfLocked(lockedUntil, Instant.now());
+        rejectIfLocked(lockedUntil, clock.instant());
     }
 
     /**
@@ -55,7 +58,7 @@ public class LoginThrottleService {
     @Transactional
     public void reserveAttempt(String dni) {
         String keyValue = dniHash(dni);
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         ThrottleRow row = lockRow(DNI_TABLE, DNI_COLUMN, keyValue, now);
         rejectIfLocked(row.lockedUntil(), now);
         boolean expiredWindow = row.windowStartedAt().isBefore(now.minus(WINDOW));
@@ -68,7 +71,7 @@ public class LoginThrottleService {
     @Transactional
     public void releaseAttempt(String dni) {
         String keyValue = dniHash(dni);
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         ThrottleRow row = jdbc.query("SELECT window_started_at,failed_attempts,locked_until FROM " + DNI_TABLE + " WHERE " + DNI_COLUMN + "=? FOR UPDATE",
                 LoginThrottleService::row, keyValue).stream().findFirst().orElse(null);
         if (row == null) return;
@@ -81,7 +84,7 @@ public class LoginThrottleService {
     @Transactional
     public void failedFromAddress(String clientAddress) {
         String keyValue = ipHash(clientAddress);
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         ThrottleRow row = lockRow("login_ip_throttles", "ip_hash", keyValue, now);
         boolean expiredWindow = row.windowStartedAt().isBefore(now.minus(properties.getLoginIpThrottleWindow()));
         int attempts = (expiredWindow ? 0 : row.failedAttempts()) + 1;

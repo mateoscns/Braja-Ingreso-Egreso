@@ -156,3 +156,102 @@ describe('AdminPushControl', () => {
     expect(screen.getByRole('button', { name: 'Desactivar' })).toBeInTheDocument()
   })
 })
+
+describe('AdminPushControl: subscription renewed by the browser (pushsubscriptionchange)', () => {
+  const OLD = 'https://fcm.googleapis.com/fcm/send/device-old'
+  const RENEWED = 'https://fcm.googleapis.com/fcm/send/device-renewed'
+
+  /** A service worker container that can deliver messages, with a browser subscription the test can swap. */
+  function useMessagingServiceWorker(initial: ReturnType<typeof browserSubscription> | null) {
+    const getSubscription = vi.fn().mockResolvedValue(initial)
+    const container = Object.assign(new EventTarget(), {
+      ready: Promise.resolve({ pushManager: { getSubscription, subscribe: vi.fn() } }),
+      startMessages: vi.fn()
+    })
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: container as unknown as ServiceWorkerContainer })
+    return {
+      container,
+      renewTo: (endpoint: string) => getSubscription.mockResolvedValue(browserSubscription(endpoint)),
+      notify: (oldEndpoint: string | null) => container.dispatchEvent(new MessageEvent('message', { data: { type: 'PUSH_SUBSCRIPTION_CHANGED', oldEndpoint } }))
+    }
+  }
+
+  beforeEach(() => {
+    vi.mocked(api.publicConfig<PublicConfig>).mockResolvedValue({ pushEnabled: true, vapidPublicKey: 'public-vapid-key' })
+  })
+
+  it('re-registers the renewed subscription when the service worker reports a change of the subscribed endpoint', async () => {
+    const worker = useMessagingServiceWorker(browserSubscription(OLD))
+    vi.mocked(api.post).mockResolvedValue({ subscribed: true, id: 'sub-1' })
+    vi.mocked(api.put).mockResolvedValue({ id: 'sub-9' })
+    render(<AdminPushControl companyName="Braja Centro" />)
+    expect(await screen.findByText(/Activadas para Braja Centro/)).toBeInTheDocument()
+    expect(worker.container.startMessages).toHaveBeenCalled()
+
+    worker.renewTo(RENEWED)
+    worker.notify(OLD)
+
+    expect(await screen.findByText('El navegador renovó la suscripción; los avisos siguen activos para Braja Centro.')).toBeInTheDocument()
+    expect(api.put).toHaveBeenCalledWith('/push/subscriptions', { endpoint: RENEWED, keys: { p256dh: 'p256dh-key', auth: 'auth-key' } })
+  })
+
+  it('asks the server about the old endpoint when the panel did not know it and re-registers only if it was subscribed here', async () => {
+    const worker = useMessagingServiceWorker(null)
+    vi.mocked(api.post).mockResolvedValue({ subscribed: true, id: 'sub-1' })
+    vi.mocked(api.put).mockResolvedValue({ id: 'sub-9' })
+    render(<AdminPushControl companyName="Braja Centro" />)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Activar avisos' })).toBeEnabled())
+
+    worker.renewTo(RENEWED)
+    worker.notify(OLD)
+
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith('/push/subscriptions', { endpoint: RENEWED, keys: { p256dh: 'p256dh-key', auth: 'auth-key' } }))
+    expect(api.post).toHaveBeenCalledWith('/push/subscriptions/current', { endpoint: OLD })
+  })
+
+  // D-20261027-04: a renewal never subscribes a company where the ADMIN did not enable alerts.
+  it('does not register the renewed subscription in a company where the old endpoint was not subscribed', async () => {
+    const worker = useMessagingServiceWorker(browserSubscription(OLD))
+    vi.mocked(api.post).mockResolvedValue({ subscribed: false })
+    render(<AdminPushControl companyName="Braja Norte" />)
+    expect(await screen.findByText(/Desactivadas para Braja Norte/)).toBeInTheDocument()
+
+    worker.renewTo(RENEWED)
+    worker.notify(OLD)
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/push/subscriptions/current', { endpoint: OLD }))
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2))
+    expect(api.put).not.toHaveBeenCalled()
+    expect(screen.getByText(/Desactivadas para Braja Norte/)).toBeInTheDocument()
+  })
+
+  it('when the app comes back to the foreground, re-registers if the browser endpoint differs from the one the server confirmed', async () => {
+    const worker = useMessagingServiceWorker(browserSubscription(OLD))
+    vi.mocked(api.post).mockResolvedValue({ subscribed: true, id: 'sub-1' })
+    vi.mocked(api.put).mockResolvedValue({ id: 'sub-9' })
+    render(<AdminPushControl companyName="Braja Centro" />)
+    expect(await screen.findByText(/Activadas para Braja Centro/)).toBeInTheDocument()
+
+    document.dispatchEvent(new Event('visibilitychange'))
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1))
+    expect(api.put).not.toHaveBeenCalled()
+
+    worker.renewTo(RENEWED)
+    document.dispatchEvent(new Event('visibilitychange'))
+
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith('/push/subscriptions', { endpoint: RENEWED, keys: { p256dh: 'p256dh-key', auth: 'auth-key' } }))
+  })
+
+  it('ignores unrelated service worker messages', async () => {
+    const worker = useMessagingServiceWorker(browserSubscription(OLD))
+    vi.mocked(api.post).mockResolvedValue({ subscribed: true, id: 'sub-1' })
+    render(<AdminPushControl companyName="Braja Centro" />)
+    expect(await screen.findByText(/Activadas para Braja Centro/)).toBeInTheDocument()
+
+    worker.renewTo(RENEWED)
+    worker.container.dispatchEvent(new MessageEvent('message', { data: { type: 'SKIP_WAITING' } }))
+
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(api.put).not.toHaveBeenCalled()
+  })
+})

@@ -233,10 +233,11 @@ class JornadaCancellationAndMarkVoidMySqlTest {
         assertEquals(1, count("SELECT COUNT(*) FROM deviations WHERE jornada_id=? AND type='SIN_INGRESO' AND active=TRUE", other.toString()));
     }
 
+    // 2026-11-02: fixed dates 2026-11-03/04 would collide with the setUp jornada of "today" on those days (409 JORNADA_EXISTS); declared dates stay far from now.
     @Test
     void aCancelledJornadaCanBeDeclaredAgainForTheSameEmployeeSiteAndDate() throws Exception {
         Login admin = login(adminDni);
-        String body = declareBody("2026-11-03");
+        String body = declareBody("2099-11-03");
         MvcResult declared = send(admin, post("/api/v1/jornadas"), body);
         assertEquals(201, declared.getResponse().getStatus(), declared.getResponse().getContentAsString());
         UUID first = UUID.fromString(json(declared).get("id").asText());
@@ -250,8 +251,8 @@ class JornadaCancellationAndMarkVoidMySqlTest {
         assertEquals("NO_INGRESO", json(again).get("state").asText());
         assertNotEquals(first.toString(), json(again).get("id").asText());
         assertProblem(send(admin, post("/api/v1/jornadas"), body), 409, "JORNADA_EXISTS");
-        assertEquals(2, count("SELECT COUNT(*) FROM jornadas WHERE employee_id=? AND site_id=? AND local_date='2026-11-03'", employeeId.toString(), siteId.toString()));
-        assertEquals(1, count("SELECT COUNT(*) FROM jornadas WHERE employee_id=? AND site_id=? AND local_date='2026-11-03' AND state<>'CANCELADA'", employeeId.toString(), siteId.toString()));
+        assertEquals(2, count("SELECT COUNT(*) FROM jornadas WHERE employee_id=? AND site_id=? AND local_date='2099-11-03'", employeeId.toString(), siteId.toString()));
+        assertEquals(1, count("SELECT COUNT(*) FROM jornadas WHERE employee_id=? AND site_id=? AND local_date='2099-11-03' AND state<>'CANCELADA'", employeeId.toString(), siteId.toString()));
     }
 
     @Test
@@ -259,7 +260,7 @@ class JornadaCancellationAndMarkVoidMySqlTest {
         int threads = 4;
         List<Login> admins = new ArrayList<>();
         for (int i = 0; i < threads; i++) admins.add(login(adminDni));
-        String body = declareBody("2026-11-04");
+        String body = declareBody("2099-11-04");
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         List<Future<MvcResult>> results = new ArrayList<>();
@@ -277,7 +278,7 @@ class JornadaCancellationAndMarkVoidMySqlTest {
 
         assertEquals(1, created);
         assertEquals(threads - 1, conflicts);
-        assertEquals(1, count("SELECT COUNT(*) FROM jornadas WHERE employee_id=? AND site_id=? AND local_date='2026-11-04'", employeeId.toString(), siteId.toString()));
+        assertEquals(1, count("SELECT COUNT(*) FROM jornadas WHERE employee_id=? AND site_id=? AND local_date='2099-11-04'", employeeId.toString(), siteId.toString()));
     }
 
     // Feature 2 (D-20261027-08): void a wrong mark.

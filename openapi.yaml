@@ -6,6 +6,29 @@ info:
     API v1 for the first-party Braja time-marking application. The active company,
     actor, role, site access, and employee scope are derived from the authenticated
     server session. Client-supplied identifiers are selectors only and never grant access.
+
+    Every 4xx and 5xx response is application/problem+json (the Problem schema) with a stable `code` and a random
+    `traceId`; `detail` is fixed text and never echoes an exception or the request. Besides the responses listed per
+    operation, any operation may answer these protocol errors: 400 MALFORMED_REQUEST (missing or unreadable JSON body),
+    400 MISSING_PARAMETER (a required query parameter is absent), 400 IDEMPOTENCY_KEY_REQUIRED (a mark without its
+    Idempotency-Key header), 404 NOT_FOUND (unknown route, including a trailing slash), 405 METHOD_NOT_ALLOWED (with an
+    Allow header), 406 NOT_ACCEPTABLE (an Accept header without JSON), 415 UNSUPPORTED_MEDIA_TYPE (a body that is not
+    application/json), 409 CONFLICT (a request that collides with an existing record) and 500 INTERNAL_ERROR.
+
+    Behind the production reverse proxy (deploy/caddy/Caddyfile) two more answers exist under /api, written by the
+    proxy and not by the backend, so neither exists when the backend runs alone: 413 PAYLOAD_TOO_LARGE for a request
+    body above 1,000,000 bytes, and 503 SERVICE_UNAVAILABLE with Retry-After: 30 for any failure on the proxy side
+    (backend down, restarting or unreachable). Both bodies are problem+json with a code and a random traceId, like every backend problem.
+
+    Free text that another person reads (site, employee and template names, the deviation
+    motive text and every ADMIN reason: correctionReason, auditReason, reason) is cleaned
+    before validation (CLAUDE.md rule 25): control characters, bidi marks, embeddings,
+    overrides and isolates, zero-width and other default-ignorable characters are removed,
+    a zero width joiner is kept only inside an emoji sequence, a variation selector only after an emoji (FE0E/FE0F) or
+    a Han character (E0100-E01EF), U+FFF9-U+FFFC are removed, and the result is NFC.
+    Line feeds are kept in the motive and reasons; in names a line break or tab becomes a
+    space and the value is trimmed. Length limits count the cleaned text, and a value left
+    blank answers 422 VALIDATION_ERROR like any blank value.
 servers:
   - url: /api/v1
 security:
@@ -21,7 +44,30 @@ tags:
   - name: Deviations
   - name: Inbox
   - name: Push
+  - name: Operations
 paths:
+  /health:
+    get:
+      tags: [Operations]
+      summary: Report whether the backend can reach its database
+      description: >-
+        Anonymous health gate for the deploy script and the container healthchecks. Runs SELECT 1 on MySQL and returns
+        no data, opens no session and needs no CSRF token. Never cached.
+      security: []
+      responses:
+        '200':
+          description: The backend is up and its database answers
+          headers:
+            Cache-Control:
+              schema: { type: string, enum: [no-store] }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+        '503':
+          description: The database does not answer (code DATABASE_UNAVAILABLE)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
   /public-config:
     get:
       tags: [Session]
@@ -126,7 +172,16 @@ paths:
               required: [currentPassword, newPassword]
               properties:
                 currentPassword: { type: string, minLength: 1, maxLength: 256, writeOnly: true }
-                newPassword: { type: string, minLength: 12, maxLength: 256, writeOnly: true }
+                newPassword:
+                  type: string
+                  minLength: 12
+                  maxLength: 72
+                  writeOnly: true
+                  description: >-
+                    12 characters to 72 UTF-8 bytes, BCrypt's limit (D-20261102-04). It is checked before the current
+                    password: above 72 bytes answers 422 PASSWORD_TOO_LONG, changes nothing and counts no attempt.
+                    maxLength counts characters; the server enforces bytes, so a password of fewer than 72 characters
+                    with multibyte characters (ñ, á, emoji) can still be too long.
       responses:
         '204': { description: Password changed; temporary-password requirement cleared }
         '401':
@@ -136,7 +191,14 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
-        '422': { $ref: '#/components/responses/ValidationError' }
+        '422':
+          description: A new password shorter than 12 characters (VALIDATION_ERROR) or above 72 UTF-8 bytes (PASSWORD_TOO_LONG).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                PASSWORD_TOO_LONG:
+                  value: { type: about:blank, title: Unprocessable Entity, status: 422, code: PASSWORD_TOO_LONG, detail: The password must not exceed 72 bytes in UTF-8, traceId: 3f1c2a9e-5b7d-4e8f-9a0b-1c2d3e4f5a6b }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/AuthenticationUnavailable' }
   /companies:
@@ -181,7 +243,7 @@ paths:
       tags: [Sites]
       summary: List sites visible in the active company
       description: >-
-        ADMIN responses include exact coordinates and geofence radius. EMPLOYEE responses include null for those
+        ADMIN responses include exact coordinates and geofence radius. EMPLOYEE responses omit those
         configuration values. Company and employee site scope are derived from the authenticated session.
       responses:
         '200':
@@ -202,7 +264,7 @@ paths:
         the browser, not by the server. The API does not reverse-geocode
         them or derive the time zone from them. The geofence radius defaults to 100 meters and is configurable from 50 to
         500 meters. Site coordinates are retained for the life of the site and are not covered by the employee-mark
-        location purge. Employee site responses return null coordinates and radius.
+        location purge. Employee site responses omit coordinates and radius.
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
       requestBody:
@@ -214,7 +276,15 @@ paths:
               required: [name, timeZone]
               properties:
                 name: { type: string, minLength: 1, maxLength: 120 }
-                timeZone: { type: string, description: IANA time zone, example: America/Argentina/Buenos_Aires }
+                timeZone:
+                  type: string
+                  maxLength: 64
+                  example: America/Argentina/Buenos_Aires
+                  description: >-
+                    Area/Location id of the IANA time zone database, exactly as listed there (it contains a "/" and
+                    is not under Etc/), for example America/Argentina/Buenos_Aires. UTC, GMT, EST, Etc/GMT+3 and fixed
+                    offsets such as -03:00, Z, UTC+3 or GMT-3 answer 422 VALIDATION_ERROR (D-20261102-05). Sites
+                    already stored keep their zone.
                 latitude: { type: [number, 'null'], minimum: -90, maximum: 90, description: Optional latitude; must be sent together with longitude. }
                 longitude: { type: [number, 'null'], minimum: -180, maximum: 180, description: Optional longitude; must be sent together with latitude. }
                 locationSource: { type: string, enum: [CAPTURED, MANUAL], description: Origin of the configured point; omit when no point is supplied. }
@@ -236,9 +306,11 @@ paths:
         supplied. Automatic capture uses high accuracy, maximumAge=0, a 30-second total deadline, and accepts only a
         finite reported accuracy from 0 through 25 meters. Manual coordinates use the same latitude and longitude bounds.
         `locationSource` records CAPTURED or MANUAL in the location audit and is required when the center is set or moved
-        (422 VALIDATION_ERROR otherwise); a radius-only change or a cleared center takes none. Each jornada keeps the center
-        and radius in force when it was declared (D-20261030-02): a jornada declared while the site has no center snapshots
-        no geofence and is not evaluated later, even if the site is configured afterward. Every successful change is audited with its actor, server time, previous
+        (422 VALIDATION_ERROR otherwise); a radius-only change or a cleared center takes none. A jornada freezes the center
+        and radius in force when it is declared (D-20261030-02), and a change made here also replaces them, in the same
+        transaction, on the site's jornadas not started yet (NO_INGRESO with no mark, even a voided one) whose local date is
+        today in the site's zone or later (D-20261102-01). A started, past or cancelled jornada keeps what it froze; one started
+        while the site had no center is never evaluated. Every successful change is audited with its actor, server time, previous
         center/radius, and new center/radius. Creating a site with a configured center or non-default radius also creates
         an audit entry; a site created with no center and the default radius has no location-change entry.
       parameters:
@@ -322,7 +394,14 @@ paths:
                   uniqueItems: true
                   items: { $ref: '#/components/schemas/Id' }
                 toleranceMinutes: { type: integer, minimum: 0, maximum: 240 }
-                temporaryPassword: { type: string, minLength: 12, maxLength: 256, writeOnly: true }
+                temporaryPassword:
+                  type: string
+                  minLength: 12
+                  maxLength: 72
+                  writeOnly: true
+                  description: >-
+                    12 characters to 72 UTF-8 bytes, BCrypt's limit (D-20261102-04). Above 72 bytes answers 422
+                    PASSWORD_TOO_LONG. maxLength counts characters; the server enforces bytes.
       responses:
         '201':
           description: Employee membership created
@@ -331,7 +410,11 @@ paths:
               schema: { $ref: '#/components/schemas/Employee' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
-        '422': { $ref: '#/components/responses/ValidationError' }
+        '422':
+          description: Field or domain constraint violated (VALIDATION_ERROR), or a temporary password above 72 UTF-8 bytes (PASSWORD_TOO_LONG).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
   /employees/{employeeId}:
     patch:
       tags: [Employees]
@@ -419,7 +502,7 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
               examples:
                 ASSIGNMENT_EXISTS:
-                  value: { type: about:blank, title: Conflict, status: 409, code: ASSIGNMENT_EXISTS, detail: The employee already has a template assigned at this site from that date }
+                  value: { type: about:blank, title: Conflict, status: 409, code: ASSIGNMENT_EXISTS, detail: The employee already has a template assigned at this site from that date, traceId: 3f1c2a9e-5b7d-4e8f-9a0b-1c2d3e4f5a6b }
         '422': { $ref: '#/components/responses/ValidationError' }
   /employees/{employeeId}/password-reset:
     post:
@@ -470,6 +553,7 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/Template' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
     post:
       tags: [Templates]
       summary: Create a schedule template for a site
@@ -522,7 +606,7 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
               examples:
                 TEMPLATE_IN_USE:
-                  value: { type: about:blank, title: Conflict, status: 409, code: TEMPLATE_IN_USE, detail: A template already used by jornadas cannot move to another site; create a new template for that site }
+                  value: { type: about:blank, title: Conflict, status: 409, code: TEMPLATE_IN_USE, detail: A template already used by jornadas cannot move to another site; create a new template for that site, traceId: 3f1c2a9e-5b7d-4e8f-9a0b-1c2d3e4f5a6b }
         '422': { $ref: '#/components/responses/ValidationError' }
   /jornadas:
     get:
@@ -561,6 +645,7 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/JornadaSummary' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
@@ -573,7 +658,9 @@ paths:
         does not start on day offset 0 (saved before that rule) answers 422 VALIDATION_ERROR until it is updated.
         templateId is optional (D-20261015-02): without it, the employee's assignment in force at the site on localDate
         (latest validFrom on or before it) is used, and none answers 422 TEMPLATE_REQUIRED; with it, that template is used
-        for this day only.
+        for this day only. An inactive template of the site, chosen or assigned, answers 422 TEMPLATE_INVALID
+        (D-20261102-06); an unknown template or one of another site answers 404. An employee of the company not assigned
+        to the site answers 409 EMPLOYEE_NOT_IN_SITE (D-20261102-07); an unknown employee or site answers 404.
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
       requestBody:
@@ -598,13 +685,17 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422':
-          description: Field or domain constraint violated (VALIDATION_ERROR), or no templateId and no assignment in force (TEMPLATE_REQUIRED).
+          description: >-
+            Field or domain constraint violated (VALIDATION_ERROR), no templateId and no assignment in force
+            (TEMPLATE_REQUIRED), or the chosen or assigned template is inactive (TEMPLATE_INVALID).
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
               examples:
                 TEMPLATE_REQUIRED:
-                  value: { type: about:blank, title: Unprocessable Entity, status: 422, code: TEMPLATE_REQUIRED, detail: The employee has no template assigned at this site on that date; choose a template }
+                  value: { type: about:blank, title: Unprocessable Entity, status: 422, code: TEMPLATE_REQUIRED, detail: The employee has no template assigned at this site on that date; choose a template, traceId: 3f1c2a9e-5b7d-4e8f-9a0b-1c2d3e4f5a6b }
+                TEMPLATE_INVALID:
+                  value: { type: about:blank, title: Unprocessable Entity, status: 422, code: TEMPLATE_INVALID, detail: The template is inactive; choose another template, traceId: 3f1c2a9e-5b7d-4e8f-9a0b-1c2d3e4f5a6b }
   /jornadas/bulk:
     post:
       tags: [Jornadas]
@@ -615,9 +706,11 @@ paths:
         tolerance, scheduled start and end), with templateId if given or else the employee's assignment in force on that date.
         No rule is stored (D-20261015-01). Dates with a non-cancelled jornada are skipped as JORNADA_EXISTS (also when a
         concurrent declaration wins the date), dates without an assignment in force as TEMPLATE_REQUIRED and dates whose
-        assigned template cannot be declared as TEMPLATE_INVALID. An employee of another company answers 404, and an inactive
-        employee or one not assigned to the site answers 422 for the whole request; nothing is written in either case. One
-        transaction; created and skipped are ordered by employee id, then date.
+        assigned template cannot be declared (inactive included) as TEMPLATE_INVALID. A chosen templateId that is inactive
+        answers 422 TEMPLATE_INVALID (D-20261102-06). An employee of another company answers 404; an employee not assigned to
+        the site answers 409 EMPLOYEE_NOT_IN_SITE (D-20261102-07), reported before an inactive employee, which answers 422
+        VALIDATION_ERROR; the whole request is rejected and nothing is written in any of these cases. One transaction;
+        created and skipped are ordered by employee id, then date.
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
       requestBody:
@@ -670,6 +763,7 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Jornada' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
   /jornadas/{jornadaId}:
     get:
@@ -696,7 +790,9 @@ paths:
         GPS capture runs in parallel and never delays this response. Retrying an identical
         Idempotency-Key and payload returns 200 with the current state of the original mark
         (including any later ADMIN correction). Reusing the key with a
-        different payload returns 409. INGRESO is accepted from 30 minutes before the
+        different payload returns 409 IDEMPOTENCY_CONFLICT; a request without the header returns 400
+        IDEMPOTENCY_KEY_REQUIRED and stores nothing. An action the current state does not allow returns 409
+        INVALID_MARK_TRANSITION. INGRESO is accepted from 30 minutes before the
         scheduled start; late ingress remains accepted. Other actions are not accepted
         before the scheduled start. No offline action is accepted.
       parameters:
@@ -727,6 +823,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Mark' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -742,16 +839,16 @@ paths:
               examples:
                 MARK_TOO_EARLY:
                   summary: The mark was attempted before its allowed time.
-                  value: { type: about:blank, title: Conflict, status: 409, code: MARK_TOO_EARLY, detail: The mark is earlier than the allowed window for this jornada. }
+                  value: { type: about:blank, title: Conflict, status: 409, code: MARK_TOO_EARLY, detail: The mark is earlier than the allowed window for this jornada., traceId: 3f1c2a9e-5b7d-4e8f-9a0b-1c2d3e4f5a6b }
                 INVALID_MARK_ORDER:
                   summary: A stored mark of the jornada is later than the current server time.
-                  value: { type: about:blank, title: Conflict, status: 409, code: INVALID_MARK_ORDER, detail: A stored mark of this jornada is later than the current server time }
+                  value: { type: about:blank, title: Conflict, status: 409, code: INVALID_MARK_ORDER, detail: A stored mark of this jornada is later than the current server time, traceId: 3f1c2a9e-5b7d-4e8f-9a0b-1c2d3e4f5a6b }
                 JORNADA_CANCELLED:
                   summary: The jornada was cancelled by an ADMIN (D-20261027-07) and accepts no marks.
-                  value: { type: about:blank, title: Conflict, status: 409, code: JORNADA_CANCELLED, detail: The jornada was cancelled by an ADMIN }
+                  value: { type: about:blank, title: Conflict, status: 409, code: JORNADA_CANCELLED, detail: The jornada was cancelled by an ADMIN, traceId: 3f1c2a9e-5b7d-4e8f-9a0b-1c2d3e4f5a6b }
                 RETRYABLE_TRANSACTION_CONFLICT:
                   summary: A concurrent transaction caused a retryable lock conflict.
-                  value: { type: about:blank, title: Conflict, status: 409, code: RETRYABLE_TRANSACTION_CONFLICT, detail: The operation conflicted with another transaction; retry the request. }
+                  value: { type: about:blank, title: Conflict, status: 409, code: RETRYABLE_TRANSACTION_CONFLICT, detail: The operation conflicted with another transaction; retry the request., traceId: 3f1c2a9e-5b7d-4e8f-9a0b-1c2d3e4f5a6b }
         '422': { $ref: '#/components/responses/ValidationError' }
   /marks/{markId}:
     get:
@@ -781,8 +878,10 @@ paths:
         seconds. The deviation refers to the first triggering mark; later marks remain allowed and visible in mark history. If that
         mark stops supporting it (voided, or its on-time location falls inside) and another employee mark of the jornada is still
         outside or unknown, the same deviation moves to that mark, keeps its motive, and its classification goes back to review
-        (audited as CLASSIFICATION_RESET); otherwise it is retracted. A jornada
-        declared without a site center has no geofence assessment (D-20261030-02). This evaluation
+        (audited as CLASSIFICATION_RESET); a mark whose location is still pending also keeps it, after any mark already outside or
+        unknown, and the rule applies again if that location then falls inside; otherwise it is retracted. Every evaluation uses
+        the values as stored: coordinates rounded to 7 decimals and accuracyMeters rounded up to the centimeter. A jornada
+        without a site center has no geofence assessment (D-20261030-02, D-20261102-01). This evaluation
         never blocks a mark and FUERA_DE_SEDE is not push-eligible.
       parameters:
         - $ref: '#/components/parameters/MarkId'
@@ -944,7 +1043,7 @@ paths:
         (active or retracted). Changes written in the same transaction keep their causal order (for example a forgotten mark
         before the deviation change it caused). Each entry names its actor (employee name in the company, else the membership
         name, else "DNI <dni>"); a change made by the system has no actor. Motive text of any category is never returned: a
-        motive change carries only its categories. Coordinates are never returned. At most 500 entries; truncated is true when
+        motive change carries only its categories. Coordinates are never returned. At most 500 entries (the newest, D-20261102-09); truncated is true when
         the jornada has more.
       parameters:
         - $ref: '#/components/parameters/JornadaId'
@@ -1037,7 +1136,7 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
               examples:
                 MOTIVE_LOCKED:
-                  value: { type: about:blank, title: Conflict, status: 409, code: MOTIVE_LOCKED, detail: The reason is fixed once the deviation is classified }
+                  value: { type: about:blank, title: Conflict, status: 409, code: MOTIVE_LOCKED, detail: The reason is fixed once the deviation is classified, traceId: 3f1c2a9e-5b7d-4e8f-9a0b-1c2d3e4f5a6b }
         '422': { $ref: '#/components/responses/ValidationError' }
   /admin/deviations/{deviationId}/classification:
     put:
@@ -1247,22 +1346,27 @@ components:
       schema: { $ref: '#/components/schemas/Id' }
   schemas:
     Id: { type: string, format: uuid }
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [UP] }
     PublicConfig:
       type: object
-      required: [pushEnabled, vapidPublicKey]
+      required: [pushEnabled]
       properties:
         pushEnabled: { type: boolean }
-        vapidPublicKey: { oneOf: [{ type: string }, { type: 'null' }] }
+        vapidPublicKey: { oneOf: [{ type: string }, { type: 'null' }], description: Omitted when push is not configured. }
     Session:
       type: object
-      required: [accountId, memberships, activeCompanyId, mustChangePassword]
+      required: [accountId, memberships, mustChangePassword]
       properties:
         accountId: { $ref: '#/components/schemas/Id' }
         dni: { type: string }
         memberships:
           type: array
           items: { $ref: '#/components/schemas/Membership' }
-        activeCompanyId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        activeCompanyId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }], description: Omitted when no company is active. }
         mustChangePassword: { type: boolean }
         displayName:
           type: string
@@ -1278,14 +1382,15 @@ components:
         role: { type: string, enum: [ADMIN, EMPLOYEE] }
     Site:
       type: object
-      required: [id, name, timeZone, latitude, longitude, geofenceRadiusMeters]
+      description: Fields without a value are omitted, never sent as null.
+      required: [id, name, timeZone]
       properties:
         id: { $ref: '#/components/schemas/Id' }
         name: { type: string }
         timeZone: { type: string, description: IANA time zone }
-        latitude: { type: [number, 'null'], minimum: -90, maximum: 90, description: Exact coordinates are returned only to the ADMIN; employees receive null. }
-        longitude: { type: [number, 'null'], minimum: -180, maximum: 180, description: Exact coordinates are returned only to the ADMIN; employees receive null. }
-        geofenceRadiusMeters: { type: [integer, 'null'], minimum: 50, maximum: 500, description: Radius is returned only to the ADMIN; employees receive null. }
+        latitude: { type: [number, 'null'], minimum: -90, maximum: 90, description: Exact coordinates are returned only to the ADMIN; omitted for employees and when the site has no center. }
+        longitude: { type: [number, 'null'], minimum: -180, maximum: 180, description: Exact coordinates are returned only to the ADMIN; omitted for employees and when the site has no center. }
+        geofenceRadiusMeters: { type: [integer, 'null'], minimum: 50, maximum: 500, description: Radius is returned only to the ADMIN; omitted for employees. }
     SiteLocationAudit:
       type: object
       required: [entries]
@@ -1295,7 +1400,8 @@ components:
           items: { $ref: '#/components/schemas/SiteLocationAuditEntry' }
     SiteLocationAuditEntry:
       type: object
-      required: [id, changedAt, actorDisplayName, beforeLatitude, beforeLongitude, afterLatitude, afterLongitude, beforeRadiusMeters, afterRadiusMeters, locationSource]
+      description: Fields without a value (no center before or after the change, no previous radius, no source) are omitted, never sent as null.
+      required: [id, changedAt, actorDisplayName, afterRadiusMeters]
       properties:
         id: { $ref: '#/components/schemas/Id' }
         changedAt: { type: string, format: date-time }
@@ -1436,7 +1542,7 @@ components:
           type: array
           maxItems: 500
           items: { $ref: '#/components/schemas/JornadaAuditEntry' }
-        truncated: { type: boolean, description: True when the jornada has more than 500 changes; entries holds the oldest 500. }
+        truncated: { type: boolean, description: True when the jornada has more than 500 changes; entries then holds the newest 500, oldest first (D-20261102-09). }
     JornadaAuditEntry:
       type: object
       description: Fields that do not apply to an entry's kind are omitted.
@@ -1471,7 +1577,7 @@ components:
         afterMotiveCategory: { $ref: '#/components/schemas/MotiveCategory', description: For MOTIVE_SUBMITTED and MOTIVE_CORRECTED. }
     DeviationType:
       type: string
-      enum: [SIN_INGRESO, LLEGADA_TARDE, EGRESO_TEMPRANO, EGRESO_TARDIO, MARCA_FALTANTE, EXCESO_DESAYUNO, EXCESO_ALMUERZO]
+      enum: [SIN_INGRESO, LLEGADA_TARDE, EGRESO_TEMPRANO, EGRESO_TARDIO, MARCA_FALTANTE, EXCESO_DESAYUNO, EXCESO_ALMUERZO, FUERA_DE_SEDE]
     ReasonInput:
       type: object
       required: [reason]
@@ -1505,7 +1611,8 @@ components:
       enum: [SALUD, TRANSPORTE, EMERGENCIA, OTRA]
     Deviation:
       type: object
-      required: [id, jornadaId, type, status, sourceMarkId, sourceMarkAction, sourceMarkSequence, createdAt, pushEligible]
+      description: Fields without a value (no source mark, no motive) are omitted, never sent as null.
+      required: [id, jornadaId, type, status, createdAt, pushEligible]
       properties:
         id: { $ref: '#/components/schemas/Id' }
         jornadaId: { $ref: '#/components/schemas/Id' }
@@ -1560,14 +1667,18 @@ components:
               count: { type: integer, minimum: 0, description: Number of eligible deviations at this site. }
     Problem:
       type: object
-      required: [type, title, status, code]
+      description: >-
+        Body of every 4xx and 5xx response of the backend (RFC 9457), including those written by the session and CSRF
+        checks. The reverse proxy's 413 PAYLOAD_TOO_LARGE and 503 SERVICE_UNAVAILABLE (see the API description) have the
+        same shape, with a traceId generated by the proxy.
+      required: [type, title, status, code, traceId]
       properties:
         type: { type: string, format: uri-reference }
         title: { type: string }
         status: { type: integer }
-        detail: { type: string }
-        code: { type: string }
-        traceId: { type: string, description: Opaque correlation ID; never contains personal data. }
+        detail: { type: string, description: Fixed text; never an exception message or request data. }
+        code: { type: string, description: Stable upper snake case code; clients branch on it, not on detail. }
+        traceId: { type: string, description: Random identifier of this response; never contains personal data. }
   responses:
     Unauthorized:
       description: >-
@@ -1579,22 +1690,34 @@ components:
     Forbidden:
       description: >-
         Authenticated but not authorized for the requested resource or action, or an unsafe request on a live
-        authenticated session with a missing or mismatched CSRF token (code FORBIDDEN).
+        authenticated session with a missing or mismatched CSRF token (code FORBIDDEN). An account that must change its
+        temporary password answers PASSWORD_CHANGE_REQUIRED on every operation except /public-config, /csrf, /session,
+        /session/password, /companies and /companies/active.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     NotFound:
-      description: Resource is absent or outside the caller's visible scope
+      description: Resource is absent or outside the caller's visible scope (code NOT_FOUND)
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     BadRequest:
-      description: Malformed request
+      description: >-
+        Malformed request: a missing or unreadable JSON body (MALFORMED_REQUEST), a missing required query parameter
+        (MISSING_PARAMETER) or, on a mark, a missing Idempotency-Key header (IDEMPOTENCY_KEY_REQUIRED).
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     Conflict:
-      description: Idempotency conflict, duplicate jornada, duplicate template assignment (ASSIGNMENT_EXISTS), expired location window, invalid state transition or history, cancelled jornada (JORNADA_CANCELLED), jornada with marks (JORNADA_HAS_MARKS), voided mark (MARK_VOIDED), or retryable transaction conflict
+      description: >-
+        Idempotency conflict (IDEMPOTENCY_CONFLICT), duplicate jornada (JORNADA_EXISTS), duplicate template assignment
+        (ASSIGNMENT_EXISTS), an account that is inactive (ACCOUNT_INACTIVE) or already has a role in the active company
+        (MEMBERSHIP_EXISTS), a location that is no longer pending (LOCATION_ALREADY_FINAL) or arrives after the 30-second
+        window (LOCATION_WINDOW_EXPIRED), invalid state transition (INVALID_MARK_TRANSITION) or history
+        (INVALID_MARK_HISTORY), cancelled jornada (JORNADA_CANCELLED), jornada with marks (JORNADA_HAS_MARKS), voided mark
+        (MARK_VOIDED), employee not assigned to the site of a declaration (EMPLOYEE_NOT_IN_SITE), any other collision with
+        an existing record (CONFLICT), or retryable transaction conflict (RETRYABLE_TRANSACTION_CONFLICT, with
+        Retry-After).
       headers:
         Retry-After:
           description: Present when the conflict is retryable.
@@ -1611,6 +1734,7 @@ components:
                 status: 409
                 code: RETRYABLE_TRANSACTION_CONFLICT
                 detail: The operation conflicted with another transaction; retry the request.
+                traceId: 3f1c2a9e-5b7d-4e8f-9a0b-1c2d3e4f5a6b
     ValidationError:
       description: Request is syntactically valid but violates a field or domain constraint
       content:

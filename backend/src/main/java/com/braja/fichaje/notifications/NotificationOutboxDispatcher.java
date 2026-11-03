@@ -2,6 +2,7 @@ package com.braja.fichaje.notifications;
 
 import com.braja.fichaje.config.BrajaProperties;
 import java.net.URI;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
@@ -25,18 +26,20 @@ public class NotificationOutboxDispatcher {
     private final PushSubscriptionCipher cipher;
     private final SafePushPayloadFactory payloadFactory;
     private final WebPushGateway webPushGateway;
+    private final Clock clock;
     private final NotificationRetryPolicy retryPolicy = new NotificationRetryPolicy();
 
     public NotificationOutboxDispatcher(BrajaProperties properties,
                                         NotificationWindowRepository repository,
                                         PushSubscriptionCipher cipher,
                                         SafePushPayloadFactory payloadFactory,
-                                        WebPushGateway webPushGateway) {
+                                        WebPushGateway webPushGateway, Clock clock) {
         this.properties = properties;
         this.repository = repository;
         this.cipher = cipher;
         this.payloadFactory = payloadFactory;
         this.webPushGateway = webPushGateway;
+        this.clock = clock;
     }
 
     @Scheduled(fixedDelayString = "${braja.notifications.dispatch-delay-ms:5000}")
@@ -44,7 +47,7 @@ public class NotificationOutboxDispatcher {
         if (!properties.isPushEnabled()) {
             return;
         }
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         List<NotificationWindowLease> leases = repository.claimDueWindows(now, CLAIM_BATCH_SIZE);
         for (NotificationWindowLease lease : leases) {
             dispatch(lease);
@@ -52,7 +55,7 @@ public class NotificationOutboxDispatcher {
     }
 
     private void dispatch(NotificationWindowLease lease) {
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         try {
             List<SiteCount> counts = repository.loadSiteCounts(lease);
             if (counts.isEmpty()) {
@@ -100,7 +103,7 @@ public class NotificationOutboxDispatcher {
             }
 
             if (failureCode == null) {
-                repository.markDelivered(lease, Instant.now());
+                repository.markDelivered(lease, clock.instant());
             } else {
                 retry(lease, failureCode);
             }
@@ -114,7 +117,7 @@ public class NotificationOutboxDispatcher {
     }
 
     private void retry(NotificationWindowLease lease, String errorCode) {
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         Instant nextAttemptAt = now.plus(retryPolicy.delayForAttempt(lease.attemptCount()));
         boolean exhausted = lease.attemptCount() >= NotificationRetryPolicy.MAX_ATTEMPTS;
         if (repository.scheduleRetry(lease, now, nextAttemptAt, errorCode) && exhausted) {

@@ -17,6 +17,7 @@ import com.braja.fichaje.security.ScopeService;
 import com.braja.fichaje.timekeeping.MarkAction;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -71,7 +72,7 @@ class NotificationOutboxMySqlTest {
         Fixture fixture = createFixture();
         BrajaProperties properties = enabledPushProperties();
         DeviationNotificationPort port = new JdbcDeviationNotificationOutbox(jdbc, properties,
-                new NotificationWindowPolicy());
+                new NotificationWindowPolicy(), Clock.systemUTC());
         Instant first = Instant.parse("2026-10-16T12:02:17.123456Z");
         UUID firstDeviation = createDeviation(fixture, fixture.siteOne(), fixture.employeeOne(), "SIN_INGRESO");
         UUID secondDeviation = createDeviation(fixture, fixture.siteTwo(), fixture.employeeTwo(), "LLEGADA_TARDE");
@@ -106,7 +107,7 @@ class NotificationOutboxMySqlTest {
     void missingEgressDeviationNeverEntersTheOutboxOrOpensAWindow() {
         Fixture fixture = createFixture();
         DeviationNotificationPort port = new JdbcDeviationNotificationOutbox(jdbc,
-                enabledPushProperties(), new NotificationWindowPolicy());
+                enabledPushProperties(), new NotificationWindowPolicy(), Clock.systemUTC());
         UUID deviation = createDeviation(fixture, fixture.siteOne(), fixture.employeeOne(), "MARCA_FALTANTE");
 
         inTransaction(() -> port.enqueue(fixture.company(), fixture.siteOne(), deviation,
@@ -120,7 +121,7 @@ class NotificationOutboxMySqlTest {
     void concurrentEventsForOneCompanyShareTheFirstOpenWindow() throws Exception {
         Fixture fixture = createFixture();
         DeviationNotificationPort port = new JdbcDeviationNotificationOutbox(jdbc,
-                enabledPushProperties(), new NotificationWindowPolicy());
+                enabledPushProperties(), new NotificationWindowPolicy(), Clock.systemUTC());
         UUID firstDeviation = createDeviation(fixture, fixture.siteOne(), fixture.employeeOne(), "SIN_INGRESO");
         UUID secondDeviation = createDeviation(fixture, fixture.siteTwo(), fixture.employeeTwo(), "LLEGADA_TARDE");
         Instant occurredAt = Instant.parse("2026-10-16T13:04:00Z");
@@ -153,11 +154,11 @@ class NotificationOutboxMySqlTest {
         Fixture fixture = createFixture();
         BrajaProperties properties = pushPropertiesWithEncryptionKeys();
         DeviationNotificationPort port = new JdbcDeviationNotificationOutbox(jdbc, properties,
-                new NotificationWindowPolicy());
+                new NotificationWindowPolicy(), Clock.systemUTC());
         org.springframework.mock.env.MockEnvironment localEnvironment = new org.springframework.mock.env.MockEnvironment();
         localEnvironment.setActiveProfiles("local");
         DeviationService deviations = new DeviationService(jdbc,
-                new ScopeService(jdbc, new CurrentActor()), new EncryptionService(properties, localEnvironment), port);
+                new ScopeService(jdbc, new CurrentActor()), new EncryptionService(properties, localEnvironment), port, Clock.systemUTC());
         UUID seedDeviation = createDeviation(fixture, fixture.siteOne(), fixture.employeeOne(), "SIN_INGRESO");
         UUID jornada = UUID.fromString(jdbc.queryForObject("SELECT jornada_id FROM deviations WHERE id=?", String.class, seedDeviation.toString()));
         jdbc.update("DELETE FROM deviations WHERE id=?", seedDeviation.toString());
@@ -192,7 +193,7 @@ class NotificationOutboxMySqlTest {
     void delayedDetectionAfterSentWindowStartsNewPendingWindowAndKeepsHistoricalOccurredAt() {
         Fixture fixture = createFixture();
         DeviationNotificationPort port = new JdbcDeviationNotificationOutbox(jdbc,
-                enabledPushProperties(), new NotificationWindowPolicy());
+                enabledPushProperties(), new NotificationWindowPolicy(), Clock.systemUTC());
         UUID originalDeviation = createDeviation(fixture, fixture.siteOne(), fixture.employeeOne(), "SIN_INGRESO");
         UUID delayedDeviation = createDeviation(fixture, fixture.siteTwo(), fixture.employeeTwo(), "SIN_INGRESO");
         Instant historicalOccurredAt = Instant.now().minusSeconds(10 * 60L).truncatedTo(ChronoUnit.MICROS);
@@ -229,7 +230,7 @@ class NotificationOutboxMySqlTest {
         Fixture fixture = createFixture();
         BrajaProperties properties = pushPropertiesWithEncryptionKeys();
         DeviationNotificationPort port = new JdbcDeviationNotificationOutbox(jdbc, properties,
-                new NotificationWindowPolicy());
+                new NotificationWindowPolicy(), Clock.systemUTC());
         UUID deviation = createDeviation(fixture, fixture.siteOne(), fixture.employeeOne(), "SIN_INGRESO");
         Instant occurredAt = Instant.now().minusSeconds(60);
         inTransaction(() -> port.enqueue(fixture.company(), fixture.siteOne(), deviation, "SIN_INGRESO", occurredAt));
@@ -257,7 +258,7 @@ class NotificationOutboxMySqlTest {
             return sendAttempts.incrementAndGet() == 2 ? 503 : 201;
         };
         NotificationOutboxDispatcher dispatcher = new NotificationOutboxDispatcher(properties,
-                new NotificationWindowRepository(jdbc), cipher, new SafePushPayloadFactory(mapper), gateway);
+                new NotificationWindowRepository(jdbc), cipher, new SafePushPayloadFactory(mapper), gateway, Clock.systemUTC());
 
         inTransaction(dispatcher::dispatchDueWindows);
 
@@ -284,7 +285,7 @@ class NotificationOutboxMySqlTest {
         Fixture fixture = createFixture();
         BrajaProperties properties = pushPropertiesWithEncryptionKeys();
         DeviationNotificationPort port = new JdbcDeviationNotificationOutbox(jdbc, properties,
-                new NotificationWindowPolicy());
+                new NotificationWindowPolicy(), Clock.systemUTC());
         NotificationWindowRepository repository = new NotificationWindowRepository(jdbc);
         UUID first = createDeviation(fixture, fixture.siteOne(), fixture.employeeOne(), "SIN_INGRESO");
         UUID late = createDeviation(fixture, fixture.siteTwo(), fixture.employeeTwo(), "SIN_INGRESO");
@@ -314,7 +315,7 @@ class NotificationOutboxMySqlTest {
     void claimSkipsAWindowWhileAnEnqueueIntoItIsUncommittedAndThenCountsTheEvent() throws Exception {
         Fixture fixture = createFixture();
         DeviationNotificationPort port = new JdbcDeviationNotificationOutbox(jdbc, enabledPushProperties(),
-                new NotificationWindowPolicy());
+                new NotificationWindowPolicy(), Clock.systemUTC());
         NotificationWindowRepository repository = new NotificationWindowRepository(jdbc);
         UUID first = createDeviation(fixture, fixture.siteOne(), fixture.employeeOne(), "SIN_INGRESO");
         UUID second = createDeviation(fixture, fixture.siteTwo(), fixture.employeeTwo(), "LLEGADA_TARDE");
@@ -415,11 +416,11 @@ class NotificationOutboxMySqlTest {
         Fixture fixture = createFixture();
         BrajaProperties properties = pushPropertiesWithEncryptionKeys();
         DeviationNotificationPort port = new JdbcDeviationNotificationOutbox(jdbc, properties,
-                new NotificationWindowPolicy());
+                new NotificationWindowPolicy(), Clock.systemUTC());
         org.springframework.mock.env.MockEnvironment localEnvironment = new org.springframework.mock.env.MockEnvironment();
         localEnvironment.setActiveProfiles("local");
         DeviationService deviations = new DeviationService(jdbc,
-                new ScopeService(jdbc, new CurrentActor()), new EncryptionService(properties, localEnvironment), port);
+                new ScopeService(jdbc, new CurrentActor()), new EncryptionService(properties, localEnvironment), port, Clock.systemUTC());
         UUID seedDeviation = createDeviation(fixture, fixture.siteOne(), fixture.employeeOne(), "SIN_INGRESO");
         UUID jornada = UUID.fromString(jdbc.queryForObject("SELECT jornada_id FROM deviations WHERE id=?", String.class, seedDeviation.toString()));
         jdbc.update("DELETE FROM deviations WHERE id=?", seedDeviation.toString());
@@ -465,7 +466,7 @@ class NotificationOutboxMySqlTest {
         insertMembership(otherCompany, fixture.admin(), "ADMIN", now);
         AdminPushSubscriptionService service = new AdminPushSubscriptionService(
                 new JdbcPushSubscriptionRepository(jdbc), new PushSubscriptionCipher(properties),
-                new PushEndpointValidator(), properties);
+                new PushEndpointValidator(), properties, Clock.systemUTC());
         String endpoint = endpointFor(fixture, "lookup");
         byte[] publicKey = new byte[65];
         publicKey[0] = 0x04;
@@ -481,7 +482,7 @@ class NotificationOutboxMySqlTest {
     }
 
     private static String dueWindowWithOneEvent(Fixture fixture, BrajaProperties properties) {
-        DeviationNotificationPort port = new JdbcDeviationNotificationOutbox(jdbc, properties, new NotificationWindowPolicy());
+        DeviationNotificationPort port = new JdbcDeviationNotificationOutbox(jdbc, properties, new NotificationWindowPolicy(), Clock.systemUTC());
         UUID deviation = createDeviation(fixture, fixture.siteOne(), fixture.employeeOne(), "SIN_INGRESO");
         inTransaction(() -> port.enqueue(fixture.company(), fixture.siteOne(), deviation, "SIN_INGRESO", Instant.now()));
         String windowId = windowOf(deviation);
@@ -492,7 +493,7 @@ class NotificationOutboxMySqlTest {
     private static NotificationOutboxDispatcher dispatcher(BrajaProperties properties, PushSubscriptionCipher cipher,
                                                            WebPushGateway gateway) {
         return new NotificationOutboxDispatcher(properties, new NotificationWindowRepository(jdbc), cipher,
-                new SafePushPayloadFactory(new ObjectMapper()), gateway);
+                new SafePushPayloadFactory(new ObjectMapper()), gateway, Clock.systemUTC());
     }
 
     /** Records payloads sent to this fixture's endpoints; other companies' leftover windows get a 201. */

@@ -3,17 +3,22 @@ package com.braja.fichaje.timekeeping;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.time.Instant;
+import java.time.Clock;
 
 @Component
 public class MarkScheduler {
     private final MarkService marks;
 
-    public MarkScheduler(MarkService marks) { this.marks = marks; }
+    private final Clock clock;
+
+    public MarkScheduler(MarkService marks, Clock clock) {
+        this.marks = marks;
+        this.clock = clock;
+    }
 
     @Scheduled(fixedDelayString = "PT15S")
-    public void createDueAbsences() { marks.createDueAbsences(Instant.now(), 200); }
+    public void createDueAbsences() { marks.createDueAbsences(clock.instant(), 200); }
 
     @Scheduled(fixedDelayString = "PT5S")
-    public void resolveLocationTimeouts() { marks.resolveLocationTimeouts(Instant.now()); }
+    public void resolveLocationTimeouts() { marks.resolveLocationTimeouts(clock.instant()); }
 }

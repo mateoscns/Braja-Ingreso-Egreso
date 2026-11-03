@@ -39,12 +39,14 @@ public class DeviationService {
     private final ScopeService scopes;
     private final EncryptionService encryption;
     private final DeviationNotificationPort notifications;
+    private final Clock clock;
 
-    public DeviationService(JdbcTemplate jdbc, ScopeService scopes, EncryptionService encryption, DeviationNotificationPort notifications) {
+    public DeviationService(JdbcTemplate jdbc, ScopeService scopes, EncryptionService encryption, DeviationNotificationPort notifications, Clock clock) {
         this.jdbc = jdbc;
         this.scopes = scopes;
         this.encryption = encryption;
         this.notifications = notifications;
+        this.clock = clock;
     }
 
     @Transactional
@@ -115,7 +117,7 @@ public class DeviationService {
                     jdbc.update("INSERT INTO deviation_audits(id,company_id,deviation_id,change_type,before_type,after_type,actor_account_id,audit_reason,created_at) VALUES(?,?,?,'TYPE_REPLACED',?,?,NULL,'Corrected event reconciliation',?)",
                             UUID.randomUUID().toString(), companyId.toString(), current.id().toString(), current.type().name(), wanted.name(), timestamp(now));
                     auditClassificationReset(companyId, current.id(), current.classification(), current.type(), wanted, null, "Deviation type changed", now);
-                    if (wanted.isPushEligible()) notifications.enqueue(companyId, siteId, current.id(), wanted.name(), fact.occurredAt());
+                    enqueueIfFresh(companyId, siteId, current.id(), wanted, fact.occurredAt(), now);
                 } else if (!Objects.equals(current.sourceMarkId(), fact.markId())) {
                     // Only a real change touches the row: a no-op reconcile must not move updated_at.
                     jdbc.update("UPDATE deviations SET source_mark_id=?,updated_at=? WHERE id=? AND company_id=?",
@@ -139,7 +141,7 @@ public class DeviationService {
                         UUID.randomUUID().toString(), companyId.toString(), deviationId.toString(), wanted.name(), timestamp(now));
                 if (historical != null) auditClassificationReset(companyId, deviationId, historical.classification(), historical.type(), wanted, null, "Deviation reactivated", now);
                 active.put(wanted, new ExistingDeviation(deviationId, wanted, true, fact.markId(), null));
-                if (wanted.isPushEligible()) notifications.enqueue(companyId, siteId, deviationId, wanted.name(), fact.occurredAt());
+                enqueueIfFresh(companyId, siteId, deviationId, wanted, fact.occurredAt(), now);
             }
         }
 
@@ -204,7 +206,10 @@ public class DeviationService {
 
     /**
      * Moves the daily deviation to another outside/unknown employee mark when its anchor is invalidated (the classification is
-     * cleared and audited, the motive is kept); otherwise retracts it.
+     * cleared and audited, the motive is kept); otherwise retracts it. A mark whose location is still PENDIENTE also keeps it,
+     * after any mark already outside or unknown: that location may still arrive outside or expire to SIN_UBICACION, which is
+     * outside where there is a center (D-20261027-12). If it then arrives inside, attachLocation calls this method again for it.
+     * (Issue #77: ignoring it retracted the deviation, which then reopened as a new fact without the employee's motive.)
      */
     @Transactional
     public void retractOutOfSiteForMark(UUID companyId, UUID jornadaId, UUID markId, Instant now) {
@@ -222,14 +227,16 @@ public class DeviationService {
                 jornadaId.toString(), companyId.toString());
         List<OutsideMarkCandidate> candidates = jdbc.query("SELECT id,location_status,latitude,longitude,accuracy_meters FROM mark_events " +
                         "WHERE company_id=? AND jornada_id=? AND id<>? AND origin='EMPLEADO' AND voided_at IS NULL " +
-                        "AND location_status IN ('RECIBIDA','SIN_UBICACION') ORDER BY sequence_number",
+                        "AND location_status IN ('RECIBIDA','SIN_UBICACION','PENDIENTE') ORDER BY sequence_number",
                 (rs, row) -> new OutsideMarkCandidate(UUID.fromString(rs.getString("id")), rs.getString("location_status"),
                         rs.getBigDecimal("latitude"), rs.getBigDecimal("longitude"), rs.getBigDecimal("accuracy_meters")),
                 companyId.toString(), jornadaId.toString(), markId.toString());
 
         UUID replacementMarkId = candidates.stream()
                 .filter(candidate -> candidate.isUnknownLocation() || isOutside(center, candidate))
-                .map(OutsideMarkCandidate::id).findFirst().orElse(null);
+                .map(OutsideMarkCandidate::id).findFirst()
+                .or(() -> candidates.stream().filter(OutsideMarkCandidate::isPendingLocation).map(OutsideMarkCandidate::id).findFirst())
+                .orElse(null);
         if (replacementMarkId != null) {
             // D-20261027-01 applied to the anchor: a classification decided for another mark goes back to review; the motive stays.
             jdbc.update("UPDATE deviations SET source_mark_id=?,classification=NULL,updated_at=? WHERE id=? AND company_id=? AND active=TRUE",
@@ -244,8 +251,8 @@ public class DeviationService {
     private boolean isOutside(JornadaGeofence center, OutsideMarkCandidate candidate) {
         return center != null && center.latitude() != null && center.longitude() != null && center.radiusMeters() != null
                 && candidate.latitude() != null && candidate.longitude() != null && candidate.accuracyMeters() != null
-                && geofence.isOutside(center.latitude().doubleValue(), center.longitude().doubleValue(), candidate.latitude().doubleValue(),
-                        candidate.longitude().doubleValue(), candidate.accuracyMeters().doubleValue(), center.radiusMeters());
+                && geofence.isOutside(center.latitude(), center.longitude(), candidate.latitude(), candidate.longitude(),
+                        candidate.accuracyMeters(), center.radiusMeters());
     }
 
     private List<ExistingDeviation> lockDeviations(UUID companyId, UUID jornadaId) {
@@ -253,6 +260,22 @@ public class DeviationService {
                 (rs, row) -> new ExistingDeviation(UUID.fromString(rs.getString("id")), DeviationType.valueOf(rs.getString("type")), rs.getBoolean("active"),
                         rs.getString("source_mark_id") == null ? null : UUID.fromString(rs.getString("source_mark_id")), rs.getString("classification")),
                 companyId.toString(), jornadaId.toString());
+    }
+
+    /**
+     * D-20261102-03: a deviation detected more than {@link DeviationPolicy#PUSH_FRESHNESS} after its fact is recorded without a
+     * push (a past date, a reactivation backlog, a first deploy or a forgotten mark loaded days later). Replacements and
+     * reactivations keep their outbox rules (rule 8) when they are fresh.
+     */
+    private void enqueueIfFresh(UUID companyId, UUID siteId, UUID deviationId, DeviationType type, Instant occurredAt, Instant now) {
+        if (!type.isPushEligible()) return;
+        if (policy.freshForPush(occurredAt, now)) {
+            notifications.enqueue(companyId, siteId, deviationId, type.name(), occurredAt);
+        } else {
+            // The operator must be able to tell "no push because it was stale" from a lost push (no personal data logged).
+            org.slf4j.LoggerFactory.getLogger(DeviationService.class)
+                    .info("Deviation {} {} recorded without push: detected after the freshness window", deviationId, type);
+        }
     }
 
     private void retract(UUID companyId, ExistingDeviation deviation, Instant now) {
@@ -363,7 +386,7 @@ public class DeviationService {
         if (deviation.classification() != null && hadMotive) throw ApiException.conflict("MOTIVE_LOCKED", "The reason is fixed once the deviation is classified");
         boolean health = "SALUD".equals(category);
         if (!health && !Set.of("TRANSPORTE", "EMERGENCIA", "OTRA").contains(category)) throw ApiException.invalid("Unknown motive category");
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         if (health) {
             var encrypted = encryption.encryptHealth(text);
             jdbc.update("UPDATE deviations SET motive_category=?,motive_text=NULL,motive_ciphertext=?,motive_iv=?,motive_cipher_key_id=?,motive_author_account_id=?,motive_created_at=?,motive_purged_at=NULL,classification=NULL,updated_at=? WHERE id=? AND company_id=?",
@@ -388,7 +411,7 @@ public class DeviationService {
             throw ApiException.invalid("A correction reason is required when changing a classification");
         }
         if (!Set.of("JUSTIFICADO", "NO_JUSTIFICADO").contains(classification)) throw ApiException.invalid("Unknown classification");
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         jdbc.update("UPDATE deviations SET classification=?,updated_at=? WHERE id=? AND company_id=?", classification, timestamp(now), deviationId.toString(), scope.companyId().toString());
         jdbc.update("INSERT INTO deviation_audits(id,company_id,deviation_id,change_type,before_classification,after_classification,actor_account_id,audit_reason,created_at) VALUES(?, ?, ?, 'CLASSIFICATION_CHANGED', ?, ?, ?, ?, ?)",
                 UUID.randomUUID().toString(), scope.companyId().toString(), deviationId.toString(), deviation.classification(), classification, scope.accountId().toString(),
@@ -467,6 +490,7 @@ public class DeviationService {
     private record JornadaGeofence(BigDecimal latitude, BigDecimal longitude, Integer radiusMeters) { }
     private record OutsideMarkCandidate(UUID id, String locationStatus, BigDecimal latitude, BigDecimal longitude, BigDecimal accuracyMeters) {
         boolean isUnknownLocation() { return "SIN_UBICACION".equals(locationStatus); }
+        boolean isPendingLocation() { return "PENDIENTE".equals(locationStatus); }
     }
     private record DeviationRow(UUID id, UUID employeeId, String classification, String motiveCategory, Instant motiveCreatedAt) { }
     private record Cursor(Instant occurredAt, String filters, UUID id) { }

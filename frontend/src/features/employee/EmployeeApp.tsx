@@ -21,6 +21,10 @@ function markFailureMessage(reason: unknown): string {
     return 'El servidor no respondió a tiempo. La marca puede no haberse registrado: tocá Actualizar para ver el estado o reintentá la misma acción.'
   }
   if (reason instanceof Error && reason.name === 'NetworkError') return `${reason.message} La marca no fue confirmada; podés reintentar.`
+  // A deploy restarts the backend behind the proxy; the pending attempt keeps its Idempotency-Key, so retrying is safe.
+  if (reason instanceof ApiError && reason.status === 503) {
+    return 'El sistema se está actualizando o no está disponible por un momento. La marca puede no haberse registrado: esperá un minuto y reintentá la misma acción, o tocá Actualizar para ver el estado.'
+  }
   if (reason instanceof ApiError && reason.code === 'RETRYABLE_TRANSACTION_CONFLICT') return 'La marca no se registró porque el servidor estaba ocupado. Reintentá la misma acción.'
   if (reason instanceof ApiError && reason.code && STALE_MARK_CODES.has(reason.code)) return 'La jornada cambió y esa marca ya no corresponde. Te mostramos el estado actual del servidor.'
   return reason instanceof Error ? reason.message : 'La marca no fue confirmada. Reintentá la misma acción.'

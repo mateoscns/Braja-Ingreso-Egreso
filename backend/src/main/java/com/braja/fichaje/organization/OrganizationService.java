@@ -19,11 +19,17 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
+import java.time.Clock;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -35,16 +41,19 @@ public class OrganizationService {
     private final JdbcTemplate jdbc;
     private final ScopeService scopes;
     private final PasswordEncoder passwords;
+    private final Clock clock;
 
-    public OrganizationService(JdbcTemplate jdbc, ScopeService scopes, PasswordEncoder passwords) {
+    public OrganizationService(JdbcTemplate jdbc, ScopeService scopes, PasswordEncoder passwords, Clock clock) {
         this.jdbc = jdbc;
         this.scopes = scopes;
         this.passwords = passwords;
+        this.clock = clock;
     }
 
     /** Creates the site and its first location audit atomically when the initial configuration differs from defaults. */
     @Transactional
     public SiteView createSite(UUID companyId, UUID actorAccountId, SiteInput input) {
+        requireRegionTimeZone(input.timeZone());
         validateSiteCoordinates(input.latitude(), input.longitude());
         validateLocationSource(input.locationSource());
         requireSourceForNewCenter(input.latitude() != null, input.locationSource());
@@ -60,9 +69,25 @@ public class OrganizationService {
         return new SiteView(siteId, name, input.timeZone(), input.latitude(), input.longitude(), radiusMeters);
     }
 
+    /**
+     * D-20261102-05: a site zone is an Area/Location region id of the IANA database, written exactly as listed there.
+     * A fixed offset (-03:00, Z, UTC+3, GMT-3) and the offset-only ids (UTC, GMT, Etc/GMT+3) have no daylight saving rules
+     * of a place; ZoneId.of accepted them (2026-11-02, campaign #72 stored "-03:00").
+     */
+    static void requireRegionTimeZone(String timeZone) {
+        if (!isRegionTimeZone(timeZone)) throw ApiException.invalid("timeZone must be a valid IANA time zone");
+    }
+
+    /** The one check of D-20261102-05, shared with the first-ADMIN bootstrap. */
+    public static boolean isRegionTimeZone(String timeZone) {
+        return timeZone != null && timeZone.contains("/") && !timeZone.startsWith("Etc/")
+                && java.time.ZoneId.getAvailableZoneIds().contains(timeZone);
+    }
+
     @Transactional
     public SiteView updateSiteLocation(UUID companyId, UUID actorAccountId, UUID siteId, SiteLocationInput input) {
         validateSiteLocation(input);
+        Set<String> notStarted = lockNotStartedJornadas(companyId, siteId);
         SiteState before = jdbc.query("SELECT name,time_zone,latitude,longitude,geofence_radius_meters FROM sites WHERE id=? AND company_id=? FOR UPDATE",
                 rs -> rs.next() ? new SiteState(rs.getString("name"), rs.getString("time_zone"), rs.getBigDecimal("latitude"),
                         rs.getBigDecimal("longitude"), rs.getInt("geofence_radius_meters")) : null,
@@ -74,11 +99,78 @@ public class OrganizationService {
         if (coordinatesChanged || before.radiusMeters() != input.geofenceRadiusMeters()) {
             jdbc.update("UPDATE sites SET latitude=?,longitude=?,geofence_radius_meters=? WHERE id=? AND company_id=?",
                     input.latitude(), input.longitude(), input.geofenceRadiusMeters(), siteId.toString(), companyId.toString());
+            notStarted.addAll(notStartedJornadasDeclaredMeanwhile(companyId, siteId, localToday(before.timeZone())));
+            refreezeGeofence(companyId, notStarted, input);
             recordSiteLocationAudit(companyId, siteId, actorAccountId, before.latitude(), before.longitude(), before.radiusMeters(),
                     input.latitude(), input.longitude(), input.geofenceRadiusMeters(),
                     coordinatesChanged && input.latitude() != null ? input.locationSource() : null);
         }
         return new SiteView(siteId, before.name(), before.timeZone(), input.latitude(), input.longitude(), input.geofenceRadiusMeters());
+    }
+
+    /** A jornada not started yet: NO_INGRESO and no mark ever (next_sequence is still 1; a voided mark keeps it moved). */
+    private static final String NOT_STARTED = "state='NO_INGRESO' AND next_sequence=1 "
+            + "AND NOT EXISTS (SELECT 1 FROM mark_events m WHERE m.company_id=jornadas.company_id AND m.jornada_id=jornadas.id)";
+    private static final int ID_CHUNK = 500;
+
+    /**
+     * D-20261102-01: the site's jornadas not started yet, dated today or later in the site's zone, take the new fence. They are
+     * locked here, by primary key and before the site row: a mark or the absence job holds a jornada and then takes the site row
+     * in share mode through the foreign key of the deviation it inserts, so holding the site and then waiting for a jornada
+     * would deadlock with them. Two site edits lock in the same id order. The locking read sees the latest row, so a jornada
+     * started in the meantime drops out.
+     */
+    private Set<String> lockNotStartedJornadas(UUID companyId, UUID siteId) {
+        String timeZone = jdbc.query("SELECT time_zone FROM sites WHERE id=? AND company_id=?", rs -> rs.next() ? rs.getString("time_zone") : null,
+                siteId.toString(), companyId.toString());
+        Set<String> locked = new LinkedHashSet<>();
+        if (timeZone == null) return locked;
+        List<String> candidates = jdbc.queryForList("SELECT id FROM jornadas WHERE company_id=? AND site_id=? AND local_date>=? AND " + NOT_STARTED
+                + " ORDER BY id", String.class, companyId.toString(), siteId.toString(), localToday(timeZone));
+        for (int from = 0; from < candidates.size(); from += ID_CHUNK) {
+            List<String> chunk = candidates.subList(from, Math.min(from + ID_CHUNK, candidates.size()));
+            List<Object> args = new ArrayList<>();
+            args.add(companyId.toString());
+            args.addAll(chunk);
+            locked.addAll(jdbc.queryForList("SELECT id FROM jornadas WHERE company_id=? AND id IN (" + placeholders(chunk.size()) + ") AND "
+                    + NOT_STARTED + " ORDER BY id FOR UPDATE", String.class, args.toArray()));
+        }
+        return locked;
+    }
+
+    /**
+     * A jornada declared between the read above and the site lock froze the previous fence; the site lock now keeps any other
+     * declaration out. SKIP LOCKED never waits while the site row is held (see lockNotStartedJornadas): a jornada that another
+     * transaction holds at this instant keeps the previous fence (documented in ESPECIFICACION.md).
+     */
+    private List<String> notStartedJornadasDeclaredMeanwhile(UUID companyId, UUID siteId, LocalDate today) {
+        return jdbc.queryForList("SELECT id FROM jornadas WHERE company_id=? AND site_id=? AND local_date>=? AND " + NOT_STARTED + " FOR UPDATE SKIP LOCKED",
+                String.class, companyId.toString(), siteId.toString(), today);
+    }
+
+    /** Same shape as a declaration's snapshot: no center means no radius either (chk_jornada_site_geofence_snapshot). */
+    private void refreezeGeofence(UUID companyId, Set<String> jornadaIds, SiteLocationInput input) {
+        List<String> ids = new ArrayList<>(jornadaIds);
+        Integer radius = input.latitude() == null ? null : input.geofenceRadiusMeters();
+        for (int from = 0; from < ids.size(); from += ID_CHUNK) {
+            List<String> chunk = ids.subList(from, Math.min(from + ID_CHUNK, ids.size()));
+            List<Object> args = new ArrayList<>();
+            args.add(input.latitude());
+            args.add(input.longitude());
+            args.add(radius);
+            args.add(companyId.toString());
+            args.addAll(chunk);
+            jdbc.update("UPDATE jornadas SET site_geofence_latitude_snapshot=?,site_geofence_longitude_snapshot=?,site_geofence_radius_snapshot=? "
+                    + "WHERE company_id=? AND id IN (" + placeholders(chunk.size()) + ")", args.toArray());
+        }
+    }
+
+    private static String placeholders(int count) {
+        return String.join(",", Collections.nCopies(count, "?"));
+    }
+
+    private LocalDate localToday(String timeZone) {
+        return clock.instant().atZone(ZoneId.of(timeZone)).toLocalDate();
     }
 
     public SiteLocationAuditResponse siteLocationAudit(UUID companyId, UUID siteId) {
@@ -160,9 +252,9 @@ public class OrganizationService {
         UUID accountId;
         boolean mustChange;
         if (existing.isEmpty()) {
-            if (input.temporaryPassword() == null || input.temporaryPassword().length() < 12 || input.temporaryPassword().length() > 256) {
-                throw ApiException.invalid("A new account requires a temporary password of at least 12 characters");
-            }
+            // D-20261102-04: 12 characters to 72 UTF-8 bytes; above 72 bytes is PASSWORD_TOO_LONG.
+            com.braja.fichaje.security.AccountService.requireStorablePassword(input.temporaryPassword(),
+                    "A new account requires a temporary password of at least 12 characters");
             accountId = UUID.randomUUID();
             mustChange = true;
             jdbc.update("INSERT INTO accounts(id,dni_normalized,dni_display,password_hash,must_change_password,active,created_at,updated_at) VALUES(?,?,?,?,TRUE,TRUE,?,?)",
@@ -269,16 +361,60 @@ public class OrganizationService {
         }
     }
 
+    /** A schedule_templates row before its blocks are attached. */
+    public record TemplateRow(UUID id, UUID siteId, String name, int breakfastLimitMinutes, int lunchLimitMinutes, boolean active) { }
+
+    /** An employees row (with its account's DNI and password flag) before its sites are attached. */
+    public record EmployeeRow(UUID id, String displayName, int toleranceMinutes, boolean active, String dni, boolean mustChangePassword) { }
+
     public TemplateView templateView(UUID companyId, UUID id, UUID siteId, String name, int breakfast, int lunch, boolean active) {
-        List<BlockInput> blocks = jdbc.query("SELECT start_day_offset,starts_at,ends_at,end_day_offset FROM template_blocks WHERE template_id=? AND company_id=? ORDER BY sequence_number",
-                (rs, row) -> new BlockInput(rs.getInt("start_day_offset"), rs.getTime("starts_at").toLocalTime(), rs.getTime("ends_at").toLocalTime(), rs.getInt("end_day_offset")), id.toString(), companyId.toString());
-        return new TemplateView(id, siteId, name, blocks, breakfast, lunch, active);
+        return templateViews(companyId, List.of(new TemplateRow(id, siteId, name, breakfast, lunch, active))).getFirst();
+    }
+
+    /**
+     * Attaches the blocks of every template with one IN query, never one per template (CLAUDE.md rule 17, #75). The ids are
+     * templates of one company, so the IN list is bounded by that company's templates.
+     */
+    public List<TemplateView> templateViews(UUID companyId, List<TemplateRow> templates) {
+        java.util.Map<UUID, List<BlockInput>> blocks = new java.util.HashMap<>();
+        if (!templates.isEmpty()) {
+            List<Object> args = new java.util.ArrayList<>();
+            args.add(companyId.toString());
+            templates.forEach(template -> args.add(template.id().toString()));
+            jdbc.query("SELECT template_id,start_day_offset,starts_at,ends_at,end_day_offset FROM template_blocks WHERE company_id=? AND template_id IN ("
+                            + placeholders(templates.size()) + ") ORDER BY template_id,sequence_number",
+                    rs -> {
+                        blocks.computeIfAbsent(UUID.fromString(rs.getString("template_id")), key -> new java.util.ArrayList<>())
+                                .add(new BlockInput(rs.getInt("start_day_offset"), rs.getTime("starts_at").toLocalTime(), rs.getTime("ends_at").toLocalTime(), rs.getInt("end_day_offset")));
+                    }, args.toArray());
+        }
+        return templates.stream().map(template -> new TemplateView(template.id(), template.siteId(), template.name(),
+                blocks.getOrDefault(template.id(), List.of()), template.breakfastLimitMinutes(), template.lunchLimitMinutes(), template.active())).toList();
     }
 
     public EmployeeView employeeView(UUID companyId, UUID employeeId, String name, int tolerance, boolean active, String dni, boolean mustChange) {
-        List<UUID> siteIds = jdbc.query("SELECT site_id FROM employee_sites WHERE company_id=? AND employee_id=? ORDER BY site_id",
-                (rs, row) -> UUID.fromString(rs.getString(1)), companyId.toString(), employeeId.toString());
-        return new EmployeeView(employeeId, name, dni, siteIds, tolerance, active, mustChange);
+        return employeeViews(companyId, List.of(new EmployeeRow(employeeId, name, tolerance, active, dni, mustChange))).getFirst();
+    }
+
+    /**
+     * Attaches the sites of every employee with one IN query, never one per employee (CLAUDE.md rule 17, #75). The ids are
+     * employees of one company, so the IN list is bounded by that company's employees.
+     */
+    public List<EmployeeView> employeeViews(UUID companyId, List<EmployeeRow> employees) {
+        java.util.Map<UUID, List<UUID>> sites = new java.util.HashMap<>();
+        if (!employees.isEmpty()) {
+            List<Object> args = new java.util.ArrayList<>();
+            args.add(companyId.toString());
+            employees.forEach(employee -> args.add(employee.id().toString()));
+            jdbc.query("SELECT employee_id,site_id FROM employee_sites WHERE company_id=? AND employee_id IN ("
+                            + placeholders(employees.size()) + ") ORDER BY employee_id,site_id",
+                    rs -> {
+                        sites.computeIfAbsent(UUID.fromString(rs.getString("employee_id")), key -> new java.util.ArrayList<>())
+                                .add(UUID.fromString(rs.getString("site_id")));
+                    }, args.toArray());
+        }
+        return employees.stream().map(employee -> new EmployeeView(employee.id(), employee.displayName(), employee.dni(),
+                sites.getOrDefault(employee.id(), List.of()), employee.toleranceMinutes(), employee.active(), employee.mustChangePassword())).toList();
     }
 
     private EmployeeView loadEmployee(UUID companyId, UUID employeeId) {
@@ -296,5 +432,5 @@ public class OrganizationService {
         jdbc.update("INSERT INTO employee_sites(company_id,employee_id,site_id,created_at) VALUES(?,?,?,?)", companyId.toString(), employeeId.toString(), siteId.toString(), now());
     }
 
-    private static java.sql.Timestamp now() { return java.sql.Timestamp.from(Instant.now()); }
+    private java.sql.Timestamp now() { return java.sql.Timestamp.from(clock.instant()); }
 }

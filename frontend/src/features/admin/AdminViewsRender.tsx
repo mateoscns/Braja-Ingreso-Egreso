@@ -3,6 +3,7 @@ import { Empty, FormField, Loading, PageMessage, Panel } from '../../app/ui'
 import type { BulkDeclarationResult, BulkSkipReason, Deviation, Employee, Jornada, JornadaAudit, JornadaAuditEntry, JornadaSummary, Mark, MarkAction, Site, SiteCoordinates, Template, TemplateAssignment, TemplateBlock } from '../../shared/api/types'
 import { formatBlock, formatDateTime, formatLocalDate, jornadaStateLabel } from '../../shared/format'
 import type { SiteLocationErrorKind } from './siteLocation'
+import { PASSWORD_LENGTH_HINT, PASSWORD_MAX_CHARACTERS } from '../../shared/password'
 
 const stateLabel = jornadaStateLabel
 /** L30: cancel and void reasons are kept as free-text audit, so the form warns against health data. */
@@ -181,7 +182,7 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, name
           </div>}
         </fieldset>
         <FormField label="Radio de la sede (metros)" hint="Ingresá un valor entero entre 50 y 500 metros. Valor inicial: 100 m."><input type="number" required min="50" max="500" step="1" value={createRadiusMeters} onChange={(event) => onCreateRadiusMetersChange(event.target.value)} /></FormField>
-        <FormField label="Zona horaria" hint="Usá un identificador IANA, como America/Argentina/Buenos_Aires."><input required maxLength={120} value={timeZone} onChange={(event) => onTimeZoneChange(event.target.value)} placeholder="America/Argentina/Buenos_Aires" /></FormField>
+        <FormField label="Zona horaria" hint="Usá la zona por región de la base IANA, como America/Argentina/Buenos_Aires (no EST ni -03:00)."><input required maxLength={64} value={timeZone} onChange={(event) => onTimeZoneChange(event.target.value)} placeholder="America/Argentina/Buenos_Aires" /></FormField>
         <button className="button button-primary" disabled={busy || locating}>{busy ? 'Guardando…' : 'Crear sede'}</button>
       </form></Panel>
     </div>
@@ -269,7 +270,7 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
       <FormField label="Nombre y apellido"><input required maxLength={160} value={displayName} onChange={(event) => onDisplayNameChange(event.target.value)} /></FormField>
       <FormField label="DNI"><input required minLength={7} maxLength={12} inputMode="numeric" value={dni} onChange={(event) => onDniChange(event.target.value)} /></FormField>
       <FormField label="Tolerancia individual (minutos)"><input type="number" min="0" max="240" required value={tolerance} onChange={(event) => onToleranceChange(event.target.value)} /></FormField>
-      <FormField label="Contraseña provisoria" hint="Solo hace falta si el DNI todavía no tiene cuenta."><input type="password" autoComplete="new-password" minLength={12} maxLength={256} value={temporaryPassword} onChange={(event) => onTemporaryPasswordChange(event.target.value)} /></FormField>
+      <FormField label="Contraseña provisoria" hint={`Solo hace falta si el DNI todavía no tiene cuenta. ${PASSWORD_LENGTH_HINT}`}><input type="password" autoComplete="new-password" minLength={12} maxLength={PASSWORD_MAX_CHARACTERS} value={temporaryPassword} onChange={(event) => onTemporaryPasswordChange(event.target.value)} /></FormField>
       <fieldset className="field field-wide"><legend className="field-label">Sedes habilitadas</legend><div className="check-grid">{sites.map((site) => <label key={site.id}><input type="checkbox" checked={siteIds.includes(site.id)} onChange={() => onToggleSite(site.id)} />{site.name}</label>)}</div>{sites.length === 0 && <span className="field-hint">{loadError ? 'Reintentá la carga antes de dar de alta un empleado.' : loading ? 'Cargando sedes…' : 'Primero creá una sede.'}</span>}</fieldset>
       <div className="field-wide"><button className="button button-primary" disabled={busy || loading || Boolean(loadError) || siteIds.length === 0}>{busy ? 'Guardando…' : 'Crear empleado'}</button></div>
     </form></Panel>

@@ -24,11 +24,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.Instant;
+import java.time.Clock;
 import java.util.*;
 
 @Service
 public class AccountService {
+    /** BCrypt reads only the first 72 bytes of a password; any byte after them is silently ignored. */
+    public static final int MAX_PASSWORD_BYTES = 72;
+    public static final int MIN_PASSWORD_LENGTH = 12;
     private static final Logger LOGGER = LoggerFactory.getLogger(AccountService.class);
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
@@ -41,13 +44,15 @@ public class AccountService {
     private final BrajaProperties properties;
     private final LoginThrottleService throttle;
     private final ClientAddressResolver clientAddressResolver;
+    private final Clock clock;
 
     public AccountService(JdbcTemplate jdbc, AuthenticationManager authenticationManager, PasswordEncoder passwordEncoder,
                           CurrentActor currentActor, SessionAuthenticationStrategy sessionStrategy,
                           SecurityContextRepository contextRepository, CsrfTokenRepository csrfRepository,
                           BrajaProperties properties, LoginThrottleService throttle, ClientAddressResolver clientAddressResolver,
-                          PlatformTransactionManager transactionManager) {
+                          PlatformTransactionManager transactionManager, Clock clock) {
         this.jdbc = jdbc;
+        this.clock = clock;
         this.transactions = new TransactionTemplate(transactionManager);
         this.authenticationManager = authenticationManager;
         this.passwordEncoder = passwordEncoder;
@@ -149,12 +154,29 @@ public class AccountService {
     }
 
     /**
+     * Every password the API stores is 12 characters to {@value #MAX_PASSWORD_BYTES} UTF-8 bytes (D-20261102-04): a longer
+     * one would share its BCrypt hash with its 72-byte prefix (2026-11-02, campaign #72: the API documented 256 characters).
+     * Too short is VALIDATION_ERROR with {@code tooShortDetail}; too long is PASSWORD_TOO_LONG. Login is not checked here.
+     */
+    public static void requireStorablePassword(String password, String tooShortDetail) {
+        if (password == null || password.length() < MIN_PASSWORD_LENGTH) throw ApiException.invalid(tooShortDetail);
+        if (exceedsPasswordBytes(password)) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "PASSWORD_TOO_LONG", "The password must not exceed 72 bytes in UTF-8");
+        }
+    }
+
+    /** True when BCrypt would ignore part of the password. */
+    public static boolean exceedsPasswordBytes(String password) {
+        return password.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_PASSWORD_BYTES;
+    }
+
+    /**
      * The current password counts against the same DNI throttle as login (2026-10-27: it had no attempt limit), and a
      * wrong one answers {@code CURRENT_PASSWORD_INVALID} so the client does not mistake it for an expired session.
      * Like login, the throttle and BCrypt run outside the transaction that writes the new password.
      */
     public void changePassword(UUID accountId, String currentPassword, String newPassword, String currentSessionId) {
-        if (newPassword == null || newPassword.length() < 12 || newPassword.length() > 256) throw ApiException.invalid("New password must contain between 12 and 256 characters");
+        requireStorablePassword(newPassword, "New password must contain between 12 characters and 72 bytes in UTF-8");
         AttemptState attempt = new AttemptState(null);
         try {
             AccountCredentials account = jdbc.queryForObject("SELECT password_hash,dni_display,dni_normalized FROM accounts WHERE id=? AND active=TRUE",
@@ -170,7 +192,7 @@ public class AccountService {
             attempt.held = false;
             String newHash = passwordEncoder.encode(newPassword);
             transactions.executeWithoutResult(status -> {
-                jdbc.update("UPDATE accounts SET password_hash=?, must_change_password=FALSE, updated_at=? WHERE id=?", newHash, Instant.now(), accountId.toString());
+                jdbc.update("UPDATE accounts SET password_hash=?, must_change_password=FALSE, updated_at=? WHERE id=?", newHash, clock.instant(), accountId.toString());
                 jdbc.update("DELETE FROM SPRING_SESSION WHERE PRINCIPAL_NAME=? AND SESSION_ID<>?", account.principalName(), currentSessionId);
             });
         } catch (EmptyResultDataAccessException ex) {

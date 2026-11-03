@@ -115,6 +115,27 @@ describe('SitesView location administration API', () => {
     expect(post).toHaveBeenCalledWith('/sites', expect.objectContaining({ latitude: null, longitude: null, geofenceRadiusMeters: 100 }))
   })
 
+  it('rejects an abbreviation or a fixed offset as the site zone before calling the server, and sends a region id', async () => {
+    const created: Site = { id: 'site-new', name: 'Local Centro', timeZone: 'America/Argentina/Cordoba', latitude: null, longitude: null, geofenceRadiusMeters: 100 }
+    vi.spyOn(api, 'get').mockResolvedValue([] as never)
+    const post = vi.spyOn(api, 'post').mockResolvedValue(created as never)
+    render(<SitesView />)
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre de la sede' }), { target: { value: 'Local Centro' } })
+    const zone = screen.getByRole('textbox', { name: /Zona horaria/ })
+
+    for (const invalid of ['EST', '-03:00']) {
+      fireEvent.change(zone, { target: { value: invalid } })
+      fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
+      expect(await screen.findByText('Usá una zona horaria por región, como America/Argentina/Buenos_Aires. Las abreviaturas (EST, ART), UTC y los desfases fijos (-03:00, GMT-3, Etc/GMT+3) no se aceptan.')).toBeInTheDocument()
+    }
+    expect(post).not.toHaveBeenCalled()
+
+    fireEvent.change(zone, { target: { value: 'America/Argentina/Cordoba' } })
+    fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
+    await screen.findByText('Sede creada.')
+    expect(post).toHaveBeenCalledWith('/sites', expect.objectContaining({ timeZone: 'America/Argentina/Cordoba' }))
+  })
+
   it('creates a site from manually entered coordinates after map review', async () => {
     const created: Site = { id: 'site-new', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: -34.603722, longitude: -58.381592, geofenceRadiusMeters: 100 }
     vi.spyOn(api, 'get').mockResolvedValue([] as never)

@@ -1,6 +1,6 @@
 # Arquitectura v1 — límites e invariantes
 
-> **Nota (2026-10-28, verificada sobre `main` en `f3c9635`):** la fuente de verdad de la estructura del código es [CLAUDE.md §4](../CLAUDE.md). Esta página describía módulos `identity`, `scheduling`, `privacy`, `common` y `device/location` que nunca existieron con esos nombres; las tablas de abajo ya usan los paquetes y carpetas reales. La organización por funcionalidad con `JdbcTemplate` es D-20261019-03.
+> **Nota (2026-10-28, verificada sobre `main` en `f3c9635`; revisada el 2026-11-02 sobre la rama de integración de la campaña, PRs #84 a #94):** la fuente de verdad de la estructura del código es [CLAUDE.md §4](../CLAUDE.md). Esta página describía módulos `identity`, `scheduling`, `privacy`, `common` y `device/location` que nunca existieron con esos nombres; las tablas de abajo ya usan los paquetes y carpetas reales. La organización por funcionalidad con `JdbcTemplate` es D-20261019-03.
 
 Aplicación modular de una sola API y una PWA. Las reglas de acceso, jornada, privacidad y notificaciones viven en el servidor; la interfaz refleja su estado y no lo sustituye.
 
@@ -10,12 +10,13 @@ Paquete raíz: `com.braja.fichaje`.
 
 | Paquete | Es responsable de | No debe hacer |
 | --- | --- | --- |
-| `security` | Cuentas globales por DNI, contraseñas, sesiones, CSRF, membresías y rol de cada empresa (`ScopeService`); límites de login; restablecimiento de contraseña por el `ADMIN`; cifrado de texto `SALUD` (`EncryptionService`) y purga a 90 días de ese texto y de las coordenadas (`PrivacyRetentionScheduler`). | Aceptar empresa o rol enviados por el cliente como autoridad. Escribir contenido sensible en logs, métricas o errores. |
+| `security` | Cuentas globales por DNI, contraseñas, sesiones, CSRF, membresías y rol de cada empresa (`ScopeService`); límites de login; restablecimiento de contraseña por el `ADMIN`; cifrado de texto `SALUD` (`EncryptionService`), purga a 90 días de ese texto y de las coordenadas y purga a un día de los contadores de login sin bloqueo vigente (`PrivacyRetentionScheduler`, D-20261102-08). | Aceptar empresa o rol enviados por el cliente como autoridad. Escribir contenido sensible en logs, métricas o errores. |
 | `organization` | Sedes, zona horaria, cuentas/membresías de empleado, tolerancia vigente, plantillas por sede y su asignación a cada empleado con fecha de inicio. | Cambiar el horario o la tolerancia de jornadas ya declaradas. |
 | `timekeeping` | Declaración de jornadas (una o por lote) con copia inmutable de horario y tolerancia, cancelación, estado de jornada, marcas, secuencia, idempotencia, ubicación posterior y su ventana de 30 s, marcas olvidadas, correcciones y anulaciones auditadas, historial de cambios de la jornada y job de ausencias y `MARCA_FALTANTE`. | Crear recurrencia semanal o jornadas implícitas. Esperar GPS o usar la hora del dispositivo como hora oficial. |
-| `deviations` | Detección de ausencia, llegadas, egresos y pausas; motivos; clasificación por ADMIN; auditoría. | Emitir un segundo evento cuando `SIN_INGRESO` pasa a `LLEGADA_TARDE`. |
+| `deviations` | Detección de ausencia, llegadas, egresos y pausas; geocerca (`GeofencePolicy`); motivos; clasificación por ADMIN; auditoría. `DeviationPolicy` fija la ventana de 7 días locales de los jobs y el plazo de 2 h para que un desvío avise por push (D-20261102-02, D-20261102-03). | Emitir un segundo evento cuando `SIN_INGRESO` pasa a `LLEGADA_TARDE`. |
 | `notifications` | Outbox MySQL, ventanas por empresa, lease, reintentos y suscripciones Web Push. | Filtrar datos de motivo, coordenadas o salud en el push. |
-| `api` y `config` | Errores Problem Details (`ApiException`, `ApiExceptionHandler`), validación de rangos de fechas (`DateRanges`), configuración `braja.*` (`BrajaProperties`) y encendido de los jobs. | Contener reglas de negocio de los módulos. |
+| `api` y `config` | Errores Problem Details con `code` y `traceId` en toda respuesta 4xx y 5xx (`ApiException`, `ApiExceptionHandler`, `Problem`, `ProblemCodes`, `ProblemErrorController` para `/error`; D-20261102-11), limpieza de texto hostil (`HostileText`, D-20261102-13), validación de rangos de fechas (`DateRanges`), configuración `braja.*` (`BrajaProperties`), el único reloj del servidor (`TimeConfiguration`, un bean `Clock`) y encendido de los jobs. | Contener reglas de negocio de los módulos. |
+| `ops` | `GET /api/v1/health` (`HealthController`): anónimo, sin datos; 200 si MySQL responde y 503 `DATABASE_UNAVAILABLE` si no. Lo usan `deploy/deploy.sh` y el healthcheck del contenedor. | Exponer datos, configuración o métricas; agregar actuator. |
 
 La bandeja de desvíos (`GET /inbox`) se sirve desde `deviations` (`DeviationController`); `notifications` solo envía avisos push.
 
@@ -26,7 +27,7 @@ Las dependencias apuntan desde la interfaz de cada módulo hacia sus contratos d
 ### Registrar una marca
 
 1. Resolver principal, empresa activa y membresía desde la sesión.
-2. En una transacción MySQL, bloquear la cuenta, la membresía y la fila de la jornada (`FOR UPDATE`) y recién entonces leer el instante de recepción del reloj del servidor (desde el 2026-10-27, #46: antes se leía antes de esperar el bloqueo y una marca con secuencia mayor podía tener hora menor).
+2. En una transacción MySQL con aislamiento READ COMMITTED (D-20261102-15: con REPEATABLE READ el historial vacío tomaba gap locks y las primeras marcas se trababan entre jornadas), bloquear la cuenta, la membresía y la fila de la jornada (`FOR UPDATE`) y recién entonces leer el instante de recepción del reloj del servidor (desde el 2026-10-27, #46: antes se leía antes de esperar el bloqueo y una marca con secuencia mayor podía tener hora menor).
 3. Buscar la clave de idempotencia del actor. La clave es única por cuenta; si ya existe con el mismo hash canónico de jornada y acción, devolver el estado actual de esa marca (incluida una corrección o anulación posterior del `ADMIN`); si cambia el contenido, responder `409`.
 4. Volver a validar autorización y estado, rechazar una hora anterior a la última marca guardada (`409 INVALID_MARK_ORDER`), incrementar la secuencia y aplicar una única transición.
 5. Guardar marca, estado y desvío en la misma transacción. Insertar en outbox con la clave estable del desvío cuando corresponda.
@@ -55,6 +56,7 @@ La clave de agrupación es empresa más una ventana fija de cinco minutos que co
 - Coordenadas exactas y texto de salud vencen a los 90 días. Un trabajo de purga elimina el material y el contenido cifrado asociado. Retención de backups y de motivos no sanitarios sigue en [PENDIENTES.md](PENDIENTES.md).
 - El service worker cachea solo la shell y recursos estáticos versionados; excluye `/api/`, rutas autenticadas y acciones de marca. La interfaz solo indica que una marca se guardó después de recibir la respuesta del servidor.
 - Las pruebas de locks, restricciones e idempotencia usan MySQL 8 mediante Testcontainers. H2 o una base en memoria no sustituye esa puerta.
+- Producción corre con la pila de `deploy/` (D-20261102-12): Docker Compose con MySQL 8.4 sin puerto publicado, el backend con sus jobs en una sola imagen (`backend/Dockerfile`) y Caddy como único punto de entrada (80/443), que sirve la PWA, pasa `/api` al backend sin reescribir la ruta y responde en problem+json sus propios errores bajo `/api`. Los backups diarios se guardan 14 días; restaurar reemplaza toda la base. El runbook es [deploy/README.md](../deploy/README.md).
 
 ## Límites del frontend
 

@@ -8,7 +8,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.Timestamp;
-import java.time.Instant;
+import java.time.Clock;
 import java.util.List;
 import java.util.UUID;
 
@@ -25,14 +25,16 @@ public class PasswordResetService {
     private final PasswordEncoder passwordEncoder;
     private final TemporaryPasswordGenerator generator;
     private final LoginThrottleService throttle;
+    private final Clock clock;
 
     public PasswordResetService(JdbcTemplate jdbc, PlatformTransactionManager transactionManager, PasswordEncoder passwordEncoder,
-                                TemporaryPasswordGenerator generator, LoginThrottleService throttle) {
+                                TemporaryPasswordGenerator generator, LoginThrottleService throttle, Clock clock) {
         this.jdbc = jdbc;
         this.transactions = new TransactionTemplate(transactionManager);
         this.passwordEncoder = passwordEncoder;
         this.generator = generator;
         this.throttle = throttle;
+        this.clock = clock;
     }
 
     /**
@@ -59,7 +61,7 @@ public class PasswordResetService {
             if (!account.active() || !Boolean.TRUE.equals(employeeActive) || memberships.stream().noneMatch(MembershipRow::active)) {
                 throw ApiException.conflict("EMPLOYEE_INACTIVE", "An inactive employee cannot have the password reset");
             }
-            Timestamp now = Timestamp.from(Instant.now());
+            Timestamp now = Timestamp.from(clock.instant());
             jdbc.update("UPDATE accounts SET password_hash=?, must_change_password=TRUE, updated_at=? WHERE id=?", hash, now, accountId.toString());
             // Same principal as AccountService.changePassword: Spring Session stores dni_display (BrajaUserDetails).
             jdbc.update("DELETE FROM SPRING_SESSION WHERE PRINCIPAL_NAME=?", account.principalName());

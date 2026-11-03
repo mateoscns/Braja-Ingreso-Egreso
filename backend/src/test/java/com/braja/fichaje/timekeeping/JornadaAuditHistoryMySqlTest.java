@@ -304,8 +304,10 @@ class JornadaAuditHistoryMySqlTest {
 
         assertTrue(audit.get("truncated").asBoolean());
         assertEquals(500, audit.get("entries").size());
-        assertEquals("CREATED", audit.get("entries").get(0).get("changeType").asText());
-        assertEquals(now.plusSeconds(499), Instant.parse(audit.get("entries").get(499).get("changedAt").asText()));
+        // D-20261102-09: past the cap the newest 500 changes are kept, oldest first; the CREATED audit (oldest of 501) is dropped.
+        assertEquals("CLASSIFICATION_CHANGED", audit.get("entries").get(0).get("changeType").asText());
+        assertEquals(now.plusSeconds(1), Instant.parse(audit.get("entries").get(0).get("changedAt").asText()));
+        assertEquals(now.plusSeconds(500), Instant.parse(audit.get("entries").get(499).get("changedAt").asText()));
     }
 
     private void insertAccount(UUID account, String dni) {

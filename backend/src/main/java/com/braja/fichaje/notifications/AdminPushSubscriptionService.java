@@ -1,7 +1,7 @@
 package com.braja.fichaje.notifications;
 
 import com.braja.fichaje.config.BrajaProperties;
-import java.time.Instant;
+import java.time.Clock;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.security.access.AccessDeniedException;
@@ -14,15 +14,17 @@ public class AdminPushSubscriptionService {
     private final PushSubscriptionCipher cipher;
     private final PushEndpointValidator endpointValidator;
     private final BrajaProperties properties;
+    private final Clock clock;
 
     public AdminPushSubscriptionService(JdbcPushSubscriptionRepository repository,
                                         PushSubscriptionCipher cipher,
                                         PushEndpointValidator endpointValidator,
-                                        BrajaProperties properties) {
+                                        BrajaProperties properties, Clock clock) {
         this.repository = repository;
         this.cipher = cipher;
         this.endpointValidator = endpointValidator;
         this.properties = properties;
+        this.clock = clock;
     }
 
     @Transactional
@@ -34,7 +36,7 @@ public class AdminPushSubscriptionService {
         endpointValidator.validate(request);
         PushSubscriptionMaterial material = new PushSubscriptionMaterial(
                 request.endpoint(), request.keys().p256dh(), request.keys().auth());
-        return repository.upsert(companyId, adminAccountId, material, cipher, Instant.now());
+        return repository.upsert(companyId, adminAccountId, material, cipher, clock.instant());
     }
 
     @Transactional

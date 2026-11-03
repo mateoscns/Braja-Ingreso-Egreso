@@ -321,8 +321,50 @@ describe('ApiClient: autenticación no disponible', () => {
     await expect(new ApiClient().put('/session/password', { currentPassword: 'a', newPassword: 'b' })).rejects.toMatchObject({ status: 503, message })
   })
 
-  it('un 503 sin ese código conserva el mensaje genérico de conexión', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ status: 503 }), { status: 503, headers: { 'Content-Type': 'application/problem+json' } })))
+  it('a 503 SERVICE_UNAVAILABLE from the proxy during a deploy does not blame the connection and uses Retry-After', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ status: 503, code: 'SERVICE_UNAVAILABLE' }),
+      { status: 503, headers: { 'Content-Type': 'application/problem+json', 'Retry-After': '30' } })))
+    const failure = await new ApiClient().get('/x').catch((reason: unknown) => reason)
+    expect(failure).toMatchObject({ status: 503, code: 'SERVICE_UNAVAILABLE', retryAfterSeconds: 30,
+      message: 'El sistema se está actualizando o no está disponible por un momento. Probá de nuevo en un minuto.' })
+    expect((failure as Error).message).not.toMatch(/conexión/)
+  })
+
+  it('a 503 without a parseable body still says the system is unavailable, not the connection', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response('Service Unavailable', { status: 503, headers: { 'Content-Type': 'text/plain' } })))
+    await expect(new ApiClient().get('/x')).rejects.toMatchObject({
+      status: 503, message: 'El sistema se está actualizando o no está disponible por un momento. Probá de nuevo en unos minutos.'
+    })
+  })
+
+  it('a 500 keeps the generic message', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ status: 500 }), { status: 500, headers: { 'Content-Type': 'application/problem+json' } })))
     await expect(new ApiClient().get('/x')).rejects.toMatchObject({ message: 'No se pudo completar la operación. Revisá tu conexión y reintentá.' })
+  })
+})
+
+describe('ApiClient: codes of the production backend and proxy', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  const coded = (status: number, code: string) =>
+    new Response(JSON.stringify({ status, code, detail: 'internal detail' }), { status, headers: { 'Content-Type': 'application/problem+json' } })
+
+  it.each([
+    [409, 'EMPLOYEE_NOT_IN_SITE', 'Ese empleado no está asignado a esa sede. Agregale la sede desde Empleados y volvé a intentar.'],
+    [422, 'TEMPLATE_INVALID', 'La plantilla está inactiva y no se puede usar. Elegí otra plantilla o revisala en Plantillas.'],
+    [422, 'PASSWORD_TOO_LONG', 'La contraseña es demasiado larga: puede tener hasta 72 bytes. Las letras con tilde y la ñ ocupan 2 cada una.'],
+    [413, 'PAYLOAD_TOO_LARGE', 'Los datos enviados son demasiado grandes. Acortá los textos y volvé a intentar.']
+  ])('a %i %s has a specific message', async (status, code, message) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(coded(status, code)))
+    await expect(new ApiClient().get('/x')).rejects.toMatchObject({ message, code, status })
+  })
+
+  it('a 413 answered by the proxy without a body keeps the size message', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(null, { status: 413 })))
+    await expect(new ApiClient().get('/x')).rejects.toMatchObject({ status: 413, message: 'Los datos enviados son demasiado grandes. Acortá los textos y volvé a intentar.' })
+  })
+
+  it('a 422 with an unknown code keeps the generic validation message', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(coded(422, 'VALIDATION_ERROR')))
+    await expect(new ApiClient().get('/x')).rejects.toMatchObject({ message: 'Revisá los datos ingresados.' })
   })
 })

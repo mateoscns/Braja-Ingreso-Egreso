@@ -1,0 +1,73 @@
+# Production entry point (CLAUDE.md rule 34). One site: the PWA plus /api proxied to the backend.
+# BRAJA_DOMAIN comes from deploy/.env. A public name gets a Let's Encrypt certificate automatically;
+# "localhost" gets Caddy's internal CA (local verification only).
+{
+	admin localhost:2019
+	skip_install_trust
+}
+
+{$BRAJA_DOMAIN} {
+	root * /srv
+	# Static files only: /api is never compressed, so a response carrying a secret (the CSRF token) cannot be
+	# probed by its compressed length (BREACH).
+	@static not path /api /api/*
+	encode @static zstd gzip
+
+	# Deferred so they also replace whatever the backend sends. The CSP allows only same-origin scripts, styles,
+	# API calls, the service worker and the manifest: the PWA loads nothing from other origins (2026-11-02).
+	header {
+		defer
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		Permissions-Policy "geolocation=(self), camera=(), microphone=(), payment=(), usb=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		-Server
+		-X-Powered-By
+	}
+
+	# The API. No rewrite and no trailing-slash redirect: the path reaches the backend exactly as sent.
+	# Caddy overwrites X-Forwarded-For with the address it saw; the backend trusts only Caddy's fixed address
+	# (BRAJA_TRUSTED_PROXY_CIDRS, set by docker-compose.yml).
+	@api path /api /api/*
+	handle @api {
+		request_body {
+			max_size 1MB
+		}
+		reverse_proxy backend:8080
+	}
+
+	# Hashed build output: cache for a year. A missing asset is a plain 404, never index.html.
+	handle /assets/* {
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# Everything else is the SPA. index.html, sw.js and the manifest must always revalidate, or a phone keeps
+	# an old version; unknown paths fall back to index.html for client-side routing.
+	handle {
+		header Cache-Control "no-cache"
+		@icons path /favicon.svg /icon.svg /apple-touch-icon.png /icon-192.png /icon-512.png
+		header @icons Cache-Control "public, max-age=86400"
+		try_files {path} /index.html
+		file_server
+	}
+
+	# Errors Caddy itself produces under /api (backend down or restarting, body too large) keep the API's
+	# problem+json shape.
+	handle_errors {
+		@apiTooLarge expression `{http.request.uri.path}.startsWith("/api") && {err.status_code} == 413`
+		handle @apiTooLarge {
+			header Content-Type "application/problem+json"
+			respond `{"type":"about:blank","title":"Payload Too Large","status":413,"detail":"Request body too large","code":"PAYLOAD_TOO_LARGE","traceId":"{http.request.uuid}"}` 413
+		}
+		@apiError path /api /api/*
+		handle @apiError {
+			header Content-Type "application/problem+json"
+			header Retry-After "30"
+			respond `{"type":"about:blank","title":"Service Unavailable","status":503,"detail":"The service is unavailable; retry later","code":"SERVICE_UNAVAILABLE","traceId":"{http.request.uuid}"}` 503
+		}
+	}
+}

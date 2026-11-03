@@ -95,4 +95,34 @@ describe('pantallas de acceso', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('La contraseña actual no coincide.')
     await waitFor(() => expect(form).toHaveAttribute('aria-busy', 'false'))
   })
+
+  describe('new password limit: 72 UTF-8 bytes (BCrypt)', () => {
+    function submitNewPassword(onChange: () => Promise<void>, password: string) {
+      render(<PasswordChangeScreen onChange={onChange} onSignOut={vi.fn()} />)
+      fireEvent.change(screen.getByLabelText('Contraseña actual'), { target: { value: 'temporary-password' } })
+      fireEvent.change(screen.getByLabelText('Nueva contraseña'), { target: { value: password } })
+      fireEvent.change(screen.getByLabelText('Repetí la nueva contraseña'), { target: { value: password } })
+      fireEvent.click(screen.getByRole('button', { name: 'Guardar contraseña' }))
+    }
+
+    it('does not call the server with a 73-byte password that fits in 72 characters and explains the limit', async () => {
+      const onChange = vi.fn().mockResolvedValue(undefined)
+      submitNewPassword(onChange, `ñ${'a'.repeat(71)}`)
+      expect(await screen.findByRole('alert')).toHaveTextContent('La contraseña es demasiado larga: puede tener hasta 72 bytes. Las letras con tilde y la ñ ocupan 2 cada una.')
+      expect(onChange).not.toHaveBeenCalled()
+    })
+
+    it('sends a 72-byte password', async () => {
+      const onChange = vi.fn().mockResolvedValue(undefined)
+      submitNewPassword(onChange, 'ñ'.repeat(36))
+      await waitFor(() => expect(onChange).toHaveBeenCalledWith('temporary-password', 'ñ'.repeat(36)))
+    })
+
+    it('limits the new password fields to 72 characters and states the limit', () => {
+      render(<PasswordChangeScreen onChange={vi.fn()} onSignOut={vi.fn()} />)
+      expect(screen.getByLabelText('Nueva contraseña')).toHaveAttribute('maxlength', '72')
+      expect(screen.getByLabelText('Repetí la nueva contraseña')).toHaveAttribute('maxlength', '72')
+      expect(screen.getByText(/de 12 a 72 caracteres/)).toBeInTheDocument()
+    })
+  })
 })
