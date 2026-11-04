@@ -1,0 +1,25 @@
+# Demo overlay (issue #97): the production stack of deploy/docker-compose.yml on a PC, reachable over a Cloudflare quick
+# tunnel instead of a server with its own domain. Run it only through deploy/demo.sh (project "braja-demo").
+#
+# Cloudflare ends HTTPS at its edge, so Caddy serves plain HTTP inside the Docker network and publishes no port on the
+# PC: the only way in is the tunnel. Not for production: the PC must stay on, and the URL changes when the tunnel restarts.
+services:
+  caddy:
+    environment:
+      # Any host name, HTTP only: the browser still sees https://…trycloudflare.com, so Secure cookies keep working.
+      BRAJA_DOMAIN: ":80"
+    ports: !reset []
+
+  tunnel:
+    image: cloudflare/cloudflared:2026.10.1
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://caddy:80
+    depends_on:
+      - caddy
+    networks: [braja]
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

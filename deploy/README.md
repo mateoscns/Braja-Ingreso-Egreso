@@ -11,6 +11,7 @@ hace con los scripts de esta carpeta; nada a mano dentro de los contenedores. Se
 | `deploy.sh` | Backup, build con el sha, arranque, compuerta de salud y rollback. |
 | `backup.sh` / `restore.sh` | Backup diario comprimido (14 días) y restauración con confirmación. |
 | `bootstrap-vps.sh` | Prepara un Ubuntu 24.04 limpio. |
+| `demo.sh` + `demo/compose.demo.yml` | Modo demo sin VPS: la misma pila en una PC, publicada con un túnel de Cloudflare (ver al final). |
 
 ## 1. Comprar el VPS
 
@@ -140,3 +141,28 @@ La misma pila se puede levantar en una máquina de desarrollo con otro nombre de
 `gen-secrets.sh --env-file <tmp>/.env`, agregarle `BRAJA_HTTP_PORT`/`BRAJA_HTTPS_PORT` y un `BRAJA_NETWORK_SUBNET`
 y `BRAJA_CADDY_IPV4` libres, y correr `BRAJA_ENV_FILE=<tmp>/.env docker compose -p braja-localtest -f
 deploy/docker-compose.yml --env-file <tmp>/.env up -d --build`. Bajarla con `docker compose -p braja-localtest down -v`.
+
+## Modo demo (sin VPS)
+
+Para probar con usuarios reales antes de contratar el servidor (issue #97). Corre la misma pila en una PC con Docker
+Desktop y la publica con un túnel rápido de Cloudflare: una dirección `https://…trycloudflare.com` sin cuenta, sin
+dominio y sin abrir puertos del router. Cloudflare pone el certificado, así que la ubicación y la push andan. En Windows,
+desde Git Bash en la raíz del repo:
+
+```bash
+bash deploy/demo.sh start      # la primera vez crea deploy/.env.demo y pide los datos del primer ADMIN
+bash deploy/demo.sh url        # la dirección actual
+bash deploy/demo.sh logs tunnel
+bash deploy/demo.sh stop       # apaga y conserva los datos; start vuelve a levantar
+bash deploy/demo.sh down --wipe  # borra la base de la demo (pide escribir BORRAR)
+```
+
+Límites:
+
+- La PC tiene que quedar prendida, despierta y con internet mientras se prueba. Desactivar la suspensión.
+- La dirección cambia cada vez que se reinicia el túnel (al reiniciar la PC o Docker). Con una dirección nueva hay que
+  abrirla de nuevo en cada teléfono, volver a instalar la app y volver a activar las alertas.
+- Todos los usuarios llegan con la dirección del túnel, así que comparten el límite de login por IP (100 fallos en
+  15 min, D-20261027-05).
+- No es producción: los datos viven en la PC y no hay backup automático. Proyecto Docker `braja-demo`, red
+  172.31.90.0/24, imágenes `braja-*:demo`; no comparte nada con otros proyectos de la máquina.
