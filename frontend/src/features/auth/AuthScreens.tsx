@@ -38,7 +38,7 @@ export function CompanyScreen({ session, onSelect, onSignOut }: { session: Sessi
       {error && <PageMessage kind="error">{error}</PageMessage>}
       {busyId && <p role="status" aria-live="polite" aria-atomic="true">Esperando la activación de {session.memberships.find((membership) => membership.companyId === busyId)?.companyName ?? 'la empresa'}…</p>}
       <div className="company-list" aria-busy={Boolean(busyId)}>{session.memberships.map((membership) => <button key={membership.companyId} className="company-choice" disabled={Boolean(busyId)} onClick={() => void select(membership.companyId)}>
-        <span className="choice-icon">{membership.companyName.slice(0, 1).toUpperCase()}</span><span><strong>{membership.companyName}</strong><small>{membership.role === 'ADMIN' ? 'Administración' : 'Empleado'}</small></span><span className="choice-arrow">{busyId === membership.companyId ? '…' : '→'}</span>
+        <span className="choice-icon" aria-hidden="true">{membership.companyName.slice(0, 1).toUpperCase()}</span><span><strong>{membership.companyName}</strong><small>{membership.role === 'ADMIN' ? 'Administración' : 'Empleado'}</small></span><span className="choice-arrow" aria-hidden="true">{busyId === membership.companyId ? '…' : '→'}</span>
       </button>)}</div>
       {session.memberships.length === 0 && <PageMessage kind="error">Tu cuenta todavía no tiene empresas asignadas. Consultá con un administrador.</PageMessage>}
       <button className="button button-quiet button-wide" onClick={onSignOut}>Cerrar sesión</button>

@@ -85,7 +85,7 @@ function DeviationList({ items, filtered, loading, busy, onClassify, targetId, t
   if (loading) return <Loading label="Cargando desvíos…" />
   if (!items.length) return <Empty>{filtered ? 'Ningún desvío coincide con los filtros aplicados.' : 'No hay desvíos para mostrar.'}</Empty>
   return <div className="deviation-list">{items.map((item) => <article className={`deviation-card ${targetId === item.id ? 'deviation-target' : ''}`} key={item.id} id={`deviation-${item.id}`}>
-    <div className="deviation-symbol">{item.type === 'SIN_INGRESO' ? '!' : '↗'}</div>
+    <div className="deviation-symbol" aria-hidden="true">{item.type === 'SIN_INGRESO' ? '!' : '↗'}</div>
     <div className="deviation-main"><div className="deviation-title"><strong>{deviationName(item.type)}</strong><span className={`status-chip status-${item.status.toLowerCase()}`}>{statusName(item.status)}</span></div>
       <p>{item.employeeDisplayName?.trim() || 'Registro de jornada'} · {dateTime(item.occurredAt ?? item.createdAt, item.siteId ? timeZones.get(item.siteId) : undefined)}</p>
       {item.sourceMarkAction && <p className="muted small-copy">Marca: {actionName(item.sourceMarkAction)}{item.sourceMarkSequence ? ` · secuencia ${item.sourceMarkSequence}` : ''}</p>}
@@ -141,7 +141,7 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, name
     {error && <PageMessage kind="error">{error}</PageMessage>}
     {notice && <PageMessage kind="success">{notice}</PageMessage>}
     <div className="content-grid"><Panel title="Sedes registradas">{loading ? <Loading /> : loadError ? <LoadFailure message={loadError} onRetry={onReload} /> : sites.length ? <div className="simple-list">{sites.map((site) => <article key={site.id} className="form-stack">
-      <div className="simple-row"><span className="row-avatar">⌖</span><span><strong>{site.name}</strong><small>{site.timeZone}</small><small>{typeof site.latitude === 'number' && typeof site.longitude === 'number' ? 'Ubicación cargada' : 'Sin ubicación cargada'}</small><small>Distancia permitida para marcar: {site.geofenceRadiusMeters ?? '—'} m</small></span></div>
+      <div className="simple-row"><span className="row-avatar" aria-hidden="true">⌖</span><span><strong>{site.name}</strong><small>{site.timeZone}</small><small>{typeof site.latitude === 'number' && typeof site.longitude === 'number' ? 'Ubicación cargada' : 'Sin ubicación cargada'}</small><small>Distancia permitida para marcar: {site.geofenceRadiusMeters ?? '—'} m</small></span></div>
       <div className="button-row"><button type="button" className="button button-small button-quiet" disabled={busy} aria-label={`Cambiar ubicación de ${site.name}`} onClick={() => onBeginLocationEdit(site)}>Cambiar ubicación</button><button type="button" className="button button-small button-quiet" disabled={busy} aria-expanded={siteLocationAuditFor === site.id} aria-controls={`site-location-audit-${site.id}`} onClick={() => onToggleSiteLocationAudit(site.id)}>{siteLocationAuditFor === site.id ? 'Ocultar historial' : 'Ver historial de ubicación'}</button></div>
       {locationEdit?.siteId === site.id && <form className="form-stack" aria-label={`Cambiar ubicación de ${site.name}`} onSubmit={onSaveLocationEdit}>
         <fieldset className="site-location-field fieldset-plain">
@@ -270,7 +270,8 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
       <button type="button" className="button button-small button-quiet" aria-label="Cancelar restablecimiento" disabled={busy} onClick={onCancelReset}>Cancelar</button></div>
     : <div className="button-row"><button className="button button-small button-quiet" aria-label={`Editar empleado ${saved.displayName}`} disabled={busy} onClick={() => onStartEditing(saved.id)}>Editar</button>
       <button className="button button-small button-quiet" aria-label={`Plantillas de ${saved.displayName}`} onClick={() => onOpenAssignments(saved.id)}>Plantillas</button>
-      <button className="button button-small button-quiet" aria-label={`Restablecer contraseña de ${saved.displayName}`} disabled={busy || !saved.active} onClick={() => onAskReset(saved.id)}>Restablecer contraseña</button></div>
+      <button className="button button-small button-quiet" aria-label={`Restablecer contraseña de ${saved.displayName}`} aria-describedby={saved.active ? undefined : `reset-inactive-${saved.id}`} disabled={busy || !saved.active} onClick={() => onAskReset(saved.id)}>Restablecer contraseña</button>
+      {!saved.active && <span className="field-hint" id={`reset-inactive-${saved.id}`}>Está inactivo: activalo para restablecer su contraseña.</span>}</div>
   return <>
     <PageHeading eyebrow="EQUIPO" title="Empleados" subtitle="Las cuentas se identifican por DNI. La tolerancia se guarda por empleado." />
     {error && <PageMessage kind="error">{error}</PageMessage>}
@@ -281,7 +282,7 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
       <p className="field-hint">No se vuelve a mostrar. Sus sesiones abiertas se cerraron.</p>
       <button type="button" className="button button-small button-primary" onClick={onDismissIssuedPassword}>Listo, ya la entregué</button>
     </Panel>}
-    <Panel title={loading || loadError ? 'Empleados' : `Empleados (${employees.length})`}>{loading ? <Loading /> : loadError ? <LoadFailure message={loadError} onRetry={onReload} /> : employees.length ? <div className="table-scroll"><table><thead><tr><th>Nombre</th><th>DNI</th><th>Sedes</th><th>Tolerancia</th><th>Estado</th><th /></tr></thead><tbody>{employees.map((saved) => {
+    <Panel title={loading || loadError ? 'Empleados' : `Empleados (${employees.length})`}>{loading ? <Loading /> : loadError ? <LoadFailure message={loadError} onRetry={onReload} /> : employees.length ? <div className="table-scroll"><table><thead><tr><th>Nombre</th><th>DNI</th><th>Sedes</th><th>Tolerancia</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{employees.map((saved) => {
       const edit = draft?.id === saved.id ? draft : null
       return <tr key={saved.id}>
         <td>{edit ? <input aria-label={`Nombre del empleado con ${who(saved)}`} value={edit.displayName} onChange={(event) => onDraftChange({ displayName: event.target.value })} /> : <strong>{saved.displayName}</strong>}</td><td>{saved.dni ?? '—'}</td>
@@ -298,7 +299,8 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
       <FormField label="Tolerancia individual (minutos)"><input type="number" min="0" max="240" required value={tolerance} onChange={(event) => onToleranceChange(event.target.value)} /></FormField>
       <FormField label="Contraseña provisoria" hint={`Solo hace falta si el DNI todavía no tiene cuenta. ${PASSWORD_LENGTH_HINT}`}><input type="password" autoComplete="new-password" minLength={12} maxLength={PASSWORD_MAX_CHARACTERS} value={temporaryPassword} onChange={(event) => onTemporaryPasswordChange(event.target.value)} /></FormField>
       <fieldset className="field field-wide"><legend className="field-label">Sedes habilitadas</legend><div className="check-grid">{sites.map((site) => <label key={site.id}><input type="checkbox" checked={siteIds.includes(site.id)} onChange={() => onToggleSite(site.id)} />{site.name}</label>)}</div>{sites.length === 0 && <span className="field-hint">{loadError ? 'Reintentá la carga antes de dar de alta un empleado.' : loading ? 'Cargando sedes…' : 'Primero creá una sede.'}</span>}</fieldset>
-      <div className="field-wide"><button className="button button-primary" disabled={busy || loading || Boolean(loadError) || siteIds.length === 0}>{busy ? 'Guardando…' : 'Crear empleado'}</button></div>
+      <div className="field-wide button-row"><button className="button button-primary" aria-describedby={sites.length > 0 && siteIds.length === 0 ? 'create-employee-needs-site' : undefined} disabled={busy || loading || Boolean(loadError) || siteIds.length === 0}>{busy ? 'Guardando…' : 'Crear empleado'}</button>
+        {sites.length > 0 && siteIds.length === 0 && <span className="field-hint" id="create-employee-needs-site">Marcá al menos una sede para crear el empleado.</span>}</div>
     </form></Panel>
   </>
 }
@@ -424,7 +426,7 @@ export function JourneysViewRender({ bulkPanel, sites, eligibleEmployees, siteTe
     </form></Panel>
     {bulkPanel}
     <Panel title={journeysTitle(date)} action={<button className="button button-small button-quiet" disabled={journeysLoading} onClick={onReloadJourneys}>{journeysLoading ? 'Actualizando…' : 'Actualizar'}</button>}>
-      {!date ? <Empty>{dateError}</Empty> : loading || journeysLoading || journeysDate !== date ? <Loading label={loading || !journeysDate ? 'Cargando jornadas…' : 'Actualizando jornadas…'} /> : journeysError ? <LoadFailure message={journeysError} onRetry={onReloadJourneys} /> : jornadas.length ? <div className="table-scroll"><table><thead><tr><th>Empleado</th><th>Sede</th><th>Estado</th><th /></tr></thead><tbody>{jornadas.map((jornada) => <tr key={jornada.id}><td>{peopleById.get(jornada.employeeId) ?? 'Empleado'}</td><td>{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Sede'}</td><td><span className="status-chip">{stateLabel(jornada.state)}</span></td><td><button className="button button-small button-quiet" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></td></tr>)}</tbody></table></div> : <Empty>No hay jornadas declaradas para esta fecha.</Empty>}
+      {!date ? <Empty>{dateError}</Empty> : loading || journeysLoading || journeysDate !== date ? <Loading label={loading || !journeysDate ? 'Cargando jornadas…' : 'Actualizando jornadas…'} /> : journeysError ? <LoadFailure message={journeysError} onRetry={onReloadJourneys} /> : jornadas.length ? <div className="table-scroll"><table><thead><tr><th>Empleado</th><th>Sede</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{jornadas.map((jornada) => <tr key={jornada.id}><td>{peopleById.get(jornada.employeeId) ?? 'Empleado'}</td><td>{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Sede'}</td><td><span className={`status-chip status-${jornada.state.toLowerCase()}`}>{stateLabel(jornada.state)}</span></td><td><button className="button button-small button-quiet" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></td></tr>)}</tbody></table></div> : <Empty>No hay jornadas declaradas para esta fecha.</Empty>}
     </Panel>
     {detailLoading && <Panel title="Detalle"><Loading label="Consultando marcas…" /></Panel>}
     {detail && !detailLoading && <Panel title={`Marcas de ${peopleById.get(detail.employeeId) ?? 'empleado'}`}>
@@ -536,7 +538,7 @@ export function AdminHistoryRender({ employees, sites, loadingOptions, optionsEr
         const marks = row.marks ?? []
         const deviations = row.deviations ?? []
         return <article className="history-card" key={row.id} aria-label={`Jornada del ${formatLocalDate(row.localDate)} de ${person}`}>
-          <div className="history-head"><strong>{formatLocalDate(row.localDate)}</strong><span>{person}</span><span className="muted">{siteById.get(row.siteId)?.name ?? 'Sede'}</span><span className="status-chip">{stateLabel(row.state)}</span></div>
+          <div className="history-head"><strong>{formatLocalDate(row.localDate)}</strong><span>{person}</span><span className="muted">{siteById.get(row.siteId)?.name ?? 'Sede'}</span><span className={`status-chip status-${row.state.toLowerCase()}`}>{stateLabel(row.state)}</span></div>
           {marks.length ? <ul className="history-items" aria-label="Marcas">{marks.map((mark) => <li key={mark.id} className={mark.voided ? 'mark-voided' : undefined}><strong>{mark.voided ? <s>{actionName(mark.action)}</s> : actionName(mark.action)}</strong><span>{dateTime(mark.occurredAt ?? mark.acceptedAt, timeZone)}</span><small>{mark.voided ? `Anulada${mark.voidReason ? ` · ${mark.voidReason}` : ''}` : locationName(mark.locationStatus)}</small></li>)}</ul> : <p className="muted small-copy">Sin marcas.</p>}
           {deviations.length ? <ul className="history-items history-deviations" aria-label="Desvíos">{deviations.map((item) => <li key={item.id}><strong>{deviationName(item.type)}</strong><span>{dateTime(item.occurredAt ?? item.createdAt, timeZone)}</span>{item.sourceMarkAction && <small>Marca: {actionName(item.sourceMarkAction)}{item.sourceMarkSequence ? ` · secuencia ${item.sourceMarkSequence}` : ''}</small>}<span className={`status-chip status-${item.status.toLowerCase()}`}>{statusName(item.status)}</span>{item.category && <small>{categoryName(item.category)}{item.motiveText ? ` · ${item.motiveText}` : ''}</small>}</li>)}</ul> : <p className="muted small-copy">Sin desvíos.</p>}
         </article>
