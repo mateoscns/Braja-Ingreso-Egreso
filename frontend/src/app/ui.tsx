@@ -1,8 +1,16 @@
-import { cloneElement, isValidElement, useId, useRef, useState, type ReactNode } from 'react'
+import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import type { Membership } from '../shared/api/types'
 
+/**
+ * A message in a live region. An error is an `alert`, which screen readers announce as soon as it appears.
+ * A `status` is only announced reliably when the text changes inside a region that already exists, so an info or
+ * success message mounts its region empty and writes the text right after; later changes update the same region.
+ */
 export function PageMessage({ children, kind = 'info' }: { children: ReactNode; kind?: 'info' | 'error' | 'success' }) {
-  return <div className={`message message-${kind}`} role={kind === 'error' ? 'alert' : 'status'} aria-atomic="true">{children}</div>
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+  const alert = kind === 'error'
+  return <div className={`message message-${kind}`} role={alert ? 'alert' : 'status'} aria-atomic="true">{alert || mounted ? children : null}</div>
 }
 
 export function Loading({ label = 'Cargando…' }: { label?: string }) {
@@ -60,15 +68,25 @@ export function CompanySwitcher({ memberships, activeCompanyId, onSelect, disabl
   </div>
 }
 
-export function FormField({ label, children, hint }: { label: string; children: ReactNode; hint?: ReactNode }) {
+/**
+ * A labelled control with an optional hint and an optional error, both shown under it and read with it:
+ * the error also marks the control `aria-invalid` (without an error the control keeps its own value).
+ */
+export function FormField({ label, children, hint, error }: { label: string; children: ReactNode; hint?: ReactNode; error?: ReactNode }) {
   const controlId = useId()
   const hintId = useId()
-  const controlElement = isValidElement<{ id?: string; 'aria-describedby'?: string }>(children) ? children : null
-  const describedBy = controlElement && hint
-    ? [controlElement.props['aria-describedby'], hintId].filter(Boolean).join(' ')
-    : controlElement?.props['aria-describedby']
+  const errorId = useId()
+  const controlElement = isValidElement<{ id?: string; 'aria-describedby'?: string; 'aria-invalid'?: boolean | 'true' | 'false' }>(children) ? children : null
+  const describedBy = controlElement
+    ? [controlElement.props['aria-describedby'], hint ? hintId : '', error ? errorId : ''].filter(Boolean).join(' ') || undefined
+    : undefined
   const control = controlElement
-    ? cloneElement(controlElement, { id: controlElement.props.id ?? controlId, 'aria-describedby': describedBy })
+    ? cloneElement(controlElement, {
+      id: controlElement.props.id ?? controlId, 'aria-describedby': describedBy,
+      'aria-invalid': error ? true : controlElement.props['aria-invalid']
+    })
     : children
-  return <div className="field"><label className="field-label" htmlFor={controlElement ? (controlElement.props.id ?? controlId) : undefined}>{label}</label>{control}{hint && <span className="field-hint" id={hintId}>{hint}</span>}</div>
+  return <div className="field"><label className="field-label" htmlFor={controlElement ? (controlElement.props.id ?? controlId) : undefined}>{label}</label>{control}
+    {hint && <span className="field-hint" id={hintId}>{hint}</span>}
+    {error && <span className="field-hint field-hint-error" id={errorId}>{error}</span>}</div>
 }
