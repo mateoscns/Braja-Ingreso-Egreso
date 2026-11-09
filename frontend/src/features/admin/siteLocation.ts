@@ -69,7 +69,7 @@ export function captureSiteCoordinates(
         return
       }
       if (accuracyMeters > SITE_LOCATION_ACCURACY_LIMIT_METERS) {
-        failWithError(new SiteLocationError('precision-insufficient', `El dispositivo informó una precisión de ${accuracyMeters.toFixed(1)} m; solo se aceptan hasta ${SITE_LOCATION_ACCURACY_LIMIT_METERS} m. Activá la ubicación precisa, probá desde un lugar abierto y volvé a intentar. El punto no se guardó; también podés ingresar las coordenadas manualmente o crear la sede sin centro.`))
+        failWithError(new SiteLocationError('precision-insufficient', `El dispositivo informó una precisión de ${accuracyMeters.toFixed(1)} m; solo se aceptan hasta ${SITE_LOCATION_ACCURACY_LIMIT_METERS} m. El punto no se guardó. Elegí el punto en el mapa: buscá la dirección y tocá el lugar exacto. También podés activar la ubicación precisa y volver a intentar desde un lugar abierto, o crear la sede sin centro.`))
         return
       }
       if (settled) return
@@ -115,10 +115,10 @@ function locationFailure(error: GeolocationPositionError): SiteLocationError {
 
 export function parseGeofenceRadiusMeters(value: string): number {
   const normalized = value.trim()
-  if (!/^\d+$/.test(normalized)) throw new Error('El radio debe ser un número entero entre 50 y 500 metros.')
+  if (!/^\d+$/.test(normalized)) throw new Error('La distancia permitida para marcar debe ser un número entero entre 50 y 500 metros.')
   const radius = Number(normalized)
   if (!Number.isSafeInteger(radius) || radius < 50 || radius > 500) {
-    throw new Error('El radio debe ser un número entero entre 50 y 500 metros.')
+    throw new Error('La distancia permitida para marcar debe ser un número entero entre 50 y 500 metros.')
   }
   return radius
 }
