@@ -10,9 +10,9 @@ describe('validateBulkDeclaration (D-20261027-11), igual que el servidor', () =>
     expect(validateBulkDeclaration({ ...valid, employeeIds: Array.from({ length: 200 }, (_, index) => `e-${index}`) })).toBe('')
   })
 
-  it('pide al menos un empleado y como máximo 200', () => {
-    expect(validateBulkDeclaration({ ...valid, employeeIds: [] })).toBe('Elegí al menos un empleado.')
-    expect(validateBulkDeclaration({ ...valid, employeeIds: Array.from({ length: 201 }, (_, index) => `e-${index}`) })).toBe('Elegí como máximo 200 empleados.')
+  it('pide al menos una persona y como máximo 200', () => {
+    expect(validateBulkDeclaration({ ...valid, employeeIds: [] })).toBe('Elegí al menos una persona.')
+    expect(validateBulkDeclaration({ ...valid, employeeIds: Array.from({ length: 201 }, (_, index) => `e-${index}`) })).toBe('Elegí como máximo 200 personas.')
   })
 
   it('pide las dos fechas, en orden y sin superar 31 días', () => {

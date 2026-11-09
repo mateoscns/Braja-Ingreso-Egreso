@@ -51,26 +51,26 @@ describe('ApiClient', () => {
     const client = new ApiClient()
 
     await expect(client.get('/jornadas')).rejects.toMatchObject({
-      message: 'Todavía no es horario para registrar esta marca. El ingreso se habilita 30 minutos antes; las demás marcas, desde el inicio de la jornada.'
+      message: 'Todavía es temprano para marcar. La entrada se puede marcar desde 30 minutos antes de tu horario; las demás marcas, desde que empieza tu turno.'
     })
   })
 
-  it('explica que falta una plantilla vigente al declarar sin plantilla (422 TEMPLATE_REQUIRED)', async () => {
+  it('explica que falta un horario al cargar el día sin horario (422 TEMPLATE_REQUIRED)', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 422, code: 'TEMPLATE_REQUIRED', detail: 'internal' }),
       { status: 422, headers: { 'Content-Type': 'application/problem+json' } })))
 
     await expect(new ApiClient().get('/jornadas')).rejects.toMatchObject({
       status: 422, code: 'TEMPLATE_REQUIRED',
-      message: 'El empleado no tiene una plantilla vigente en esa sede para esa fecha. Elegí una plantilla o asignale una desde Empleados.'
+      message: 'Esa persona no tiene un horario en ese local para ese día. Elegí un horario o asignale uno desde Empleados.'
     })
   })
 
-  it('explica que ya hay una asignación de plantilla para esa sede y fecha (409 ASSIGNMENT_EXISTS)', async () => {
+  it('explica que ya hay un horario asignado en ese local desde ese día (409 ASSIGNMENT_EXISTS)', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 409, code: 'ASSIGNMENT_EXISTS' }),
       { status: 409, headers: { 'Content-Type': 'application/problem+json' } })))
 
     await expect(new ApiClient().get('/employees')).rejects.toMatchObject({
-      message: 'Ese empleado ya tiene una plantilla asignada en esa sede desde esa fecha. Elegí otra fecha de inicio.'
+      message: 'Esa persona ya tiene un horario en ese local desde ese día. Elegí otro día.'
     })
   })
 })
@@ -107,6 +107,14 @@ describe('ApiClient: mensajes de error', () => {
     const failure = await new ApiClient().get('/employees').catch((reason: Error) => reason)
     expect((failure as Error).name).toBe('NetworkError')
     expect((failure as Error).message).not.toMatch(/marca/i)
+    expect((failure as Error).message).toBe('No se pudo conectar. Revisá tu conexión a internet y reintentá.')
+  })
+
+  it('un token de seguridad inválido se explica sin palabras técnicas', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ token: 'short' }), { status: 200, headers: { 'Content-Type': 'application/json' } })))
+    const failure = await new ApiClient().put('/companies/active', { companyId: 'company-1' }).catch((reason: Error) => reason)
+    expect((failure as Error).message).toBe('No se pudo preparar la operación. Reintentá en unos segundos.')
+    expect((failure as Error).message).not.toMatch(/servidor|token|CSRF/)
   })
 })
 
@@ -120,7 +128,7 @@ describe('ApiClient: códigos de error conocidos', () => {
     const failure = await new ApiClient().get('/jornadas').catch((reason: unknown) => reason)
     expect(failure).toBeInstanceOf(ApiError)
     expect((failure as ApiError).message).not.toMatch(/ya fue procesada/)
-    expect((failure as ApiError).message).toBe('El servidor estaba ocupado y no completó la operación. Reintentá en unos segundos.')
+    expect((failure as ApiError).message).toBe('El sistema estaba ocupado y no completó la operación. Reintentá en unos segundos.')
     expect((failure as ApiError).code).toBe('RETRYABLE_TRANSACTION_CONFLICT')
     expect((failure as ApiError).retryAfterSeconds).toBe(1)
   })
@@ -128,9 +136,9 @@ describe('ApiClient: códigos de error conocidos', () => {
   it.each([
     [409, 'INVALID_MARK_TRANSITION', 'El estado de la jornada cambió y esa marca ya no corresponde. Revisá el estado actualizado.'],
     [409, 'INVALID_MARK_ORDER', 'El estado de la jornada cambió y esa marca ya no corresponde. Revisá el estado actualizado.'],
-    [409, 'IDEMPOTENCY_CONFLICT', 'Esta solicitud ya se usó para otra acción. Actualizá la vista y volvé a intentar.'],
-    [409, 'MOTIVE_LOCKED', 'El administrador ya revisó este desvío; el motivo ya no se puede cambiar.'],
-    [409, 'JORNADA_EXISTS', 'Ya hay una jornada declarada para ese empleado, sede y fecha.'],
+    [409, 'IDEMPOTENCY_CONFLICT', 'No se pudo registrar tu marca. Tocá Actualizar y volvé a marcar.'],
+    [409, 'MOTIVE_LOCKED', 'Tu encargado ya lo revisó: ya no se puede cambiar.'],
+    [409, 'JORNADA_EXISTS', 'Esa persona ya tiene ese día cargado en ese local.'],
     [409, 'MEMBERSHIP_EXISTS', 'Esa persona ya tiene un rol en esta empresa.'],
     [409, 'ACCOUNT_INACTIVE', 'La cuenta de ese DNI no está habilitada y no se puede agregar a la empresa.'],
     [409, 'ACCOUNT_SHARED', 'Esta persona también tiene acceso en otra empresa o como ADMIN; su contraseña la restablece el operador.'],
@@ -255,7 +263,7 @@ describe('ApiClient: tiempo de espera', () => {
 
     const failure = await pending.catch((reason: unknown) => reason)
     expect(failure).toBeInstanceOf(TimeoutError)
-    expect((failure as Error).message).toBe('El servidor tardó demasiado en responder.')
+    expect((failure as Error).message).toBe('El sistema tardó demasiado en responder.')
   })
 
   it('la espera agotada también corta un pedido de token CSRF que no responde y no envía la mutación', async () => {
@@ -349,9 +357,10 @@ describe('ApiClient: codes of the production backend and proxy', () => {
     new Response(JSON.stringify({ status, code, detail: 'internal detail' }), { status, headers: { 'Content-Type': 'application/problem+json' } })
 
   it.each([
-    [409, 'EMPLOYEE_NOT_IN_SITE', 'Ese empleado no está asignado a esa sede. Agregale la sede desde Empleados y volvé a intentar.'],
-    [422, 'TEMPLATE_INVALID', 'La plantilla está inactiva y no se puede usar. Elegí otra plantilla o revisala en Plantillas.'],
-    [422, 'PASSWORD_TOO_LONG', 'La contraseña es demasiado larga: puede tener hasta 72 bytes. Las letras con tilde y la ñ ocupan 2 cada una.'],
+    [409, 'EMPLOYEE_NOT_IN_SITE', 'Esa persona no trabaja en ese local. Agregale el local desde Empleados y volvé a intentar.'],
+    [422, 'TEMPLATE_INVALID', 'Ese horario está desactivado y no se puede usar. Elegí otro o revisalo en Horarios.'],
+    [409, 'TEMPLATE_IN_USE', 'Ese horario ya se usa, así que no puede pasar a otro local. Creá un horario nuevo para ese local.'],
+    [422, 'PASSWORD_TOO_LONG', 'La contraseña es demasiado larga: puede tener hasta 72 caracteres, y las letras con tilde y la ñ cuentan como 2.'],
     [413, 'PAYLOAD_TOO_LARGE', 'Los datos enviados son demasiado grandes. Acortá los textos y volvé a intentar.']
   ])('a %i %s has a specific message', async (status, code, message) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(coded(status, code)))

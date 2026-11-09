@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { api, queryString } from '../../shared/api/client'
-import type { BulkDeclarationResult, Deviation, Employee, Jornada, JornadaAudit, JornadaSummary, Mark, MarkAction, PasswordReset, Site, SiteCoordinates, Template, TemplateAssignment, TemplateBlock, TemplateInput } from '../../shared/api/types'
+import type { Deviation, Employee, Jornada, JornadaAudit, JornadaSummary, Mark, MarkAction, PasswordReset, Site, SiteCoordinates, Template, TemplateAssignment } from '../../shared/api/types'
 import { deviceDate, validateDateRange, DATE_PAIR_MESSAGE } from '../../shared/dateRange'
-import { declarationFailureMessage, validateBulkDeclaration } from './bulkDeclaration'
+import { declarationFailureMessage } from './bulkDeclaration'
+import type { AdminSection } from './setupStatus'
+import { useNarrowScreen } from './useNarrowScreen'
+import { WorkDaysPanel } from './WorkDaysPanel'
 import { isRegionTimeZone, REGION_TIME_ZONE_MESSAGE } from './siteZone'
 import { PASSWORD_TOO_LONG_MESSAGE, passwordTooLong } from '../../shared/password'
 import { captureSiteCoordinates, parseGeofenceRadiusMeters, SiteLocationError, type SiteLocationErrorKind } from './siteLocation'
@@ -11,13 +14,9 @@ import { GeocodeError, searchAddress, type GeocodeResult } from '../../shared/ap
 import {
   AdminHistoryRender,
   AdminInboxRender,
-  BulkDeclarationRender,
   EMPTY_INBOX_FILTERS,
-  EmployeesViewRender,
   JourneysViewRender,
   SitesViewRender,
-  TemplateAssignmentsRender,
-  TemplatesViewRender,
   type SiteLocationAuditResponse,
   type SiteLocationEditDraft,
   type SiteMapState,
@@ -26,6 +25,9 @@ import {
   type InboxFilterValues,
   type JourneyRow
 } from './AdminViewsRender'
+import { EmployeesViewRender, employeeDetailId, ISSUED_PASSWORD_ID, TemplateAssignmentsRender, type IssuedPassword } from './EmployeesViewRender'
+import { generateTemporaryPassword } from './temporaryPassword'
+import { PHONE_QUERY, useMediaQuery } from './useMediaQuery'
 
 const dateInBrowserZone = () => {
   const now = new Date()
@@ -68,7 +70,8 @@ function instantForSiteTime(value: string, timeZone: string): string | null {
 function siteTimeInput(value: string, timeZone: string): string {
   try {
     const parts = dateTimeParts(value, timeZone)
-    return `${String(parts.year).padStart(4, '0')}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}T${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}:${String(parts.second).padStart(2, '0')}`
+    // Minutes only: the time inputs have no seconds, and a value with seconds would fail the browser's step check.
+    return `${String(parts.year).padStart(4, '0')}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}T${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}`
   } catch { return '' }
 }
 
@@ -83,7 +86,7 @@ function validCoordinates(latitudeText: string, longitudeText: string): SiteCoor
   return { latitude, longitude }
 }
 
-export function AdminInbox() {
+export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; onOpenJornada?: (item: Deviation) => void } = {}) {
   const [items, setItems] = useState<Deviation[]>([])
   const [timeZones, setTimeZones] = useState<Map<string, string>>(new Map())
   const [sites, setSites] = useState<Site[]>([])
@@ -102,6 +105,7 @@ export function AdminInbox() {
   const [correction, setCorrection] = useState<{ deviationId: string; classification: DeviationClassification } | null>(null)
   const [correctionReason, setCorrectionReason] = useState('')
   const [targetDeviation] = useState(() => new URLSearchParams(window.location.search).get('deviation') ?? '')
+  const narrow = useNarrowScreen()
   // A new filter set always starts from the first page: a cursor is only valid for the filters that produced it.
   const reload = async (active: InboxFilterValues = appliedFilters) => {
     const requestId = ++generation.current
@@ -167,7 +171,7 @@ export function AdminInbox() {
     } catch (reason) { if (requestId === generation.current) setError(errText(reason)) } finally { setBusy('') }
   }
   const filtered = Object.values(appliedFilters).some(Boolean)
-  return <AdminInboxRender items={items} employees={employees} sites={sites} filters={filters} filterError={filterError} filtered={filtered} onFiltersChange={(patch) => setFilters((current) => ({ ...current, ...patch }))} onApplyFilters={applyFilters} onClearFilters={clearFilters} timeZones={timeZones} nextCursor={nextCursor} loading={loading} inboxLoadError={inboxLoadError} timeZoneLoadError={timeZoneLoadError} error={error} notice={notice} busy={busy} correction={correction} correctionReason={correctionReason} targetDeviation={targetDeviation}
+  return <AdminInboxRender narrow={narrow} appliedFilters={appliedFilters} coverage={coverage} onOpenJornada={onOpenJornada} items={items} employees={employees} sites={sites} filters={filters} filterError={filterError} filtered={filtered} onFiltersChange={(patch) => setFilters((current) => ({ ...current, ...patch }))} onApplyFilters={applyFilters} onClearFilters={clearFilters} timeZones={timeZones} nextCursor={nextCursor} loading={loading} inboxLoadError={inboxLoadError} timeZoneLoadError={timeZoneLoadError} error={error} notice={notice} busy={busy} correction={correction} correctionReason={correctionReason} targetDeviation={targetDeviation}
     onReload={() => void reload()} onClassify={requestClassification} onRetry={() => void reload()} onLoadMore={() => void loadMore()} onCorrectionReasonChange={setCorrectionReason}
     onSubmitCorrection={(item) => void classify(item, correction!.classification, correctionReason)} onCancelCorrection={() => { setCorrection(null); setCorrectionReason('') }} />
 }
@@ -203,7 +207,7 @@ export function AdminHistory() {
       if (requestId !== request.current) return
       setRows(null)
       setError((reason as { status?: number } | null)?.status === 422
-        ? 'El servidor rechazó la consulta: acotá el rango de fechas o elegí un empleado o una sede (máximo 366 días y 500 jornadas).'
+        ? 'Son demasiados datos para una sola consulta: acotá el rango de fechas o elegí un empleado o una sede (hasta 366 días y 500 jornadas).'
         : errText(reason))
     } finally { if (requestId === request.current) setLoading(false) }
   }
@@ -613,6 +617,9 @@ export function EmployeesView() {
   const [busy, setBusy] = useState(false)
   const [dni, setDni] = useState(''); const [displayName, setDisplayName] = useState(''); const [siteIds, setSiteIds] = useState<string[]>([])
   const [tolerance, setTolerance] = useState('5'); const [temporaryPassword, setTemporaryPassword] = useState('')
+  // A password made with «Generar contraseña»: the form says it is shown after creating the employee.
+  const [generatedPassword, setGeneratedPassword] = useState(false)
+  const cards = useMediaQuery(PHONE_QUERY)
   // Edits live in a draft copy; the list only changes with what the server returns.
   const [draft, setDraft] = useState<Employee | null>(null)
   // Template assignments of one employee (D-20261015-02), loaded when its panel opens.
@@ -622,7 +629,7 @@ export function EmployeesView() {
   const assignmentRequest = useRef(0)
   async function openAssignments(id: string) {
     const requestId = ++assignmentRequest.current
-    setAssignmentsFor(id); setAssignments([]); setAssignmentsLoadError(''); setAssignmentError(''); setAssignmentTemplateId(''); setAssignmentValidFrom(''); setAssignmentsLoading(true)
+    setAssignmentsFor(id); setAssignments([]); setAssignmentsLoadError(''); setAssignmentError(''); setAssignmentTemplateId(''); setAssignmentValidFrom(deviceDate()); setAssignmentsLoading(true)
     try {
       const [history, available] = await Promise.all([api.get<TemplateAssignment[]>(`/employees/${encodeURIComponent(id)}/template-assignments`), api.get<Template[]>('/templates')])
       if (requestId !== assignmentRequest.current) return
@@ -639,9 +646,15 @@ export function EmployeesView() {
     try {
       const created = await api.post<TemplateAssignment>(`/employees/${encodeURIComponent(employeeId)}/template-assignments`, { templateId: assignmentTemplateId, validFrom: assignmentValidFrom })
       setAssignments((current) => [created, ...current].sort((a, b) => b.validFrom.localeCompare(a.validFrom) || b.createdAt.localeCompare(a.createdAt)))
-      setAssignmentTemplateId(''); setAssignmentValidFrom(''); setNotice('Plantilla asignada.')
+      setAssignmentTemplateId(''); setAssignmentValidFrom(deviceDate()); setNotice('Horario asignado.')
     } catch (reason) { setAssignmentError(errText(reason)) } finally { setAssignmentBusy(false) }
   }
+  // The horarios open next to the employee; on a long list or a phone they may start off screen.
+  useEffect(() => {
+    if (!assignmentsFor) return
+    const prefersReducedMotion = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    document.getElementById(employeeDetailId(assignmentsFor))?.scrollIntoView?.({ block: 'nearest', behavior: prefersReducedMotion ? 'auto' : 'smooth' })
+  }, [assignmentsFor])
   async function reload() {
     closeAssignments()
     setLoading(true); setLoadError(''); setError(''); setDraft(null)
@@ -657,10 +670,19 @@ export function EmployeesView() {
     if (temporaryPassword && passwordTooLong(temporaryPassword)) { setError(PASSWORD_TOO_LONG_MESSAGE); return }
     setBusy(true)
     try {
-      const created = await api.post<Employee>('/employees', { dni: dni.trim(), displayName: displayName.trim(), siteIds, toleranceMinutes: Number(tolerance), ...(temporaryPassword ? { temporaryPassword } : {}) })
-      setEmployees((current) => [...current, created]); setDni(''); setDisplayName(''); setSiteIds([]); setTolerance('5'); setTemporaryPassword(''); setNotice('Empleado creado.')
+      const sentPassword = temporaryPassword
+      const created = await api.post<Employee>('/employees', { dni: dni.trim(), displayName: displayName.trim(), siteIds, toleranceMinutes: Number(tolerance), ...(sentPassword ? { temporaryPassword: sentPassword } : {}) })
+      setEmployees((current) => [...current, created]); setDni(''); setDisplayName(''); setSiteIds([]); setTolerance('5'); setTemporaryPassword(''); setGeneratedPassword(false)
+      // An account that already existed keeps its password and the one sent is not used (OrganizationService.createEmployee).
+      if (sentPassword && created.mustChangePassword === false) setNotice('Empleado creado. Ese DNI ya tenía cuenta: sigue entrando con su contraseña de siempre.')
+      else {
+        setNotice('Empleado creado.')
+        if (sentPassword) setIssuedPassword({ displayName: created.displayName, temporaryPassword: sentPassword, reason: 'created' })
+      }
     } catch (reason) { setError(errText(reason)) } finally { setBusy(false) }
   }
+  function generatePassword() { setTemporaryPassword(generateTemporaryPassword()); setGeneratedPassword(true) }
+  function typePassword(value: string) { setTemporaryPassword(value); setGeneratedPassword(false) }
   async function saveEmployee() {
     if (!draft) return
     setBusy(true); setError(''); setNotice('')
@@ -683,7 +705,15 @@ export function EmployeesView() {
   // D-20261027-09: the temporary password lives only in this state; it is never written to browser storage and is
   // gone when the ADMIN dismisses the panel or leaves the view.
   const [resetTarget, setResetTarget] = useState<string | null>(null)
-  const [issuedPassword, setIssuedPassword] = useState<{ displayName: string; temporaryPassword: string } | null>(null)
+  const [issuedPassword, setIssuedPassword] = useState<IssuedPassword | null>(null)
+  // After creating an employee the password panel sits next to the form, below the list; bring it into view. The keyboard
+  // focus goes there too (also after a reset, whose confirm button disappears), so it can be read out right away.
+  useEffect(() => {
+    if (!issuedPassword) return
+    const panel = document.getElementById(ISSUED_PASSWORD_ID)
+    if (issuedPassword.reason === 'created') panel?.scrollIntoView?.({ block: 'nearest' })
+    panel?.focus({ preventScroll: issuedPassword.reason === 'created' })
+  }, [issuedPassword])
   function askReset(id: string) { setResetTarget(id); setIssuedPassword(null); setError(''); setNotice('') }
   async function confirmReset() {
     const person = employees.find((entry) => entry.id === resetTarget)
@@ -696,78 +726,36 @@ export function EmployeesView() {
     } catch (reason) { setError(errText(reason)) } finally { setBusy(false); setResetTarget(null) }
   }
   return <EmployeesViewRender employees={employees} sites={sites} loading={loading} loadError={loadError} error={error} notice={notice} busy={busy} dni={dni} displayName={displayName} siteIds={siteIds} tolerance={tolerance} temporaryPassword={temporaryPassword} draft={draft}
-    assignmentsPanel={assignmentsPanel} onOpenAssignments={(id) => void openAssignments(id)}
-    onReload={() => void reload()} onCreate={create} onDniChange={setDni} onDisplayNameChange={setDisplayName} onToggleSite={toggleSite} onToleranceChange={setTolerance} onTemporaryPasswordChange={setTemporaryPassword}
+    generatedPassword={generatedPassword} cards={cards} assignmentsFor={assignmentsFor} assignmentsPanel={assignmentsPanel} onOpenAssignments={(id) => void openAssignments(id)}
+    onReload={() => void reload()} onCreate={create} onDniChange={setDni} onDisplayNameChange={setDisplayName} onToggleSite={toggleSite} onToleranceChange={setTolerance} onTemporaryPasswordChange={typePassword} onGeneratePassword={generatePassword}
     onSave={() => void saveEmployee()} onDraftChange={updateDraft} onStartEditing={startEditing} onCancelEditing={() => { setDraft(null); setError('') }}
     resetTarget={resetTarget} issuedPassword={issuedPassword} onAskReset={askReset} onConfirmReset={() => void confirmReset()} onCancelReset={() => setResetTarget(null)} onDismissIssuedPassword={() => setIssuedPassword(null)} />
 }
 
-export function TemplatesView() {
-  const [sites, setSites] = useState<Site[]>([])
-  const [templates, setTemplates] = useState<Template[]>([])
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState('')
-  const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [selectedSite, setSelectedSite] = useState('')
-  const [editing, setEditing] = useState('')
-  const [name, setName] = useState('')
-  const [blocks, setBlocks] = useState<TemplateBlock[]>([{ startDayOffset: 0, start: '09:00', end: '13:00', endDayOffset: 0 }, { startDayOffset: 0, start: '14:00', end: '18:00', endDayOffset: 0 }])
-  const [breakfast, setBreakfast] = useState('15'); const [lunch, setLunch] = useState('60')
-  async function load() {
-    setLoading(true); setLoadError(''); setError(''); setNotice('')
-    try { const [availableSites, availableTemplates] = await Promise.all([api.get<Site[]>('/sites'), api.get<Template[]>('/templates')]); setSites(availableSites); setTemplates(availableTemplates); setSelectedSite((current) => current || availableSites[0]?.id || '') }
-    catch (reason) { setSites([]); setTemplates([]); setLoadError(errText(reason)) } finally { setLoading(false) }
-  }
-  useEffect(() => { void load() }, [])
-  const siteTemplates = useMemo(() => templates.filter((template) => template.siteId === selectedSite), [templates, selectedSite])
-  function setBlock(index: number, patch: Partial<TemplateBlock>) { setBlocks((current) => current.map((block, position) => position === index ? { ...block, ...patch } : block)) }
-  function beginEdit(template: Template) { setEditing(template.id); setSelectedSite(template.siteId); setName(template.name); setBlocks(template.blocks.map((block) => ({ ...block }))); setBreakfast(String(template.breakfastLimitMinutes)); setLunch(String(template.lunchLimitMinutes)) }
-  function resetForm() { setEditing(''); setName(''); setBlocks([{ startDayOffset: 0, start: '09:00', end: '13:00', endDayOffset: 0 }, { startDayOffset: 0, start: '14:00', end: '18:00', endDayOffset: 0 }]); setBreakfast('15'); setLunch('60') }
-  function validBlocks() {
-    const mins = (time: string) => { const [hour, minute] = time.split(':').map(Number); return hour * 60 + minute }
-    let previousEnd = -1
-    return blocks.every((block, index) => {
-      const start = block.startDayOffset * 1440 + mins(block.start)
-      const end = block.endDayOffset * 1440 + mins(block.end)
-      const valid = (index > 0 || block.startDayOffset === 0) && end > start && start >= previousEnd
-      previousEnd = end
-      return valid
-    })
-  }
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setError(''); setNotice('')
-    if (!validBlocks()) { setError('Revisá los bloques: deben estar en orden, no superponerse y terminar después de empezar.'); return }
-    setBusy(true)
-    const payload: TemplateInput = { siteId: selectedSite, name: name.trim(), blocks, breakfastLimitMinutes: Number(breakfast), lunchLimitMinutes: Number(lunch) }
-    try {
-      const saved = editing ? await api.patch<Template>(`/templates/${encodeURIComponent(editing)}`, payload) : await api.post<Template>('/templates', payload)
-      setTemplates((current) => editing ? current.map((item) => item.id === saved.id ? saved : item) : [...current, saved]); resetForm(); setNotice(editing ? 'Plantilla actualizada.' : 'Plantilla creada.')
-    } catch (reason) { setError(errText(reason)) } finally { setBusy(false) }
-  }
-  return <TemplatesViewRender sites={sites} siteTemplates={siteTemplates} loading={loading} loadError={loadError} error={error} notice={notice} busy={busy} selectedSite={selectedSite} editing={editing} name={name} blocks={blocks} breakfast={breakfast} lunch={lunch}
-    onReload={() => void load()} onSiteChange={(id) => { setSelectedSite(id); if (editing) resetForm() }} onBeginEdit={beginEdit} onSubmit={submit} onNameChange={setName} onBlockChange={setBlock}
-    onRemoveBlock={(index) => setBlocks((current) => current.filter((_, position) => position !== index))} onAddBlock={() => setBlocks((current) => [...current, { startDayOffset: 0, start: '18:00', end: '22:00', endDayOffset: 0 }])}
-    onBreakfastChange={setBreakfast} onLunchChange={setLunch} onResetForm={resetForm} />
-}
+/** Horarios (the UI name of schedule templates, issue #103) live in SchedulesView. */
+export { SchedulesView as TemplatesView } from './SchedulesView'
 
-export function JourneysView() {
+/** A jornada to open on arrival (from a deviation in Bandeja); forgottenAction preselects the mark that is missing. */
+export type OpenJornadaRequest = { jornadaId: string; forgottenAction?: MarkAction }
+
+export function JourneysView({ openJornada, coverage, onNavigate, onDaysLoaded }: {
+  openJornada?: OpenJornadaRequest; coverage?: ReactNode; onNavigate?: (section: AdminSection) => void; onDaysLoaded?: () => void
+} = {}) {
   const [employees, setEmployees] = useState<Employee[]>([]); const [sites, setSites] = useState<Site[]>([]); const [templates, setTemplates] = useState<Template[]>([])
   const [jornadas, setJornadas] = useState<JourneyRow[]>([]); const [loading, setLoading] = useState(true); const [journeysLoading, setJourneysLoading] = useState(false); const [journeysDate, setJourneysDate] = useState(''); const [journeysError, setJourneysError] = useState(''); const [dependencyError, setDependencyError] = useState(''); const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [busy, setBusy] = useState(false)
   const [detail, setDetail] = useState<Jornada | null>(null); const [detailLoading, setDetailLoading] = useState(false); const [markBusy, setMarkBusy] = useState('')
   const [date, setDate] = useState(dateInBrowserZone); const [dateError, setDateError] = useState(''); const [employeeId, setEmployeeId] = useState(''); const [siteId, setSiteId] = useState(''); const [templateId, setTemplateId] = useState('')
+  // The single day has its own date, error and notice: it is folded at the bottom, far from the page messages.
+  const [singleDate, setSingleDate] = useState(dateInBrowserZone); const [singleError, setSingleError] = useState(''); const [singleNotice, setSingleNotice] = useState('')
+  const narrow = useNarrowScreen()
   const journeyRequest = useRef(0)
   const detailRequest = useRef(0)
+  const [scrollToDetail, setScrollToDetail] = useState(false)
   const [forgotAction, setForgotAction] = useState<MarkAction>('INGRESO'); const [forgotOccurredAt, setForgotOccurredAt] = useState(''); const [forgotReason, setForgotReason] = useState('')
   const [editingMarkId, setEditingMarkId] = useState(''); const [correctedAction, setCorrectedAction] = useState<MarkAction>('INGRESO'); const [correctedOccurredAt, setCorrectedOccurredAt] = useState(''); const [correctionReason, setCorrectionReason] = useState('')
   // Cancelling a jornada (D-20261027-07) and voiding a mark (D-20261027-08) both ask for a reason in a second, confirming step.
   const [cancelOpen, setCancelOpen] = useState(false); const [cancelReason, setCancelReason] = useState('')
   const [voidingMarkId, setVoidingMarkId] = useState(''); const [voidReason, setVoidReason] = useState('')
-  // Bulk declaration (D-20261027-11): its own site, employees, range, weekdays (Monday to Friday by default) and optional template.
-  const [bulkSiteId, setBulkSiteId] = useState(''); const [bulkEmployeeIds, setBulkEmployeeIds] = useState<string[]>([]); const [bulkFrom, setBulkFrom] = useState(''); const [bulkTo, setBulkTo] = useState('')
-  const [bulkWeekdays, setBulkWeekdays] = useState<number[]>([1, 2, 3, 4, 5]); const [bulkTemplateId, setBulkTemplateId] = useState('')
-  const [bulkBusy, setBulkBusy] = useState(false); const [bulkError, setBulkError] = useState(''); const [bulkResult, setBulkResult] = useState<BulkDeclarationResult | null>(null)
   // Change history (issue #60): collapsed by default and loaded only when the ADMIN opens it; auditFor is the open jornada.
   const [auditFor, setAuditFor] = useState(''); const [audit, setAudit] = useState<JornadaAudit | null>(null); const [auditLoading, setAuditLoading] = useState(false); const [auditError, setAuditError] = useState('')
   const auditRequest = useRef(0)
@@ -807,40 +795,45 @@ export function JourneysView() {
         api.get<Employee[]>('/employees'), api.get<Site[]>('/sites'), api.get<Template[]>('/templates')
       ])
       setEmployees(people); setSites(availableSites); setTemplates(availableTemplates.filter((item) => item.active))
-      setEmployeeId(people[0]?.id ?? ''); setSiteId(availableSites[0]?.id ?? ''); setBulkSiteId((current) => current || availableSites[0]?.id || '')
+      setEmployeeId(people[0]?.id ?? ''); setSiteId(availableSites[0]?.id ?? '')
     } catch (reason) { setDependencyError(errText(reason)) }
     finally { setLoading(false) }
     await loadJourneys(requestedDate)
   }
-  useEffect(() => { void loadDependencies(date) }, [])
-  // The first template of the site stays preselected as before; choosing "Usar la plantilla vigente" (empty) sends no template and
-  // the server uses the employee's assignment in force (D-20261015-02). Right after deploy no employee has an assignment yet.
-  useEffect(() => { setTemplateId(templates.find((item) => item.siteId === siteId)?.id ?? '') }, [siteId, templates])
+  /** From a deviation: the list opens on the jornada's own date with its detail, and the missing mark preselected. */
+  async function openRequested(request: OpenJornadaRequest) {
+    let target = date
+    try {
+      target = (await api.get<Jornada>(`/jornadas/${encodeURIComponent(request.jornadaId)}`)).localDate
+      setDate(target)
+    } catch { /* The list stays on today; showDetail below reports the failure. */ }
+    await loadDependencies(target)
+    if (request.forgottenAction) setForgotAction(request.forgottenAction)
+    setScrollToDetail(true)
+    await showDetail(request.jornadaId)
+  }
+  useEffect(() => { if (openJornada) void openRequested(openJornada); else void loadDependencies(date) }, [])
+  useEffect(() => {
+    if (!scrollToDetail || !detail) return
+    setScrollToDetail(false)
+    const target = document.getElementById('jornada-detail')
+    const reduced = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (target && typeof target.scrollIntoView === 'function') target.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' })
+  }, [scrollToDetail, detail])
+  // No template is preselected: "El que tiene asignado" (empty) sends none and the server uses the employee's assignment in force
+  // on that date (D-20261015-02), as the hint says. Choosing a site clears a template of another site.
   const eligibleEmployees = useMemo(() => employees.filter((person) => person.active && person.siteIds.includes(siteId)), [employees, siteId])
   useEffect(() => { setEmployeeId((current) => eligibleEmployees.some((person) => person.id === current) ? current : eligibleEmployees[0]?.id ?? '') }, [eligibleEmployees])
   async function declare(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setError(''); setNotice(''); setBusy(true)
-    try { await api.post('/jornadas', { employeeId, siteId, localDate: date, ...(templateId ? { templateId } : {}) }); setNotice('Jornada declarada.'); await loadJourneys(date, true) }
-    catch (reason) { setError(declarationFailureMessage(reason, 'single') ?? errText(reason)) } finally { setBusy(false) }
-  }
-  const bulkEmployees = useMemo(() => employees.filter((person) => person.active && person.siteIds.includes(bulkSiteId)), [employees, bulkSiteId])
-  function changeBulkSite(id: string) {
-    setBulkSiteId(id); setBulkTemplateId(''); setBulkResult(null)
-    setBulkEmployeeIds((current) => current.filter((personId) => employees.some((person) => person.id === personId && person.active && person.siteIds.includes(id))))
-  }
-  async function declareBulk(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const problem = validateBulkDeclaration({ employeeIds: bulkEmployeeIds, from: bulkFrom, to: bulkTo, weekdays: bulkWeekdays })
-    setBulkResult(null)
-    if (problem) { setBulkError(problem); return }
-    setBulkError(''); setBulkBusy(true)
+    event.preventDefault(); setSingleError(''); setSingleNotice(''); setBusy(true)
     try {
-      const result = await api.post<BulkDeclarationResult>('/jornadas/bulk', {
-        employeeIds: bulkEmployeeIds, siteId: bulkSiteId, from: bulkFrom, to: bulkTo, weekdays: bulkWeekdays, ...(bulkTemplateId ? { templateId: bulkTemplateId } : {})
-      })
-      setBulkResult(result)
-      if (date) await loadJourneys(date, true)
-    } catch (reason) { setBulkError(declarationFailureMessage(reason, 'bulk') ?? errText(reason)) } finally { setBulkBusy(false) }
+      await api.post('/jornadas', { employeeId, siteId, localDate: singleDate, ...(templateId ? { templateId } : {}) })
+      setSingleNotice('Día cargado.')
+      onDaysLoaded?.()
+      setDate(singleDate); setDateError('')
+      await loadJourneys(singleDate, true)
+    }
+    catch (reason) { setSingleError(declarationFailureMessage(reason, 'single') ?? errText(reason)) } finally { setBusy(false) }
   }
   /** refreshAudit: after a change made from the detail, an open history is reloaded; opening a jornada starts it collapsed. */
   async function showDetail(jornadaId: string, refreshAudit = false) {
@@ -864,11 +857,11 @@ export function JourneysView() {
     if (!detail || !detailTimeZone) return
     const occurredAt = instantForSiteTime(forgotOccurredAt, detailTimeZone)
     if (!occurredAt) { setError('Esa hora no existe en la zona horaria de la sede. Revisá la fecha y la hora.'); return }
-    if (!forgotReason.trim()) { setError('Escribí el motivo de incorporación.'); return }
+    if (!forgotReason.trim()) { setError('Escribí por qué agregás la marca.'); return }
     setMarkBusy('forgotten'); setError(''); setNotice('')
     try {
       await api.post<Mark>(`/admin/jornadas/${encodeURIComponent(detail.id)}/forgotten-marks`, { action: forgotAction, occurredAt, auditReason: forgotReason.trim() })
-      setForgotOccurredAt(''); setForgotReason(''); setNotice('Marca olvidada registrada.'); await showDetail(detail.id, true)
+      setForgotOccurredAt(''); setForgotReason(''); setNotice('Marca agregada.'); await showDetail(detail.id, true)
     } catch (reason) { setError(markFormErrText(reason)) } finally { setMarkBusy('') }
   }
   function beginMarkCorrection(mark: Mark) {
@@ -930,7 +923,7 @@ export function JourneysView() {
     setDate(value)
     if (!value) {
       journeyRequest.current += 1; detailRequest.current += 1
-      setDateError('Elegí una fecha para ver o declarar jornadas.'); setJornadas([]); setJourneysError(''); setJourneysLoading(false); setDetail(null); setDetailLoading(false)
+      setDateError('Elegí una fecha para ver los días cargados.'); setJornadas([]); setJourneysError(''); setJourneysLoading(false); setDetail(null); setDetailLoading(false)
       return
     }
     setDateError('')
@@ -938,18 +931,15 @@ export function JourneysView() {
   }
   const peopleById = useMemo(() => new Map(employees.map((person) => [person.id, person.displayName])), [employees])
   const siteTemplates = templates.filter((template) => template.siteId === siteId)
-  const bulkPanel = <BulkDeclarationRender sites={sites} employees={bulkEmployees} templates={templates.filter((template) => template.siteId === bulkSiteId)}
-    siteId={bulkSiteId} employeeIds={bulkEmployeeIds} from={bulkFrom} to={bulkTo} weekdays={bulkWeekdays} templateId={bulkTemplateId}
-    busy={bulkBusy} disabled={loading || !bulkSiteId} error={bulkError} result={bulkResult} peopleById={peopleById}
-    onSiteChange={changeBulkSite} onToggleEmployee={(id) => setBulkEmployeeIds((current) => current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id])}
-    onSelectAll={() => setBulkEmployeeIds(bulkEmployees.map((person) => person.id))} onFromChange={setBulkFrom} onToChange={setBulkTo}
-    onToggleWeekday={(day) => setBulkWeekdays((current) => current.includes(day) ? current.filter((entry) => entry !== day) : [...current, day].sort((a, b) => a - b))}
-    onTemplateChange={setBulkTemplateId} onSubmit={(event) => void declareBulk(event)} />
-  return <JourneysViewRender bulkPanel={bulkPanel} sites={sites} eligibleEmployees={eligibleEmployees} siteTemplates={siteTemplates} jornadas={jornadas} loading={loading} journeysLoading={journeysLoading} journeysDate={journeysDate} journeysError={journeysError} dependencyError={dependencyError} error={error} notice={notice} busy={busy} detail={detail} detailLoading={detailLoading} markBusy={markBusy} date={date} employeeId={employeeId} siteId={siteId} templateId={templateId} peopleById={peopleById} dateError={dateError} detailSite={detailSite} detailTimeZone={detailTimeZone} forgotAction={forgotAction} forgotOccurredAt={forgotOccurredAt} forgotReason={forgotReason} editingMarkId={editingMarkId} correctedAction={correctedAction} correctedOccurredAt={correctedOccurredAt} correctionReason={correctionReason}
+  const workDaysPanel = <WorkDaysPanel sites={sites} employees={employees} templates={templates} disabled={loading}
+    onLoaded={() => { onDaysLoaded?.(); if (date) void loadJourneys(date, true) }}
+    onAssignSchedules={() => onNavigate?.('empleados')} onReviewSchedules={() => onNavigate?.('plantillas')} />
+  return <JourneysViewRender workDaysPanel={workDaysPanel} coverage={coverage} narrow={narrow} sites={sites} eligibleEmployees={eligibleEmployees} siteTemplates={siteTemplates} jornadas={jornadas} loading={loading} journeysLoading={journeysLoading} journeysDate={journeysDate} journeysError={journeysError} dependencyError={dependencyError} error={error} notice={notice} busy={busy} detail={detail} detailLoading={detailLoading} markBusy={markBusy} date={date} employeeId={employeeId} siteId={siteId} templateId={templateId} peopleById={peopleById} dateError={dateError} detailSite={detailSite} detailTimeZone={detailTimeZone} forgotAction={forgotAction} forgotOccurredAt={forgotOccurredAt} forgotReason={forgotReason} editingMarkId={editingMarkId} correctedAction={correctedAction} correctedOccurredAt={correctedOccurredAt} correctionReason={correctionReason}
+    singleDate={singleDate} singleError={singleError} singleNotice={singleNotice} onSingleDateChange={setSingleDate}
     cancelOpen={cancelOpen} cancelReason={cancelReason} voidingMarkId={voidingMarkId} voidReason={voidReason}
     auditOpen={Boolean(detail) && auditFor === detail?.id} audit={audit} auditLoading={auditLoading} auditError={auditError} onToggleAudit={toggleAudit} onRetryAudit={() => { if (auditFor) void loadAudit(auditFor) }}
     onBeginCancel={() => { setCancelOpen(true); setCancelReason('') }} onCancelReasonChange={setCancelReason} onConfirmCancel={(event) => void cancelJornada(event)} onAbortCancel={() => { setCancelOpen(false); setCancelReason('') }}
     onBeginVoid={beginVoid} onVoidReasonChange={setVoidReason} onConfirmVoid={(event, mark) => void voidMark(event, mark)} onAbortVoid={() => { setVoidingMarkId(''); setVoidReason('') }}
-    onDateChange={changeDate} onEmployeeChange={setEmployeeId} onSiteChange={setSiteId} onTemplateChange={setTemplateId} onDeclare={declare} onRetryDependencies={() => void loadDependencies(date)} onReloadJourneys={() => void loadJourneys(date)} onShowDetail={(id) => void showDetail(id)}
+    onDateChange={changeDate} onEmployeeChange={setEmployeeId} onSiteChange={(id) => { setSiteId(id); setTemplateId('') }} onTemplateChange={setTemplateId} onDeclare={declare} onRetryDependencies={() => void loadDependencies(date)} onReloadJourneys={() => void loadJourneys(date)} onShowDetail={(id) => void showDetail(id)}
     onForgotActionChange={setForgotAction} onForgotOccurredAtChange={setForgotOccurredAt} onForgotReasonChange={setForgotReason} onAddForgottenMark={(event) => void addForgottenMark(event)} onBeginMarkCorrection={beginMarkCorrection} onCorrectedActionChange={setCorrectedAction} onCorrectedOccurredAtChange={setCorrectedOccurredAt} onCorrectionReasonChange={setCorrectionReason} onCorrectMark={(event, mark) => void correctMark(event, mark)} onCancelMarkCorrection={() => setEditingMarkId('')} />
 }

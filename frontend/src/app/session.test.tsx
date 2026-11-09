@@ -72,4 +72,13 @@ describe('SessionProvider', () => {
     expect(await screen.findByText('sin sesión')).toBeInTheDocument()
     expect(screen.getByTestId('error')).toHaveTextContent('')
   })
+
+  it('si no se puede confirmar la salida, lo dice sin hablar de servidores', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(json(session())).mockResolvedValueOnce(csrf()).mockRejectedValueOnce(new TypeError('Failed to fetch')))
+    render(<SessionProvider><Probe /></SessionProvider>)
+    fireEvent.click(await screen.findByRole('button', { name: 'salir' }))
+
+    expect(await screen.findByText('sin sesión')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('error')).toHaveTextContent('No pudimos confirmar que la sesión se cerró. Si terminaste, cerrá también esta pestaña.'))
+  })
 })

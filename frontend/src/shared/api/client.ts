@@ -21,7 +21,7 @@ export class ApiError extends Error {
 /** Network failure: the request never got a response. Each screen decides how to contextualize it. */
 export class NetworkError extends Error {
   constructor() {
-    super('No se pudo conectar con el servidor. Revisá tu conexión y reintentá.')
+    super('No se pudo conectar. Revisá tu conexión a internet y reintentá.')
     this.name = 'NetworkError'
   }
 }
@@ -29,7 +29,7 @@ export class NetworkError extends Error {
 /** The caller's deadline expired before a response arrived; the server may or may not have applied the request. */
 export class TimeoutError extends Error {
   constructor() {
-    super('El servidor tardó demasiado en responder.')
+    super('El sistema tardó demasiado en responder.')
     this.name = 'TimeoutError'
   }
 }
@@ -43,14 +43,14 @@ function waitText(seconds?: number): string {
 
 const STALE_MARK = 'El estado de la jornada cambió y esa marca ya no corresponde. Revisá el estado actualizado.'
 const CONFLICT_MESSAGES: Record<string, string> = {
-  MARK_TOO_EARLY: 'Todavía no es horario para registrar esta marca. El ingreso se habilita 30 minutos antes; las demás marcas, desde el inicio de la jornada.',
-  RETRYABLE_TRANSACTION_CONFLICT: 'El servidor estaba ocupado y no completó la operación. Reintentá en unos segundos.',
+  MARK_TOO_EARLY: 'Todavía es temprano para marcar. La entrada se puede marcar desde 30 minutos antes de tu horario; las demás marcas, desde que empieza tu turno.',
+  RETRYABLE_TRANSACTION_CONFLICT: 'El sistema estaba ocupado y no completó la operación. Reintentá en unos segundos.',
   INVALID_MARK_TRANSITION: STALE_MARK,
   INVALID_MARK_ORDER: STALE_MARK,
   INVALID_MARK_HISTORY: STALE_MARK,
-  IDEMPOTENCY_CONFLICT: 'Esta solicitud ya se usó para otra acción. Actualizá la vista y volvé a intentar.',
-  MOTIVE_LOCKED: 'El administrador ya revisó este desvío; el motivo ya no se puede cambiar.',
-  JORNADA_EXISTS: 'Ya hay una jornada declarada para ese empleado, sede y fecha.',
+  IDEMPOTENCY_CONFLICT: 'No se pudo registrar tu marca. Tocá Actualizar y volvé a marcar.',
+  MOTIVE_LOCKED: 'Tu encargado ya lo revisó: ya no se puede cambiar.',
+  JORNADA_EXISTS: 'Esa persona ya tiene ese día cargado en ese local.',
   MEMBERSHIP_EXISTS: 'Esa persona ya tiene un rol en esta empresa.',
   ACCOUNT_INACTIVE: 'La cuenta de ese DNI no está habilitada y no se puede agregar a la empresa.',
   ACCOUNT_SHARED: 'Esta persona también tiene acceso en otra empresa o como ADMIN; su contraseña la restablece el operador.',
@@ -58,12 +58,13 @@ const CONFLICT_MESSAGES: Record<string, string> = {
   JORNADA_HAS_MARKS: 'La jornada ya tiene marcas y no se puede cancelar. Corregí o anulá sus marcas.',
   JORNADA_CANCELLED: 'Esta jornada fue cancelada por el administrador y no admite marcas.',
   MARK_VOIDED: 'Esa marca ya fue anulada y no se puede modificar.',
-  ASSIGNMENT_EXISTS: 'Ese empleado ya tiene una plantilla asignada en esa sede desde esa fecha. Elegí otra fecha de inicio.',
-  EMPLOYEE_NOT_IN_SITE: 'Ese empleado no está asignado a esa sede. Agregale la sede desde Empleados y volvé a intentar.'
+  ASSIGNMENT_EXISTS: 'Esa persona ya tiene un horario en ese local desde ese día. Elegí otro día.',
+  TEMPLATE_IN_USE: 'Ese horario ya se usa, así que no puede pasar a otro local. Creá un horario nuevo para ese local.',
+  EMPLOYEE_NOT_IN_SITE: 'Esa persona no trabaja en ese local. Agregale el local desde Empleados y volvé a intentar.'
 }
 const VALIDATION_MESSAGES: Record<string, string> = {
-  TEMPLATE_REQUIRED: 'El empleado no tiene una plantilla vigente en esa sede para esa fecha. Elegí una plantilla o asignale una desde Empleados.',
-  TEMPLATE_INVALID: 'La plantilla está inactiva y no se puede usar. Elegí otra plantilla o revisala en Plantillas.',
+  TEMPLATE_REQUIRED: 'Esa persona no tiene un horario en ese local para ese día. Elegí un horario o asignale uno desde Empleados.',
+  TEMPLATE_INVALID: 'Ese horario está desactivado y no se puede usar. Elegí otro o revisalo en Horarios.',
   PASSWORD_TOO_LONG: PASSWORD_TOO_LONG_MESSAGE
 }
 
@@ -206,7 +207,7 @@ export class ApiClient {
         method: 'GET', credentials: 'include', cache: 'no-store', redirect: 'error', referrerPolicy: 'same-origin'
       }).then(({ token }) => {
         if (typeof token !== 'string' || token.length < 16 || token.length > 256) {
-          throw new Error('El servidor no entregó un token CSRF válido.')
+          throw new Error('No se pudo preparar la operación. Reintentá en unos segundos.')
         }
         this.csrfToken = token
         return token

@@ -82,6 +82,36 @@ describe('submitMark', () => {
     } finally { clock.mockRestore() }
   })
 
+  describe('avisa cómo terminó el envío de la ubicación', () => {
+    const fix = { latitude: -26, longitude: -65, accuracyMeters: 20 }
+
+    it('SENT cuando la ubicación se adjuntó a la marca', async () => {
+      const api = { post: vi.fn().mockResolvedValue({ id: 'm', acceptedAt: '2026-10-16T12:00:00Z' }), attachLocation: vi.fn().mockResolvedValue(undefined) } as unknown as ApiClient
+      const onLocation = vi.fn()
+      await submitMark(api, { jornadaId: 'j-1', action: 'INGRESO', idempotencyKey: 'k' }, () => Promise.resolve(fix), onLocation)
+      await vi.waitFor(() => expect(onLocation).toHaveBeenCalledWith('SENT'))
+      expect(onLocation).toHaveBeenCalledOnce()
+    })
+
+    it('MISSING sin posición, si falla el envío o si la posición llega tarde', async () => {
+      const receipt = { id: 'm', acceptedAt: '2026-10-16T12:00:00Z' }
+      const denied = vi.fn()
+      await submitMark({ post: vi.fn().mockResolvedValue(receipt), attachLocation: vi.fn() } as unknown as ApiClient, { jornadaId: 'j-1', action: 'INGRESO', idempotencyKey: 'a' }, () => Promise.resolve(null), denied)
+      await vi.waitFor(() => expect(denied).toHaveBeenCalledWith('MISSING'))
+
+      const rejected = vi.fn()
+      await submitMark({ post: vi.fn().mockResolvedValue(receipt), attachLocation: vi.fn().mockRejectedValue(new Error('x')) } as unknown as ApiClient, { jornadaId: 'j-1', action: 'INGRESO', idempotencyKey: 'b' }, () => Promise.resolve(fix), rejected)
+      await vi.waitFor(() => expect(rejected).toHaveBeenCalledWith('MISSING'))
+
+      const clock = vi.spyOn(performance, 'now').mockReturnValueOnce(100).mockReturnValue(30_101)
+      try {
+        const late = vi.fn()
+        await submitMark({ post: vi.fn().mockResolvedValue(receipt), attachLocation: vi.fn() } as unknown as ApiClient, { jornadaId: 'j-1', action: 'INGRESO', idempotencyKey: 'c' }, () => Promise.resolve(fix), late)
+        await vi.waitFor(() => expect(late).toHaveBeenCalledWith('MISSING'))
+      } finally { clock.mockRestore() }
+    })
+  })
+
   describe('conflicto reintentable y espera agotada', () => {
     afterEach(() => vi.useRealTimers())
     const retryable = () => new ApiError(409, { status: 409, code: 'RETRYABLE_TRANSACTION_CONFLICT' }, { retryAfterSeconds: 1 })

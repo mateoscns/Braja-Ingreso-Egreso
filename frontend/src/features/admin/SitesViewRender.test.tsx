@@ -129,25 +129,49 @@ describe('SitesView location administration API', () => {
     expect(post).toHaveBeenCalledWith('/sites', expect.objectContaining({ latitude: null, longitude: null, geofenceRadiusMeters: 100 }))
   })
 
-  it('rejects an abbreviation or a fixed offset as the site zone before calling the server, and sends a region id', async () => {
+  // 2026-11-09 (integrated check of PR #107): the form asked for "la zona por región de la base IANA".
+  it('chooses the site hour by province, Buenos Aires first, and sends its region id', async () => {
     const created: Site = { id: 'site-new', name: 'Local Centro', timeZone: 'America/Argentina/Cordoba', latitude: null, longitude: null, geofenceRadiusMeters: 100 }
     vi.spyOn(api, 'get').mockResolvedValue([] as never)
     const post = vi.spyOn(api, 'post').mockResolvedValue(created as never)
-    render(<SitesView />)
+    const { container } = render(<SitesView />)
     fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre de la sede' }), { target: { value: 'Local Centro' } })
-    const zone = screen.getByRole('textbox', { name: /Zona horaria/ })
+    const zone = screen.getByRole('combobox', { name: 'Hora del local' })
 
-    for (const invalid of ['EST', '-03:00']) {
-      fireEvent.change(zone, { target: { value: invalid } })
-      fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
-      expect(await screen.findByText('Usá una zona horaria por región, como America/Argentina/Buenos_Aires. Las abreviaturas (EST, ART), UTC y los desfases fijos (-03:00, GMT-3, Etc/GMT+3) no se aceptan.')).toBeInTheDocument()
-    }
-    expect(post).not.toHaveBeenCalled()
+    expect(zone).toHaveValue('America/Argentina/Buenos_Aires')
+    expect(within(zone).getByRole('option', { name: 'Buenos Aires' })).toBeInTheDocument()
+    expect(within(zone).getByRole('option', { name: 'Otra (fuera de Argentina)' })).toBeInTheDocument()
+    expect(container).not.toHaveTextContent(/IANA|America\/Argentina/)
+    expect(screen.queryByRole('textbox', { name: /otro país/ })).not.toBeInTheDocument()
 
     fireEvent.change(zone, { target: { value: 'America/Argentina/Cordoba' } })
     fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
     await screen.findByText('Sede creada.')
     expect(post).toHaveBeenCalledWith('/sites', expect.objectContaining({ timeZone: 'America/Argentina/Cordoba' }))
+    expect(screen.getByText('Hora de Córdoba')).toBeInTheDocument()
+  })
+
+  it('accepts another country zone written by hand and rejects an abbreviation or a fixed offset before calling the server', async () => {
+    const created: Site = { id: 'site-new', name: 'Local Santiago', timeZone: 'America/Santiago', latitude: null, longitude: null, geofenceRadiusMeters: 100 }
+    vi.spyOn(api, 'get').mockResolvedValue([] as never)
+    const post = vi.spyOn(api, 'post').mockResolvedValue(created as never)
+    render(<SitesView />)
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre de la sede' }), { target: { value: 'Local Santiago' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Hora del local' }), { target: { value: 'other' } })
+    const zone = screen.getByRole('textbox', { name: 'Zona horaria de otro país' })
+    expect(zone).toHaveValue('')
+
+    for (const invalid of ['EST', '-03:00']) {
+      fireEvent.change(zone, { target: { value: invalid } })
+      fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
+      expect(await screen.findByText('Esa zona horaria no sirve. Elegí una provincia de la lista o escribí la zona de una ciudad, por ejemplo America/Santiago.')).toBeInTheDocument()
+    }
+    expect(post).not.toHaveBeenCalled()
+
+    fireEvent.change(zone, { target: { value: 'America/Santiago' } })
+    fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
+    await screen.findByText('Sede creada.')
+    expect(post).toHaveBeenCalledWith('/sites', expect.objectContaining({ timeZone: 'America/Santiago' }))
   })
 
   it('creates a site from manually entered coordinates after map review', async () => {
@@ -555,6 +579,8 @@ describe('SitesView map picker', () => {
     expect(map).toHaveAttribute('data-radius', '150')
 
     const query = within(form).getByRole('textbox', { name: 'Buscá la dirección del local' })
+    // Short enough to read whole in a 360 px wide field.
+    expect(query).toHaveAttribute('placeholder', 'Calle y número')
     fireEvent.change(query, { target: { value: 'Av. Corrientes 1234, CABA' } })
     fireEvent.keyDown(query, { key: 'Enter' })
     const search = within(form).getByRole('button', { name: 'Buscando…' })

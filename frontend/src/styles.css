@@ -13,8 +13,9 @@
   --page: #f4f7f5;
   --focus: #1d513c;
   --topbar-height: 70px;
-  /* Room under the content for the fixed "Alertas en este dispositivo" bar (.push-control, about 81 px tall). */
-  --alerts-bar-clearance: 110px;
+  /* Room under the content for the fixed "Alertas en este dispositivo" bar (.push-control): up to three lines of text with a long
+     company name, 98 px tall at 1280 px, 18 px above the edge. */
+  --alerts-bar-clearance: 124px;
   --tap-target: 44px;
   --radius-control: 9px;
   --radius-panel: 14px;
@@ -127,7 +128,7 @@ td input:focus-visible, .company-switch:focus-visible {
 .button-outline:not(:disabled):hover { background: #f2f7f3; }
 .button-danger-outline { color: #9c443a; background: #fff; border-color: #edcfca; }
 .button-danger-outline:not(:disabled):hover { background: #fff5f3; }
-.button-small { min-height: var(--tap-target); border-radius: 8px; padding: 0 11px; font-size: .875rem; }
+.button-small { min-height: var(--tap-target); min-width: var(--tap-target); border-radius: 8px; padding: 0 11px; font-size: .875rem; }
 .button-wide { width: 100%; min-height: 48px; }
 .button-row { display: flex; gap: 9px; flex-wrap: wrap; }
 /* Says why the button next to it is disabled. */
@@ -226,6 +227,21 @@ td .short-input { width: 74px; }
 .block-fields .field-label { font-size: .8125rem; }
 .block-fields input, .block-fields select { min-height: var(--tap-target); padding: 5px 7px; }
 .remove-block { margin-bottom: 1px; }
+/* Horarios (issue #103): tramos as "Entra a las · Sale a las · Quitar", chips for the preview, edit in place in the card. */
+.block-fields.block-fields-tramo { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+.schedule-types .journey-option { flex: 1 1 160px; color: var(--text-primary); }
+.schedule-chips { display: flex; flex-wrap: wrap; gap: 7px; margin: 7px 0 4px; padding: 0; list-style: none; }
+.template-card-open { flex-wrap: wrap; }
+.template-card-slot { flex-basis: 100%; min-width: 0; }
+.template-card-slot > h3 { margin: 0; font-size: 1rem; }
+.field-hint-error { color: var(--red); font-weight: 650; }
+/* Empleados: the horarios panel and the issued password open next to their place and are scrolled into view below the sticky bars. */
+.employee-detail { scroll-margin-top: calc(var(--topbar-height) + 80px); }
+.employee-detail .panel { margin: 12px 0 0; }
+@media (max-width: 520px) {
+  .block-fields.block-fields-tramo { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .block-fields-tramo .remove-block { grid-column: 1 / -1; justify-self: start; }
+}
 .status-chip { display: inline-flex; align-items: center; min-height: 28px; border-radius: 99px; padding: 4px 9px; color: var(--text-secondary); background: #f0f3f0; font-size: .8125rem; font-weight: 700; white-space: nowrap; }
 .status-motivo_pendiente { color: #835520; background: #fff4df; }
 .status-pendiente_revision { color: #795d21; background: #fff6d9; }
@@ -283,12 +299,54 @@ td .short-input { width: 74px; }
 .journey-option-active { border-color: #97b39d; background: #f3f8f3; }
 .journey-option strong { font-size: .875rem; }
 .journey-option small { color: var(--text-secondary); font-size: .875rem; }
+/* UX phase 1, issue #102: employee screen. Modifiers of the classes above, with the same tokens. */
+.employee-heading { margin-bottom: 18px; }
+.employee-heading h1 { margin-bottom: 6px; }
+.employee-day-state { margin: 0; color: var(--green); font-size: 1.15rem; font-weight: 650; line-height: 1.4; }
+.employee-next-action { min-height: 56px; font-size: 1.05rem; }
+.employee-more-actions { margin-top: 12px; }
+/* One extra action takes the whole row; two or three share it (2026-11-09: one action took half the row). */
+.mark-actions.employee-more-actions { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.employee-more-actions .mark-action { min-height: var(--tap-target); flex-direction: row; align-items: center; gap: 10px; padding: 10px 12px; }
+.employee-exit { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.employee-exit .button { font-size: 1rem; }
+.employee-sending { margin: 12px 0 0; font-size: .9rem; }
+.employee-step-text { margin: 0 0 12px; color: var(--text-primary); font-size: 1rem; line-height: 1.45; }
+.employee-confirmation { display: block; font-size: 1.05rem; font-weight: 650; line-height: 1.4; }
+.employee-location-note { display: block; margin-top: 6px; }
+.mark-row-location { grid-column: 2 / -1; margin-top: -6px; color: var(--text-secondary); font-size: .8125rem; }
+.employee-motive-question { margin: 0; color: var(--text-primary); font-size: .95rem; line-height: 1.45; }
+.employee-category-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.employee-category-option { display: flex; align-items: flex-start; gap: 10px; min-height: var(--tap-target); padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-control); background: #fff; color: var(--text-secondary); font-size: .875rem; line-height: 1.4; cursor: pointer; }
+.employee-category-option strong { color: var(--text-primary); }
+.employee-category-option input { flex: 0 0 auto; width: 22px; height: 22px; min-height: 0; margin: 0; padding: 0; accent-color: var(--green-2); }
+.employee-category-option:has(input:checked) { border-color: #97b39d; background: #f3f8f3; }
+.employee-field-error { margin: 6px 0 0; color: var(--red); font-size: .875rem; }
+.employee-today-button { margin-top: 12px; }
+.password-toggle { align-self: flex-start; }
+/* Beats .auth-card > .muted, which left the hint glued under "Ingresar". */
+.auth-card > .auth-hint { margin: 20px 0 0; }
+@media (max-width: 520px) {
+  .employee-category-list { grid-template-columns: 1fr; }
+  /* The help opens under the header across the screen instead of overflowing it from the button. */
+  .employee-frame .install-help { position: fixed; top: calc(var(--topbar-height) + env(safe-area-inset-top) + 8px); right: 16px; left: 16px; width: auto; }
+}
+@media (max-width: 400px) {
+  /* One header row for the brand mark, the install button and "Cerrar sesión"; it wraps only with a company switcher. */
+  .employee-frame { --topbar-height: 60px; }
+  .employee-frame .topbar { height: auto; min-height: calc(var(--topbar-height) + env(safe-area-inset-top)); justify-content: space-between; padding-bottom: 0; }
+  .employee-frame .topbar-actions { width: auto; margin-left: auto; flex-wrap: wrap; }
+  .employee-frame .brand > span:last-child { display: none; }
+}
 
 .push-control { position: fixed; z-index: 8; right: max(22px, env(safe-area-inset-right)); bottom: calc(18px + env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 15px; width: min(530px, calc(100vw - 32px)); padding: 11px 13px; border: 1px solid #dfe8e0; border-radius: 13px; background: rgba(255,255,255,.96); box-shadow: 0 12px 38px rgba(18,55,42,.12); backdrop-filter: blur(12px); }
 .push-control .message { position: absolute; bottom: 100%; right: 0; width: min(380px, 100%); margin-bottom: 8px; box-shadow: var(--shadow); }
 .push-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; margin-right: auto; }
 .push-copy strong { font-size: .875rem; color: #304838; }
 .push-copy span { color: var(--text-secondary); font-size: .8125rem; }
+/* The button keeps one line at any width; at 760 px or less the bar shows only a short status (.push-status-short) next to it. */
+.push-control .button { flex-shrink: 0; white-space: nowrap; }
+.push-status-short { display: none; }
 
 @media (max-width: 1050px) {
   .content-grid { grid-template-columns: 1fr; }
@@ -296,7 +354,11 @@ td .short-input { width: 74px; }
   .remove-block { justify-self: start; }
 }
 @media (max-width: 760px) {
-  :root { --topbar-height: 60px; }
+  /* The alerts bar shows only a short status next to its button: 68 px tall, 18 px above the edge (64 px and 9 px at 520 px or less).
+     2026-11-09: its text wrapped to four lines and the bar took 127 px of a 640 px screen. */
+  :root { --topbar-height: 60px; --alerts-bar-clearance: 90px; }
+  .push-title, .push-detail { display: none; }
+  .push-status-short { display: block; line-height: 1.3; }
   .topbar { padding-right: max(16px, env(safe-area-inset-right)); padding-left: max(16px, env(safe-area-inset-left)); }
   .topbar-actions { gap: 7px; }
   .user-label { display: none; }
@@ -321,8 +383,13 @@ td .short-input { width: 74px; }
   .deviation-actions { width: 100%; padding-left: 44px; }
 }
 @media (max-width: 520px) {
-  .auth-page { padding-top: max(30px, env(safe-area-inset-top)); }
-  .auth-card { padding: 26px 20px; border-radius: 18px; }
+  /* Tighter on phones so "Guardar contraseña" fits on a 640 px screen under the rules of the new password. */
+  .auth-page { padding-top: max(16px, env(safe-area-inset-top)); }
+  .auth-brand { margin-bottom: 18px; }
+  .auth-card { padding: 20px; border-radius: 18px; }
+  .auth-card h1 { font-size: 1.6rem; }
+  .auth-card > .muted { margin-bottom: 18px; }
+  .auth-card .form-stack { gap: 12px; }
   .topbar { padding-right: max(11px, env(safe-area-inset-right)); padding-left: max(11px, env(safe-area-inset-left)); }
   .brand { gap: 7px; font-size: .82rem; }
   .brand .brand-mark { width: 30px; height: 30px; }
@@ -330,8 +397,6 @@ td .short-input { width: 74px; }
   .topbar-actions .button { padding: 0 9px; }
   .company-switch { max-width: 108px; padding-left: 6px; padding-right: 20px; }
   .company-pill { display: none; }
-  /* The alerts bar spans the width and its text wraps to four lines (about 127 px tall at 360 px). */
-  :root { --alerts-bar-clearance: 150px; }
   /* Every ADMIN section stays in sight (no sideways scroll), and the menu scrolls away so fixed bars do not stack. */
   .sidebar { position: static; overflow-x: visible; }
   .sidebar nav { flex-wrap: wrap; width: auto; }
@@ -346,14 +411,17 @@ td .short-input { width: 74px; }
   .mark-row { grid-template-columns: 13px minmax(110px, 1fr); }
   .mark-row time { grid-column: 2; margin-top: -5px; }
   .push-control { right: max(9px, env(safe-area-inset-right)); bottom: calc(9px + env(safe-area-inset-bottom)); left: max(9px, env(safe-area-inset-left)); width: auto; gap: 8px; padding: 9px; }
-  .push-copy span { max-width: 190px; font-size: .8125rem; line-height: 1.3; }
-  .push-control .button { flex-shrink: 0; }
+  /* Horarios: the chips get the whole width and "Cambiar horario" goes under them. */
+  .template-card { flex-wrap: wrap; }
+  .template-card > div:first-child { flex: 1 1 100%; min-width: 0; }
   .block-fields { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 400px) {
-  :root { --topbar-height: 96px; }
-  .topbar { flex-wrap: wrap; justify-content: flex-start; align-content: center; gap: 4px 8px; padding-bottom: 4px; }
-  .topbar-actions { width: 100%; justify-content: flex-end; gap: 6px; }
+  /* One header row (60 px, like the employee header) for the brand and "Cerrar sesión"; the actions wrap only when they do not fit.
+     2026-11-09: "Cerrar sesión" went to a second row and the top bar took 96 px. A company switcher keeps the two rows. */
+  .topbar { height: auto; min-height: calc(var(--topbar-height) + env(safe-area-inset-top)); flex-wrap: wrap; align-content: center; gap: 4px 8px; }
+  .topbar-actions { margin-left: auto; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+  :root:has(.topbar .company-switch) { --topbar-height: 96px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -374,3 +442,28 @@ td .short-input { width: 74px; }
 .mark-feedback:focus { outline: none; }
 .fieldset-plain { min-width: 0; margin: 0; border: 0; padding: 0; }
 .update-banner { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 50; display: flex; align-items: center; gap: 12px; width: max-content; max-width: calc(100% - 32px); padding: 10px 14px; border: 1px solid #d2e7d7; border-radius: 12px; color: var(--green); background: #fff; box-shadow: var(--shadow); font-size: .9rem; }
+/* U3 (issue #104), small modifiers from existing tokens. A folded section (details/summary) like .site-location-manual, also
+   for a whole panel; the pressed state of the quick choices; the setup guide rows; the notice of days loaded with its button. */
+.fold > summary { display: flex; align-items: center; min-height: var(--tap-target); color: var(--green-2); font-size: .875rem; font-weight: 650; cursor: pointer; }
+.fold > summary h2 { color: var(--text-primary); }
+.fold > summary::before { content: "▸"; content: "▸" / ""; margin-right: 8px; color: var(--green-2); }
+.fold[open] > summary::before { content: "▾"; content: "▾" / ""; }
+.fold[open] > summary { margin-bottom: 12px; }
+.choice-row .button[aria-pressed="true"] { color: var(--green); background: var(--green-3); border-color: #97b39d; }
+.work-days-preview { padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #f8faf8; }
+.work-days-preview p { margin: 0; line-height: 1.5; }
+.work-days-preview p + p { margin-top: 6px; }
+.work-days-skip { flex-wrap: wrap; justify-content: space-between; }
+.first-steps, .work-days-skips { margin: 0; padding: 0; list-style: none; }
+.first-step { flex-wrap: wrap; }
+.first-step-copy { flex: 1 1 220px; min-width: 0; }
+.first-step .status-chip { margin-left: auto; }
+.coverage-notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.sidebar-caption-group { margin-top: 18px; }
+.mark-coordinates { display: block; color: var(--text-secondary); font-size: .8125rem; }
+/* 2026-11-09 integrated check of PR #107, small modifiers from existing tokens: the folded inbox filters on phones, the reasons
+   of a work-days load inside its result box, and the temporary password large enough to read aloud or copy by hand. */
+.filter-fold { margin-bottom: 18px; }
+.filter-fold .filter-bar { margin-bottom: 0; }
+.message .work-days-skips { margin-top: 8px; }
+.issued-password-code { display: inline-block; color: var(--text-primary); font-size: 1.25rem; font-weight: 700; letter-spacing: .08em; overflow-wrap: anywhere; }
