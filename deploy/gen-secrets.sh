@@ -93,10 +93,13 @@ openssl ecparam -name prime256v1 -genkey -noout -out "$work/vapid.pem" 2>/dev/nu
 openssl ec -in "$work/vapid.pem" -outform DER -out "$work/vapid.der" 2>/dev/null \
   || die "openssl could not convert the VAPID key ($(command -v openssl)); Git for Windows ships one in /mingw64/bin (which -a openssl)"
 [ "$(wc -c < "$work/vapid.der" | tr -d ' ')" = 121 ] || die "unexpected VAPID key encoding from openssl"
-[ "$(head -c 7 "$work/vapid.der" | od -An -tx1 | tr -d ' \n')" = "30770201010420" ] || die "unexpected VAPID key encoding from openssl"
-[ "$(tail -c 65 "$work/vapid.der" | head -c 1 | od -An -tx1 | tr -d ' \n')" = "04" ] || die "unexpected VAPID public key encoding"
-VAPID_PRIVATE="$(tail -c +8 "$work/vapid.der" | head -c 32 | b64url)"
-VAPID_PUBLIC="$(tail -c 65 "$work/vapid.der" | b64url)"
+# Byte ranges are cut with dd from the file, never with `tail | head`: if head closes the pipe early, tail can die of
+# SIGPIPE and pipefail plus set -e would end the script (a suspect of the silent stop of 2026-11-09, #97; not reproduced).
+bytes() { dd if="$work/vapid.der" bs=1 skip="$1" count="$2" 2>/dev/null; }
+[ "$(bytes 0 7 | od -An -tx1 | tr -d ' \n')" = "30770201010420" ] || die "unexpected VAPID key encoding from openssl"
+[ "$(bytes 56 1 | od -An -tx1 | tr -d ' \n')" = "04" ] || die "unexpected VAPID public key encoding"
+VAPID_PRIVATE="$(bytes 7 32 | b64url)"
+VAPID_PUBLIC="$(bytes 56 65 | b64url)"
 
 HEALTH_KEY="$(key32)"
 LOGIN_IP_KEY="$(key32)"
