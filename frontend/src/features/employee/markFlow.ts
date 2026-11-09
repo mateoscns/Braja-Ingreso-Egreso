@@ -2,7 +2,8 @@ import { ApiError, TimeoutError, type ApiClient } from '../../shared/api/client'
 
 export type MarkAction = 'INGRESO' | 'EGRESO' | 'SALIDA_DESAYUNO' | 'VUELTA_DESAYUNO' | 'SALIDA_ALMUERZO' | 'VUELTA_ALMUERZO'
 export type MarkAttempt = { jornadaId: string; action: MarkAction; idempotencyKey: string }
-export type MarkReceipt = { id: string; acceptedAt: string }
+/** POST /jornadas/{id}/marks answers the Mark; the screen uses its id, time and, on a replay, its location state. */
+export type MarkReceipt = { id: string; acceptedAt: string; locationStatus?: 'PENDIENTE' | 'RECIBIDA' | 'SIN_UBICACION' | 'PURGADA' | 'NO_APLICA' }
 export type LocationFix = { latitude: number; longitude: number; accuracyMeters: number }
 
 const LOCATION_WINDOW_MS = 30_000
@@ -45,10 +46,14 @@ export function captureLocation(): Promise<LocationFix | null> {
   })
 }
 
+/** How the location of a confirmed mark ended: attached to the mark, or not sent (no fix, too late or the request failed). */
+export type LocationResult = 'SENT' | 'MISSING'
+
 export async function submitMark(
   apiClient: ApiClient,
   attempt: MarkAttempt,
-  locate: () => Promise<LocationFix | null> = captureLocation
+  locate: () => Promise<LocationFix | null> = captureLocation,
+  onLocation: (result: LocationResult) => void = () => undefined
 ): Promise<MarkReceipt> {
   const startedAt = performance.now()
   const locationPromise = safelyLocate(locate)
@@ -59,12 +64,16 @@ export async function submitMark(
     receipt = await postWithOneRetry(apiClient, attempt, controller.signal)
   } finally { window.clearTimeout(deadline) }
   if (!receipt || typeof receipt.id !== 'string' || typeof receipt.acceptedAt !== 'string' || Number.isNaN(Date.parse(receipt.acceptedAt))) {
-    throw new Error('El servidor no confirmó la marca con su hora oficial. Podés reintentar con la misma acción.')
+    // The same Idempotency-Key is reused on the next tap, so retrying never records the mark twice.
+    throw new Error('No sabemos si llegó. Tocá el mismo botón otra vez: no se marca dos veces.')
   }
 
   void locationPromise.then(async (location) => {
-    if (!location || performance.now() - startedAt >= LOCATION_WINDOW_MS) return
-    try { await apiClient.attachLocation(receipt.id, location) } catch { /* La marca ya fue confirmada; el GPS es accesorio. */ }
+    if (!location || performance.now() - startedAt >= LOCATION_WINDOW_MS) { onLocation('MISSING'); return }
+    try {
+      await apiClient.attachLocation(receipt.id, location)
+      onLocation('SENT')
+    } catch { onLocation('MISSING') /* La marca ya fue confirmada; el GPS es accesorio. */ }
   })
   return receipt
 }

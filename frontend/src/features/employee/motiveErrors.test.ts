@@ -13,6 +13,6 @@ describe('errores al guardar un motivo', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(new ApiClient().put('/deviations/d-1/motive', { category: 'OTRA', text: 'Texto' }))
-      .rejects.toMatchObject({ code: 'MOTIVE_LOCKED', message: 'El administrador ya revisó este desvío; el motivo ya no se puede cambiar.' })
+      .rejects.toMatchObject({ code: 'MOTIVE_LOCKED', message: 'Tu encargado ya lo revisó: ya no se puede cambiar.' })
   })
 })

@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CompanySwitcher, FormField, Loading, PageMessage, Panel } from './ui'
+import { AppHeader, CompanySwitcher, FormField, Loading, PageMessage, Panel } from './ui'
 
 afterEach(cleanup)
 
@@ -16,6 +16,16 @@ const memberships = [
 ]
 
 describe('componentes compartidos de interfaz', () => {
+  it('el encabezado cierra la sesión con un botón que lo dice', () => {
+    const onSignOut = vi.fn()
+    render(<AppHeader companyName="Braja" name="Lucía" onSignOut={onSignOut} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cerrar sesión' }))
+
+    expect(onSignOut).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: 'Salir' })).not.toBeInTheDocument()
+  })
+
   it('asocia la ayuda de un campo con su control', () => {
     render(<FormField label="DNI" hint="Usá solo números."><input /></FormField>)
 

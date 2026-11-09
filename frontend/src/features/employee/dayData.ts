@@ -1,6 +1,7 @@
 import type { ApiClient } from '../../shared/api/client'
 import { queryString } from '../../shared/api/client'
 import type { Deviation, Jornada, Site } from '../../shared/api/types'
+import { loadFailureMessage } from './employeeMessages'
 
 export type EmployeeDayData = {
   siteDates: Map<string, string>
@@ -66,7 +67,7 @@ export async function loadEmployeeDayData(
     // Settled on its own: a failed pending list is shown in its panel instead of failing the whole day view.
     loadPendingMotives(apiClient).then(
       (pending) => ({ ...pending, error: '' }),
-      (reason: unknown) => ({ items: [] as Deviation[], truncated: false, error: reason instanceof Error ? reason.message : 'No se pudieron consultar los motivos pendientes.' })
+      (reason: unknown) => ({ items: [] as Deviation[], truncated: false, error: loadFailureMessage(reason, 'No pudimos cargar lo que tenés para explicar.') })
     )
   ])
 
