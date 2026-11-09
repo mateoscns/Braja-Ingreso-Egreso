@@ -66,9 +66,14 @@ afterEach(() => cleanup())
 
 describe('administración de desvíos y marcas', () => {
   it('anuncia la sección seleccionada y no muestra un indicador de bandeja permanente', async () => {
+    const previousGet = apiMocks.get.getMockImplementation()!
+    // Days loaded from tomorrow on: every setup step is done, so the app starts on Bandeja.
+    apiMocks.get.mockImplementation((path: string) => path.startsWith('/jornadas?') && path.includes('siteId=')
+      ? Promise.resolve([{ id: 'j-9', employeeId: 'e-1', siteId: 's-1', localDate: new URLSearchParams(path.split('?')[1]).get('from'), state: 'NO_INGRESO' }])
+      : previousGet(path))
     const { container } = render(<AdminApp />)
     const inbox = screen.getByRole('button', { name: 'Bandeja' })
-    expect(inbox).toHaveAttribute('aria-current', 'page')
+    await waitFor(() => expect(inbox).toHaveAttribute('aria-current', 'page'))
     expect(container.querySelector('.nav-dot')).not.toBeInTheDocument()
 
     const employees = screen.getByRole('button', { name: 'Empleados' })
@@ -186,7 +191,7 @@ describe('administración de desvíos y marcas', () => {
     render(<JourneysView />)
 
     expect(await screen.findByText('Falló la carga de jornadas.')).toBeInTheDocument()
-    expect(screen.queryByText('No hay jornadas declaradas para esta fecha.')).not.toBeInTheDocument()
+    expect(screen.queryByText('No hay días cargados para esta fecha.')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
     expect(await screen.findByRole('row', { name: /Lucía Pérez/ })).toBeInTheDocument()
   })
@@ -219,7 +224,7 @@ describe('administración de desvíos y marcas', () => {
     const previousGet = apiMocks.get.getMockImplementation()!
     apiMocks.get.mockImplementation((path: string) => path.startsWith('/jornadas?') ? Promise.resolve([]) : previousGet(path))
     render(<JourneysView />)
-    expect(await screen.findByText('No hay jornadas declaradas para esta fecha.')).toBeInTheDocument()
+    expect(await screen.findByText('No hay días cargados para esta fecha.')).toBeInTheDocument()
   })
 
   it('asocia la etiqueta Empleado con el selector de la jornada', async () => {
@@ -283,7 +288,8 @@ describe('administración de desvíos y marcas', () => {
       : previous(path))
     render(<AdminInbox />)
     expect(await screen.findByText('Fuera de sede')).toBeInTheDocument()
-    expect(screen.getByText('Marca: Salida almuerzo · secuencia 2')).toBeInTheDocument()
+    expect(screen.getByText('Marca: Salida almuerzo')).toBeInTheDocument()
+    expect(screen.queryByText(/secuencia/)).not.toBeInTheDocument()
   })
 
   it('permite corregir una clasificación existente y exige motivo de auditoría', async () => {
@@ -316,7 +322,7 @@ describe('administración de desvíos y marcas', () => {
     await waitFor(() => expect(apiMocks.get).toHaveBeenCalledWith('/jornadas?from=2026-10-17&to=2026-10-17'))
 
     await act(async () => { resolveJourneys([]) })
-    expect(await screen.findByText('No hay jornadas declaradas para esta fecha.')).toBeInTheDocument()
+    expect(await screen.findByText('No hay días cargados para esta fecha.')).toBeInTheDocument()
   })
 
   it('ignora el detalle antiguo si llega después de cambiar de fecha y abrir otra jornada', async () => {
@@ -359,10 +365,10 @@ describe('administración de desvíos y marcas', () => {
     fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
     await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
 
-    fireEvent.change(screen.getByLabelText('Tipo de marca olvidada'), { target: { value: 'SALIDA_ALMUERZO' } })
-    fireEvent.change(screen.getByLabelText('Hora del evento (Local Centro)'), { target: { value: '2026-10-16T12:30' } })
-    fireEvent.change(screen.getByLabelText('Motivo de incorporación'), { target: { value: 'La persona olvidó registrar la salida.' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Registrar marca olvidada' }))
+    fireEvent.change(screen.getByLabelText('¿Qué marca faltó?'), { target: { value: 'SALIDA_ALMUERZO' } })
+    fireEvent.change(screen.getByLabelText('Hora (Local Centro)'), { target: { value: '2026-10-16T12:30' } })
+    fireEvent.change(screen.getByLabelText('¿Por qué la agregás?'), { target: { value: 'La persona olvidó registrar la salida.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Agregar marca' }))
     await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/admin/jornadas/j-1/forgotten-marks', {
       action: 'SALIDA_ALMUERZO', occurredAt: '2026-10-16T15:30:00.000Z', auditReason: 'La persona olvidó registrar la salida.'
     }))
@@ -386,9 +392,9 @@ describe('administración de desvíos y marcas', () => {
       render(<JourneysView />)
       fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
       await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
-      fireEvent.change(screen.getByLabelText('Hora del evento (Local Centro)'), { target: { value: '2026-10-16T08:30' } })
-      fireEvent.change(screen.getByLabelText('Motivo de incorporación'), { target: { value: 'Olvidó marcar.' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Registrar marca olvidada' }))
+      fireEvent.change(screen.getByLabelText('Hora (Local Centro)'), { target: { value: '2026-10-16T08:30' } })
+      fireEvent.change(screen.getByLabelText('¿Por qué la agregás?'), { target: { value: 'Olvidó marcar.' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Agregar marca' }))
 
       expect(await screen.findByText(adminText)).toBeInTheDocument()
       expect(screen.queryByText(staleEmployeeText)).not.toBeInTheDocument()
@@ -426,10 +432,10 @@ describe('administración de desvíos y marcas', () => {
     render(<JourneysView />)
     fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
     await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
-    fireEvent.change(screen.getByLabelText('Tipo de marca olvidada'), { target: { value: 'SALIDA_ALMUERZO' } })
-    fireEvent.change(screen.getByLabelText('Hora del evento (Local Centro)'), { target: { value: localTime } })
-    fireEvent.change(screen.getByLabelText('Motivo de incorporación'), { target: { value: 'Marca olvidada.' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Registrar marca olvidada' }))
+    fireEvent.change(screen.getByLabelText('¿Qué marca faltó?'), { target: { value: 'SALIDA_ALMUERZO' } })
+    fireEvent.change(screen.getByLabelText('Hora (Local Centro)'), { target: { value: localTime } })
+    fireEvent.change(screen.getByLabelText('¿Por qué la agregás?'), { target: { value: 'Marca olvidada.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Agregar marca' }))
     expect(await screen.findByText(/Esa hora no existe en la zona horaria de la sede/)).toBeInTheDocument()
     expect(apiMocks.post).not.toHaveBeenCalled()
   })
@@ -459,6 +465,39 @@ describe('administración de desvíos y marcas', () => {
     expect(screen.getByRole('button', { name: 'Ver marcas de Lucía Pérez' })).toBeInTheDocument()
   })
 
+  it('los campos de hora del detalle no piden segundos', async () => {
+    render(<JourneysView />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
+    await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
+    expect(screen.getByRole('heading', { name: 'Agregar una marca que faltó' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Hora (Local Centro)')).not.toHaveAttribute('step')
+    fireEvent.click(screen.getByRole('button', { name: /^Corregir marca Ingreso/ }))
+    const corrected = screen.getByLabelText('Hora corregida (Local Centro)')
+    expect(corrected).not.toHaveAttribute('step')
+    expect(corrected).toHaveValue('2026-10-16T09:00')
+  })
+
+  it('en un teléfono muestra las marcas como tarjetas y los formularios fuera de la lista', async () => {
+    const previousMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia')
+    Object.defineProperty(window, 'matchMedia', { configurable: true, value: vi.fn((query: string) => ({ matches: query === '(max-width: 520px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })) })
+    try {
+      render(<JourneysView />)
+      fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
+      const marks = await screen.findByRole('list', { name: 'Marcas de la jornada' })
+      expect(screen.queryByRole('columnheader', { name: 'Ubicación' })).not.toBeInTheDocument()
+      const [card] = within(marks).getAllByRole('listitem')
+      expect(card).toHaveTextContent('Ingreso')
+      expect(card).toHaveTextContent('Sin ubicación')
+      fireEvent.click(within(card).getByRole('button', { name: /^Anular marca Ingreso/ }))
+      const form = screen.getByRole('form', { name: /^Anular la marca Ingreso/ })
+      expect(marks).not.toContainElement(form)
+      expect(within(form).getByLabelText('Motivo de anulación')).toBeRequired()
+    } finally {
+      if (previousMatchMedia) Object.defineProperty(window, 'matchMedia', previousMatchMedia)
+      else Reflect.deleteProperty(window, 'matchMedia')
+    }
+  })
+
   it('da contexto accesible al botón Corregir de cada marca', async () => {
     render(<JourneysView />)
     fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
@@ -481,7 +520,7 @@ describe('administración de desvíos y marcas', () => {
     await screen.findByRole('row', { name: /Lucía Pérez/ })
     const callsBefore = apiMocks.get.mock.calls.length
     fireEvent.change(screen.getByLabelText('Fecha'), { target: { value: '' } })
-    expect((await screen.findAllByText('Elegí una fecha para ver o declarar jornadas.')).length).toBeGreaterThan(0)
+    expect((await screen.findAllByText('Elegí una fecha para ver los días cargados.')).length).toBeGreaterThan(0)
     expect(apiMocks.get.mock.calls.length).toBe(callsBefore)
     expect(screen.queryByText(/conexión/i)).not.toBeInTheDocument()
   })
@@ -653,8 +692,8 @@ describe('administración de desvíos y marcas', () => {
     await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
 
     expect(screen.getByText('No se pudo cargar la zona horaria de la sede. Reintentá los datos de la jornada antes de incorporar o corregir marcas.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Registrar marca olvidada' })).toBeDisabled()
-    expect(screen.getByLabelText(/^Hora del evento/)).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Agregar marca' })).toBeDisabled()
+    expect(screen.getByLabelText(/^Hora \(/)).toBeDisabled()
     expect(screen.getByRole('button', { name: /^Corregir marca/ })).toBeDisabled()
   })
 
@@ -806,7 +845,7 @@ describe('administración de desvíos y marcas', () => {
       expect(await screen.findByText('Cancelada')).toBeInTheDocument()
       fireEvent.click(screen.getByRole('button', { name: /^Ver marcas/ }))
       expect(await screen.findByText(/Jornada cancelada el .* Motivo: Feriado nacional/)).toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: 'Registrar marca olvidada' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Agregar marca' })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Cancelar jornada' })).not.toBeInTheDocument()
     })
 
@@ -902,112 +941,161 @@ describe('administración de desvíos y marcas', () => {
   describe('declaration rejected for an employee outside the site or an inactive template (D-20261102-06, D-20261102-07)', () => {
     // The client is mocked here: the rejection carries the code the real ApiClient exposes.
     const rejection = (status: number, code: string) => Object.assign(new Error('mensaje genérico del cliente'), { name: 'ApiError', status, code })
+    const workDays = async () => within(await screen.findByRole('region', { name: 'Cargar días de trabajo' }))
 
     it.each([
-      [409, 'EMPLOYEE_NOT_IN_SITE', 'Ese empleado no está asignado a esta sede. Agregale la sede desde Empleados y volvé a declarar.'],
-      [422, 'TEMPLATE_INVALID', 'La plantilla elegida, o la que el empleado tiene asignada, está inactiva. Elegí otra plantilla.']
-    ])('a single declaration answered %i %s shows its specific message', async (status, code, message) => {
+      [409, 'EMPLOYEE_NOT_IN_SITE', 'Esa persona no trabaja en este local. Agregale el local desde Empleados y volvé a cargar el día.'],
+      [422, 'TEMPLATE_INVALID', 'El horario elegido, o el que la persona tiene asignado, está desactivado. Elegí otro horario.']
+    ])('a single day answered %i %s shows its specific message next to its form', async (status, code, message) => {
       apiMocks.post.mockRejectedValueOnce(rejection(status, code))
       render(<JourneysView />)
       await screen.findByRole('row', { name: /Lucía Pérez/ })
-      fireEvent.click(screen.getByRole('button', { name: 'Declarar jornada' }))
-      expect(await screen.findByText(message)).toBeInTheDocument()
+      const single = within(screen.getByRole('region', { name: 'Cargar o cambiar un solo día' }))
+      fireEvent.click(single.getByRole('button', { name: 'Cargar este día' }))
+      expect(await single.findByText(message)).toBeInTheDocument()
     })
 
     it.each([
-      [409, 'EMPLOYEE_NOT_IN_SITE', 'No se declaró ninguna jornada: al menos un empleado elegido no está asignado a esta sede. Revisá sus sedes en Empleados y volvé a intentar.'],
-      [422, 'TEMPLATE_INVALID', 'No se declaró ninguna jornada: la plantilla elegida está inactiva. Elegí otra o usá la plantilla vigente de cada empleado.']
-    ])('a bulk declaration answered %i %s says no jornada was declared', async (status, code, message) => {
+      [409, 'EMPLOYEE_NOT_IN_SITE', 'No se cargó ningún día: al menos una de las personas elegidas no trabaja en este local. Revisá sus locales en Empleados y volvé a intentar.'],
+      [422, 'TEMPLATE_INVALID', 'No se cargó ningún día: el horario elegido está desactivado. Elegí otro o usá el que tiene asignado cada persona.']
+    ])('loading days answered %i %s says no day was loaded', async (status, code, message) => {
       apiMocks.post.mockRejectedValueOnce(rejection(status, code))
       render(<JourneysView />)
-      const panel = within(await screen.findByRole('region', { name: 'Declarar por lote' }))
-      fireEvent.click(panel.getByRole('checkbox', { name: 'Lucía Pérez' }))
-      fireEvent.change(panel.getByLabelText('Desde'), { target: { value: '2026-11-02' } })
-      fireEvent.change(panel.getByLabelText('Hasta'), { target: { value: '2026-11-04' } })
-      fireEvent.click(panel.getByRole('button', { name: 'Declarar lote' }))
+      const panel = await workDays()
+      await panel.findByRole('checkbox', { name: 'Lucía Pérez' })
+      fireEvent.click(panel.getByRole('button', { name: 'Cargar días' }))
       expect(await panel.findByText(message)).toBeInTheDocument()
     })
 
-    it('a bulk declaration failing with another error keeps the client message', async () => {
+    it('loading days failing with another error keeps the client message', async () => {
       apiMocks.post.mockRejectedValueOnce(rejection(409, 'RETRYABLE_TRANSACTION_CONFLICT'))
       render(<JourneysView />)
-      const panel = within(await screen.findByRole('region', { name: 'Declarar por lote' }))
-      fireEvent.click(panel.getByRole('checkbox', { name: 'Lucía Pérez' }))
-      fireEvent.change(panel.getByLabelText('Desde'), { target: { value: '2026-11-02' } })
-      fireEvent.change(panel.getByLabelText('Hasta'), { target: { value: '2026-11-04' } })
-      fireEvent.click(panel.getByRole('button', { name: 'Declarar lote' }))
+      const panel = await workDays()
+      await panel.findByRole('checkbox', { name: 'Lucía Pérez' })
+      fireEvent.click(panel.getByRole('button', { name: 'Cargar días' }))
       expect(await panel.findByText('mensaje genérico del cliente')).toBeInTheDocument()
     })
   })
 
-  describe('declaración con plantilla vigente y por lote (D-20261027-11)', () => {
-    it('preselecciona la primera plantilla de la sede como antes y con la plantilla vigente no envía plantilla', async () => {
+  describe('cargar días de trabajo (D-20261027-11, issue #104)', () => {
+    const workDays = async () => within(await screen.findByRole('region', { name: 'Cargar días de trabajo' }))
+    const fixedNow = new Date('2026-11-09T15:00:00Z')
+    beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'], now: fixedNow }) })
+    afterEach(() => { vi.useRealTimers() })
+
+    it('un solo día usa por defecto el horario asignado y envía otro solo si se elige', async () => {
       apiMocks.post.mockResolvedValue(jornada)
       render(<JourneysView />)
       await screen.findByRole('row', { name: /Lucía Pérez/ })
-      const template = screen.getByLabelText('Plantilla horaria')
-      await waitFor(() => expect(template).toHaveValue('t-1'))
-      const localDate = (screen.getByLabelText('Fecha') as HTMLInputElement).value
-      fireEvent.click(screen.getByRole('button', { name: 'Declarar jornada' }))
-      await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/jornadas', { employeeId: 'e-1', siteId: 's-1', localDate, templateId: 't-1' }))
+      const single = within(screen.getByRole('region', { name: 'Cargar o cambiar un solo día' }))
+      const fields = single.getAllByRole('combobox').map((field) => field.getAttribute('id'))
+      expect(fields.indexOf(single.getByLabelText('Local').id)).toBeLessThan(fields.indexOf(single.getByLabelText('Empleado').id))
+      const schedule = single.getByLabelText('Horario')
+      await waitFor(() => expect(single.getByRole('option', { name: 'Mañana' })).toBeInTheDocument())
+      expect(schedule).toHaveValue('')
+      expect(screen.queryByText(/calendario local de este dispositivo/)).not.toBeInTheDocument()
+      const localDate = (single.getByLabelText('Día') as HTMLInputElement).value
+      fireEvent.click(single.getByRole('button', { name: 'Cargar este día' }))
+      await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/jornadas', { employeeId: 'e-1', siteId: 's-1', localDate }))
+      expect(await single.findByText('Día cargado.')).toBeInTheDocument()
 
-      fireEvent.change(template, { target: { value: '' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Declarar jornada' }))
-      await waitFor(() => expect(apiMocks.post).toHaveBeenLastCalledWith('/jornadas', { employeeId: 'e-1', siteId: 's-1', localDate }))
+      fireEvent.change(schedule, { target: { value: 't-1' } })
+      fireEvent.click(single.getByRole('button', { name: 'Cargar este día' }))
+      await waitFor(() => expect(apiMocks.post).toHaveBeenLastCalledWith('/jornadas', { employeeId: 'e-1', siteId: 's-1', localDate, templateId: 't-1' }))
     })
 
-    it('valida el lote como el servidor antes de enviarlo', async () => {
+    it('por defecto carga de lunes a sábado lo que queda del mes para todas las personas, con vista previa', async () => {
+      apiMocks.post.mockResolvedValueOnce({ created: [], skipped: [] })
       render(<JourneysView />)
-      const panel = within(await screen.findByRole('region', { name: 'Declarar por lote' }))
-      fireEvent.change(panel.getByLabelText('Desde'), { target: { value: '2026-11-01' } })
-      fireEvent.change(panel.getByLabelText('Hasta'), { target: { value: '2026-11-08' } })
-      fireEvent.click(panel.getByRole('button', { name: 'Declarar lote' }))
-      expect(await panel.findByText('Elegí al menos un empleado.')).toBeInTheDocument()
+      const panel = await workDays()
+      expect(await panel.findByRole('checkbox', { name: 'Lucía Pérez' })).toBeChecked()
+      expect(panel.getByRole('button', { name: 'Lunes a sábado' })).toHaveAttribute('aria-pressed', 'true')
+      expect(panel.getByRole('button', { name: 'Lo que queda del mes' })).toHaveAttribute('aria-pressed', 'true')
+      expect(panel.getByRole('checkbox', { name: 'Domingo' })).not.toBeChecked()
+      expect(panel.getByText('Vas a cargar 19 días (lunes a sábado, del 9 al 30 de noviembre) para 1 persona.')).toBeInTheDocument()
+      expect(panel.getByText('Se cargan una sola vez. Para el mes siguiente, volvé a esta pantalla.')).toBeInTheDocument()
+      expect(panel.queryByLabelText('Primer día')).not.toBeInTheDocument()
+      fireEvent.click(panel.getByRole('button', { name: 'Cargar días' }))
+      await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/jornadas/bulk', { employeeIds: ['e-1'], siteId: 's-1', from: '2026-11-09', to: '2026-11-30', weekdays: [1, 2, 3, 4, 5, 6] }))
+    })
 
-      fireEvent.click(panel.getByRole('checkbox', { name: 'Lucía Pérez' }))
-      fireEvent.change(panel.getByLabelText('Hasta'), { target: { value: '2026-12-02' } })
-      fireEvent.click(panel.getByRole('button', { name: 'Declarar lote' }))
-      expect(await panel.findByText('El rango no puede superar los 31 días.')).toBeInTheDocument()
+    it('los botones rápidos cambian los días y el período, y "Elegir fechas" muestra el primer y el último día', async () => {
+      apiMocks.post.mockResolvedValueOnce({ created: [], skipped: [] })
+      render(<JourneysView />)
+      const panel = await workDays()
+      await panel.findByRole('checkbox', { name: 'Lucía Pérez' })
+      fireEvent.click(panel.getByRole('button', { name: 'Lunes a viernes' }))
+      fireEvent.click(panel.getByRole('button', { name: 'Mes que viene' }))
+      expect(panel.getByText('Vas a cargar 23 días (lunes a viernes, del 1 al 31 de diciembre) para 1 persona.')).toBeInTheDocument()
+      fireEvent.click(panel.getByRole('button', { name: 'Todos' }))
+      fireEvent.click(panel.getByRole('button', { name: 'Esta semana' }))
+      expect(panel.getByText('Vas a cargar 7 días (todos los días, del 9 al 15 de noviembre) para 1 persona.')).toBeInTheDocument()
+      fireEvent.click(panel.getByRole('button', { name: 'Próximas 2 semanas' }))
+      expect(panel.getByText(/Vas a cargar 14 días .*del 9 al 22 de noviembre/)).toBeInTheDocument()
+      fireEvent.click(panel.getByRole('button', { name: 'Elegir fechas' }))
+      expect(panel.getByLabelText('Primer día')).toHaveValue('2026-11-09')
+      expect(panel.getByLabelText('Último día')).toHaveValue('2026-11-22')
+      fireEvent.change(panel.getByLabelText('Último día'), { target: { value: '2026-11-10' } })
+      fireEvent.click(panel.getByRole('checkbox', { name: 'Sábado' }))
+      fireEvent.click(panel.getByRole('button', { name: 'Cargar días' }))
+      await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/jornadas/bulk', { employeeIds: ['e-1'], siteId: 's-1', from: '2026-11-09', to: '2026-11-10', weekdays: [1, 2, 3, 4, 5, 7] }))
+    })
 
-      fireEvent.change(panel.getByLabelText('Hasta'), { target: { value: '2026-11-08' } })
+    it('valida antes de enviar, con mensajes simples', async () => {
+      render(<JourneysView />)
+      const panel = await workDays()
+      fireEvent.click(await panel.findByRole('checkbox', { name: 'Seleccionar todos' }))
+      expect(panel.getByRole('checkbox', { name: 'Lucía Pérez' })).not.toBeChecked()
+      fireEvent.click(panel.getByRole('button', { name: 'Cargar días' }))
+      expect(await panel.findByText('Elegí al menos una persona.')).toBeInTheDocument()
+
+      fireEvent.click(panel.getByRole('checkbox', { name: 'Seleccionar todos' }))
+      fireEvent.click(panel.getByRole('button', { name: 'Elegir fechas' }))
+      fireEvent.change(panel.getByLabelText('Último día'), { target: { value: '2026-12-15' } })
+      fireEvent.click(panel.getByRole('button', { name: 'Cargar días' }))
+      expect(await panel.findByText('Elegí como máximo 31 días. Para más, cargá un mes y después el siguiente.')).toBeInTheDocument()
+      expect(panel.getByLabelText('Último día')).toHaveAttribute('aria-invalid', 'true')
+
+      fireEvent.change(panel.getByLabelText('Último día'), { target: { value: '2026-11-13' } })
+      fireEvent.click(panel.getByRole('button', { name: 'Lunes a viernes' }))
       for (const day of ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes']) fireEvent.click(panel.getByRole('checkbox', { name: day }))
-      fireEvent.click(panel.getByRole('button', { name: 'Declarar lote' }))
+      fireEvent.click(panel.getByRole('button', { name: 'Cargar días' }))
       expect(await panel.findByText('Elegí al menos un día de la semana.')).toBeInTheDocument()
       expect(apiMocks.post).not.toHaveBeenCalled()
     })
 
-    it('declara un lote y muestra lo creado y lo salteado con su motivo', async () => {
+    it('muestra el resultado agrupado por motivo y lleva a asignar horario', async () => {
+      const onNavigate = vi.fn()
       apiMocks.post.mockResolvedValueOnce({
-        created: [{ id: 'j-2', employeeId: 'e-1', siteId: 's-1', localDate: '2026-11-02', state: 'NO_INGRESO' }],
-        skipped: [{ employeeId: 'e-1', localDate: '2026-11-03', reason: 'JORNADA_EXISTS' }, { employeeId: 'e-1', localDate: '2026-11-04', reason: 'TEMPLATE_REQUIRED' }]
+        created: [{ id: 'j-2', employeeId: 'e-1', siteId: 's-1', localDate: '2026-11-10', state: 'NO_INGRESO' }],
+        skipped: [
+          { employeeId: 'e-1', localDate: '2026-11-11', reason: 'JORNADA_EXISTS' }, { employeeId: 'e-1', localDate: '2026-11-12', reason: 'JORNADA_EXISTS' },
+          { employeeId: 'e-1', localDate: '2026-11-13', reason: 'TEMPLATE_REQUIRED' }
+        ]
       })
-      render(<JourneysView />)
-      const panel = within(await screen.findByRole('region', { name: 'Declarar por lote' }))
-      fireEvent.click(panel.getByRole('checkbox', { name: 'Lucía Pérez' }))
-      fireEvent.change(panel.getByLabelText('Desde'), { target: { value: '2026-11-02' } })
-      fireEvent.change(panel.getByLabelText('Hasta'), { target: { value: '2026-11-04' } })
-      fireEvent.click(panel.getByRole('button', { name: 'Declarar lote' }))
+      render(<JourneysView onNavigate={onNavigate} />)
+      const panel = await workDays()
+      await panel.findByRole('checkbox', { name: 'Lucía Pérez' })
+      fireEvent.click(panel.getByRole('button', { name: 'Cargar días' }))
 
-      await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/jornadas/bulk', { employeeIds: ['e-1'], siteId: 's-1', from: '2026-11-02', to: '2026-11-04', weekdays: [1, 2, 3, 4, 5] }))
-      expect(await panel.findByText('Jornadas creadas: 1. Salteadas: 2.')).toBeInTheDocument()
-      const skipped = panel.getByRole('list', { name: 'Fechas salteadas' })
-      expect(skipped).toHaveTextContent(`Lucía Pérez · ${formatLocalDate('2026-11-03')} · Ya tenía una jornada declarada`)
-      expect(skipped).toHaveTextContent(`Lucía Pérez · ${formatLocalDate('2026-11-04')} · Sin plantilla vigente en esa fecha`)
+      expect(await panel.findByText('Se cargó 1 día. No se cargaron 3:', { exact: false })).toBeInTheDocument()
+      const skipped = panel.getByRole('list', { name: 'Días que no se cargaron' })
+      expect(skipped).toHaveTextContent('Ya tenían día cargado (2)')
+      expect(skipped).toHaveTextContent('Sin horario asignado: Lucía Pérez (1)')
+      expect(within(skipped).getAllByRole('listitem')).toHaveLength(2)
+      fireEvent.click(panel.getByRole('button', { name: 'Asignar horario' }))
+      expect(onNavigate).toHaveBeenCalledWith('empleados')
     })
 
-    it('envía la plantilla del lote solo cuando se elige una', async () => {
+    it('envía otro horario para todos solo cuando se elige', async () => {
       apiMocks.post.mockResolvedValueOnce({ created: [], skipped: [] })
       render(<JourneysView />)
-      const panel = within(await screen.findByRole('region', { name: 'Declarar por lote' }))
-      fireEvent.click(panel.getByRole('button', { name: 'Seleccionar todos' }))
-      fireEvent.change(panel.getByLabelText('Desde'), { target: { value: '2026-11-07' } })
-      fireEvent.change(panel.getByLabelText('Hasta'), { target: { value: '2026-11-08' } })
-      fireEvent.click(panel.getByRole('checkbox', { name: 'Sábado' }))
-      fireEvent.change(panel.getByLabelText('Plantilla del lote'), { target: { value: 't-1' } })
-      fireEvent.click(panel.getByRole('button', { name: 'Declarar lote' }))
-
-      await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/jornadas/bulk', { employeeIds: ['e-1'], siteId: 's-1', from: '2026-11-07', to: '2026-11-08', weekdays: [1, 2, 3, 4, 5, 6], templateId: 't-1' }))
-      expect(await panel.findByText('Jornadas creadas: 0. Salteadas: 0.')).toBeInTheDocument()
+      const panel = await workDays()
+      await panel.findByRole('checkbox', { name: 'Lucía Pérez' })
+      fireEvent.change(panel.getByLabelText('Horario para todos'), { target: { value: 't-1' } })
+      fireEvent.click(panel.getByRole('button', { name: 'Cargar días' }))
+      await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/jornadas/bulk', expect.objectContaining({ templateId: 't-1' })))
+      expect(await panel.findByText('No se cargó ningún día.')).toBeInTheDocument()
     })
   })
 

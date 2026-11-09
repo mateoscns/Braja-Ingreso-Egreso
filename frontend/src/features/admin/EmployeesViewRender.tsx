@@ -49,11 +49,12 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
       <button type="button" className="button button-small button-quiet" aria-label="Cancelar restablecimiento" disabled={busy} onClick={onCancelReset}>Cancelar</button></div>
     : <div className="button-row"><button className="button button-small button-quiet" aria-label={`Editar empleado ${saved.displayName}`} disabled={busy} onClick={() => onStartEditing(saved.id)}>Editar</button>
       <button className="button button-small button-quiet" aria-label={`Horarios de ${saved.displayName}`} onClick={() => onOpenAssignments(saved.id)}>Horarios</button>
-      <button className="button button-small button-quiet" aria-label={`Restablecer contraseña de ${saved.displayName}`} disabled={busy || !saved.active} onClick={() => onAskReset(saved.id)}>Restablecer contraseña</button></div>
+      <button className="button button-small button-quiet" aria-label={`Restablecer contraseña de ${saved.displayName}`} aria-describedby={saved.active ? undefined : `reset-inactive-${saved.id}`} disabled={busy || !saved.active} onClick={() => onAskReset(saved.id)}>Restablecer contraseña</button>
+      {!saved.active && <span className="field-hint" id={`reset-inactive-${saved.id}`}>Está inactivo: activalo para restablecer su contraseña.</span>}</div>
   const editButtons = (edit: Employee) => <div className="button-row"><button className="button button-small button-primary" disabled={busy || edit.siteIds.length === 0} onClick={onSave}>{busy ? 'Guardando…' : 'Guardar'}</button><button type="button" className="button button-small button-quiet" disabled={busy} onClick={onCancelEditing}>Cancelar</button></div>
   const detail = (saved: Employee) => assignmentsFor === saved.id && assignmentsPanel ? <div id={employeeDetailId(saved.id)} className="employee-detail">{assignmentsPanel}</div> : null
 
-  const table = <div className="table-scroll"><table><thead><tr><th>Nombre</th><th>DNI</th><th>Locales</th><th>{TOLERANCE_LABEL}</th><th>Estado</th><th /></tr></thead><tbody>{employees.map((saved) => {
+  const table = <div className="table-scroll"><table><thead><tr><th>Nombre</th><th>DNI</th><th>Locales</th><th>{TOLERANCE_LABEL}</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{employees.map((saved) => {
     const edit = draft?.id === saved.id ? draft : null
     const open = detail(saved)
     return <Fragment key={saved.id}><tr>
@@ -103,7 +104,8 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
         <div><button type="button" className="button button-small button-outline" disabled={busy} onClick={onGeneratePassword}>Generar contraseña</button></div>
       </div>
       <fieldset className="field field-wide"><legend className="field-label">Locales donde trabaja</legend><div className="check-grid">{sites.map((site) => <label key={site.id}><input type="checkbox" checked={siteIds.includes(site.id)} onChange={() => onToggleSite(site.id)} />{site.name}</label>)}</div>{sites.length === 0 && <span className="field-hint">{loadError ? 'Reintentá la carga antes de dar de alta un empleado.' : loading ? 'Cargando locales…' : 'Primero creá un local en Sedes.'}</span>}</fieldset>
-      <div className="field-wide"><button className="button button-primary" disabled={busy || loading || Boolean(loadError) || siteIds.length === 0}>{busy ? 'Guardando…' : 'Crear empleado'}</button></div>
+      <div className="field-wide button-row"><button className="button button-primary" aria-describedby={sites.length > 0 && siteIds.length === 0 ? 'create-employee-needs-site' : undefined} disabled={busy || loading || Boolean(loadError) || siteIds.length === 0}>{busy ? 'Guardando…' : 'Crear empleado'}</button>
+        {sites.length > 0 && siteIds.length === 0 && <span className="field-hint" id="create-employee-needs-site">Marcá al menos un local para crear el empleado.</span>}</div>
     </form></Panel>
   </>
 }

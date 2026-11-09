@@ -31,11 +31,15 @@ function colorOf(declarations: string, property: string) {
   if (!color) throw new Error(`No color in ${property}: ${value}`)
   return color[1] ? tokens.get(color[1]) ?? '' : color[0].toLowerCase()
 }
+/** Every `@media (max-width: <width>px)` block joined: the browser applies all of them, not only the first. */
 function media(width: number) {
   const opening = `@media (max-width: ${width}px) {`
-  const start = css.indexOf(opening)
-  if (start < 0) throw new Error(`No media query for ${width}px`)
-  return css.slice(start + opening.length, css.indexOf('\n}', start))
+  const blocks: string[] = []
+  for (let start = css.indexOf(opening); start >= 0; start = css.indexOf(opening, start + opening.length)) {
+    blocks.push(css.slice(start + opening.length, css.indexOf('\n}', start)))
+  }
+  if (blocks.length === 0) throw new Error(`No media query for ${width}px`)
+  return blocks.join('\n')
 }
 
 describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {

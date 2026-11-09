@@ -424,3 +424,22 @@ td .short-input { width: 74px; }
 .mark-feedback:focus { outline: none; }
 .fieldset-plain { min-width: 0; margin: 0; border: 0; padding: 0; }
 .update-banner { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 50; display: flex; align-items: center; gap: 12px; width: max-content; max-width: calc(100% - 32px); padding: 10px 14px; border: 1px solid #d2e7d7; border-radius: 12px; color: var(--green); background: #fff; box-shadow: var(--shadow); font-size: .9rem; }
+/* U3 (issue #104), small modifiers from existing tokens. A folded section (details/summary) like .site-location-manual, also
+   for a whole panel; the pressed state of the quick choices; the setup guide rows; the notice of days loaded with its button. */
+.fold > summary { display: flex; align-items: center; min-height: var(--tap-target); color: var(--green-2); font-size: .875rem; font-weight: 650; cursor: pointer; }
+.fold > summary h2 { color: var(--text-primary); }
+.fold > summary::before { content: "▸"; content: "▸" / ""; margin-right: 8px; color: var(--green-2); }
+.fold[open] > summary::before { content: "▾"; content: "▾" / ""; }
+.fold[open] > summary { margin-bottom: 12px; }
+.choice-row .button[aria-pressed="true"] { color: var(--green); background: var(--green-3); border-color: #97b39d; }
+.work-days-preview { padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #f8faf8; }
+.work-days-preview p { margin: 0; line-height: 1.5; }
+.work-days-preview p + p { margin-top: 6px; }
+.work-days-skip { flex-wrap: wrap; justify-content: space-between; }
+.first-steps, .work-days-skips { margin: 0; padding: 0; list-style: none; }
+.first-step { flex-wrap: wrap; }
+.first-step-copy { flex: 1 1 220px; min-width: 0; }
+.first-step .status-chip { margin-left: auto; }
+.coverage-notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.sidebar-caption-group { margin-top: 18px; }
+.mark-coordinates { display: block; color: var(--text-secondary); font-size: .8125rem; }

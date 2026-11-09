@@ -2,7 +2,8 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Deviation, Employee, Session, Site } from '../../shared/api/types'
 import { CompanyScreen } from '../auth/AuthScreens'
-import { AdminInboxRender, EMPTY_INBOX_FILTERS, EmployeesViewRender, SitesViewRender } from './AdminViewsRender'
+import { AdminInboxRender, EMPTY_INBOX_FILTERS, SitesViewRender } from './AdminViewsRender'
+import { EmployeesViewRender } from './EmployeesViewRender'
 
 afterEach(cleanup)
 
@@ -29,7 +30,7 @@ describe('accesibilidad de base en las pantallas existentes', () => {
     renderEmployees()
 
     expect(screen.getByRole('button', { name: 'Crear empleado' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Crear empleado' })).toHaveAccessibleDescription('Marcá al menos una sede para crear el empleado.')
+    expect(screen.getByRole('button', { name: 'Crear empleado' })).toHaveAccessibleDescription('Marcá al menos un local para crear el empleado.')
     const reset = screen.getByRole('button', { name: 'Restablecer contraseña de Ana Pérez' })
     expect(reset).toBeDisabled()
     expect(reset).toHaveAccessibleDescription('Está inactivo: activalo para restablecer su contraseña.')
@@ -39,7 +40,7 @@ describe('accesibilidad de base en las pantallas existentes', () => {
     renderEmployees(['s-1'])
 
     expect(screen.getByRole('button', { name: 'Crear empleado' })).toBeEnabled()
-    expect(screen.queryByText('Marcá al menos una sede para crear el empleado.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Marcá al menos un local para crear el empleado.')).not.toBeInTheDocument()
   })
 
   it('los símbolos decorativos de la bandeja y de las sedes no se leen', () => {

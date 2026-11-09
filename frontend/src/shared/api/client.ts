@@ -50,7 +50,7 @@ const CONFLICT_MESSAGES: Record<string, string> = {
   INVALID_MARK_HISTORY: STALE_MARK,
   IDEMPOTENCY_CONFLICT: 'No se pudo registrar tu marca. Tocá Actualizar y volvé a marcar.',
   MOTIVE_LOCKED: 'Tu encargado ya lo revisó: ya no se puede cambiar.',
-  JORNADA_EXISTS: 'Ya hay una jornada declarada para ese empleado, sede y fecha.',
+  JORNADA_EXISTS: 'Esa persona ya tiene ese día cargado en ese local.',
   MEMBERSHIP_EXISTS: 'Esa persona ya tiene un rol en esta empresa.',
   ACCOUNT_INACTIVE: 'La cuenta de ese DNI no está habilitada y no se puede agregar a la empresa.',
   ACCOUNT_SHARED: 'Esta persona también tiene acceso en otra empresa o como ADMIN; su contraseña la restablece el operador.',
@@ -60,7 +60,7 @@ const CONFLICT_MESSAGES: Record<string, string> = {
   MARK_VOIDED: 'Esa marca ya fue anulada y no se puede modificar.',
   ASSIGNMENT_EXISTS: 'Esa persona ya tiene un horario en ese local desde ese día. Elegí otro día.',
   TEMPLATE_IN_USE: 'Ese horario ya se usa, así que no puede pasar a otro local. Creá un horario nuevo para ese local.',
-  EMPLOYEE_NOT_IN_SITE: 'Ese empleado no está asignado a esa sede. Agregale la sede desde Empleados y volvé a intentar.'
+  EMPLOYEE_NOT_IN_SITE: 'Esa persona no trabaja en ese local. Agregale el local desde Empleados y volvé a intentar.'
 }
 const VALIDATION_MESSAGES: Record<string, string> = {
   TEMPLATE_REQUIRED: 'Esa persona no tiene un horario en ese local para ese día. Elegí un horario o asignale uno desde Empleados.',

@@ -130,7 +130,7 @@ describe('ApiClient: códigos de error conocidos', () => {
     [409, 'INVALID_MARK_ORDER', 'El estado de la jornada cambió y esa marca ya no corresponde. Revisá el estado actualizado.'],
     [409, 'IDEMPOTENCY_CONFLICT', 'No se pudo registrar tu marca. Tocá Actualizar y volvé a marcar.'],
     [409, 'MOTIVE_LOCKED', 'Tu encargado ya lo revisó: ya no se puede cambiar.'],
-    [409, 'JORNADA_EXISTS', 'Ya hay una jornada declarada para ese empleado, sede y fecha.'],
+    [409, 'JORNADA_EXISTS', 'Esa persona ya tiene ese día cargado en ese local.'],
     [409, 'MEMBERSHIP_EXISTS', 'Esa persona ya tiene un rol en esta empresa.'],
     [409, 'ACCOUNT_INACTIVE', 'La cuenta de ese DNI no está habilitada y no se puede agregar a la empresa.'],
     [409, 'ACCOUNT_SHARED', 'Esta persona también tiene acceso en otra empresa o como ADMIN; su contraseña la restablece el operador.'],
@@ -349,7 +349,7 @@ describe('ApiClient: codes of the production backend and proxy', () => {
     new Response(JSON.stringify({ status, code, detail: 'internal detail' }), { status, headers: { 'Content-Type': 'application/problem+json' } })
 
   it.each([
-    [409, 'EMPLOYEE_NOT_IN_SITE', 'Ese empleado no está asignado a esa sede. Agregale la sede desde Empleados y volvé a intentar.'],
+    [409, 'EMPLOYEE_NOT_IN_SITE', 'Esa persona no trabaja en ese local. Agregale el local desde Empleados y volvé a intentar.'],
     [422, 'TEMPLATE_INVALID', 'Ese horario está desactivado y no se puede usar. Elegí otro o revisalo en Horarios.'],
     [409, 'TEMPLATE_IN_USE', 'Ese horario ya se usa, así que no puede pasar a otro local. Creá un horario nuevo para ese local.'],
     [422, 'PASSWORD_TOO_LONG', 'La contraseña es demasiado larga: puede tener hasta 72 bytes. Las letras con tilde y la ñ ocupan 2 cada una.'],

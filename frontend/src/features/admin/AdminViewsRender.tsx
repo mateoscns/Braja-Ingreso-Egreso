@@ -1,6 +1,6 @@
-import { Fragment, type FormEvent, type ReactNode } from 'react'
+import { type FormEvent, type ReactNode } from 'react'
 import { Empty, FormField, Loading, PageMessage, Panel } from '../../app/ui'
-import type { BulkDeclarationResult, BulkSkipReason, Deviation, Employee, Jornada, JornadaAudit, JornadaAuditEntry, JornadaSummary, Mark, MarkAction, Site, SiteCoordinates, Template } from '../../shared/api/types'
+import type { Deviation, Employee, Jornada, JornadaAudit, JornadaAuditEntry, JornadaSummary, Mark, MarkAction, Site, SiteCoordinates, Template } from '../../shared/api/types'
 import { formatDateTime, formatLocalDate, jornadaStateLabel } from '../../shared/format'
 import type { SiteLocationErrorKind } from './siteLocation'
 import type { GeocodeResult } from '../../shared/api/geocode'
@@ -44,7 +44,9 @@ function journeysTitle(date: string) {
   return `Jornadas del ${formattedDate}`
 }
 
-export function AdminInboxRender({ items, employees, sites, filters, filterError, filtered, onFiltersChange, onApplyFilters, onClearFilters, timeZones, nextCursor, loading, inboxLoadError, timeZoneLoadError, error, notice, busy, correction, correctionReason, targetDeviation, onReload, onClassify, onRetry, onLoadMore, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
+export function AdminInboxRender({ coverage, onOpenJornada, items, employees, sites, filters, filterError, filtered, onFiltersChange, onApplyFilters, onClearFilters, timeZones, nextCursor, loading, inboxLoadError, timeZoneLoadError, error, notice, busy, correction, correctionReason, targetDeviation, onReload, onClassify, onRetry, onLoadMore, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
+  /** The notice of days loaded (CoverageNotice) and the way to a deviation's jornada, both given by AdminApp. */
+  coverage?: ReactNode; onOpenJornada?: (item: Deviation) => void
   items: Deviation[]; employees: Employee[]; sites: Site[]; filters: InboxFilterValues; filterError: string; filtered: boolean
   onFiltersChange: (patch: Partial<InboxFilterValues>) => void; onApplyFilters: () => void; onClearFilters: () => void
   timeZones: Map<string, string>; nextCursor: string | null; loading: boolean; inboxLoadError: string; timeZoneLoadError: string
@@ -58,6 +60,7 @@ export function AdminInboxRender({ items, employees, sites, filters, filterError
     {notice && <PageMessage kind="success">{notice}</PageMessage>}
     {timeZoneLoadError && <PageMessage kind="error">No se pudieron cargar las zonas horarias de las sedes: {timeZoneLoadError} Las horas se muestran en la zona horaria de este dispositivo.</PageMessage>}
     {targetDeviation && items.some((item) => item.id === targetDeviation) && <PageMessage kind="success">Abriste el desvío indicado por la notificación.</PageMessage>}
+    {coverage}
     <form className="filter-bar" aria-label="Filtros de la bandeja" noValidate onSubmit={(event) => { event.preventDefault(); onApplyFilters() }}>
       <FormField label="Empleado"><select value={filters.employeeId} onChange={(event) => onFiltersChange({ employeeId: event.target.value })}><option value="">Todos</option>{employees.map((person) => <option key={person.id} value={person.id}>{person.displayName}</option>)}</select></FormField>
       <FormField label="Sede"><select value={filters.siteId} onChange={(event) => onFiltersChange({ siteId: event.target.value })}><option value="">Todas</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></FormField>
@@ -67,7 +70,7 @@ export function AdminInboxRender({ items, employees, sites, filters, filterError
       {filterError && <div className="filter-error"><PageMessage kind="error">{filterError}</PageMessage></div>}
     </form>
     <Panel title="Casos recientes">{inboxLoadError ? <LoadFailure message={inboxLoadError} onRetry={onRetry} /> : <>
-      <DeviationList items={items} filtered={filtered} loading={loading} busy={busy} onClassify={onClassify} targetId={targetDeviation} timeZones={timeZones}
+      <DeviationList items={items} onOpenJornada={onOpenJornada} filtered={filtered} loading={loading} busy={busy} onClassify={onClassify} targetId={targetDeviation} timeZones={timeZones}
         correction={correction} correctionReason={correctionReason} onCorrectionReasonChange={onCorrectionReasonChange}
         onSubmitCorrection={onSubmitCorrection} onCancelCorrection={onCancelCorrection} />
       {nextCursor && <div className="load-more"><button className="button button-quiet" disabled={busy === 'page'} onClick={onLoadMore}>{busy === 'page' ? 'Cargando…' : 'Cargar anteriores'}</button></div>}
@@ -76,8 +79,8 @@ export function AdminInboxRender({ items, employees, sites, filters, filterError
   </>
 }
 
-function DeviationList({ items, filtered, loading, busy, onClassify, targetId, timeZones, correction, correctionReason, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
-  items: Deviation[]; filtered: boolean; loading: boolean; busy: string; onClassify: (item: Deviation, classification: DeviationClassification) => void
+function DeviationList({ items, onOpenJornada, filtered, loading, busy, onClassify, targetId, timeZones, correction, correctionReason, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
+  items: Deviation[]; onOpenJornada?: (item: Deviation) => void; filtered: boolean; loading: boolean; busy: string; onClassify: (item: Deviation, classification: DeviationClassification) => void
   targetId: string; timeZones: Map<string, string>; correction: Correction; correctionReason: string
   onCorrectionReasonChange: (reason: string) => void; onSubmitCorrection: (item: Deviation) => void; onCancelCorrection: () => void
 }) {
@@ -87,10 +90,11 @@ function DeviationList({ items, filtered, loading, busy, onClassify, targetId, t
     <div className="deviation-symbol" aria-hidden="true">{item.type === 'SIN_INGRESO' ? '!' : '↗'}</div>
     <div className="deviation-main"><div className="deviation-title"><strong>{deviationName(item.type)}</strong><span className={`status-chip status-${item.status.toLowerCase()}`}>{statusName(item.status)}</span></div>
       <p>{item.employeeDisplayName?.trim() || 'Registro de jornada'} · {dateTime(item.occurredAt ?? item.createdAt, item.siteId ? timeZones.get(item.siteId) : undefined)}</p>
-      {item.sourceMarkAction && <p className="muted small-copy">Marca: {actionName(item.sourceMarkAction)}{item.sourceMarkSequence ? ` · secuencia ${item.sourceMarkSequence}` : ''}</p>}
+      {item.sourceMarkAction && <p className="muted small-copy">Marca: {actionName(item.sourceMarkAction)}</p>}
       {item.category && <p className="reason-line"><b>Motivo:</b> {categoryName(item.category)}{item.motiveText ? ` · ${item.motiveText}` : ''}</p>}
     </div>
     <div className="deviation-actions">
+      {onOpenJornada && <button type="button" className="button button-small button-quiet" aria-label={`Ver jornada de ${item.employeeDisplayName?.trim() || 'la persona'}`} onClick={() => onOpenJornada(item)}>Ver jornada</button>}
       {item.status === 'JUSTIFICADO' ? <button className="button button-small button-danger-outline" disabled={busy === item.id} onClick={() => onClassify(item, 'NO_JUSTIFICADO')}>{busy === item.id ? 'Guardando…' : 'Corregir a no justificado'}</button> :
         item.status === 'NO_JUSTIFICADO' ? <button className="button button-small button-outline" disabled={busy === item.id} onClick={() => onClassify(item, 'JUSTIFICADO')}>{busy === item.id ? 'Guardando…' : 'Corregir a justificado'}</button> : <>
           <button className="button button-small button-outline" disabled={busy === item.id} onClick={() => onClassify(item, 'JUSTIFICADO')}>{busy === item.id ? 'Guardando…' : 'Justificado'}</button>
@@ -251,49 +255,16 @@ export function SiteLocationAuditSection({ siteId, siteName, timeZone, audit, lo
   </section>
 }
 
-const WEEKDAYS: { value: number; label: string }[] = [
-  { value: 1, label: 'Lunes' }, { value: 2, label: 'Martes' }, { value: 3, label: 'Miércoles' }, { value: 4, label: 'Jueves' },
-  { value: 5, label: 'Viernes' }, { value: 6, label: 'Sábado' }, { value: 7, label: 'Domingo' }
-]
-const SKIP_REASONS: Record<BulkSkipReason, string> = {
-  JORNADA_EXISTS: 'Ya tenía una jornada declarada',
-  TEMPLATE_REQUIRED: 'Sin plantilla vigente en esa fecha',
-  TEMPLATE_INVALID: 'La plantilla asignada no se puede usar; revisala en Plantillas'
-}
-
-/** D-20261027-11: each jornada is created once now; no rule is stored. Existing ones are skipped and reported. */
-export function BulkDeclarationRender({ sites, employees, templates, siteId, employeeIds, from, to, weekdays, templateId, busy, disabled, error, result, peopleById, onSiteChange, onToggleEmployee, onSelectAll, onFromChange, onToChange, onToggleWeekday, onTemplateChange, onSubmit }: {
-  sites: Site[]; employees: Employee[]; templates: Template[]; siteId: string; employeeIds: string[]; from: string; to: string; weekdays: number[]; templateId: string
-  busy: boolean; disabled: boolean; error: string; result: BulkDeclarationResult | null; peopleById: Map<string, string>
-  onSiteChange: (value: string) => void; onToggleEmployee: (id: string) => void; onSelectAll: () => void; onFromChange: (value: string) => void; onToChange: (value: string) => void
-  onToggleWeekday: (value: number) => void; onTemplateChange: (value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void
-}) {
-  return <Panel title="Declarar por lote"><form className="form-grid" noValidate onSubmit={onSubmit}>
-    <p className="field-wide muted">Crea una jornada por empleado y por cada fecha del rango (hasta 31 días) que caiga en los días elegidos. Se crean una sola vez, sin repetirse cada semana; las que ya existen se saltean.</p>
-    <FormField label="Sede del lote"><select value={siteId} onChange={(event) => onSiteChange(event.target.value)}>{sites.map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}</select></FormField>
-    <FormField label="Plantilla del lote"><select value={templateId} onChange={(event) => onTemplateChange(event.target.value)}><option value="">Usar la plantilla vigente de cada empleado</option>{templates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>)}</select></FormField>
-    <FormField label="Desde"><input type="date" value={from} onChange={(event) => onFromChange(event.target.value)} /></FormField>
-    <FormField label="Hasta"><input type="date" value={to} onChange={(event) => onToChange(event.target.value)} /></FormField>
-    <fieldset className="field field-wide"><legend className="field-label">Días de la semana</legend><div className="inline-checks">{WEEKDAYS.map((day) => <label key={day.value}><input type="checkbox" checked={weekdays.includes(day.value)} onChange={() => onToggleWeekday(day.value)} />{day.label}</label>)}</div></fieldset>
-    <fieldset className="field field-wide"><legend className="field-label">Empleados del lote ({employeeIds.length})</legend>
-      {employees.length ? <><div className="check-grid">{employees.map((person) => <label key={person.id}><input type="checkbox" checked={employeeIds.includes(person.id)} onChange={() => onToggleEmployee(person.id)} />{person.displayName}</label>)}</div>
-        <div className="button-row"><button type="button" className="button button-small button-quiet" onClick={onSelectAll}>Seleccionar todos</button></div></> : <span className="field-hint">No hay empleados activos habilitados para esta sede.</span>}
-    </fieldset>
-    {error && <div className="field-wide"><PageMessage kind="error">{error}</PageMessage></div>}
-    <div className="field-wide"><button className="button button-primary" disabled={busy || disabled}>{busy ? 'Declarando…' : 'Declarar lote'}</button></div>
-    {result && <div className="field-wide form-stack">
-      <PageMessage kind="success">{`Jornadas creadas: ${result.created.length}. Salteadas: ${result.skipped.length}.`}</PageMessage>
-      {result.skipped.length > 0 && <ul className="simple-list" aria-label="Fechas salteadas">{result.skipped.map((item) => <li key={`${item.employeeId}-${item.localDate}`} className="simple-row">{`${peopleById.get(item.employeeId) ?? 'Empleado'} · ${formatLocalDate(item.localDate)} · ${SKIP_REASONS[item.reason] ?? item.reason}`}</li>)}</ul>}
-    </div>}
-  </form></Panel>
-}
-
-export function JourneysViewRender({ bulkPanel, sites, eligibleEmployees, siteTemplates, jornadas, loading, journeysLoading, journeysDate, journeysError, dependencyError, error, notice, busy, detail, detailLoading, markBusy, date, dateError, employeeId, siteId, templateId, peopleById, detailSite, detailTimeZone, forgotAction, forgotOccurredAt, forgotReason, editingMarkId, correctedAction, correctedOccurredAt, correctionReason, cancelOpen, cancelReason, voidingMarkId, voidReason, auditOpen, audit, auditLoading, auditError, onToggleAudit, onRetryAudit, onDateChange, onEmployeeChange, onSiteChange, onTemplateChange, onDeclare, onRetryDependencies, onReloadJourneys, onShowDetail, onForgotActionChange, onForgotOccurredAtChange, onForgotReasonChange, onAddForgottenMark, onBeginMarkCorrection, onCorrectedActionChange, onCorrectedOccurredAtChange, onCorrectionReasonChange, onCorrectMark, onCancelMarkCorrection, onBeginCancel, onCancelReasonChange, onConfirmCancel, onAbortCancel, onBeginVoid, onVoidReasonChange, onConfirmVoid, onAbortVoid }: {
-  /** The bulk declaration form (BulkDeclarationRender), shown under the single declaration. */
-  bulkPanel?: ReactNode
+export function JourneysViewRender({ workDaysPanel, coverage, narrow = false, sites, eligibleEmployees, siteTemplates, jornadas, loading, journeysLoading, journeysDate, journeysError, dependencyError, error, notice, busy, detail, detailLoading, markBusy, date, dateError, employeeId, siteId, templateId, singleDate, singleError = '', singleNotice = '', peopleById, detailSite, detailTimeZone, forgotAction, forgotOccurredAt, forgotReason, editingMarkId, correctedAction, correctedOccurredAt, correctionReason, cancelOpen, cancelReason, voidingMarkId, voidReason, auditOpen, audit, auditLoading, auditError, onToggleAudit, onRetryAudit, onDateChange, onSingleDateChange, onEmployeeChange, onSiteChange, onTemplateChange, onDeclare, onRetryDependencies, onReloadJourneys, onShowDetail, onForgotActionChange, onForgotOccurredAtChange, onForgotReasonChange, onAddForgottenMark, onBeginMarkCorrection, onCorrectedActionChange, onCorrectedOccurredAtChange, onCorrectionReasonChange, onCorrectMark, onCancelMarkCorrection, onBeginCancel, onCancelReasonChange, onConfirmCancel, onAbortCancel, onBeginVoid, onVoidReasonChange, onConfirmVoid, onAbortVoid }: {
+  /** "Cargar días de trabajo" (WorkDaysPanel), the main form of the page; coverage is the notice of days loaded. */
+  workDaysPanel?: ReactNode; coverage?: ReactNode
+  /** Phone width: the marks of a jornada are shown as cards instead of a table. */
+  narrow?: boolean
   sites: Site[]; eligibleEmployees: Employee[]; siteTemplates: Template[]; jornadas: JourneyRow[]
   loading: boolean; journeysLoading: boolean; journeysDate: string; journeysError: string; dependencyError: string; error: string; notice: string; busy: boolean
   detail: Jornada | null; detailLoading: boolean; markBusy: string; date: string; dateError: string; employeeId: string; siteId: string; templateId: string; peopleById: Map<string, string>
+  /** The single day ("Cargar o cambiar un solo día") has its own date and messages. */
+  singleDate: string; singleError?: string; singleNotice?: string; onSingleDateChange: (value: string) => void
   detailSite?: Site; detailTimeZone?: string; forgotAction: MarkAction; forgotOccurredAt: string; forgotReason: string; editingMarkId: string
   correctedAction: MarkAction; correctedOccurredAt: string; correctionReason: string
   onDateChange: (value: string) => void; onEmployeeChange: (value: string) => void; onSiteChange: (value: string) => void; onTemplateChange: (value: string) => void
@@ -307,54 +278,74 @@ export function JourneysViewRender({ bulkPanel, sites, eligibleEmployees, siteTe
   auditOpen: boolean; audit: JornadaAudit | null; auditLoading: boolean; auditError: string; onToggleAudit: () => void; onRetryAudit: () => void
 }) {
   const cancellable = detail?.state === 'NO_INGRESO' && detail.marks.every((mark) => mark.voided)
+  const messages = <>{error && <PageMessage kind="error">{error}</PageMessage>}{notice && <PageMessage kind="success">{notice}</PageMessage>}</>
+  const markTime = (mark: Mark) => dateTime(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)
+  const markLocation = (mark: Mark) => <>{locationName(mark.locationStatus)}{typeof mark.latitude === 'number' && typeof mark.longitude === 'number' && <small className="mark-coordinates">{`${mark.latitude.toFixed(5)}, ${mark.longitude.toFixed(5)}`}</small>}</>
+  const markButtons = (mark: Mark) => <div className="button-row"><button className="button button-small button-quiet" aria-label={`Corregir marca ${actionName(mark.action)} de ${markTime(mark)}`} disabled={markBusy !== '' || !detailTimeZone} onClick={() => onBeginMarkCorrection(mark)}>Corregir</button><button className="button button-small button-danger-outline" aria-label={`Anular marca ${actionName(mark.action)} de ${markTime(mark)}`} disabled={markBusy !== ''} onClick={() => onBeginVoid(mark)}>Anular</button></div>
+  const voidedNote = (mark: Mark) => `${mark.voidedAt ? `Anulada el ${dateTime(mark.voidedAt, detailTimeZone)}` : 'Anulada'}${mark.voidReason ? ` · ${mark.voidReason}` : ''}`
+  const editingMark = detail?.marks.find((mark) => mark.id === editingMarkId && !mark.voided)
+  const voidingMark = detail?.marks.find((mark) => mark.id === voidingMarkId && !mark.voided)
   return <>
-    <PageHeading eyebrow="PLANIFICACIÓN POR FECHA" title="Jornadas" subtitle="Declaralas para una fecha y sede. La fecha sigue el calendario local de cada sede; no hay recurrencia semanal." />
-    {error && <PageMessage kind="error">{error}</PageMessage>}
+    <PageHeading eyebrow="DÍAS DE TRABAJO" title="Jornadas" subtitle="Cargá los días que trabaja cada persona y revisá sus marcas. Cada día sigue el calendario de su local." />
+    {!detail && messages}
     {dependencyError && <div className="form-stack"><PageMessage kind="error">{dependencyError}</PageMessage><button type="button" className="button button-quiet" disabled={loading || journeysLoading} onClick={onRetryDependencies}>Reintentar datos de la jornada</button></div>}
-    {notice && <PageMessage kind="success">{notice}</PageMessage>}
-    <Panel title="Declarar una jornada"><form className="form-grid" onSubmit={onDeclare}>
-      <FormField label="Fecha" hint={dateError || 'La fecha inicial usa el calendario local de este dispositivo; la fecha elegida se aplica como día local en cada sede.'}><input type="date" required aria-invalid={Boolean(dateError)} disabled={loading} value={date} onChange={(event) => onDateChange(event.target.value)} /></FormField>
-      <FormField label="Empleado" hint={eligibleEmployees.length === 0 ? 'No hay empleados activos habilitados para esta sede.' : undefined}><select required value={employeeId} onChange={(event) => onEmployeeChange(event.target.value)}>{eligibleEmployees.map((person) => <option value={person.id} key={person.id}>{person.displayName}</option>)}</select></FormField>
-      <FormField label="Sede"><select required value={siteId} onChange={(event) => onSiteChange(event.target.value)}>{sites.map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}</select></FormField>
-      <FormField label="Plantilla horaria" hint="Sin elegir una, se usa la plantilla asignada al empleado en esa sede para esa fecha."><select value={templateId} onChange={(event) => onTemplateChange(event.target.value)}><option value="">Usar la plantilla vigente</option>{siteTemplates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>)}</select></FormField>
-      <div className="field-wide"><button className="button button-primary" disabled={busy || loading || journeysLoading || !date || !employeeId}>{busy ? 'Guardando…' : 'Declarar jornada'}</button></div>
-    </form></Panel>
-    {bulkPanel}
+    {coverage}
+    {workDaysPanel}
+    <section className="panel" aria-labelledby="single-day-title"><details className="fold">
+      <summary><h2 id="single-day-title">Cargar o cambiar un solo día</h2></summary>
+      <p className="muted">Para una excepción: un día suelto o un horario distinto. Para cambiar un día ya cargado, abrilo en la lista de abajo, cancelalo y cargalo de nuevo.</p>
+      <form className="form-grid" onSubmit={onDeclare}>
+        <FormField label="Local"><select required value={siteId} onChange={(event) => onSiteChange(event.target.value)}>{sites.map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}</select></FormField>
+        <FormField label="Empleado" hint={eligibleEmployees.length === 0 ? 'No hay personas activas en este local.' : undefined}><select required value={employeeId} onChange={(event) => onEmployeeChange(event.target.value)}>{eligibleEmployees.map((person) => <option value={person.id} key={person.id}>{person.displayName}</option>)}</select></FormField>
+        <FormField label="Día"><input type="date" required disabled={loading} value={singleDate} onChange={(event) => onSingleDateChange(event.target.value)} /></FormField>
+        <FormField label="Horario" hint="Si no elegís otro, se usa el horario que la persona tiene asignado para ese día."><select value={templateId} onChange={(event) => onTemplateChange(event.target.value)}><option value="">El que tiene asignado</option>{siteTemplates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>)}</select></FormField>
+        {singleError && <div className="field-wide"><PageMessage kind="error">{singleError}</PageMessage></div>}
+        {singleNotice && <div className="field-wide"><PageMessage kind="success">{singleNotice}</PageMessage></div>}
+        <div className="field-wide"><button className="button button-primary" disabled={busy || loading || journeysLoading || !singleDate || !employeeId}>{busy ? 'Guardando…' : 'Cargar este día'}</button></div>
+      </form>
+    </details></section>
     <Panel title={journeysTitle(date)} action={<button className="button button-small button-quiet" disabled={journeysLoading} onClick={onReloadJourneys}>{journeysLoading ? 'Actualizando…' : 'Actualizar'}</button>}>
-      {!date ? <Empty>{dateError}</Empty> : loading || journeysLoading || journeysDate !== date ? <Loading label={loading || !journeysDate ? 'Cargando jornadas…' : 'Actualizando jornadas…'} /> : journeysError ? <LoadFailure message={journeysError} onRetry={onReloadJourneys} /> : jornadas.length ? <div className="table-scroll"><table><thead><tr><th>Empleado</th><th>Sede</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{jornadas.map((jornada) => <tr key={jornada.id}><td>{peopleById.get(jornada.employeeId) ?? 'Empleado'}</td><td>{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Sede'}</td><td><span className={`status-chip status-${jornada.state.toLowerCase()}`}>{stateLabel(jornada.state)}</span></td><td><button className="button button-small button-quiet" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></td></tr>)}</tbody></table></div> : <Empty>No hay jornadas declaradas para esta fecha.</Empty>}
+      <div className="toolbar"><FormField label="Fecha" hint={dateError || undefined}><input type="date" required aria-invalid={Boolean(dateError)} disabled={loading} value={date} onChange={(event) => onDateChange(event.target.value)} /></FormField></div>
+      {!date ? <Empty>{dateError}</Empty> : loading || journeysLoading || journeysDate !== date ? <Loading label={loading || !journeysDate ? 'Cargando jornadas…' : 'Actualizando jornadas…'} /> : journeysError ? <LoadFailure message={journeysError} onRetry={onReloadJourneys} /> : jornadas.length ? <div className="table-scroll"><table><thead><tr><th>Empleado</th><th>Sede</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{jornadas.map((jornada) => <tr key={jornada.id}><td>{peopleById.get(jornada.employeeId) ?? 'Empleado'}</td><td>{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Sede'}</td><td><span className={`status-chip status-${jornada.state.toLowerCase()}`}>{stateLabel(jornada.state)}</span></td><td><button className="button button-small button-quiet" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></td></tr>)}</tbody></table></div> : <Empty>No hay días cargados para esta fecha.</Empty>}
     </Panel>
     {detailLoading && <Panel title="Detalle"><Loading label="Consultando marcas…" /></Panel>}
-    {detail && !detailLoading && <Panel title={`Marcas de ${peopleById.get(detail.employeeId) ?? 'empleado'}`}>
+    {detail && !detailLoading && <div id="jornada-detail"><Panel title={`Marcas de ${peopleById.get(detail.employeeId) ?? 'empleado'}`}>
+      {messages}
       <p className="muted">Horario asignado: {detail.scheduleSnapshot.name} · tolerancia {detail.toleranceMinutes} min</p>
       {!detailTimeZone && <PageMessage kind="error">No se pudo cargar la zona horaria de la sede. Reintentá los datos de la jornada antes de incorporar o corregir marcas.</PageMessage>}
       {detail.state === 'CANCELADA' && <PageMessage>Jornada cancelada el {dateTime(detail.cancelledAt ?? '', detailTimeZone)}.{detail.cancelReason ? ` Motivo: ${detail.cancelReason}` : ''}</PageMessage>}
       {cancellable && (cancelOpen ? <form className="form-stack correction-form" onSubmit={onConfirmCancel}>
-        <FormField label="Motivo de cancelación" hint={`La jornada queda cancelada con tu nombre, la hora y este motivo; sus desvíos se cierran y podés volver a declararla. ${HEALTH_DATA_HINT}`}><textarea required maxLength={2000} value={cancelReason} onChange={(event) => onCancelReasonChange(event.target.value)} /></FormField>
+        <FormField label="Motivo de cancelación" hint={`La jornada queda cancelada con tu nombre, la hora y este motivo; sus desvíos se cierran y podés volver a cargarla. ${HEALTH_DATA_HINT}`}><textarea required maxLength={2000} value={cancelReason} onChange={(event) => onCancelReasonChange(event.target.value)} /></FormField>
         <div className="button-row"><button className="button button-small button-danger-outline" disabled={markBusy !== '' || !cancelReason.trim()}>{markBusy === 'cancel' ? 'Cancelando…' : 'Confirmar cancelación'}</button><button type="button" className="button button-small button-quiet" disabled={markBusy === 'cancel'} onClick={onAbortCancel}>Volver</button></div>
       </form> : <div className="button-row"><button type="button" className="button button-small button-danger-outline" disabled={markBusy !== ''} onClick={onBeginCancel}>Cancelar jornada</button></div>)}
-      {detail.marks.length ? <div className="table-scroll"><table><thead><tr><th>Marca</th><th>Hora del evento</th><th>Alta en servidor</th><th>Ubicación</th><th>Acciones</th></tr></thead><tbody>{detail.marks.map((mark) => <Fragment key={mark.id}>
-        {mark.voided ? <tr className="mark-voided"><td><s>{actionName(mark.action)}</s> <span className="status-chip">Anulada</span></td><td><s>{dateTime(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)}</s></td><td>{dateTime(mark.recordedAt ?? mark.acceptedAt, detailTimeZone)}</td><td>{typeof mark.latitude === 'number' && typeof mark.longitude === 'number' ? `${mark.latitude.toFixed(5)}, ${mark.longitude.toFixed(5)}` : locationName(mark.locationStatus)}</td><td><small>{mark.voidedAt ? `Anulada el ${dateTime(mark.voidedAt, detailTimeZone)}` : 'Anulada'}{mark.voidReason ? ` · ${mark.voidReason}` : ''}</small></td></tr> :
-        <tr><td>{actionName(mark.action)}</td><td>{dateTime(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)}</td><td>{dateTime(mark.recordedAt ?? mark.acceptedAt, detailTimeZone)}</td><td>{typeof mark.latitude === 'number' && typeof mark.longitude === 'number' ? `${mark.latitude.toFixed(5)}, ${mark.longitude.toFixed(5)}` : locationName(mark.locationStatus)}</td><td><div className="button-row"><button className="button button-small button-quiet" aria-label={`Corregir marca ${actionName(mark.action)} de ${dateTime(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)}`} disabled={markBusy !== '' || !detailTimeZone} onClick={() => onBeginMarkCorrection(mark)}>Corregir</button><button className="button button-small button-danger-outline" aria-label={`Anular marca ${actionName(mark.action)} de ${dateTime(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)}`} disabled={markBusy !== ''} onClick={() => onBeginVoid(mark)}>Anular</button></div></td></tr>}
-        {voidingMarkId === mark.id && !mark.voided && <tr><td colSpan={5}><form className="form-stack correction-form" onSubmit={(event) => onConfirmVoid(event, mark)}>
-          <FormField label="Motivo de anulación" hint={`La marca no se borra: queda visible como anulada, con tu nombre, la hora y este motivo, y deja de contar para la jornada y los desvíos. ${HEALTH_DATA_HINT}`}><textarea required maxLength={2000} value={voidReason} onChange={(event) => onVoidReasonChange(event.target.value)} /></FormField>
-          <div className="button-row"><button className="button button-small button-danger-outline" disabled={markBusy === mark.id || !voidReason.trim()}>{markBusy === mark.id ? 'Anulando…' : 'Confirmar anulación'}</button><button type="button" className="button button-small button-quiet" disabled={markBusy === mark.id} onClick={onAbortVoid}>Volver</button></div>
-        </form></td></tr>}
-        {editingMarkId === mark.id && <tr><td colSpan={5}><form className="form-stack correction-form" onSubmit={(event) => onCorrectMark(event, mark)}>
-          <FormField label="Tipo de marca corregida"><select value={correctedAction} onChange={(event) => onCorrectedActionChange(event.target.value as MarkAction)}>{MARK_ACTIONS.map((action) => <option key={action} value={action}>{actionName(action)}</option>)}</select></FormField>
-          <FormField label={`Hora corregida (${detailSite?.name ?? 'zona horaria de la sede'})`}><input type="datetime-local" step="1" required value={correctedOccurredAt} onChange={(event) => onCorrectedOccurredAtChange(event.target.value)} /></FormField>
-          <FormField label="Motivo de corrección de marca"><textarea required maxLength={2000} value={correctionReason} onChange={(event) => onCorrectionReasonChange(event.target.value)} /></FormField>
-          <div className="button-row"><button className="button button-small button-primary" disabled={markBusy === mark.id || !correctionReason.trim()}>{markBusy === mark.id ? 'Guardando…' : 'Guardar corrección de marca'}</button><button type="button" className="button button-small button-quiet" disabled={markBusy === mark.id} onClick={onCancelMarkCorrection}>Cancelar</button></div>
-        </form></td></tr>}
-      </Fragment>)}</tbody></table></div> : <Empty>{detail.state === 'CANCELADA' ? 'Esta jornada fue cancelada y no tiene marcas.' : 'Esta jornada todavía no tiene marcas.'}</Empty>}
+      {!detail.marks.length ? <Empty>{detail.state === 'CANCELADA' ? 'Esta jornada fue cancelada y no tiene marcas.' : 'Esta jornada todavía no tiene marcas.'}</Empty>
+        : narrow ? <ul className="history-items" aria-label="Marcas de la jornada">{detail.marks.map((mark) => <li key={mark.id} className={mark.voided ? 'mark-voided' : undefined}>
+          <strong>{mark.voided ? <s>{actionName(mark.action)}</s> : actionName(mark.action)}</strong><span>{mark.voided ? <s>{markTime(mark)}</s> : markTime(mark)}</span>
+          <small>{mark.voided ? voidedNote(mark) : markLocation(mark)}</small>
+          {!mark.voided && markButtons(mark)}
+        </li>)}</ul>
+        : <div className="table-scroll"><table><thead><tr><th>Marca</th><th>Hora</th><th>Registrada</th><th>Ubicación</th><th>Acciones</th></tr></thead><tbody>{detail.marks.map((mark) => mark.voided
+          ? <tr key={mark.id} className="mark-voided"><td><s>{actionName(mark.action)}</s> <span className="status-chip">Anulada</span></td><td><s>{markTime(mark)}</s></td><td>{dateTime(mark.recordedAt ?? mark.acceptedAt, detailTimeZone)}</td><td>{markLocation(mark)}</td><td><small>{voidedNote(mark)}</small></td></tr>
+          : <tr key={mark.id}><td>{actionName(mark.action)}</td><td>{markTime(mark)}</td><td>{dateTime(mark.recordedAt ?? mark.acceptedAt, detailTimeZone)}</td><td>{markLocation(mark)}</td><td>{markButtons(mark)}</td></tr>)}</tbody></table></div>}
+      {voidingMark && <form className="form-stack correction-form" aria-label={`Anular la marca ${actionName(voidingMark.action)} de ${markTime(voidingMark)}`} onSubmit={(event) => onConfirmVoid(event, voidingMark)}>
+        <FormField label="Motivo de anulación" hint={`La marca no se borra: queda visible como anulada, con tu nombre, la hora y este motivo, y deja de contar para la jornada y los desvíos. ${HEALTH_DATA_HINT}`}><textarea required maxLength={2000} value={voidReason} onChange={(event) => onVoidReasonChange(event.target.value)} /></FormField>
+        <div className="button-row"><button className="button button-small button-danger-outline" disabled={markBusy === voidingMark.id || !voidReason.trim()}>{markBusy === voidingMark.id ? 'Anulando…' : 'Confirmar anulación'}</button><button type="button" className="button button-small button-quiet" disabled={markBusy === voidingMark.id} onClick={onAbortVoid}>Volver</button></div>
+      </form>}
+      {editingMark && <form className="form-stack correction-form" aria-label={`Corregir la marca ${actionName(editingMark.action)} de ${markTime(editingMark)}`} onSubmit={(event) => onCorrectMark(event, editingMark)}>
+        <FormField label="Tipo de marca corregida"><select value={correctedAction} onChange={(event) => onCorrectedActionChange(event.target.value as MarkAction)}>{MARK_ACTIONS.map((action) => <option key={action} value={action}>{actionName(action)}</option>)}</select></FormField>
+        <FormField label={`Hora corregida (${detailSite?.name ?? 'zona horaria de la sede'})`}><input type="datetime-local" required value={correctedOccurredAt} onChange={(event) => onCorrectedOccurredAtChange(event.target.value)} /></FormField>
+        <FormField label="Motivo de corrección de marca"><textarea required maxLength={2000} value={correctionReason} onChange={(event) => onCorrectionReasonChange(event.target.value)} /></FormField>
+        <div className="button-row"><button className="button button-small button-primary" disabled={markBusy === editingMark.id || !correctionReason.trim()}>{markBusy === editingMark.id ? 'Guardando…' : 'Guardar corrección de marca'}</button><button type="button" className="button button-small button-quiet" disabled={markBusy === editingMark.id} onClick={onCancelMarkCorrection}>Cancelar</button></div>
+      </form>}
       {detail.state !== 'CANCELADA' && <form className="forgotten-mark-form" onSubmit={onAddForgottenMark}><fieldset className="form-grid fieldset-plain" disabled={!detailTimeZone}>
-        <div className="field-wide"><h3>Incorporar una marca olvidada</h3><p className="field-hint">La hora del evento se interpreta en la zona horaria de {detailSite?.name ?? 'la sede'}; el alta queda auditada por separado.</p></div>
-        <FormField label="Tipo de marca olvidada"><select value={forgotAction} onChange={(event) => onForgotActionChange(event.target.value as MarkAction)}>{MARK_ACTIONS.map((action) => <option key={action} value={action}>{actionName(action)}</option>)}</select></FormField>
-        <FormField label={`Hora del evento (${detailSite?.name ?? 'sede'})`}><input type="datetime-local" step="1" required value={forgotOccurredAt} onChange={(event) => onForgotOccurredAtChange(event.target.value)} /></FormField>
-        <FormField label="Motivo de incorporación"><textarea required maxLength={2000} value={forgotReason} onChange={(event) => onForgotReasonChange(event.target.value)} /></FormField>
-        <div className="field-wide"><button className="button button-primary" disabled={markBusy !== '' || !forgotReason.trim()}>{markBusy === 'forgotten' ? 'Guardando…' : 'Registrar marca olvidada'}</button></div>
+        <div className="field-wide"><h3>Agregar una marca que faltó</h3><p className="field-hint">Escribí la hora de {detailSite?.name ?? 'la sede'}. Queda guardado que la agregaste vos y por qué.</p></div>
+        <FormField label="¿Qué marca faltó?"><select value={forgotAction} onChange={(event) => onForgotActionChange(event.target.value as MarkAction)}>{MARK_ACTIONS.map((action) => <option key={action} value={action}>{actionName(action)}</option>)}</select></FormField>
+        <FormField label={`Hora (${detailSite?.name ?? 'sede'})`}><input type="datetime-local" required value={forgotOccurredAt} onChange={(event) => onForgotOccurredAtChange(event.target.value)} /></FormField>
+        <FormField label="¿Por qué la agregás?"><textarea required maxLength={2000} value={forgotReason} onChange={(event) => onForgotReasonChange(event.target.value)} /></FormField>
+        <div className="field-wide"><button className="button button-primary" disabled={markBusy !== '' || !forgotReason.trim()}>{markBusy === 'forgotten' ? 'Guardando…' : 'Agregar marca'}</button></div>
       </fieldset></form>}
       <JornadaAuditSection open={auditOpen} audit={audit} loading={auditLoading} error={auditError} onToggle={onToggleAudit} onRetry={onRetryAudit} />
-    </Panel>}
+    </Panel></div>}
   </>
 }
 
@@ -435,7 +426,7 @@ export function AdminHistoryRender({ employees, sites, loadingOptions, optionsEr
         return <article className="history-card" key={row.id} aria-label={`Jornada del ${formatLocalDate(row.localDate)} de ${person}`}>
           <div className="history-head"><strong>{formatLocalDate(row.localDate)}</strong><span>{person}</span><span className="muted">{siteById.get(row.siteId)?.name ?? 'Sede'}</span><span className={`status-chip status-${row.state.toLowerCase()}`}>{stateLabel(row.state)}</span></div>
           {marks.length ? <ul className="history-items" aria-label="Marcas">{marks.map((mark) => <li key={mark.id} className={mark.voided ? 'mark-voided' : undefined}><strong>{mark.voided ? <s>{actionName(mark.action)}</s> : actionName(mark.action)}</strong><span>{dateTime(mark.occurredAt ?? mark.acceptedAt, timeZone)}</span><small>{mark.voided ? `Anulada${mark.voidReason ? ` · ${mark.voidReason}` : ''}` : locationName(mark.locationStatus)}</small></li>)}</ul> : <p className="muted small-copy">Sin marcas.</p>}
-          {deviations.length ? <ul className="history-items history-deviations" aria-label="Desvíos">{deviations.map((item) => <li key={item.id}><strong>{deviationName(item.type)}</strong><span>{dateTime(item.occurredAt ?? item.createdAt, timeZone)}</span>{item.sourceMarkAction && <small>Marca: {actionName(item.sourceMarkAction)}{item.sourceMarkSequence ? ` · secuencia ${item.sourceMarkSequence}` : ''}</small>}<span className={`status-chip status-${item.status.toLowerCase()}`}>{statusName(item.status)}</span>{item.category && <small>{categoryName(item.category)}{item.motiveText ? ` · ${item.motiveText}` : ''}</small>}</li>)}</ul> : <p className="muted small-copy">Sin desvíos.</p>}
+          {deviations.length ? <ul className="history-items history-deviations" aria-label="Desvíos">{deviations.map((item) => <li key={item.id}><strong>{deviationName(item.type)}</strong><span>{dateTime(item.occurredAt ?? item.createdAt, timeZone)}</span>{item.sourceMarkAction && <small>Marca: {actionName(item.sourceMarkAction)}</small>}<span className={`status-chip status-${item.status.toLowerCase()}`}>{statusName(item.status)}</span>{item.category && <small>{categoryName(item.category)}{item.motiveText ? ` · ${item.motiveText}` : ''}</small>}</li>)}</ul> : <p className="muted small-copy">Sin desvíos.</p>}
         </article>
       })}</div>}
     </Panel>
