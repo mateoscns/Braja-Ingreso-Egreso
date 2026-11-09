@@ -6,6 +6,8 @@ import { declarationFailureMessage, validateBulkDeclaration } from './bulkDeclar
 import { isRegionTimeZone, REGION_TIME_ZONE_MESSAGE } from './siteZone'
 import { PASSWORD_TOO_LONG_MESSAGE, passwordTooLong } from '../../shared/password'
 import { captureSiteCoordinates, parseGeofenceRadiusMeters, SiteLocationError, type SiteLocationErrorKind } from './siteLocation'
+import { approximateDevicePosition, normalizePickedPoint, SEARCH_RESULT_ZOOM, siteMapInitialView } from './siteMap'
+import { GeocodeError, searchAddress, type GeocodeResult } from '../../shared/api/geocode'
 import {
   AdminHistoryRender,
   AdminInboxRender,
@@ -18,6 +20,7 @@ import {
   TemplatesViewRender,
   type SiteLocationAuditResponse,
   type SiteLocationEditDraft,
+  type SiteMapState,
   type DeviationClassification,
   type HistoryFilterValues,
   type InboxFilterValues,
@@ -70,6 +73,15 @@ function siteTimeInput(value: string, timeZone: string): string {
 }
 
 type LocationCaptureTarget = { kind: 'create' } | { kind: 'edit'; siteId: string }
+
+/** The form's coordinate pair when both are numbers in range, else null (the map then starts elsewhere). */
+function validCoordinates(latitudeText: string, longitudeText: string): SiteCoordinates | null {
+  if (!latitudeText.trim() || !longitudeText.trim()) return null
+  const latitude = Number(latitudeText)
+  const longitude = Number(longitudeText)
+  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) return null
+  return { latitude, longitude }
+}
 
 export function AdminInbox() {
   const [items, setItems] = useState<Deviation[]>([])
@@ -225,11 +237,19 @@ export function SitesView() {
   const locationCaptureController = useRef<AbortController | null>(null)
   const locationCaptureTarget = useRef<LocationCaptureTarget | null>(null)
   const siteLocationAuditRequest = useRef(0)
+  // D-20261109-01: the map picker of one form at a time; its controller cancels the rough device position and the address search.
+  const [siteMap, setSiteMap] = useState<SiteMapState | null>(null)
+  const [createPointFromMap, setCreatePointFromMap] = useState(false)
+  const siteMapController = useRef<AbortController | null>(null)
+  const lastMapSearchAt = useRef<number | null>(null)
+  const mapSearchInFlight = useRef<AbortController | null>(null)
   const [busy, setBusy] = useState(false)
   useEffect(() => () => {
     locationCaptureController.current?.abort()
     locationCaptureController.current = null
     locationCaptureTarget.current = null
+    siteMapController.current?.abort()
+    siteMapController.current = null
     siteLocationAuditRequest.current += 1
   }, [])
   async function reload() {
@@ -242,6 +262,7 @@ export function SitesView() {
   }
   async function captureLocationFor(target: LocationCaptureTarget) {
     cancelLocationCapture()
+    if (siteMap) closeSiteMap()
     const controller = new AbortController()
     locationCaptureController.current = controller
     locationCaptureTarget.current = target
@@ -260,13 +281,13 @@ export function SitesView() {
       if (locationCaptureController.current !== controller || locationCaptureTarget.current !== target) return
       if (target.kind === 'create') {
         setSiteLocation({ latitude: coordinates.latitude, longitude: coordinates.longitude })
-        setCreateLatitude(String(coordinates.latitude)); setCreateLongitude(String(coordinates.longitude)); setCreateLocationSource('CAPTURED')
+        setCreateLatitude(String(coordinates.latitude)); setCreateLongitude(String(coordinates.longitude)); setCreateLocationSource('CAPTURED'); setCreatePointFromMap(false)
         setLocationAccuracyMeters(coordinates.accuracyMeters); setLocationConfirmed(false); setLocationStatus('selected')
         setLocationMessage('Ubicación recibida. Revisá las coordenadas, la precisión y el mapa; confirmá que el punto corresponde a esta sede antes de guardarla.')
       } else {
         setLocationEdit((current) => current?.siteId === target.siteId ? {
           ...current, latitude: String(coordinates.latitude), longitude: String(coordinates.longitude),
-          locationSource: 'CAPTURED', locationAccuracyMeters: coordinates.accuracyMeters, locationConfirmed: false,
+          locationSource: 'CAPTURED', locationFromMap: false, locationAccuracyMeters: coordinates.accuracyMeters, locationConfirmed: false,
           locationStatus: 'selected', locationErrorKind: null,
           locationMessage: 'Ubicación recibida. Revisá las coordenadas, la precisión y el mapa; confirmá que el nuevo punto corresponde a esta sede antes de guardarlo.'
         } : current)
@@ -315,8 +336,9 @@ export function SitesView() {
   }
   function clearLocation() {
     cancelLocationCapture()
+    if (siteMap?.target.kind === 'create') closeSiteMap()
     setSiteLocation(null); setLocationStatus('idle'); setLocationMessage(''); setLocationErrorKind(null)
-    setCreateLatitude(''); setCreateLongitude(''); setCreateLocationSource(null)
+    setCreateLatitude(''); setCreateLongitude(''); setCreateLocationSource(null); setCreatePointFromMap(false)
     setLocationAccuracyMeters(null); setLocationConfirmed(false)
   }
   function updateCreateCoordinate(field: 'latitude' | 'longitude', value: string) {
@@ -326,12 +348,13 @@ export function SitesView() {
     setCreateLatitude(nextLatitude); setCreateLongitude(nextLongitude)
     setSiteLocation(null); setLocationAccuracyMeters(null); setLocationConfirmed(false)
     const hasPoint = Boolean(nextLatitude.trim() || nextLongitude.trim())
-    setCreateLocationSource(hasPoint ? 'MANUAL' : null)
+    setCreateLocationSource(hasPoint ? 'MANUAL' : null); setCreatePointFromMap(false)
     setLocationStatus(hasPoint ? 'selected' : 'idle'); setLocationErrorKind(null)
     setLocationMessage(hasPoint ? 'Carga manual. Revisá el punto en el mapa y confirmá que corresponde a esta sede antes de guardarla.' : '')
   }
   function beginLocationEdit(site: Site) {
     cancelLocationCapture()
+    if (siteMap?.target.kind === 'edit') closeSiteMap()
     siteLocationAuditRequest.current += 1
     setSiteLocationAuditFor(''); setSiteLocationAudit(null); setSiteLocationAuditError(''); setSiteLocationAuditLoading(false)
     setLocationEdit({
@@ -346,6 +369,7 @@ export function SitesView() {
   }
   function cancelLocationEdit() {
     cancelLocationCapture()
+    if (siteMap?.target.kind === 'edit') closeSiteMap()
     setLocationEdit(null); setError('')
   }
   function clearEditLocation() {
@@ -353,7 +377,7 @@ export function SitesView() {
     setLocationEdit((current) => current ? {
       ...current, latitude: '', longitude: '', locationStatus: 'idle',
       locationMessage: 'El centro quedará vacío cuando guardes los cambios.', locationErrorKind: null,
-      locationAccuracyMeters: null, locationConfirmed: true, locationSource: null,
+      locationAccuracyMeters: null, locationConfirmed: true, locationSource: null, locationFromMap: false,
     } : current)
   }
   function updateLocationEdit(patch: Partial<SiteLocationEditDraft>) {
@@ -366,6 +390,7 @@ export function SitesView() {
         return {
           ...updated,
           locationSource: hasPoint ? 'MANUAL' : null,
+          locationFromMap: false,
           locationAccuracyMeters: null,
           locationConfirmed: false,
           locationStatus: hasPoint ? 'selected' : 'idle',
@@ -375,6 +400,89 @@ export function SitesView() {
       }
       return updated
     })
+  }
+  function closeSiteMap() {
+    siteMapController.current?.abort()
+    siteMapController.current = null
+    mapSearchInFlight.current = null
+    setSiteMap(null)
+  }
+  function openSiteMap(target: LocationCaptureTarget) {
+    cancelLocationCapture()
+    closeSiteMap()
+    const center = target.kind === 'create'
+      ? validCoordinates(createLatitude, createLongitude)
+      : locationEdit?.siteId === target.siteId ? validCoordinates(locationEdit.latitude, locationEdit.longitude) : null
+    const controller = new AbortController()
+    siteMapController.current = controller
+    const initialView = siteMapInitialView(center, null)
+    setSiteMap({ target, view: initialView, point: center, query: '', searchStatus: 'idle', searchMessage: '', results: [] })
+    if (center) return
+    // Only to center the map, whatever its accuracy; it is never saved. A tap or a search result wins over a late answer.
+    void approximateDevicePosition(undefined, controller.signal).then((position) => {
+      if (!position || siteMapController.current !== controller) return
+      setSiteMap((current) => current && current.point === null && current.view === initialView
+        ? { ...current, view: siteMapInitialView(null, position) } : current)
+    })
+  }
+  function pickSiteMapPoint(raw: SiteCoordinates) {
+    const point = normalizePickedPoint(raw.latitude, raw.longitude)
+    if (point) setSiteMap((current) => current ? { ...current, point } : current)
+  }
+  async function searchSiteMap() {
+    const controller = siteMapController.current
+    if (!siteMap || !controller || mapSearchInFlight.current === controller) return
+    const query = siteMap.query.trim()
+    if (!query) {
+      setSiteMap((current) => current ? { ...current, searchStatus: 'error', searchMessage: 'Escribí la dirección del local para buscarla.', results: [] } : current)
+      return
+    }
+    // Nominatim's usage policy: at most one request per second and per explicit search, never while typing.
+    const now = Date.now()
+    if (lastMapSearchAt.current !== null && now - lastMapSearchAt.current < 1000) return
+    lastMapSearchAt.current = now
+    mapSearchInFlight.current = controller
+    setSiteMap((current) => current ? { ...current, searchStatus: 'loading', searchMessage: '', results: [] } : current)
+    try {
+      const results = await searchAddress(query, { signal: controller.signal })
+      if (siteMapController.current !== controller) return
+      setSiteMap((current) => current ? {
+        ...current, searchStatus: 'done', results,
+        searchMessage: results.length ? 'Elegí el resultado que corresponde al local.' : 'No encontramos esa dirección. Probá con calle, número y localidad, o mové el mapa y tocá el lugar.'
+      } : current)
+    } catch (reason) {
+      if (controller.signal.aborted || siteMapController.current !== controller) return
+      setSiteMap((current) => current ? { ...current, searchStatus: 'error', results: [], searchMessage: (reason instanceof GeocodeError ? reason : new GeocodeError()).message } : current)
+    } finally {
+      if (mapSearchInFlight.current === controller) mapSearchInFlight.current = null
+    }
+  }
+  function chooseSiteMapResult(result: GeocodeResult) {
+    const point = { latitude: result.latitude, longitude: result.longitude }
+    setSiteMap((current) => current ? {
+      ...current, view: { ...point, zoom: SEARCH_RESULT_ZOOM }, point, results: [], searchStatus: 'done',
+      searchMessage: 'Revisá el punto en el mapa; si no es la puerta del local, tocá el lugar exacto.'
+    } : current)
+  }
+  function confirmSiteMapPoint() {
+    if (!siteMap?.point) return
+    const { latitude, longitude } = siteMap.point
+    const target = siteMap.target
+    if (target.kind === 'create') {
+      setCreateLatitude(String(latitude)); setCreateLongitude(String(longitude)); setCreateLocationSource('MANUAL'); setCreatePointFromMap(true)
+      // "Confirmar ubicación" on the map is the owner's confirmation of the point (D-20261109-01): asking again with the
+      // checkbox was a second confirmation for the same thing. The checkbox stays for captured and hand-typed points.
+      setSiteLocation(null); setLocationAccuracyMeters(null); setLocationConfirmed(true)
+      setLocationStatus('selected'); setLocationErrorKind(null)
+      setLocationMessage('Punto elegido en el mapa. Ya podés guardar la sede.')
+    } else {
+      setLocationEdit((current) => current?.siteId === target.siteId ? {
+        ...current, latitude: String(latitude), longitude: String(longitude), locationSource: 'MANUAL', locationFromMap: true,
+        locationAccuracyMeters: null, locationConfirmed: true, locationStatus: 'selected', locationErrorKind: null,
+        locationMessage: 'Punto elegido en el mapa. Ya podés guardar la ubicación.'
+      } : current)
+    }
+    closeSiteMap()
   }
   function closeSiteLocationAudit() {
     siteLocationAuditRequest.current += 1
@@ -402,7 +510,7 @@ export function SitesView() {
     setError(''); setNotice('')
     let geofenceRadiusMeters: number
     try { geofenceRadiusMeters = parseGeofenceRadiusMeters(locationEdit.geofenceRadiusMeters) }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Revisá el radio de la sede.'); return }
+    catch (reason) { setError(reason instanceof Error ? reason.message : 'Revisá la distancia permitida para marcar.'); return }
     const hasLatitude = Boolean(locationEdit.latitude.trim())
     const hasLongitude = Boolean(locationEdit.longitude.trim())
     if (hasLatitude !== hasLongitude) {
@@ -432,8 +540,9 @@ export function SitesView() {
         geofenceRadiusMeters
       })
       setSites((current) => current.map((site) => site.id === updated.id ? updated : site))
+      if (siteMap?.target.kind === 'edit') closeSiteMap()
       setLocationEdit(null)
-      setNotice('Ubicación y radio de la sede actualizados.')
+      setNotice('Ubicación de la sede actualizada.')
       closeSiteLocationAudit()
     } catch (reason) { setError(errText(reason)) } finally { setBusy(false) }
   }
@@ -441,7 +550,7 @@ export function SitesView() {
     event.preventDefault(); setError(''); setNotice('')
     let geofenceRadiusMeters: number
     try { geofenceRadiusMeters = parseGeofenceRadiusMeters(createRadiusMeters) }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Revisá el radio de la sede.'); return }
+    catch (reason) { setError(reason instanceof Error ? reason.message : 'Revisá la distancia permitida para marcar.'); return }
     const hasLatitude = Boolean(createLatitude.trim())
     const hasLongitude = Boolean(createLongitude.trim())
     if (hasLatitude !== hasLongitude) {
@@ -478,6 +587,9 @@ export function SitesView() {
   }
   return <SitesViewRender sites={sites} loading={loading} loadError={loadError} error={error} notice={notice} name={name} timeZone={timeZone} busy={busy}
     createRadiusMeters={createRadiusMeters} createLatitude={createLatitude} createLongitude={createLongitude} createLocationSource={createLocationSource}
+    siteMap={siteMap} createPointFromMap={createPointFromMap} onOpenMap={openSiteMap} onCloseMap={closeSiteMap} onMapPick={pickSiteMapPoint}
+    onMapQueryChange={(query) => setSiteMap((current) => current ? { ...current, query } : current)} onMapSearch={() => void searchSiteMap()}
+    onChooseMapResult={chooseSiteMapResult} onConfirmMapPoint={confirmSiteMapPoint}
     locationEdit={locationEdit} siteLocationAuditFor={siteLocationAuditFor} siteLocationAudit={siteLocationAudit} siteLocationAuditLoading={siteLocationAuditLoading} siteLocationAuditError={siteLocationAuditError}
     siteLocation={siteLocation} locationStatus={locationStatus} locationMessage={locationMessage} locating={locationStatus === 'loading'}
     locationErrorKind={locationErrorKind} locationAccuracyMeters={locationAccuracyMeters} locationConfirmed={locationConfirmed}

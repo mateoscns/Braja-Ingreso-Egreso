@@ -45,6 +45,15 @@ describe('captureSiteCoordinates', () => {
     expect(getCurrentPosition).toHaveBeenCalledOnce()
   })
 
+  it('points the owner to the map when the reported accuracy is not enough', async () => {
+    const getCurrentPosition = vi.fn((success: PositionCallback) => success(position(124)))
+
+    await expect(captureSiteCoordinates({ getCurrentPosition })).rejects.toMatchObject({
+      kind: 'precision-insufficient',
+      message: expect.stringContaining('Elegí el punto en el mapa')
+    })
+  })
+
   it('explains how to fix a denied location permission', async () => {
     const getCurrentPosition = vi.fn((_success: PositionCallback, failure: PositionErrorCallback) => failure({ code: 1 } as GeolocationPositionError))
 

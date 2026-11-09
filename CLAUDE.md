@@ -316,7 +316,15 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
    (`createSiteSavesFirstCenterAuditInSameTransaction`,
    `siteLocationUpdateAuditsAndRollsBackAsOneTransaction`) y
    `SitesViewRender.test.tsx`. El punto manual usa los rangos de la base y se
-   puede revisar en un enlace de mapa antes de guardar.
+   puede revisar en un enlace de mapa antes de guardar. Desde el 2026-11-09 la
+   primera opción es un minimapa (Leaflet con mosaicos de OpenStreetMap, en un
+   chunk aparte): el `ADMIN` busca la dirección en Nominatim (un pedido por
+   búsqueda; `shared/api/geocode.ts` es el único `fetch` fuera de `client.ts`,
+   regla 37), toca la puerta del local y confirma; el punto se guarda redondeado
+   a 7 decimales como `MANUAL`, y la posición aproximada del dispositivo solo
+   centra el mapa, nunca se guarda (D-20261109-01; guarda:
+   `SitesViewRender.test.tsx` "SitesView map picker", `geocode.test.ts`,
+   `siteMap.test.ts`).
 4. **Todo desvío exige motivo y categoría, pero después de guardar la
    marca** (D-20261014-07, D-20261015-04): queda `MOTIVO_PENDIENTE` hasta
    `PUT /deviations/{id}/motive` (categoría `SALUD`, `TRANSPORTE`,
@@ -650,7 +658,10 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     `deploy/docker-compose.yml` fija `BRAJA_SESSION_COOKIE_SECURE=true` y
     `BRAJA_TRUSTED_PROXY_CIDRS` en la IP fija de Caddy `/32`, y el Caddyfile
     agrega HSTS, `X-Content-Type-Options`, `X-Frame-Options: DENY`,
-    `Referrer-Policy`, `Permissions-Policy`, COOP y una CSP de solo mismo origen,
+    `Referrer-Policy`, `Permissions-Policy`, COOP y una CSP de solo mismo origen
+    salvo dos hosts de OpenStreetMap para el minimapa de sedes:
+    `img-src https://tile.openstreetmap.org` y
+    `connect-src https://nominatim.openstreetmap.org` (D-20261109-01, 2026-11-09),
     y quita `Server` (2026-11-02; `[sin guarda: implementado, sin test]`: el
     build de la imagen de Caddy solo corre `caddy validate`). Sin perfil activo,
     la configuración por defecto pone `Secure=true`
@@ -859,6 +870,8 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     (único `fetch`; el archivo anterior decía `frontend/src/api`). Guarda:
     `client.test.ts` prueba el cliente; que nadie más llame `fetch`
     `[sin guarda: implementado, sin test]`. Sin test de contrato de rutas.
+    Única excepción: `shared/api/geocode.ts` busca direcciones en Nominatim,
+    que no es nuestra API, sin cookies (D-20261109-01, 2026-11-09).
 38. **La PWA se prueba en iPhone (Safari) y en Android (Chrome)** antes de
     cada release: instalación, sesión, marca con ubicación y, en el dispositivo
     del `ADMIN`, recepción de push. Si la push en iPhone falla de forma

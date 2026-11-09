@@ -68,6 +68,23 @@ h2 { font-size: 1rem; letter-spacing: -.02em; margin: 0; }
 .site-location-confirmation { display: flex; align-items: flex-start; gap: 10px; color: var(--text-primary); font-size: .9rem; line-height: 1.45; cursor: pointer; }
 .site-location-confirmation input { flex: 0 0 auto; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--green-2); }
 @media (max-width: 640px) { .site-location-coordinate-inputs { grid-template-columns: 1fr; } }
+/* D-20261109-01 site map picker: the same tokens and box as .site-location-selection; the map height leaves the search field and
+   the confirm button on screen under the sticky top bar (and the sticky section bar on phones). */
+.site-location-manual > summary { display: inline-flex; align-items: center; min-height: var(--tap-target); color: var(--green-2); font-size: .875rem; font-weight: 650; cursor: pointer; }
+.site-location-manual[open] > summary { margin-bottom: 8px; }
+.site-map-panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #f8faf8; }
+.site-map-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
+.site-map-results { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.site-map-results .button { width: 100%; justify-content: flex-start; padding-top: 8px; padding-bottom: 8px; text-align: left; line-height: 1.35; overflow-wrap: anywhere; }
+.site-map-canvas { position: relative; z-index: 0; isolation: isolate; width: 100%; height: clamp(260px, calc(100vh - var(--topbar-height) - 280px), 440px); height: clamp(260px, calc(100dvh - var(--topbar-height) - 280px), 440px); border: 1px solid #dfe6e1; border-radius: var(--radius-control); overflow: hidden; background: var(--green-3); }
+.site-map-canvas.leaflet-container { font: inherit; font-size: .8125rem; }
+.site-map-canvas.leaflet-container .leaflet-bar a { width: var(--tap-target); height: var(--tap-target); line-height: var(--tap-target); }
+.site-map-canvas:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .site-map-panel { padding: 10px; }
+  /* Leaves room for the sticky section bar, the search, the hint, the confirm button and the fixed alerts bar. */
+  .site-map-canvas { height: clamp(160px, calc(100vh - var(--topbar-height) - 380px), 360px); height: clamp(160px, calc(100dvh - var(--topbar-height) - 380px), 360px); }
+}
 .field input, .field select, .field textarea, td input, .company-switch {
   width: 100%; min-height: var(--tap-target); border: 1px solid #dfe6e1; border-radius: var(--radius-control); background: #fff; padding: 9px 12px; font-size: 1rem; outline: 0;
   transition: border-color .16s, box-shadow .16s;

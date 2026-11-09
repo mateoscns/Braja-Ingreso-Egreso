@@ -14,7 +14,8 @@
 	encode @static zstd gzip
 
 	# Deferred so they also replace whatever the backend sends. The CSP allows only same-origin scripts, styles,
-	# API calls, the service worker and the manifest: the PWA loads nothing from other origins (2026-11-02).
+	# API calls, the service worker and the manifest (2026-11-02). The only other origins are OpenStreetMap's, for
+	# the ADMIN's site map picker (D-20261109-01): map tiles as images and the Nominatim address search as fetch.
 	header {
 		defer
 		Strict-Transport-Security "max-age=31536000"
@@ -23,7 +24,7 @@
 		Referrer-Policy "same-origin"
 		Permissions-Policy "geolocation=(self), camera=(), microphone=(), payment=(), usb=()"
 		Cross-Origin-Opener-Policy "same-origin"
-		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; font-src 'self'; connect-src 'self' https://nominatim.openstreetmap.org; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 		-Server
 		-X-Powered-By
 	}
