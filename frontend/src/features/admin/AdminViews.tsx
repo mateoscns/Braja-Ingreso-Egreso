@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { api, queryString } from '../../shared/api/client'
-import type { BulkDeclarationResult, Deviation, Employee, Jornada, JornadaAudit, JornadaSummary, Mark, MarkAction, PasswordReset, Site, SiteCoordinates, Template, TemplateAssignment, TemplateBlock, TemplateInput } from '../../shared/api/types'
+import type { BulkDeclarationResult, Deviation, Employee, Jornada, JornadaAudit, JornadaSummary, Mark, MarkAction, PasswordReset, Site, SiteCoordinates, Template, TemplateAssignment } from '../../shared/api/types'
 import { deviceDate, validateDateRange, DATE_PAIR_MESSAGE } from '../../shared/dateRange'
 import { declarationFailureMessage, validateBulkDeclaration } from './bulkDeclaration'
 import { isRegionTimeZone, REGION_TIME_ZONE_MESSAGE } from './siteZone'
@@ -13,11 +13,8 @@ import {
   AdminInboxRender,
   BulkDeclarationRender,
   EMPTY_INBOX_FILTERS,
-  EmployeesViewRender,
   JourneysViewRender,
   SitesViewRender,
-  TemplateAssignmentsRender,
-  TemplatesViewRender,
   type SiteLocationAuditResponse,
   type SiteLocationEditDraft,
   type SiteMapState,
@@ -26,6 +23,9 @@ import {
   type InboxFilterValues,
   type JourneyRow
 } from './AdminViewsRender'
+import { EmployeesViewRender, employeeDetailId, ISSUED_PASSWORD_ID, TemplateAssignmentsRender, type IssuedPassword } from './EmployeesViewRender'
+import { generateTemporaryPassword } from './temporaryPassword'
+import { PHONE_QUERY, useMediaQuery } from './useMediaQuery'
 
 const dateInBrowserZone = () => {
   const now = new Date()
@@ -613,6 +613,9 @@ export function EmployeesView() {
   const [busy, setBusy] = useState(false)
   const [dni, setDni] = useState(''); const [displayName, setDisplayName] = useState(''); const [siteIds, setSiteIds] = useState<string[]>([])
   const [tolerance, setTolerance] = useState('5'); const [temporaryPassword, setTemporaryPassword] = useState('')
+  // A password made with «Generar contraseña»: the form says it is shown after creating the employee.
+  const [generatedPassword, setGeneratedPassword] = useState(false)
+  const cards = useMediaQuery(PHONE_QUERY)
   // Edits live in a draft copy; the list only changes with what the server returns.
   const [draft, setDraft] = useState<Employee | null>(null)
   // Template assignments of one employee (D-20261015-02), loaded when its panel opens.
@@ -622,7 +625,7 @@ export function EmployeesView() {
   const assignmentRequest = useRef(0)
   async function openAssignments(id: string) {
     const requestId = ++assignmentRequest.current
-    setAssignmentsFor(id); setAssignments([]); setAssignmentsLoadError(''); setAssignmentError(''); setAssignmentTemplateId(''); setAssignmentValidFrom(''); setAssignmentsLoading(true)
+    setAssignmentsFor(id); setAssignments([]); setAssignmentsLoadError(''); setAssignmentError(''); setAssignmentTemplateId(''); setAssignmentValidFrom(deviceDate()); setAssignmentsLoading(true)
     try {
       const [history, available] = await Promise.all([api.get<TemplateAssignment[]>(`/employees/${encodeURIComponent(id)}/template-assignments`), api.get<Template[]>('/templates')])
       if (requestId !== assignmentRequest.current) return
@@ -639,9 +642,15 @@ export function EmployeesView() {
     try {
       const created = await api.post<TemplateAssignment>(`/employees/${encodeURIComponent(employeeId)}/template-assignments`, { templateId: assignmentTemplateId, validFrom: assignmentValidFrom })
       setAssignments((current) => [created, ...current].sort((a, b) => b.validFrom.localeCompare(a.validFrom) || b.createdAt.localeCompare(a.createdAt)))
-      setAssignmentTemplateId(''); setAssignmentValidFrom(''); setNotice('Plantilla asignada.')
+      setAssignmentTemplateId(''); setAssignmentValidFrom(deviceDate()); setNotice('Horario asignado.')
     } catch (reason) { setAssignmentError(errText(reason)) } finally { setAssignmentBusy(false) }
   }
+  // The horarios open next to the employee; on a long list or a phone they may start off screen.
+  useEffect(() => {
+    if (!assignmentsFor) return
+    const prefersReducedMotion = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    document.getElementById(employeeDetailId(assignmentsFor))?.scrollIntoView?.({ block: 'nearest', behavior: prefersReducedMotion ? 'auto' : 'smooth' })
+  }, [assignmentsFor])
   async function reload() {
     closeAssignments()
     setLoading(true); setLoadError(''); setError(''); setDraft(null)
@@ -657,10 +666,19 @@ export function EmployeesView() {
     if (temporaryPassword && passwordTooLong(temporaryPassword)) { setError(PASSWORD_TOO_LONG_MESSAGE); return }
     setBusy(true)
     try {
-      const created = await api.post<Employee>('/employees', { dni: dni.trim(), displayName: displayName.trim(), siteIds, toleranceMinutes: Number(tolerance), ...(temporaryPassword ? { temporaryPassword } : {}) })
-      setEmployees((current) => [...current, created]); setDni(''); setDisplayName(''); setSiteIds([]); setTolerance('5'); setTemporaryPassword(''); setNotice('Empleado creado.')
+      const sentPassword = temporaryPassword
+      const created = await api.post<Employee>('/employees', { dni: dni.trim(), displayName: displayName.trim(), siteIds, toleranceMinutes: Number(tolerance), ...(sentPassword ? { temporaryPassword: sentPassword } : {}) })
+      setEmployees((current) => [...current, created]); setDni(''); setDisplayName(''); setSiteIds([]); setTolerance('5'); setTemporaryPassword(''); setGeneratedPassword(false)
+      // An account that already existed keeps its password and the one sent is not used (OrganizationService.createEmployee).
+      if (sentPassword && created.mustChangePassword === false) setNotice('Empleado creado. Ese DNI ya tenía cuenta: sigue entrando con su contraseña de siempre.')
+      else {
+        setNotice('Empleado creado.')
+        if (sentPassword) setIssuedPassword({ displayName: created.displayName, temporaryPassword: sentPassword, reason: 'created' })
+      }
     } catch (reason) { setError(errText(reason)) } finally { setBusy(false) }
   }
+  function generatePassword() { setTemporaryPassword(generateTemporaryPassword()); setGeneratedPassword(true) }
+  function typePassword(value: string) { setTemporaryPassword(value); setGeneratedPassword(false) }
   async function saveEmployee() {
     if (!draft) return
     setBusy(true); setError(''); setNotice('')
@@ -683,7 +701,12 @@ export function EmployeesView() {
   // D-20261027-09: the temporary password lives only in this state; it is never written to browser storage and is
   // gone when the ADMIN dismisses the panel or leaves the view.
   const [resetTarget, setResetTarget] = useState<string | null>(null)
-  const [issuedPassword, setIssuedPassword] = useState<{ displayName: string; temporaryPassword: string } | null>(null)
+  const [issuedPassword, setIssuedPassword] = useState<IssuedPassword | null>(null)
+  // After creating an employee the password panel sits next to the form, below the list; bring it into view.
+  useEffect(() => {
+    if (issuedPassword?.reason !== 'created') return
+    document.getElementById(ISSUED_PASSWORD_ID)?.scrollIntoView?.({ block: 'nearest' })
+  }, [issuedPassword])
   function askReset(id: string) { setResetTarget(id); setIssuedPassword(null); setError(''); setNotice('') }
   async function confirmReset() {
     const person = employees.find((entry) => entry.id === resetTarget)
@@ -696,61 +719,14 @@ export function EmployeesView() {
     } catch (reason) { setError(errText(reason)) } finally { setBusy(false); setResetTarget(null) }
   }
   return <EmployeesViewRender employees={employees} sites={sites} loading={loading} loadError={loadError} error={error} notice={notice} busy={busy} dni={dni} displayName={displayName} siteIds={siteIds} tolerance={tolerance} temporaryPassword={temporaryPassword} draft={draft}
-    assignmentsPanel={assignmentsPanel} onOpenAssignments={(id) => void openAssignments(id)}
-    onReload={() => void reload()} onCreate={create} onDniChange={setDni} onDisplayNameChange={setDisplayName} onToggleSite={toggleSite} onToleranceChange={setTolerance} onTemporaryPasswordChange={setTemporaryPassword}
+    generatedPassword={generatedPassword} cards={cards} assignmentsFor={assignmentsFor} assignmentsPanel={assignmentsPanel} onOpenAssignments={(id) => void openAssignments(id)}
+    onReload={() => void reload()} onCreate={create} onDniChange={setDni} onDisplayNameChange={setDisplayName} onToggleSite={toggleSite} onToleranceChange={setTolerance} onTemporaryPasswordChange={typePassword} onGeneratePassword={generatePassword}
     onSave={() => void saveEmployee()} onDraftChange={updateDraft} onStartEditing={startEditing} onCancelEditing={() => { setDraft(null); setError('') }}
     resetTarget={resetTarget} issuedPassword={issuedPassword} onAskReset={askReset} onConfirmReset={() => void confirmReset()} onCancelReset={() => setResetTarget(null)} onDismissIssuedPassword={() => setIssuedPassword(null)} />
 }
 
-export function TemplatesView() {
-  const [sites, setSites] = useState<Site[]>([])
-  const [templates, setTemplates] = useState<Template[]>([])
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState('')
-  const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [selectedSite, setSelectedSite] = useState('')
-  const [editing, setEditing] = useState('')
-  const [name, setName] = useState('')
-  const [blocks, setBlocks] = useState<TemplateBlock[]>([{ startDayOffset: 0, start: '09:00', end: '13:00', endDayOffset: 0 }, { startDayOffset: 0, start: '14:00', end: '18:00', endDayOffset: 0 }])
-  const [breakfast, setBreakfast] = useState('15'); const [lunch, setLunch] = useState('60')
-  async function load() {
-    setLoading(true); setLoadError(''); setError(''); setNotice('')
-    try { const [availableSites, availableTemplates] = await Promise.all([api.get<Site[]>('/sites'), api.get<Template[]>('/templates')]); setSites(availableSites); setTemplates(availableTemplates); setSelectedSite((current) => current || availableSites[0]?.id || '') }
-    catch (reason) { setSites([]); setTemplates([]); setLoadError(errText(reason)) } finally { setLoading(false) }
-  }
-  useEffect(() => { void load() }, [])
-  const siteTemplates = useMemo(() => templates.filter((template) => template.siteId === selectedSite), [templates, selectedSite])
-  function setBlock(index: number, patch: Partial<TemplateBlock>) { setBlocks((current) => current.map((block, position) => position === index ? { ...block, ...patch } : block)) }
-  function beginEdit(template: Template) { setEditing(template.id); setSelectedSite(template.siteId); setName(template.name); setBlocks(template.blocks.map((block) => ({ ...block }))); setBreakfast(String(template.breakfastLimitMinutes)); setLunch(String(template.lunchLimitMinutes)) }
-  function resetForm() { setEditing(''); setName(''); setBlocks([{ startDayOffset: 0, start: '09:00', end: '13:00', endDayOffset: 0 }, { startDayOffset: 0, start: '14:00', end: '18:00', endDayOffset: 0 }]); setBreakfast('15'); setLunch('60') }
-  function validBlocks() {
-    const mins = (time: string) => { const [hour, minute] = time.split(':').map(Number); return hour * 60 + minute }
-    let previousEnd = -1
-    return blocks.every((block, index) => {
-      const start = block.startDayOffset * 1440 + mins(block.start)
-      const end = block.endDayOffset * 1440 + mins(block.end)
-      const valid = (index > 0 || block.startDayOffset === 0) && end > start && start >= previousEnd
-      previousEnd = end
-      return valid
-    })
-  }
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setError(''); setNotice('')
-    if (!validBlocks()) { setError('Revisá los bloques: deben estar en orden, no superponerse y terminar después de empezar.'); return }
-    setBusy(true)
-    const payload: TemplateInput = { siteId: selectedSite, name: name.trim(), blocks, breakfastLimitMinutes: Number(breakfast), lunchLimitMinutes: Number(lunch) }
-    try {
-      const saved = editing ? await api.patch<Template>(`/templates/${encodeURIComponent(editing)}`, payload) : await api.post<Template>('/templates', payload)
-      setTemplates((current) => editing ? current.map((item) => item.id === saved.id ? saved : item) : [...current, saved]); resetForm(); setNotice(editing ? 'Plantilla actualizada.' : 'Plantilla creada.')
-    } catch (reason) { setError(errText(reason)) } finally { setBusy(false) }
-  }
-  return <TemplatesViewRender sites={sites} siteTemplates={siteTemplates} loading={loading} loadError={loadError} error={error} notice={notice} busy={busy} selectedSite={selectedSite} editing={editing} name={name} blocks={blocks} breakfast={breakfast} lunch={lunch}
-    onReload={() => void load()} onSiteChange={(id) => { setSelectedSite(id); if (editing) resetForm() }} onBeginEdit={beginEdit} onSubmit={submit} onNameChange={setName} onBlockChange={setBlock}
-    onRemoveBlock={(index) => setBlocks((current) => current.filter((_, position) => position !== index))} onAddBlock={() => setBlocks((current) => [...current, { startDayOffset: 0, start: '18:00', end: '22:00', endDayOffset: 0 }])}
-    onBreakfastChange={setBreakfast} onLunchChange={setLunch} onResetForm={resetForm} />
-}
+/** Horarios (the UI name of schedule templates, issue #103) live in SchedulesView. */
+export { SchedulesView as TemplatesView } from './SchedulesView'
 
 export function JourneysView() {
   const [employees, setEmployees] = useState<Employee[]>([]); const [sites, setSites] = useState<Site[]>([]); const [templates, setTemplates] = useState<Template[]>([])

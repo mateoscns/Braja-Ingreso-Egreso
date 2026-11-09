@@ -148,7 +148,7 @@ describe('administración de desvíos y marcas', () => {
     expect(await screen.findByText('No hay empleados cargados.')).toBeInTheDocument()
   })
 
-  it('distingue un fallo de carga de la lista vacía de plantillas y permite reintentar', async () => {
+  it('distingue un fallo de carga de la lista vacía de horarios y permite reintentar', async () => {
     const previousGet = apiMocks.get.getMockImplementation()!
     let failFirstTemplateRequest = true
     apiMocks.get.mockImplementation((path: string) => {
@@ -161,16 +161,16 @@ describe('administración de desvíos y marcas', () => {
     render(<TemplatesView />)
 
     expect(await screen.findByText('Falló la carga de plantillas.')).toBeInTheDocument()
-    expect(screen.queryByText('No hay plantillas para esta sede.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Este local todavía no tiene horarios. Creá el primero.')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
-    expect(await screen.findByText(/09:00 a 17:00/)).toBeInTheDocument()
+    expect(await screen.findByRole('list', { name: 'Horario Mañana' })).toHaveTextContent('09:00–17:00')
   })
 
-  it('muestra el estado vacío de plantillas solo cuando la consulta termina correctamente sin filas', async () => {
+  it('muestra el estado vacío de horarios solo cuando la consulta termina correctamente sin filas', async () => {
     const previousGet = apiMocks.get.getMockImplementation()!
     apiMocks.get.mockImplementation((path: string) => path === '/templates' ? Promise.resolve([]) : previousGet(path))
     render(<TemplatesView />)
-    expect(await screen.findByText('No hay plantillas para esta sede.')).toBeInTheDocument()
+    expect(await screen.findByText('Este local todavía no tiene horarios. Creá el primero.')).toBeInTheDocument()
   })
 
   it('distingue un fallo de carga de la lista vacía de jornadas y permite reintentar', async () => {
@@ -348,10 +348,10 @@ describe('administración de desvíos y marcas', () => {
     expect(screen.queryByText(/Horario asignado: Mañana antigua/)).not.toBeInTheDocument()
   })
 
-  it('distingue los días de inicio y cierre de cada bloque horario', async () => {
+  it('no muestra los días de cada tramo: se calculan solos (issue #103)', async () => {
     render(<TemplatesView />)
-    expect((await screen.findAllByLabelText('Empieza el día'))).toHaveLength(2)
-    expect(screen.getAllByLabelText('Termina el día')).toHaveLength(2)
+    expect(await screen.findByLabelText('Entra a las')).toBeInTheDocument()
+    expect(screen.queryByLabelText(/el día$/)).not.toBeInTheDocument()
   })
 
   it('registra una marca olvidada y permite corregir una marca con motivo de auditoría', async () => {
@@ -465,14 +465,14 @@ describe('administración de desvíos y marcas', () => {
     expect(await screen.findByRole('button', { name: /^Corregir marca Ingreso de/ })).toBeInTheDocument()
   })
 
-  it('muestra los bloques de plantilla como HH:MM y el cruce de medianoche en palabras', async () => {
+  it('muestra los tramos del horario como HH:MM y el cruce de medianoche en palabras', async () => {
     const previousGet = apiMocks.get.getMockImplementation()!
     apiMocks.get.mockImplementation((path: string) => path === '/templates' ? Promise.resolve([{
       id: 't-2', siteId: 's-1', name: 'Noche', active: true, breakfastLimitMinutes: 15, lunchLimitMinutes: 60,
       blocks: [{ startDayOffset: 0, start: '22:00:00', end: '06:00:00', endDayOffset: 1 }]
     }]) : previousGet(path))
     render(<TemplatesView />)
-    expect(await screen.findByText('22:00 a 06:00 (día siguiente)')).toBeInTheDocument()
+    expect(await screen.findByText('22:00–06:00 (sale al día siguiente)')).toBeInTheDocument()
     expect(screen.queryByText(/D\+1/)).not.toBeInTheDocument()
   })
 
@@ -490,7 +490,7 @@ describe('administración de desvíos y marcas', () => {
     render(<EmployeesView />)
     fireEvent.click(await screen.findByRole('button', { name: /^Editar/ }))
     expect(screen.getByRole('textbox', { name: 'Nombre del empleado con DNI 30123456' })).toBeInTheDocument()
-    expect(screen.getByRole('spinbutton', { name: 'Tolerancia en minutos del empleado con DNI 30123456' })).toBeInTheDocument()
+    expect(screen.getByRole('spinbutton', { name: 'Minutos de tolerancia del empleado con DNI 30123456' })).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: 'Activo (DNI 30123456)' })).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: 'Local Centro (DNI 30123456)' })).toBeInTheDocument()
   })
@@ -863,39 +863,39 @@ describe('administración de desvíos y marcas', () => {
     })
   })
 
-  describe('plantilla asignada por empleado (D-20261015-02)', () => {
-    it('muestra el historial de plantillas de un empleado y asigna una nueva desde una fecha', async () => {
+  describe('horario asignado por empleado (D-20261015-02)', () => {
+    it('muestra el historial de horarios de un empleado y asigna uno nuevo desde un día', async () => {
       apiMocks.post.mockResolvedValueOnce({ ...assignment, id: 'a-2', validFrom: '2026-11-10', createdAt: '2026-10-27T13:00:00Z' })
       render(<EmployeesView />)
-      fireEvent.click(await screen.findByRole('button', { name: 'Plantillas de Lucía Pérez' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Horarios de Lucía Pérez' }))
 
-      const history = await screen.findByRole('list', { name: 'Historial de plantillas de Lucía Pérez' })
+      const history = await screen.findByRole('list', { name: 'Historial de horarios de Lucía Pérez' })
       expect(history).toHaveTextContent(`Mañana · Local Centro · desde ${formatLocalDate('2026-11-01')}`)
-      const assign = screen.getByRole('button', { name: 'Asignar plantilla' })
+      const assign = screen.getByRole('button', { name: 'Asignar horario' })
       expect(assign).toBeDisabled()
-      fireEvent.change(screen.getByLabelText('Plantilla'), { target: { value: 't-1' } })
-      fireEvent.change(screen.getByLabelText('Vigente desde'), { target: { value: '2026-11-10' } })
+      fireEvent.change(screen.getByLabelText('Horario'), { target: { value: 't-1' } })
+      fireEvent.change(screen.getByLabelText('Desde el día'), { target: { value: '2026-11-10' } })
       fireEvent.click(assign)
 
       await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/employees/e-1/template-assignments', { templateId: 't-1', validFrom: '2026-11-10' }))
-      expect(await screen.findByText('Plantilla asignada.')).toBeInTheDocument()
-      const items = within(screen.getByRole('list', { name: 'Historial de plantillas de Lucía Pérez' })).getAllByRole('listitem')
+      expect(await screen.findByText('Horario asignado.')).toBeInTheDocument()
+      const items = within(screen.getByRole('list', { name: 'Historial de horarios de Lucía Pérez' })).getAllByRole('listitem')
       expect(items.map((item) => item.textContent)).toEqual([
         `Mañana · Local Centro · desde ${formatLocalDate('2026-11-10')}`, `Mañana · Local Centro · desde ${formatLocalDate('2026-11-01')}`
       ])
     })
 
     it('un fallo al asignar deja el historial como estaba y muestra el error', async () => {
-      apiMocks.post.mockRejectedValueOnce(new Error('Ese empleado ya tiene una plantilla asignada en esa sede desde esa fecha. Elegí otra fecha de inicio.'))
+      apiMocks.post.mockRejectedValueOnce(new Error('Esa persona ya tiene un horario en ese local desde ese día. Elegí otro día.'))
       render(<EmployeesView />)
-      fireEvent.click(await screen.findByRole('button', { name: 'Plantillas de Lucía Pérez' }))
-      await screen.findByRole('list', { name: 'Historial de plantillas de Lucía Pérez' })
-      fireEvent.change(screen.getByLabelText('Plantilla'), { target: { value: 't-1' } })
-      fireEvent.change(screen.getByLabelText('Vigente desde'), { target: { value: '2026-11-01' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Asignar plantilla' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Horarios de Lucía Pérez' }))
+      await screen.findByRole('list', { name: 'Historial de horarios de Lucía Pérez' })
+      fireEvent.change(screen.getByLabelText('Horario'), { target: { value: 't-1' } })
+      fireEvent.change(screen.getByLabelText('Desde el día'), { target: { value: '2026-11-01' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Asignar horario' }))
 
-      expect(await screen.findByRole('alert')).toHaveTextContent('Ese empleado ya tiene una plantilla asignada')
-      expect(within(screen.getByRole('list', { name: 'Historial de plantillas de Lucía Pérez' })).getAllByRole('listitem')).toHaveLength(1)
+      expect(await screen.findByRole('alert')).toHaveTextContent('Esa persona ya tiene un horario en ese local desde ese día')
+      expect(within(screen.getByRole('list', { name: 'Historial de horarios de Lucía Pérez' })).getAllByRole('listitem')).toHaveLength(1)
     })
   })
 

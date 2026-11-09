@@ -213,6 +213,21 @@ td .short-input { width: 74px; }
 .block-fields .field-label { font-size: .8125rem; }
 .block-fields input, .block-fields select { min-height: var(--tap-target); padding: 5px 7px; }
 .remove-block { margin-bottom: 1px; }
+/* Horarios (issue #103): tramos as "Entra a las · Sale a las · Quitar", chips for the preview, edit in place in the card. */
+.block-fields.block-fields-tramo { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+.schedule-types .journey-option { flex: 1 1 160px; color: var(--text-primary); }
+.schedule-chips { display: flex; flex-wrap: wrap; gap: 7px; margin: 7px 0 4px; padding: 0; list-style: none; }
+.template-card-open { flex-wrap: wrap; }
+.template-card-slot { flex-basis: 100%; min-width: 0; }
+.template-card-slot > h3 { margin: 0; font-size: 1rem; }
+.field-hint-error { color: var(--red); font-weight: 650; }
+/* Empleados: the horarios panel and the issued password open next to their place and are scrolled into view below the sticky bars. */
+.employee-detail { scroll-margin-top: calc(var(--topbar-height) + 80px); }
+.employee-detail .panel { margin: 12px 0 0; }
+@media (max-width: 520px) {
+  .block-fields.block-fields-tramo { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .block-fields-tramo .remove-block { grid-column: 1 / -1; justify-self: start; }
+}
 .status-chip { display: inline-flex; align-items: center; min-height: 28px; border-radius: 99px; padding: 4px 9px; color: var(--text-secondary); background: #f0f3f0; font-size: .8125rem; font-weight: 700; white-space: nowrap; }
 .status-motivo_pendiente { color: #835520; background: #fff4df; }
 .status-pendiente_revision { color: #795d21; background: #fff6d9; }
