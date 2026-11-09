@@ -119,7 +119,7 @@ describe('Historial del ADMIN', () => {
     await screen.findByRole('option', { name: 'Lucía Pérez' })
     pick('Empleado', 'e-1')
     fireEvent.click(screen.getByRole('button', { name: 'Buscar' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('El servidor rechazó la consulta: acotá el rango de fechas o elegí un empleado o una sede (máximo 366 días y 500 jornadas).')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Son demasiados datos para una sola consulta: acotá el rango de fechas o elegí un empleado o una sede (hasta 366 días y 500 jornadas).')
   })
 
   it('muestra un estado vacío y un error de carga con reintento', async () => {

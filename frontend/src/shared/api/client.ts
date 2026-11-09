@@ -50,7 +50,7 @@ const CONFLICT_MESSAGES: Record<string, string> = {
   INVALID_MARK_HISTORY: STALE_MARK,
   IDEMPOTENCY_CONFLICT: 'Esta solicitud ya se usó para otra acción. Actualizá la vista y volvé a intentar.',
   MOTIVE_LOCKED: 'El administrador ya revisó este desvío; el motivo ya no se puede cambiar.',
-  JORNADA_EXISTS: 'Ya hay una jornada declarada para ese empleado, sede y fecha.',
+  JORNADA_EXISTS: 'Esa persona ya tiene ese día cargado en ese local.',
   MEMBERSHIP_EXISTS: 'Esa persona ya tiene un rol en esta empresa.',
   ACCOUNT_INACTIVE: 'La cuenta de ese DNI no está habilitada y no se puede agregar a la empresa.',
   ACCOUNT_SHARED: 'Esta persona también tiene acceso en otra empresa o como ADMIN; su contraseña la restablece el operador.',
@@ -59,7 +59,7 @@ const CONFLICT_MESSAGES: Record<string, string> = {
   JORNADA_CANCELLED: 'Esta jornada fue cancelada por el administrador y no admite marcas.',
   MARK_VOIDED: 'Esa marca ya fue anulada y no se puede modificar.',
   ASSIGNMENT_EXISTS: 'Ese empleado ya tiene una plantilla asignada en esa sede desde esa fecha. Elegí otra fecha de inicio.',
-  EMPLOYEE_NOT_IN_SITE: 'Ese empleado no está asignado a esa sede. Agregale la sede desde Empleados y volvé a intentar.'
+  EMPLOYEE_NOT_IN_SITE: 'Esa persona no trabaja en ese local. Agregale el local desde Empleados y volvé a intentar.'
 }
 const VALIDATION_MESSAGES: Record<string, string> = {
   TEMPLATE_REQUIRED: 'El empleado no tiene una plantilla vigente en esa sede para esa fecha. Elegí una plantilla o asignale una desde Empleados.',
