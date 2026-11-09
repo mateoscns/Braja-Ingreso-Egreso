@@ -14,6 +14,10 @@ umask 077
 # A failing command must never end the script in silence (2026-11-09, #97: the demo stopped right after the password
 # with no message). Only the line number is printed, never a command or a value: they can hold secrets.
 trap 'echo "gen-secrets: failed at line $LINENO; nothing was written" >&2' ERR
+# lib.sh exports MSYS_NO_PATHCONV=1 for the Windows docker CLI, and demo.sh passes it on. Git for Windows' openssl is a
+# native program: without path conversion it gets /tmp/... verbatim and cannot write its key file (2026-11-09, #97: the
+# demo's first start stopped right after the password). This script calls no docker, so conversion is turned back on.
+unset MSYS_NO_PATHCONV
 
 DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$DEPLOY_DIR/.env"
@@ -94,7 +98,7 @@ openssl ec -in "$work/vapid.pem" -outform DER -out "$work/vapid.der" 2>/dev/null
   || die "openssl could not convert the VAPID key ($(command -v openssl)); Git for Windows ships one in /mingw64/bin (which -a openssl)"
 [ "$(wc -c < "$work/vapid.der" | tr -d ' ')" = 121 ] || die "unexpected VAPID key encoding from openssl"
 # Byte ranges are cut with dd from the file, never with `tail | head`: if head closes the pipe early, tail can die of
-# SIGPIPE and pipefail plus set -e would end the script (a suspect of the silent stop of 2026-11-09, #97; not reproduced).
+# SIGPIPE and pipefail plus set -e would end the script (defensive; the 2026-11-09 stop was MSYS_NO_PATHCONV, above).
 bytes() { dd if="$work/vapid.der" bs=1 skip="$1" count="$2" 2>/dev/null; }
 [ "$(bytes 0 7 | od -An -tx1 | tr -d ' \n')" = "30770201010420" ] || die "unexpected VAPID key encoding from openssl"
 [ "$(bytes 56 1 | od -An -tx1 | tr -d ' \n')" = "04" ] || die "unexpected VAPID public key encoding"
