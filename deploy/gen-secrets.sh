@@ -9,8 +9,11 @@
 # The first ADMIN's password is read from the terminal (hidden, twice) or, without a terminal, from the first line of
 # stdin. It must have at least 16 characters (BootstrapAdminRunner) and at most 72 bytes (BCrypt). Every variable name comes from
 # backend/src/main/resources/application.yml and BrajaProperties.
-set -euo pipefail
+set -Eeuo pipefail
 umask 077
+# A failing command must never end the script in silence (2026-11-09, #97: the demo stopped right after the password
+# with no message). Only the line number is printed, never a command or a value: they can hold secrets.
+trap 'echo "gen-secrets: failed at line $LINENO; nothing was written" >&2' ERR
 
 DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$DEPLOY_DIR/.env"
@@ -85,8 +88,10 @@ b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '=\r\n'; }
 # VAPID key pair on P-256 in the format web-push-java's PushService(String, String, String) loads: the public key is the
 # uncompressed point (65 bytes, 0x04 first) and the private key the raw 32-byte scalar, both base64url without padding.
 # They are cut from the SEC1 DER of the key: 30 77 02 01 01 04 20 <d:32> a0 0a <curve oid> a1 44 03 42 00 <point:65>.
-openssl ecparam -name prime256v1 -genkey -noout -out "$work/vapid.pem" 2>/dev/null
-openssl ec -in "$work/vapid.pem" -outform DER -out "$work/vapid.der" 2>/dev/null
+openssl ecparam -name prime256v1 -genkey -noout -out "$work/vapid.pem" 2>/dev/null \
+  || die "openssl could not create the VAPID key ($(command -v openssl)); Git for Windows ships one in /mingw64/bin (which -a openssl)"
+openssl ec -in "$work/vapid.pem" -outform DER -out "$work/vapid.der" 2>/dev/null \
+  || die "openssl could not convert the VAPID key ($(command -v openssl)); Git for Windows ships one in /mingw64/bin (which -a openssl)"
 [ "$(wc -c < "$work/vapid.der" | tr -d ' ')" = 121 ] || die "unexpected VAPID key encoding from openssl"
 [ "$(head -c 7 "$work/vapid.der" | od -An -tx1 | tr -d ' \n')" = "30770201010420" ] || die "unexpected VAPID key encoding from openssl"
 [ "$(tail -c 65 "$work/vapid.der" | head -c 1 | od -An -tx1 | tr -d ' \n')" = "04" ] || die "unexpected VAPID public key encoding"

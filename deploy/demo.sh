@@ -77,7 +77,8 @@ start() {
   docker info >/dev/null 2>&1 || die "Docker is not running; start Docker Desktop and try again"
   if [ ! -f "$ENV_FILE" ]; then
     log "Creating $ENV_FILE (first run): answer the questions; the password is not shown"
-    bash "$DEPLOY_DIR/gen-secrets.sh" --env-file "$ENV_FILE" --domain localhost >&2
+    bash "$DEPLOY_DIR/gen-secrets.sh" --env-file "$ENV_FILE" --domain localhost >&2 \
+      || die "could not create $ENV_FILE (see the message above); nothing was started"
   fi
   env_set BRAJA_NETWORK_SUBNET "$DEMO_SUBNET"
   env_set BRAJA_CADDY_IPV4 "$DEMO_CADDY_IP"
