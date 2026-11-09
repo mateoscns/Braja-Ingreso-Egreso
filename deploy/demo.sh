@@ -4,7 +4,9 @@
 # stay on, the data lives here, and the https://…trycloudflare.com address changes every time the tunnel restarts.
 #
 #   bash deploy/demo.sh start        builds and starts everything and prints the URL; the first time it creates
-#                                    deploy/.env.demo and asks for the first ADMIN (password hidden)
+#                                    deploy/.env.demo and asks for the first ADMIN (password hidden); gen-secrets
+#                                    options after `start` (--admin-dni, --company…) skip those questions, and
+#                                    without a terminal the password is the first line of stdin
 #   bash deploy/demo.sh url          prints the current URL
 #   bash deploy/demo.sh logs [svc]   follows the logs (backend, caddy, mysql or tunnel)
 #   bash deploy/demo.sh stop         stops the containers and keeps the data
@@ -77,7 +79,8 @@ start() {
   docker info >/dev/null 2>&1 || die "Docker is not running; start Docker Desktop and try again"
   if [ ! -f "$ENV_FILE" ]; then
     log "Creating $ENV_FILE (first run): answer the questions; the password is not shown"
-    bash "$DEPLOY_DIR/gen-secrets.sh" --env-file "$ENV_FILE" --domain localhost >&2
+    bash "$DEPLOY_DIR/gen-secrets.sh" --env-file "$ENV_FILE" --domain localhost "$@" >&2 \
+      || die "could not create $ENV_FILE (see the message above); nothing was started"
   fi
   env_set BRAJA_NETWORK_SUBNET "$DEMO_SUBNET"
   env_set BRAJA_CADDY_IPV4 "$DEMO_CADDY_IP"
@@ -115,10 +118,10 @@ wipe() {
 }
 
 case "${1:-}" in
-  start) start ;;
+  start) shift; start "$@" ;;
   url) url="$(tunnel_url)"; [ -n "$url" ] || die "no tunnel address yet; is the demo running? (bash deploy/demo.sh start)"; echo "$url" ;;
   logs) shift; demo_compose logs -f --tail 100 "$@" ;;
   stop) demo_compose stop ;;
   down) if [ "${2:-}" = --wipe ]; then wipe; else demo_compose down; fi ;;
-  *) sed -n '2,11p' "$0"; exit 2 ;;
+  *) sed -n '2,13p' "$0"; exit 2 ;;
 esac
