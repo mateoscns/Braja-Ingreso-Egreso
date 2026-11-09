@@ -43,13 +43,13 @@ function waitText(seconds?: number): string {
 
 const STALE_MARK = 'El estado de la jornada cambió y esa marca ya no corresponde. Revisá el estado actualizado.'
 const CONFLICT_MESSAGES: Record<string, string> = {
-  MARK_TOO_EARLY: 'Todavía no es horario para registrar esta marca. El ingreso se habilita 30 minutos antes; las demás marcas, desde el inicio de la jornada.',
+  MARK_TOO_EARLY: 'Todavía es temprano para marcar. La entrada se puede marcar desde 30 minutos antes de tu horario; las demás marcas, desde que empieza tu turno.',
   RETRYABLE_TRANSACTION_CONFLICT: 'El servidor estaba ocupado y no completó la operación. Reintentá en unos segundos.',
   INVALID_MARK_TRANSITION: STALE_MARK,
   INVALID_MARK_ORDER: STALE_MARK,
   INVALID_MARK_HISTORY: STALE_MARK,
-  IDEMPOTENCY_CONFLICT: 'Esta solicitud ya se usó para otra acción. Actualizá la vista y volvé a intentar.',
-  MOTIVE_LOCKED: 'El administrador ya revisó este desvío; el motivo ya no se puede cambiar.',
+  IDEMPOTENCY_CONFLICT: 'No se pudo registrar tu marca. Tocá Actualizar y volvé a marcar.',
+  MOTIVE_LOCKED: 'Tu encargado ya lo revisó: ya no se puede cambiar.',
   JORNADA_EXISTS: 'Ya hay una jornada declarada para ese empleado, sede y fecha.',
   MEMBERSHIP_EXISTS: 'Esa persona ya tiene un rol en esta empresa.',
   ACCOUNT_INACTIVE: 'La cuenta de ese DNI no está habilitada y no se puede agregar a la empresa.',

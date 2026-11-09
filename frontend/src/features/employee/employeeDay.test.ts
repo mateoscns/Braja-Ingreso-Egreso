@@ -1,0 +1,151 @@
+import { describe, expect, it } from 'vitest'
+import type { Deviation, Jornada, Mark } from '../../shared/api/types'
+import {
+  allowedActions, confirmationText, daySentence, describeDeviation, exitConfirmation, markOptions, markLocationLabel, scheduledEnd, scheduledStart, zonedInstant
+} from './employeeDay'
+
+const timeZone = 'America/Argentina/Buenos_Aires'
+
+function mark(action: Mark['action'], acceptedAt: string, sequence: number, extra: Partial<Mark> = {}): Mark {
+  return { id: `mark-${sequence}`, jornadaId: 'j-1', action, sequence, acceptedAt, locationStatus: 'RECIBIDA', ...extra }
+}
+
+function jornada(state: Jornada['state'], marks: Mark[] = [], blocks: Jornada['scheduleSnapshot']['blocks'] = [{ startDayOffset: 0, start: '08:00', end: '17:00', endDayOffset: 0 }]): Jornada {
+  return {
+    id: 'j-1', employeeId: 'e-1', siteId: 's-1', localDate: '2026-11-09', state, toleranceMinutes: 5, sequence: 1, marks,
+    scheduleSnapshot: { siteId: 's-1', name: 'Mañana', blocks, breakfastLimitMinutes: 15, lunchLimitMinutes: 45 }
+  }
+}
+
+const at = (iso: string) => new Date(iso)
+
+describe('zonedInstant', () => {
+  it('turns a wall-clock time of the site into the instant, also on the next day', () => {
+    expect(zonedInstant('2026-11-09', 0, '08:00', timeZone).toISOString()).toBe('2026-11-09T11:00:00.000Z')
+    expect(zonedInstant('2026-11-09', 1, '06:00:00', timeZone).toISOString()).toBe('2026-11-10T09:00:00.000Z')
+  })
+
+  it('follows daylight saving time of the zone', () => {
+    // Santiago is UTC-3 in summer (November) and UTC-4 in winter (June).
+    expect(zonedInstant('2026-11-09', 0, '08:00', 'America/Santiago').toISOString()).toBe('2026-11-09T11:00:00.000Z')
+    expect(zonedInstant('2026-06-09', 0, '08:00', 'America/Santiago').toISOString()).toBe('2026-06-09T12:00:00.000Z')
+  })
+
+  it('takes the first and last tramo of the schedule', () => {
+    const split = jornada('NO_INGRESO', [], [{ startDayOffset: 0, start: '16:00', end: '20:00', endDayOffset: 0 }, { startDayOffset: 0, start: '08:00', end: '12:00', endDayOffset: 0 }])
+    expect(scheduledStart(split, timeZone)?.toISOString()).toBe('2026-11-09T11:00:00.000Z')
+    expect(scheduledEnd(split, timeZone)?.toISOString()).toBe('2026-11-09T23:00:00.000Z')
+  })
+})
+
+describe('allowedActions', () => {
+  it('offers breakfast before lunch and the exit last', () => {
+    expect(allowedActions(jornada('EN_CURSO', [mark('INGRESO', '2026-11-09T11:02:00Z', 1)]))).toEqual(['SALIDA_DESAYUNO', 'SALIDA_ALMUERZO', 'EGRESO'])
+  })
+
+  it('does not count a voided mark', () => {
+    const marks = [mark('INGRESO', '2026-11-09T11:02:00Z', 1), mark('SALIDA_DESAYUNO', '2026-11-09T13:00:00Z', 2, { voided: true })]
+    expect(allowedActions(jornada('EN_CURSO', marks))).toEqual(['SALIDA_DESAYUNO', 'SALIDA_ALMUERZO', 'EGRESO'])
+  })
+})
+
+describe('markOptions', () => {
+  const working = jornada('EN_CURSO', [mark('INGRESO', '2026-11-09T11:02:00Z', 1)])
+
+  it('suggests the entry when the day has not started', () => {
+    expect(markOptions(jornada('NO_INGRESO'), timeZone, at('2026-11-09T10:50:00Z'))).toEqual({ primary: 'INGRESO', others: [], exit: null })
+  })
+
+  it('suggests the next pause in order while the shift is far from its end, with the exit apart', () => {
+    expect(markOptions(working, timeZone, at('2026-11-09T13:00:00Z'))).toEqual({ primary: 'SALIDA_DESAYUNO', others: ['SALIDA_ALMUERZO'], exit: 'EGRESO' })
+  })
+
+  it('suggests the exit from 30 minutes before the end of the shift', () => {
+    expect(markOptions(working, timeZone, at('2026-11-09T19:30:00Z'))).toEqual({ primary: 'EGRESO', others: ['SALIDA_DESAYUNO', 'SALIDA_ALMUERZO'], exit: null })
+  })
+
+  it('suggests the return during an open pause', () => {
+    const pause = jornada('PAUSA_ABIERTA', [mark('INGRESO', '2026-11-09T11:02:00Z', 1), mark('SALIDA_ALMUERZO', '2026-11-09T15:00:00Z', 2)])
+    expect(markOptions(pause, timeZone, at('2026-11-09T15:10:00Z'))).toEqual({ primary: 'VUELTA_ALMUERZO', others: [], exit: null })
+  })
+
+  it('offers nothing on a finished or cancelled day', () => {
+    expect(markOptions(jornada('EGRESADA'), timeZone, at('2026-11-09T21:00:00Z'))).toEqual({ primary: null, others: [], exit: null })
+    expect(markOptions(jornada('CANCELADA'), timeZone, at('2026-11-09T21:00:00Z'))).toEqual({ primary: null, others: [], exit: null })
+  })
+})
+
+describe('daySentence', () => {
+  it('says what is going on today in one sentence', () => {
+    expect(daySentence(undefined, timeZone, at('2026-11-09T12:00:00Z'))).toBe('Hoy no tenés turno cargado. Si tenés que trabajar, avisale a tu encargado.')
+    expect(daySentence(jornada('NO_INGRESO'), timeZone, at('2026-11-09T10:50:00Z'))).toBe('Todavía no marcaste tu entrada.')
+    expect(daySentence(jornada('EN_CURSO', [mark('INGRESO', '2026-11-09T11:02:00Z', 1)]), timeZone, at('2026-11-09T12:00:00Z'))).toBe('Estás trabajando desde las 08:02.')
+    expect(daySentence(jornada('EGRESADA'), timeZone, at('2026-11-09T21:00:00Z'))).toBe('Ya terminaste tu día.')
+    expect(daySentence(jornada('CANCELADA'), timeZone, at('2026-11-09T21:00:00Z'))).toBe('Tu encargado canceló este día: no tenés que marcar.')
+  })
+
+  it('tells until when an open pause lasts, and when that time already passed', () => {
+    const breakfast = jornada('PAUSA_ABIERTA', [mark('INGRESO', '2026-11-09T11:02:00Z', 1), mark('SALIDA_DESAYUNO', '2026-11-09T13:05:00Z', 2)])
+    expect(daySentence(breakfast, timeZone, at('2026-11-09T13:10:00Z'))).toBe('Estás desayunando: volvé antes de las 10:20.')
+    expect(daySentence(breakfast, timeZone, at('2026-11-09T13:30:00Z'))).toBe('Estás desayunando: tenías que volver a las 10:20.')
+    const lunch = jornada('PAUSA_ABIERTA', [mark('INGRESO', '2026-11-09T11:02:00Z', 1), mark('SALIDA_ALMUERZO', '2026-11-09T16:00:00Z', 2)])
+    expect(daySentence(lunch, timeZone, at('2026-11-09T16:10:00Z'))).toBe('Estás almorzando: volvé antes de las 13:45.')
+  })
+})
+
+describe('exitConfirmation', () => {
+  const working = jornada('EN_CURSO', [mark('INGRESO', '2026-11-09T11:02:00Z', 1)])
+
+  it('asks before an exit earlier than the end of the shift', () => {
+    expect(exitConfirmation(working, timeZone, at('2026-11-09T18:00:00Z'))).toBe('¿Terminás tu día ahora? Tu horario termina a las 17:00.')
+  })
+
+  it('does not ask at or after the end of the shift', () => {
+    expect(exitConfirmation(working, timeZone, at('2026-11-09T20:00:00Z'))).toBeNull()
+  })
+})
+
+describe('confirmationText', () => {
+  it('says which mark was recorded and at what time', () => {
+    expect(confirmationText('INGRESO', '2026-11-09T11:02:00Z', timeZone)).toBe('Listo: tu entrada quedó registrada a las 08:02.')
+    expect(confirmationText('VUELTA_DESAYUNO', '2026-11-09T13:20:00Z', timeZone)).toBe('Listo: tu vuelta del desayuno quedó registrada a las 10:20.')
+    expect(confirmationText('EGRESO', '2026-11-09T20:00:00Z', timeZone)).toBe('Listo: tu salida quedó registrada a las 17:00.')
+  })
+})
+
+describe('markLocationLabel', () => {
+  it('names the location state of each mark and hides what does not apply', () => {
+    expect(markLocationLabel('RECIBIDA')).toBe('Ubicación enviada')
+    expect(markLocationLabel('PENDIENTE')).toBe('Enviando ubicación…')
+    expect(markLocationLabel('SIN_UBICACION')).toBe('Sin ubicación')
+    expect(markLocationLabel('PURGADA')).toBe('')
+    expect(markLocationLabel('NO_APLICA')).toBe('')
+  })
+})
+
+describe('describeDeviation', () => {
+  const base: Deviation = { id: 'd-1', jornadaId: 'j-1', type: 'LLEGADA_TARDE', status: 'MOTIVO_PENDIENTE', createdAt: '2026-11-09T11:30:00Z', occurredAt: '2026-11-09T11:18:00Z', pushEligible: true }
+
+  it('counts the minutes against the schedule of a loaded day', () => {
+    expect(describeDeviation(base, jornada('EN_CURSO'), timeZone)).toBe('Llegaste 18 minutos tarde (tu entrada era 08:00).')
+    expect(describeDeviation({ ...base, type: 'EGRESO_TEMPRANO', occurredAt: '2026-11-09T19:40:00Z' }, jornada('EGRESADA'), timeZone)).toBe('Te fuiste 20 minutos antes (tu salida era 17:00).')
+    expect(describeDeviation({ ...base, type: 'EGRESO_TARDIO', occurredAt: '2026-11-09T21:01:00Z' }, jornada('EGRESADA'), timeZone)).toBe('Marcaste la salida 61 minutos después de tu horario (tu salida era 17:00).')
+  })
+
+  it('measures a long pause from its marks', () => {
+    const marks = [mark('INGRESO', '2026-11-09T11:00:00Z', 1), mark('SALIDA_DESAYUNO', '2026-11-09T13:00:00Z', 2), mark('VUELTA_DESAYUNO', '2026-11-09T13:25:00Z', 3)]
+    expect(describeDeviation({ ...base, type: 'EXCESO_DESAYUNO' }, jornada('EN_CURSO', marks), timeZone)).toBe('Tu desayuno duró 25 minutos y tenías 15.')
+  })
+
+  it('falls back to the time of the fact when the day is not loaded', () => {
+    expect(describeDeviation(base, undefined, timeZone)).toBe('Llegaste tarde: marcaste la entrada a las 08:18.')
+    expect(describeDeviation({ ...base, type: 'SIN_INGRESO' }, undefined, timeZone)).toBe('No marcaste tu entrada.')
+    expect(describeDeviation({ ...base, type: 'MARCA_FALTANTE' }, undefined, timeZone)).toBe('No marcaste tu salida.')
+    expect(describeDeviation({ ...base, type: 'EXCESO_ALMUERZO' }, undefined, timeZone)).toBe('Tu almuerzo duró más de lo que tenías.')
+  })
+
+  it('names the mark that was outside the shop, without sequence numbers', () => {
+    expect(describeDeviation({ ...base, type: 'FUERA_DE_SEDE', sourceMarkAction: 'SALIDA_ALMUERZO', sourceMarkSequence: 2 }, undefined, timeZone))
+      .toBe('Marcaste la salida a almorzar fuera del local, a las 08:18.')
+  })
+})

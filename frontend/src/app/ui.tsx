@@ -32,7 +32,7 @@ export function AppHeader({ companyName, name, onSignOut, children }: {
   return <header className="topbar">
     <a className="brand" href="#inicio" aria-label="Fichaje Braja, inicio"><span className="brand-mark">B</span><span>Fichaje<span className="brand-light">Braja</span></span></a>
     <div className="topbar-actions">{children}<span className="company-pill">{companyName}</span><span className="user-label">{name}</span>
-      <button className="button button-quiet button-small" onClick={onSignOut}>Salir</button></div>
+      <button className="button button-quiet button-small" onClick={onSignOut}>Cerrar sesión</button></div>
   </header>
 }
 

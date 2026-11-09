@@ -2,11 +2,14 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EmployeeApp } from './EmployeeApp'
 import type { Deviation, Jornada, Site } from '../../shared/api/types'
-import { ApiError, TimeoutError } from '../../shared/api/client'
+import { ApiError, NetworkError, TimeoutError } from '../../shared/api/client'
+import { forgetLocationNotice, rememberLocationNotice } from './locationNotice'
+import { clearMarkInterrupted, markWasInterrupted } from '../auth/interruptedMark'
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
   apiPut: vi.fn(),
+  onSessionExpired: vi.fn(),
   useSession: vi.fn(),
   createMarkAttempt: vi.fn(),
   submitMark: vi.fn()
@@ -14,7 +17,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../shared/api/client', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../shared/api/client')>(),
-  api: { get: mocks.apiGet, put: mocks.apiPut },
+  api: { get: mocks.apiGet, put: mocks.apiPut, onSessionExpired: mocks.onSessionExpired },
   queryString: (values: Record<string, string | number | null | undefined>) => {
     const params = new URLSearchParams()
     for (const [key, value] of Object.entries(values)) {
@@ -29,12 +32,9 @@ vi.mock('../../device/pwa/InstallControl', () => ({ InstallControl: () => null }
 vi.mock('./markFlow', () => ({ createMarkAttempt: mocks.createMarkAttempt, submitMark: mocks.submitMark }))
 
 const timeZone = 'America/Argentina/Buenos_Aires'
-const today = (() => {
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' })
-    .formatToParts(new Date())
-  const values = Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]))
-  return `${values.year}-${values.month}-${values.day}`
-})()
+/** 11:00 in Buenos Aires: two hours after the 09:00 entry and six before the 17:00 end of the shift. */
+const NOW = new Date('2026-10-20T14:00:00Z')
+const today = '2026-10-20'
 
 const sites: Site[] = [
   { id: 'site-center', name: 'Local Centro', timeZone, latitude: null, longitude: null, geofenceRadiusMeters: null },
@@ -94,8 +94,25 @@ function configureApi(deviations: Deviation[] = [], pending = deviations.filter(
   })
 }
 
+/** Only one jornada in the day: the screen shows no picker. */
+function configureSingle(jornada: Jornada, deviations: Deviation[] = []) {
+  mocks.apiGet.mockImplementation((path: string) => {
+    if (path === '/sites') return Promise.resolve(sites)
+    if (path.startsWith('/jornadas/mine?')) return Promise.resolve([jornada])
+    if (path.startsWith('/deviations?status=')) return Promise.resolve(deviations.filter((item) => item.status === 'MOTIVO_PENDIENTE'))
+    if (path.startsWith('/deviations?')) return Promise.resolve(deviations)
+    if (path === `/jornadas/${jornada.id}`) return Promise.resolve(jornada)
+    throw new Error(`GET inesperado: ${path}`)
+  })
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(NOW)
+  rememberLocationNotice()
+  clearMarkInterrupted()
+  mocks.onSessionExpired.mockReturnValue(() => undefined)
   mocks.useSession.mockReturnValue({
     session: {
       accountId: 'account-1',
@@ -113,7 +130,9 @@ beforeEach(() => {
   mocks.submitMark.mockResolvedValue({ id: 'mark-new', acceptedAt: '2026-10-20T13:05:00Z' })
 })
 
-afterEach(() => cleanup())
+afterEach(() => { cleanup(); vi.useRealTimers() })
+
+const breakfastButton = () => screen.findByRole('button', { name: 'Me voy a desayunar' })
 
 describe('EmployeeApp', () => {
   it('conserva el orden de hooks cuando la sesión aparece después del primer render', async () => {
@@ -136,6 +155,73 @@ describe('EmployeeApp', () => {
     expect(await screen.findByRole('heading', { name: /Hola, DNI 30123456/ })).toBeInTheDocument()
   })
 
+  describe('pantalla principal', () => {
+    it('ordena el estado del día, el panel de marcar, las marcas de hoy y al final Ver otros días', async () => {
+      configureSingle(jornadas[0], [pendingDeviation])
+      const { container } = render(<EmployeeApp />)
+
+      expect(await screen.findByText('Estás trabajando desde las 09:00.')).toBeInTheDocument()
+      const headings = [...container.querySelectorAll('h1, h2')].map((heading) => heading.textContent)
+      expect(headings).toEqual(['Hola, DNI 30123456', 'Marcar', 'Tus marcas de hoy', 'Para explicar', 'Desvíos del día', 'Ver otros días'])
+      const sentence = screen.getByText('Estás trabajando desde las 09:00.')
+      expect(sentence.compareDocumentPosition(screen.getByRole('button', { name: 'Me voy a desayunar' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+
+    it('muestra la próxima marca como un botón grande, desayuno antes que almuerzo y la salida última y aparte', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+
+      const primary = await breakfastButton()
+      expect(primary).toHaveClass('button-primary', 'button-wide')
+      const panel = screen.getByRole('region', { name: 'Marcar' })
+      const buttons = within(panel).getAllByRole('button')
+      expect(buttons).toHaveLength(3)
+      expect(buttons[0]).toHaveAccessibleName('Me voy a desayunar')
+      expect(buttons[1]).toHaveAccessibleName('Me voy a almorzar')
+      expect(buttons[2]).toHaveAccessibleName('Marcar salida')
+      expect(buttons[2].closest('.employee-exit')).not.toBeNull()
+      expect(panel).not.toHaveTextContent(/Enviar marca|servidor|secuencia|comprobante|día local/)
+    })
+
+    it('no deja texto técnico en la pantalla', async () => {
+      configureSingle(jornadas[0])
+      const { container } = render(<EmployeeApp />)
+      await breakfastButton()
+      expect(container.textContent).not.toMatch(/servidor|secuencia|comprobante|día local|Registrar|Enviar marca/)
+    })
+
+    it('dice que hoy no hay turno cargado y a quién avisar', async () => {
+      mocks.apiGet.mockImplementation((path: string) => {
+        if (path === '/sites') return Promise.resolve(sites)
+        if (path.startsWith('/jornadas/mine?')) return Promise.resolve([])
+        if (path.startsWith('/deviations?')) return Promise.resolve([])
+        throw new Error(`GET inesperado: ${path}`)
+      })
+      render(<EmployeeApp />)
+      expect(await screen.findByText('Hoy no tenés turno cargado. Si tenés que trabajar, avisale a tu encargado.')).toBeInTheDocument()
+      expect(screen.queryByRole('region', { name: 'Marcar' })).not.toBeInTheDocument()
+    })
+
+    it('durante el desayuno dice hasta qué hora y ofrece volver', async () => {
+      configureSingle({
+        ...jornadas[0], state: 'PAUSA_ABIERTA',
+        marks: [...jornadas[0].marks, { id: 'mark-b', jornadaId: 'jornada-center', action: 'SALIDA_DESAYUNO', sequence: 2, acceptedAt: '2026-10-20T13:55:00Z', locationStatus: 'RECIBIDA' }]
+      })
+      render(<EmployeeApp />)
+      expect(await screen.findByText('Estás desayunando: volvé antes de las 11:10.')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Volví del desayuno' })).toHaveClass('button-primary')
+    })
+
+    it('muestra el estado de la ubicación de cada marca de hoy', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      const marks = await screen.findByRole('region', { name: 'Tus marcas de hoy' })
+      expect(marks).toHaveTextContent('Entrada')
+      expect(marks).toHaveTextContent('09:00')
+      expect(marks).toHaveTextContent('Sin ubicación')
+    })
+  })
+
   it('distingue jornadas por sede y expone cuál está seleccionada', async () => {
     render(<EmployeeApp />)
 
@@ -150,7 +236,91 @@ describe('EmployeeApp', () => {
 
     expect(options[0]).toHaveAttribute('aria-pressed', 'false')
     expect(options[1]).toHaveAttribute('aria-pressed', 'true')
-    expect(await screen.findByText(/Jornada del .* · Local Norte · Tolerancia/)).toBeInTheDocument()
+    expect(await screen.findByText(/Local Norte · Tenés 5 minutos de tolerancia para entrar/)).toBeInTheDocument()
+  })
+
+  describe('salida', () => {
+    it('antes del fin del horario pregunta si termina el día y recién al confirmar marca', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Marcar salida' }))
+
+      expect(await screen.findByText('¿Terminás tu día ahora? Tu horario termina a las 17:00.')).toBeInTheDocument()
+      expect(mocks.submitMark).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('button', { name: 'No, seguir trabajando' }))
+      expect(screen.queryByText(/Terminás tu día ahora/)).not.toBeInTheDocument()
+      expect(mocks.submitMark).not.toHaveBeenCalled()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Marcar salida' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Sí, marcar salida' }))
+      await waitFor(() => expect(mocks.submitMark).toHaveBeenCalledTimes(1))
+      expect(mocks.submitMark.mock.calls[0][1]).toMatchObject({ action: 'EGRESO' })
+      expect(await screen.findByText('Listo: tu salida quedó registrada a las 10:05.')).toBeInTheDocument()
+    })
+
+    it('después del fin del horario marca sin preguntar y la sugiere como la próxima', async () => {
+      vi.setSystemTime(new Date('2026-10-20T20:10:00Z'))
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      const exit = await screen.findByRole('button', { name: 'Marcar salida' })
+      expect(exit).toHaveClass('button-primary')
+      fireEvent.click(exit)
+      await waitFor(() => expect(mocks.submitMark).toHaveBeenCalledTimes(1))
+      expect(screen.queryByText(/Terminás tu día ahora/)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('aviso de ubicación', () => {
+    it('la primera marca de la sesión explica para qué se pide la ubicación y la siguiente ya no', async () => {
+      forgetLocationNotice()
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      fireEvent.click(await breakfastButton())
+
+      expect(await screen.findByText('Para marcar necesitamos saber que estás en el local. Solo se mira en el momento de marcar.')).toBeInTheDocument()
+      expect(mocks.submitMark).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('button', { name: 'Continuar' }))
+      await waitFor(() => expect(mocks.submitMark).toHaveBeenCalledTimes(1))
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Me voy a almorzar' }))
+      await waitFor(() => expect(mocks.submitMark).toHaveBeenCalledTimes(2))
+      expect(screen.queryByText(/necesitamos saber que estás en el local/)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('confirmación de la marca', () => {
+    it('dice qué se marcó y a qué hora, con el foco en el aviso', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      fireEvent.click(await breakfastButton())
+
+      const confirmation = await screen.findByText('Listo: tu salida a desayunar quedó registrada a las 10:05.')
+      await waitFor(() => expect(document.activeElement).toContainElement(confirmation))
+      expect(confirmation.closest('[role="status"]')).not.toBeNull()
+    })
+
+    it('muestra cómo va la ubicación de esa marca', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      fireEvent.click(await breakfastButton())
+
+      expect(await screen.findByText('Enviando ubicación… no cierres la app.')).toBeInTheDocument()
+      const onLocation = mocks.submitMark.mock.calls[0][3] as (result: 'SENT' | 'MISSING') => void
+      act(() => onLocation('SENT'))
+      const box = screen.getByText(/Listo: tu salida a desayunar/).closest('[role="status"]')!
+      await waitFor(() => expect(box).toHaveTextContent('Ubicación enviada ✔'))
+      expect(box).not.toHaveTextContent('Enviando ubicación')
+    })
+
+    it('avisa cuando la ubicación no llegó', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      fireEvent.click(await breakfastButton())
+      await screen.findByText(/Listo: tu salida a desayunar/)
+      const onLocation = mocks.submitMark.mock.calls[0][3] as (result: 'SENT' | 'MISSING') => void
+      act(() => onLocation('MISSING'))
+      expect(await screen.findByText('No llegó tu ubicación: puede figurar como fuera del local. Revisá que el celular tenga la ubicación activada.')).toBeInTheDocument()
+    })
   })
 
   it('anuncia una marca pendiente, muestra el error y reintenta con la misma clave', async () => {
@@ -160,25 +330,24 @@ describe('EmployeeApp', () => {
     mocks.submitMark.mockReturnValueOnce(firstAttempt).mockResolvedValueOnce(receipt)
     render(<EmployeeApp />)
 
-    const egreso = await screen.findByRole('button', { name: /Registrar egreso/ })
-    fireEvent.click(egreso)
+    const breakfast = await breakfastButton()
+    fireEvent.click(breakfast)
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Enviando Registrar egreso al servidor')
-    expect(egreso).toBeDisabled()
-    rejectFirstAttempt(new Error('No hay conexión.'))
+    expect(await screen.findByText('Enviando tu marca… esperá un momento.')).toBeInTheDocument()
+    expect(breakfast).toBeDisabled()
+    rejectFirstAttempt(new NetworkError())
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('No hay conexión.')
-    await waitFor(() => expect(egreso).toBeEnabled())
-    fireEvent.click(egreso)
+    expect(await screen.findByRole('alert')).toHaveTextContent('No hay internet. Tu marca no se registró.')
+    await waitFor(() => expect(breakfast).toBeEnabled())
+    fireEvent.click(breakfast)
 
-    expect(await screen.findByText(/Marca confirmada por el servidor/)).toBeInTheDocument()
-    expect(await screen.findByText(/10:05/)).toBeInTheDocument()
+    expect(await screen.findByText('Listo: tu salida a desayunar quedó registrada a las 10:05.')).toBeInTheDocument()
     expect(mocks.createMarkAttempt).toHaveBeenCalledTimes(1)
     expect(mocks.submitMark).toHaveBeenCalledTimes(2)
     expect(mocks.submitMark.mock.calls[0][1]).toBe(mocks.submitMark.mock.calls[1][1])
   })
 
-  it('no presenta una consulta fallida como una jornada vacía y permite reintentar', async () => {
+  it('no presenta una consulta fallida como un día sin turno y permite reintentar', async () => {
     let siteRequests = 0
     mocks.apiGet.mockImplementation((path: string) => {
       if (path === '/sites') {
@@ -192,13 +361,19 @@ describe('EmployeeApp', () => {
     render(<EmployeeApp />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Servidor no disponible.')
-    expect(screen.getByRole('heading', { name: 'No se pudo consultar tu jornada' })).toBeInTheDocument()
-    expect(screen.queryByText(/El administrador todavía no declaró una jornada/)).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'No pudimos cargar tu día' })).toBeInTheDocument()
+    expect(screen.queryByText(/no tenés turno cargado/)).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
 
     expect(await screen.findAllByRole('button', { name: /Mañana/ })).toHaveLength(2)
     expect(siteRequests).toBe(2)
+  })
+
+  it('sin internet al cargar lo dice en palabras simples', async () => {
+    mocks.apiGet.mockImplementation((path: string) => path === '/sites' ? Promise.reject(new NetworkError()) : Promise.resolve([]))
+    render(<EmployeeApp />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('No hay internet. Revisá la conexión y tocá Reintentar.')
   })
 
   it('saluda con el nombre de la sesión cuando existe', async () => {
@@ -214,64 +389,107 @@ describe('EmployeeApp', () => {
     expect(screen.queryByText('DNI 30123456')).not.toBeInTheDocument()
   })
 
-  it('muestra la hora del hecho (occurredAt) del motivo pendiente y no la de detección', async () => {
-    configureApi([{ ...pendingDeviation, occurredAt: '2026-10-20T11:15:00Z', createdAt: '2026-10-20T12:00:00Z' }])
-    render(<EmployeeApp />)
-    const card = (await screen.findByLabelText('Motivo')).closest('form')!
-    expect(card).toHaveTextContent(/0?8:15/)
-    expect(card).not.toHaveTextContent(/0?9:00/)
-  })
+  describe('Para explicar', () => {
+    it('dice qué pasó contra el horario del día y pregunta qué pasó', async () => {
+      configureApi([{ ...pendingDeviation, occurredAt: '2026-10-20T12:18:00Z' }])
+      render(<EmployeeApp />)
+      const card = (await screen.findByLabelText('Contá qué pasó')).closest('form')!
+      expect(card).toHaveTextContent('Llegaste 18 minutos tarde (tu entrada era 09:00). ¿Qué pasó?')
+    })
 
-  it('muestra qué marca originó un FUERA_DE_SEDE pendiente', async () => {
-    configureApi([{
-      ...pendingDeviation, type: 'FUERA_DE_SEDE', sourceMarkId: 'mark-outside', sourceMarkAction: 'SALIDA_ALMUERZO', sourceMarkSequence: 2
-    }])
-    render(<EmployeeApp />)
-    const card = (await screen.findByLabelText('Motivo')).closest('form')!
-    expect(card).toHaveTextContent('Fuera de sede')
-    expect(card).toHaveTextContent('Marca: Salir a almuerzo · secuencia 2')
-  })
+    it('muestra la hora del hecho (occurredAt) y no la de detección', async () => {
+      configureApi([{ ...pendingDeviation, jornadaId: 'jornada-old', occurredAt: '2026-10-20T11:15:00Z', createdAt: '2026-10-20T12:00:00Z' }])
+      render(<EmployeeApp />)
+      const card = (await screen.findByLabelText('Contá qué pasó')).closest('form')!
+      expect(card).toHaveTextContent(/0?8:15/)
+      expect(card).not.toHaveTextContent(/0?9:00/)
+    })
 
-  it('anuncia el envío de un motivo y actualiza su estado al recibir respuesta', async () => {
-    let resolveMotive!: (value: Deviation) => void
-    const pendingSave = new Promise<Deviation>((resolve) => { resolveMotive = resolve })
-    const updated = { ...pendingDeviation, status: 'PENDIENTE_REVISION' as const, category: 'OTRA' as const, motiveText: 'Demora en el transporte.' }
-    configureApi([pendingDeviation])
-    mocks.apiPut.mockReturnValueOnce(pendingSave)
-    render(<EmployeeApp />)
+    it('nombra la marca que quedó fuera del local, sin números de secuencia', async () => {
+      configureApi([{
+        ...pendingDeviation, type: 'FUERA_DE_SEDE', occurredAt: '2026-10-20T15:00:00Z', sourceMarkId: 'mark-outside', sourceMarkAction: 'SALIDA_ALMUERZO', sourceMarkSequence: 2
+      }])
+      render(<EmployeeApp />)
+      const card = (await screen.findByLabelText('Contá qué pasó')).closest('form')!
+      expect(card).toHaveTextContent('Fuera del local')
+      expect(card).toHaveTextContent('Marcaste la salida a almorzar fuera del local, a las 12:00.')
+      expect(card).not.toHaveTextContent(/secuencia/)
+    })
 
-    const motive = await screen.findByLabelText('Motivo')
-    fireEvent.change(motive, { target: { value: ' Demora en el transporte. ' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Enviar motivo' }))
+    it('no trae una categoría elegida, explica cada una y pide elegir una dentro de la tarjeta', async () => {
+      configureApi([pendingDeviation])
+      render(<EmployeeApp />)
+      const card = (await screen.findByLabelText('Contá qué pasó')).closest('form')!
+      const radios = within(card).getAllByRole('radio')
+      expect(radios).toHaveLength(4)
+      radios.forEach((radio) => expect(radio).not.toBeChecked())
+      expect(card).toHaveTextContent('Salud: estuviste enfermo o en el médico')
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Enviando el motivo al servidor')
-    expect(motive.closest('form')).toHaveAttribute('aria-busy', 'true')
-    expect(mocks.apiPut).toHaveBeenCalledWith('/deviations/deviation-1/motive', { category: 'OTRA', text: 'Demora en el transporte.' })
+      fireEvent.change(within(card).getByLabelText('Contá qué pasó'), { target: { value: 'Paro de colectivos.' } })
+      fireEvent.click(within(card).getByRole('button', { name: 'Enviar motivo' }))
 
-    resolveMotive(updated)
+      expect(await within(card).findByText('Elegí una de las opciones.')).toBeInTheDocument()
+      expect(mocks.apiPut).not.toHaveBeenCalled()
+    })
 
-    expect(await screen.findByText('A revisar')).toBeInTheDocument()
-    expect(screen.queryByLabelText('Motivo')).not.toBeInTheDocument()
-  })
+    it('anuncia el envío, confirma con Lo enviamos y actualiza el estado', async () => {
+      let resolveMotive!: (value: Deviation) => void
+      const pendingSave = new Promise<Deviation>((resolve) => { resolveMotive = resolve })
+      const updated = { ...pendingDeviation, status: 'PENDIENTE_REVISION' as const, category: 'OTRA' as const, motiveText: 'Demora en el transporte.' }
+      configureApi([pendingDeviation])
+      mocks.apiPut.mockReturnValueOnce(pendingSave)
+      render(<EmployeeApp />)
 
-  it('muestra motivos pendientes de otras fechas, incluida la jornada nocturna de la víspera', async () => {
-    const previousNight: Deviation = { ...pendingDeviation, id: 'deviation-night', jornadaId: 'jornada-previous-night', type: 'MARCA_FALTANTE', occurredAt: '2026-10-19T09:10:00Z' }
-    configureApi([], [previousNight])
-    render(<EmployeeApp />)
+      const motive = await screen.findByLabelText('Contá qué pasó')
+      fireEvent.click(screen.getByRole('radio', { name: /Otra/ }))
+      fireEvent.change(motive, { target: { value: ' Demora en el transporte. ' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Enviar motivo' }))
 
-    const card = (await screen.findByLabelText('Motivo')).closest('form')!
-    expect(card).toHaveTextContent('Egreso sin marcar')
-    expect(mocks.apiGet).toHaveBeenCalledWith('/deviations?status=MOTIVO_PENDIENTE&limit=100')
-    expect(screen.getByText('No hay desvíos para esta fecha.')).toBeInTheDocument()
+      expect(await screen.findByRole('status')).toHaveTextContent('Enviando lo que escribiste…')
+      expect(motive.closest('form')).toHaveAttribute('aria-busy', 'true')
+      expect(mocks.apiPut).toHaveBeenCalledWith('/deviations/deviation-1/motive', { category: 'OTRA', text: 'Demora en el transporte.' })
 
-    fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'Me olvidé de marcar al salir.' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Enviar motivo' }))
-    await waitFor(() => expect(mocks.apiPut).toHaveBeenCalledWith('/deviations/deviation-night/motive', { category: 'OTRA', text: 'Me olvidé de marcar al salir.' }))
-    await waitFor(() => expect(screen.queryByLabelText('Motivo')).not.toBeInTheDocument())
-  })
+      resolveMotive(updated)
 
-  describe('panel de motivos pendientes', () => {
-    it('si fallan los pendientes, la jornada se muestra y el panel ofrece reintentar solo los motivos', async () => {
+      expect(await screen.findByText('A revisar')).toBeInTheDocument()
+      expect(screen.getByText('Lo enviamos. Tu encargado lo va a revisar.')).toBeInTheDocument()
+      expect(screen.queryByLabelText('Contá qué pasó')).not.toBeInTheDocument()
+    })
+
+    it('si el envío falla, muestra el error en la tarjeta y conserva lo escrito', async () => {
+      configureApi([pendingDeviation])
+      mocks.apiPut.mockRejectedValueOnce(new Error('Tu encargado ya lo revisó: ya no se puede cambiar.'))
+      render(<EmployeeApp />)
+
+      const motive = await screen.findByLabelText('Contá qué pasó')
+      fireEvent.click(screen.getByRole('radio', { name: /Transporte/ }))
+      fireEvent.change(motive, { target: { value: 'Paro de colectivos.' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Enviar motivo' }))
+
+      const card = motive.closest('form')!
+      expect(await within(card).findByRole('alert')).toHaveTextContent('Tu encargado ya lo revisó: ya no se puede cambiar.')
+      expect(motive).toHaveValue('Paro de colectivos.')
+      expect(screen.getByRole('radio', { name: /Transporte/ })).toBeChecked()
+    })
+
+    it('muestra motivos pendientes de otras fechas, incluida la jornada nocturna de la víspera', async () => {
+      const previousNight: Deviation = { ...pendingDeviation, id: 'deviation-night', jornadaId: 'jornada-previous-night', type: 'MARCA_FALTANTE', occurredAt: '2026-10-19T09:10:00Z' }
+      configureApi([], [previousNight])
+      render(<EmployeeApp />)
+
+      const card = (await screen.findByLabelText('Contá qué pasó')).closest('form')!
+      expect(card).toHaveTextContent('No marcaste tu salida.')
+      expect(mocks.apiGet).toHaveBeenCalledWith('/deviations?status=MOTIVO_PENDIENTE&limit=100')
+      expect(screen.getByText('No hay desvíos este día.')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('radio', { name: /Otra/ }))
+      fireEvent.change(screen.getByLabelText('Contá qué pasó'), { target: { value: 'Me olvidé de marcar al salir.' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Enviar motivo' }))
+      await waitFor(() => expect(mocks.apiPut).toHaveBeenCalledWith('/deviations/deviation-night/motive', { category: 'OTRA', text: 'Me olvidé de marcar al salir.' }))
+      await waitFor(() => expect(screen.queryByLabelText('Contá qué pasó')).not.toBeInTheDocument())
+    })
+
+    it('si fallan los pendientes, la jornada se muestra y el panel ofrece reintentar solo esa lista', async () => {
       const previousNight: Deviation = { ...pendingDeviation, id: 'deviation-night', jornadaId: 'jornada-previous-night', type: 'MARCA_FALTANTE' }
       const previous = mocks.apiGet.getMockImplementation()!
       let pendingRequests = 0
@@ -282,16 +500,16 @@ describe('EmployeeApp', () => {
       })
       render(<EmployeeApp />)
 
-      expect(await screen.findByRole('button', { name: /Registrar egreso/ })).toBeEnabled()
-      const panel = screen.getByRole('heading', { name: 'Motivos pendientes' }).closest('section')!
-      expect(await within(panel).findByRole('alert')).toHaveTextContent('No se pudieron consultar tus motivos pendientes.')
-      expect(panel).not.toHaveTextContent('No tenés motivos pendientes.')
-      expect(screen.queryByRole('heading', { name: 'No se pudo consultar tu jornada' })).not.toBeInTheDocument()
+      expect(await breakfastButton()).toBeEnabled()
+      const panel = screen.getByRole('region', { name: 'Para explicar' })
+      expect(await within(panel).findByRole('alert')).toHaveTextContent('No pudimos cargar lo que tenés para explicar.')
+      expect(panel).not.toHaveTextContent('No tenés nada para explicar.')
+      expect(screen.queryByRole('heading', { name: 'No pudimos cargar tu día' })).not.toBeInTheDocument()
       const sitesBefore = mocks.apiGet.mock.calls.filter(([path]) => path === '/sites').length
 
-      fireEvent.click(within(panel).getByRole('button', { name: 'Reintentar motivos' }))
+      fireEvent.click(within(panel).getByRole('button', { name: 'Reintentar' }))
 
-      expect((await within(panel).findByLabelText('Motivo')).closest('form')).toHaveTextContent('Egreso sin marcar')
+      expect((await within(panel).findByLabelText('Contá qué pasó')).closest('form')).toHaveTextContent('No marcaste tu salida')
       expect(within(panel).queryByRole('alert')).not.toBeInTheDocument()
       expect(mocks.apiGet.mock.calls.filter(([path]) => path === '/sites').length).toBe(sitesBefore)
     })
@@ -300,14 +518,14 @@ describe('EmployeeApp', () => {
       const page = Array.from({ length: 100 }, (_, index): Deviation => ({ ...pendingDeviation, id: `deviation-${index}`, jornadaId: `jornada-${index}` }))
       configureApi([], page)
       render(<EmployeeApp />)
-      expect(await screen.findByText(/Mostramos los 100 motivos pendientes más recientes/)).toBeInTheDocument()
+      expect(await screen.findByText(/Te mostramos los 100 más recientes/)).toBeInTheDocument()
     })
 
     it('no muestra el aviso de límite cuando hay menos de 100 pendientes', async () => {
       configureApi([pendingDeviation])
       render(<EmployeeApp />)
-      await screen.findByLabelText('Motivo')
-      expect(screen.queryByText(/Mostramos los 100/)).not.toBeInTheDocument()
+      await screen.findByLabelText('Contá qué pasó')
+      expect(screen.queryByText(/Te mostramos los 100/)).not.toBeInTheDocument()
     })
   })
 
@@ -318,15 +536,16 @@ describe('EmployeeApp', () => {
     render(<EmployeeApp />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Corregir motivo' }))
-    const text = screen.getByLabelText('Motivo')
+    const text = screen.getByLabelText('Contá qué pasó')
     expect(text).toHaveValue('Texto anterior.')
-    fireEvent.change(screen.getByLabelText('Categoría'), { target: { value: 'TRANSPORTE' } })
+    expect(screen.getByRole('radio', { name: /Otra/ })).toBeChecked()
+    fireEvent.click(screen.getByRole('radio', { name: /Transporte/ }))
     fireEvent.change(text, { target: { value: 'Paro de colectivos.' } })
     fireEvent.click(screen.getByRole('button', { name: 'Guardar corrección' }))
 
     await waitFor(() => expect(mocks.apiPut).toHaveBeenCalledWith('/deviations/deviation-1/motive', { category: 'TRANSPORTE', text: 'Paro de colectivos.' }))
     expect(await screen.findByText(/Paro de colectivos\./)).toBeInTheDocument()
-    expect(screen.queryByLabelText('Motivo')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Contá qué pasó')).not.toBeInTheDocument()
   })
 
   it('no ofrece corregir un motivo ya clasificado, pero sí agregar el primero si se clasificó sin motivo', async () => {
@@ -352,93 +571,93 @@ describe('EmployeeApp', () => {
 
     expect(await screen.findByText('22:00 a 06:00 (día siguiente)')).toBeInTheDocument()
     expect(screen.getAllByText('Sin ingreso').length).toBeGreaterThan(0)
+    expect(screen.getByText('Todavía no marcaste tu entrada.')).toBeInTheDocument()
     expect(container.textContent).not.toMatch(/America\//)
     expect(container.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}/)
     expect(container.textContent).not.toMatch(/:\d{2}:\d{2}/)
   })
 
-  it('llama Finalizada a una jornada egresada', async () => {
-    mocks.apiGet.mockImplementation((path: string) => {
-      if (path === '/sites') return Promise.resolve(sites)
-      if (path.startsWith('/jornadas/mine?')) return Promise.resolve([{ ...jornadas[0], state: 'EGRESADA' }])
-      if (path.startsWith('/deviations?')) return Promise.resolve([])
-      throw new Error(`GET inesperado: ${path}`)
-    })
+  it('llama Finalizada a una jornada egresada y dice que ya terminó el día', async () => {
+    configureSingle({ ...jornadas[0], state: 'EGRESADA' })
     render(<EmployeeApp />)
     expect((await screen.findAllByText('Finalizada')).length).toBeGreaterThan(0)
+    expect(screen.getByText('Ya terminaste tu día.')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Marcar' })).not.toBeInTheDocument()
   })
 
   it('ignora un segundo disparo de la misma marca mientras el primero está en vuelo', async () => {
     let resolveMark!: (value: { id: string; acceptedAt: string }) => void
     mocks.submitMark.mockReturnValueOnce(new Promise((resolve) => { resolveMark = resolve }))
     render(<EmployeeApp />)
-    const egreso = await screen.findByRole('button', { name: /Registrar egreso/ })
+    const breakfast = await breakfastButton()
 
-    act(() => { egreso.click(); egreso.click() })
+    act(() => { breakfast.click(); breakfast.click() })
     await act(async () => { resolveMark({ id: 'mark-new', acceptedAt: '2026-10-20T13:05:00Z' }) })
 
     expect(mocks.submitMark).toHaveBeenCalledTimes(1)
-    expect(screen.queryByText(/ya fue procesada/)).not.toBeInTheDocument()
-    expect(await screen.findByText(/Marca confirmada por el servidor/)).toBeInTheDocument()
-  })
-
-  it('no deja un punto doble después de la hora de la marca confirmada', async () => {
-    render(<EmployeeApp />)
-    fireEvent.click(await screen.findByRole('button', { name: /Registrar egreso/ }))
-    const confirmation = await screen.findByText(/Marca confirmada por el servidor/)
-    expect(confirmation.textContent).not.toContain('..')
-  })
-
-  it('un fallo de red al marcar dice que la marca no fue confirmada', async () => {
-    mocks.submitMark.mockRejectedValueOnce(Object.assign(new Error('No se pudo conectar con el servidor. Revisá tu conexión y reintentá.'), { name: 'NetworkError' }))
-    render(<EmployeeApp />)
-    fireEvent.click(await screen.findByRole('button', { name: /Registrar egreso/ }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('La marca no fue confirmada')
+    expect(await screen.findByText(/Listo: tu salida a desayunar/)).toBeInTheDocument()
   })
 
   describe('después de una marca fallida', () => {
-    it('vuelve a consultar la jornada al servidor y muestra la próxima acción que corresponde', async () => {
+    it('vuelve a consultar la jornada y muestra la próxima acción que corresponde', async () => {
       const closed: Jornada = { ...jornadas[0], state: 'EGRESADA' }
       const previous = mocks.apiGet.getMockImplementation()!
       mocks.apiGet.mockImplementation((path: string) => path === '/jornadas/jornada-center' ? Promise.resolve(closed) : previous(path))
       mocks.submitMark.mockRejectedValueOnce(new ApiError(409, { status: 409, code: 'INVALID_MARK_TRANSITION' }))
       render(<EmployeeApp />)
 
-      fireEvent.click(await screen.findByRole('button', { name: /Registrar egreso/ }))
+      fireEvent.click(await breakfastButton())
 
-      expect(await screen.findByRole('alert')).toHaveTextContent('La jornada cambió y esa marca ya no corresponde. Te mostramos el estado actual del servidor.')
-      expect(await screen.findByText('Esta jornada ya fue cerrada.')).toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: /Registrar egreso/ })).not.toBeInTheDocument()
+      expect(await screen.findByRole('alert')).toHaveTextContent('Tu día cambió y esa marca ya no corresponde. Te mostramos cómo está ahora.')
+      expect(await screen.findByText('Ya terminaste tu día.')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Me voy a desayunar' })).not.toBeInTheDocument()
       expect(mocks.apiGet).toHaveBeenCalledWith('/jornadas/jornada-center')
     })
 
-    it('ofrece Actualizar para volver a cargar el estado desde el servidor', async () => {
+    it('ofrece Actualizar para volver a cargar el estado', async () => {
       mocks.submitMark.mockRejectedValueOnce(new Error('Falló.'))
       render(<EmployeeApp />)
-      fireEvent.click(await screen.findByRole('button', { name: /Registrar egreso/ }))
+      fireEvent.click(await breakfastButton())
       await screen.findByRole('alert')
       const sitesBefore = mocks.apiGet.mock.calls.filter(([path]) => path === '/sites').length
 
       fireEvent.click(screen.getByRole('button', { name: 'Actualizar' }))
 
       await waitFor(() => expect(mocks.apiGet.mock.calls.filter(([path]) => path === '/sites').length).toBe(sitesBefore + 1))
-      expect(await screen.findByRole('button', { name: /Registrar egreso/ })).toBeEnabled()
+      expect(await breakfastButton()).toBeEnabled()
+    })
+
+    it('si al actualizar la marca aparece, cambia el error por la confirmación', async () => {
+      configureSingle(jornadas[0])
+      mocks.submitMark.mockRejectedValueOnce(new TimeoutError())
+      render(<EmployeeApp />)
+      fireEvent.click(await breakfastButton())
+      expect(await screen.findByRole('alert')).toHaveTextContent('No sabemos si llegó. Tocá el mismo botón otra vez: no se marca dos veces.')
+
+      const arrived: Jornada = {
+        ...jornadas[0], state: 'PAUSA_ABIERTA',
+        marks: [...jornadas[0].marks, { id: 'mark-arrived', jornadaId: 'jornada-center', action: 'SALIDA_DESAYUNO', sequence: 2, acceptedAt: '2026-10-20T13:59:00Z', locationStatus: 'RECIBIDA' }]
+      }
+      configureSingle(arrived)
+      fireEvent.click(screen.getByRole('button', { name: 'Actualizar' }))
+
+      expect(await screen.findByText('Listo: tu salida a desayunar quedó registrada a las 10:59.')).toBeInTheDocument()
+      expect(screen.getByText(/Listo: tu salida a desayunar/).closest('[role="status"]')).toHaveTextContent('Ubicación enviada ✔')
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     })
 
     it('un conflicto que persiste tras el reintento dice que la marca no se registró', async () => {
       mocks.submitMark.mockRejectedValueOnce(new ApiError(409, { status: 409, code: 'RETRYABLE_TRANSACTION_CONFLICT' }, { retryAfterSeconds: 1 }))
       render(<EmployeeApp />)
-      fireEvent.click(await screen.findByRole('button', { name: /Registrar egreso/ }))
-      const alert = await screen.findByRole('alert')
-      expect(alert).toHaveTextContent('La marca no se registró porque el servidor estaba ocupado. Reintentá la misma acción.')
-      expect(alert).not.toHaveTextContent(/ya fue procesada/)
+      fireEvent.click(await breakfastButton())
+      expect(await screen.findByRole('alert')).toHaveTextContent('Tu marca no se registró. Esperá unos segundos y tocá el mismo botón otra vez.')
     })
 
-    it('conserva el aviso de horario temprano', async () => {
+    it('conserva el aviso de horario temprano en palabras simples', async () => {
       mocks.submitMark.mockRejectedValueOnce(new ApiError(409, { status: 409, code: 'MARK_TOO_EARLY' }))
       render(<EmployeeApp />)
-      fireEvent.click(await screen.findByRole('button', { name: /Registrar egreso/ }))
-      expect(await screen.findByRole('alert')).toHaveTextContent('Todavía no es horario para registrar esta marca.')
+      fireEvent.click(await breakfastButton())
+      expect(await screen.findByRole('alert')).toHaveTextContent('Todavía es temprano para marcar.')
     })
 
     it('un IDEMPOTENCY_CONFLICT descarta el intento guardado y el próximo usa una clave nueva', async () => {
@@ -446,54 +665,96 @@ describe('EmployeeApp', () => {
       mocks.createMarkAttempt.mockImplementation((jornadaId: string, action: string) => ({ jornadaId, action, idempotencyKey: `attempt-${++created}` }))
       mocks.submitMark.mockRejectedValueOnce(new ApiError(409, { status: 409, code: 'IDEMPOTENCY_CONFLICT' }))
       render(<EmployeeApp />)
-      const egreso = await screen.findByRole('button', { name: /Registrar egreso/ })
-      fireEvent.click(egreso)
+      const breakfast = await breakfastButton()
+      fireEvent.click(breakfast)
 
-      expect(await screen.findByRole('alert')).toHaveTextContent('Esta solicitud ya se usó para otra acción.')
-      await waitFor(() => expect(egreso).toBeEnabled())
-      fireEvent.click(egreso)
+      expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo registrar tu marca. Tocá Actualizar y volvé a marcar.')
+      await waitFor(() => expect(breakfast).toBeEnabled())
+      fireEvent.click(breakfast)
 
-      expect(await screen.findByText(/Marca confirmada por el servidor/)).toBeInTheDocument()
+      expect(await screen.findByText(/Listo: tu salida a desayunar/)).toBeInTheDocument()
       expect(mocks.createMarkAttempt).toHaveBeenCalledTimes(2)
       expect(mocks.submitMark.mock.calls[0][1]).toMatchObject({ idempotencyKey: 'attempt-1' })
-      expect(mocks.submitMark.mock.calls[1][1]).toMatchObject({ jornadaId: 'jornada-center', action: 'EGRESO', idempotencyKey: 'attempt-2' })
+      expect(mocks.submitMark.mock.calls[1][1]).toMatchObject({ jornadaId: 'jornada-center', action: 'SALIDA_DESAYUNO', idempotencyKey: 'attempt-2' })
     })
 
-    it('una espera agotada avisa que la marca puede no estar registrada, libera los botones y reintenta con la misma clave', async () => {
+    it('una espera agotada dice que no sabemos si llegó, libera los botones y reintenta con la misma clave', async () => {
       mocks.submitMark.mockRejectedValueOnce(new TimeoutError())
       render(<EmployeeApp />)
-      const egreso = await screen.findByRole('button', { name: /Registrar egreso/ })
-      fireEvent.click(egreso)
+      const breakfast = await breakfastButton()
+      fireEvent.click(breakfast)
 
-      expect(await screen.findByRole('alert')).toHaveTextContent('El servidor no respondió a tiempo. La marca puede no haberse registrado')
-      await waitFor(() => expect(egreso).toBeEnabled())
-      fireEvent.click(egreso)
+      expect(await screen.findByRole('alert')).toHaveTextContent('No sabemos si llegó. Tocá el mismo botón otra vez: no se marca dos veces.')
+      await waitFor(() => expect(breakfast).toBeEnabled())
+      fireEvent.click(breakfast)
 
-      expect(await screen.findByText(/Marca confirmada por el servidor/)).toBeInTheDocument()
+      expect(await screen.findByText(/Listo: tu salida a desayunar/)).toBeInTheDocument()
       expect(mocks.createMarkAttempt).toHaveBeenCalledTimes(1)
       expect(mocks.submitMark.mock.calls[1][1]).toBe(mocks.submitMark.mock.calls[0][1])
     })
 
-    it('a 503 during a deploy says the system is unavailable, not the connection, and the retry keeps the Idempotency-Key', async () => {
+    it('a 503 during a deploy says the system is updating, not the connection, and the retry keeps the Idempotency-Key', async () => {
       mocks.submitMark.mockRejectedValueOnce(new ApiError(503, { status: 503, code: 'SERVICE_UNAVAILABLE' }, { retryAfterSeconds: 30 }))
       render(<EmployeeApp />)
-      const egreso = await screen.findByRole('button', { name: /Registrar egreso/ })
-      fireEvent.click(egreso)
+      const breakfast = await breakfastButton()
+      fireEvent.click(breakfast)
 
       const alert = await screen.findByRole('alert')
-      expect(alert).toHaveTextContent('El sistema se está actualizando o no está disponible por un momento. La marca puede no haberse registrado: esperá un minuto y reintentá la misma acción, o tocá Actualizar para ver el estado.')
-      expect(alert).not.toHaveTextContent(/conexión/)
-      await waitFor(() => expect(egreso).toBeEnabled())
-      fireEvent.click(egreso)
+      expect(alert).toHaveTextContent('El sistema se está actualizando. Esperá un minuto y volvé a marcar.')
+      expect(alert).not.toHaveTextContent(/conexión|internet/)
+      await waitFor(() => expect(breakfast).toBeEnabled())
+      fireEvent.click(breakfast)
 
-      expect(await screen.findByText(/Marca confirmada por el servidor/)).toBeInTheDocument()
+      expect(await screen.findByText(/Listo: tu salida a desayunar/)).toBeInTheDocument()
       expect(mocks.createMarkAttempt).toHaveBeenCalledTimes(1)
-      expect(mocks.submitMark.mock.calls[1][1]).toBe(mocks.submitMark.mock.calls[0][1])
       expect(mocks.submitMark.mock.calls[1][1]).toMatchObject({ idempotencyKey: 'attempt-1' })
+    })
+
+    it('si la sesión vence con una marca en vuelo, deja dicho que la marca no se guardó', async () => {
+      let expire!: () => void
+      mocks.onSessionExpired.mockImplementation((listener: () => void) => { expire = listener; return () => undefined })
+      let rejectMark!: (reason: Error) => void
+      mocks.submitMark.mockReturnValueOnce(new Promise((_, reject) => { rejectMark = reject }))
+      render(<EmployeeApp />)
+      fireEvent.click(await breakfastButton())
+
+      act(() => expire())
+      rejectMark(new ApiError(401, { status: 401, code: 'UNAUTHORIZED' }))
+
+      expect(markWasInterrupted()).toBe(true)
+      expect(await screen.findByRole('alert')).toHaveTextContent('Pasó mucho tiempo y hay que entrar de nuevo. Tu marca todavía no se guardó.')
+    })
+
+    it('si la sesión vence sin una marca en vuelo, no deja ese aviso', async () => {
+      let expire!: () => void
+      mocks.onSessionExpired.mockImplementation((listener: () => void) => { expire = listener; return () => undefined })
+      render(<EmployeeApp />)
+      await breakfastButton()
+      act(() => expire())
+      expect(markWasInterrupted()).toBe(false)
     })
   })
 
-  it('bloquea la elección de jornada, la fecha y la empresa mientras una marca está en vuelo', async () => {
+  describe('Ver otros días', () => {
+    it('elige otro día al final de la pantalla y vuelve a hoy con un botón', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      await breakfastButton()
+      const otherDays = screen.getByRole('region', { name: 'Ver otros días' })
+      expect(within(otherDays).queryByRole('button', { name: 'Volver a hoy' })).not.toBeInTheDocument()
+
+      fireEvent.change(within(otherDays).getByLabelText('Día'), { target: { value: '2026-10-15' } })
+
+      expect(await screen.findByText(/Estás viendo el 15 oct 2026/)).toBeInTheDocument()
+      await waitFor(() => expect(mocks.apiGet).toHaveBeenCalledWith('/jornadas/mine?localDate=2026-10-15'))
+      fireEvent.click(within(otherDays).getByRole('button', { name: 'Volver a hoy' }))
+
+      expect(within(otherDays).getByLabelText('Día')).toHaveValue('')
+      expect(await screen.findByText('Estás trabajando desde las 09:00.')).toBeInTheDocument()
+    })
+  })
+
+  it('bloquea la elección de jornada, el día y la empresa mientras una marca está en vuelo', async () => {
     mocks.useSession.mockReturnValue({
       session: {
         accountId: 'account-1', dni: '30123456', activeCompanyId: 'company-1', mustChangePassword: false,
@@ -506,10 +767,10 @@ describe('EmployeeApp', () => {
     render(<EmployeeApp />)
     const options = await screen.findAllByRole('button', { name: /Mañana/ })
 
-    fireEvent.click(screen.getByRole('button', { name: /Registrar egreso/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Me voy a desayunar' }))
 
     options.forEach((option) => expect(option).toBeDisabled())
-    expect(screen.getByLabelText('Fecha de consulta')).toBeDisabled()
+    expect(screen.getByLabelText('Día')).toBeDisabled()
     expect(screen.getByRole('combobox', { name: 'Empresa activa' })).toBeDisabled()
     await act(async () => { resolveMark({ id: 'mark-new', acceptedAt: '2026-10-20T13:05:00Z' }) })
     await waitFor(() => options.forEach((option) => expect(option).toBeEnabled()))
@@ -530,8 +791,8 @@ describe('EmployeeApp', () => {
     expect(options[0]).toHaveAccessibleName(/Cancelada/)
     expect(options[1]).toHaveAttribute('aria-pressed', 'true')
     fireEvent.click(options[0])
-    expect(await screen.findByText('El administrador canceló esta jornada; no hay marcas para registrar.')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Registrar ingreso/ })).not.toBeInTheDocument()
+    expect(await screen.findByText('Tu encargado canceló este día: no tenés que marcar.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Marcar entrada' })).not.toBeInTheDocument()
   })
 
   it('muestra las marcas anuladas como Anulada y no las cuenta para la próxima acción', async () => {
@@ -539,28 +800,19 @@ describe('EmployeeApp', () => {
       ...jornadas[0],
       marks: [...jornadas[0].marks, { id: 'mark-voided', jornadaId: 'jornada-center', action: 'SALIDA_DESAYUNO' as const, sequence: 2, acceptedAt: '2026-10-20T13:00:00Z', locationStatus: 'SIN_UBICACION' as const, voided: true }]
     }
-    mocks.apiGet.mockImplementation((path: string) => {
-      if (path === '/sites') return Promise.resolve(sites)
-      if (path.startsWith('/jornadas/mine?')) return Promise.resolve([withVoided])
-      if (path.startsWith('/deviations?')) return Promise.resolve([])
-      throw new Error(`GET inesperado: ${path}`)
-    })
+    configureSingle(withVoided)
     render(<EmployeeApp />)
 
     expect(await screen.findByText('Anulada')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Salir a desayuno/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Registrar egreso/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Me voy a desayunar' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Marcar salida' })).toBeInTheDocument()
   })
 
-  it('oculta los símbolos decorativos de los botones de marca y lleva el foco al resultado', async () => {
+  it('oculta los símbolos decorativos de los botones de marca', async () => {
+    configureSingle(jornadas[0])
     render(<EmployeeApp />)
-    const egreso = await screen.findByRole('button', { name: /Registrar egreso/ })
-    expect(egreso).toHaveAccessibleName(/^Registrar egreso\s*Enviar marca$/)
-    egreso.querySelectorAll('span').forEach((glyph) => expect(glyph).toHaveAttribute('aria-hidden', 'true'))
-
-    fireEvent.click(egreso)
-
-    const confirmation = await screen.findByText(/Marca confirmada por el servidor/)
-    await waitFor(() => expect(document.activeElement).toContainElement(confirmation))
+    const lunch = await screen.findByRole('button', { name: 'Me voy a almorzar' })
+    expect(lunch).toHaveAccessibleName('Me voy a almorzar')
+    lunch.querySelectorAll('span').forEach((glyph) => expect(glyph).toHaveAttribute('aria-hidden', 'true'))
   })
 })

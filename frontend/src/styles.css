@@ -298,6 +298,41 @@ td .short-input { width: 74px; }
 .journey-option-active { border-color: #97b39d; background: #f3f8f3; }
 .journey-option strong { font-size: .875rem; }
 .journey-option small { color: var(--text-secondary); font-size: .875rem; }
+/* UX phase 1, issue #102: employee screen. Modifiers of the classes above, with the same tokens. */
+.employee-heading { margin-bottom: 18px; }
+.employee-heading h1 { margin-bottom: 6px; }
+.employee-day-state { margin: 0; color: var(--green); font-size: 1.15rem; font-weight: 650; line-height: 1.4; }
+.employee-next-action { min-height: 56px; font-size: 1.05rem; }
+.employee-more-actions { margin-top: 12px; }
+.employee-more-actions .mark-action { min-height: var(--tap-target); flex-direction: row; align-items: center; gap: 10px; padding: 10px 12px; }
+.employee-exit { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.employee-sending { margin: 12px 0 0; font-size: .9rem; }
+.employee-step-text { margin: 0 0 12px; color: var(--text-primary); font-size: 1rem; line-height: 1.45; }
+.employee-confirmation { display: block; font-size: 1.05rem; font-weight: 650; line-height: 1.4; }
+.employee-location-note { display: block; margin-top: 6px; }
+.mark-row-location { grid-column: 2 / -1; margin-top: -6px; color: var(--text-secondary); font-size: .8125rem; }
+.employee-motive-question { margin: 0; color: var(--text-primary); font-size: .95rem; line-height: 1.45; }
+.employee-category-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.employee-category-option { display: flex; align-items: flex-start; gap: 10px; min-height: var(--tap-target); padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-control); background: #fff; color: var(--text-secondary); font-size: .875rem; line-height: 1.4; cursor: pointer; }
+.employee-category-option strong { color: var(--text-primary); }
+.employee-category-option input { flex: 0 0 auto; width: 22px; height: 22px; min-height: 0; margin: 0; padding: 0; accent-color: var(--green-2); }
+.employee-category-option:has(input:checked) { border-color: #97b39d; background: #f3f8f3; }
+.employee-field-error { margin: 6px 0 0; color: var(--red); font-size: .875rem; }
+.employee-today-button { margin-top: 12px; }
+.password-toggle { align-self: flex-start; }
+.auth-hint { margin: 18px 0 0; }
+@media (max-width: 520px) {
+  .employee-category-list { grid-template-columns: 1fr; }
+  /* The help opens under the header across the screen instead of overflowing it from the button. */
+  .employee-frame .install-help { position: fixed; top: calc(var(--topbar-height) + env(safe-area-inset-top) + 8px); right: 16px; left: 16px; width: auto; }
+}
+@media (max-width: 400px) {
+  /* One header row for the brand mark, the install button and "Cerrar sesión"; it wraps only with a company switcher. */
+  .employee-frame { --topbar-height: 60px; }
+  .employee-frame .topbar { height: auto; min-height: calc(var(--topbar-height) + env(safe-area-inset-top)); justify-content: space-between; padding-bottom: 0; }
+  .employee-frame .topbar-actions { width: auto; margin-left: auto; flex-wrap: wrap; }
+  .employee-frame .brand > span:last-child { display: none; }
+}
 
 .push-control { position: fixed; z-index: 8; right: max(22px, env(safe-area-inset-right)); bottom: calc(18px + env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 15px; width: min(530px, calc(100vw - 32px)); padding: 11px 13px; border: 1px solid #dfe8e0; border-radius: 13px; background: rgba(255,255,255,.96); box-shadow: 0 12px 38px rgba(18,55,42,.12); backdrop-filter: blur(12px); }
 .push-control .message { position: absolute; bottom: 100%; right: 0; width: min(380px, 100%); margin-bottom: 8px; box-shadow: var(--shadow); }

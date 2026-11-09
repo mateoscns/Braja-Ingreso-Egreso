@@ -51,7 +51,7 @@ describe('ApiClient', () => {
     const client = new ApiClient()
 
     await expect(client.get('/jornadas')).rejects.toMatchObject({
-      message: 'Todavía no es horario para registrar esta marca. El ingreso se habilita 30 minutos antes; las demás marcas, desde el inicio de la jornada.'
+      message: 'Todavía es temprano para marcar. La entrada se puede marcar desde 30 minutos antes de tu horario; las demás marcas, desde que empieza tu turno.'
     })
   })
 
@@ -128,8 +128,8 @@ describe('ApiClient: códigos de error conocidos', () => {
   it.each([
     [409, 'INVALID_MARK_TRANSITION', 'El estado de la jornada cambió y esa marca ya no corresponde. Revisá el estado actualizado.'],
     [409, 'INVALID_MARK_ORDER', 'El estado de la jornada cambió y esa marca ya no corresponde. Revisá el estado actualizado.'],
-    [409, 'IDEMPOTENCY_CONFLICT', 'Esta solicitud ya se usó para otra acción. Actualizá la vista y volvé a intentar.'],
-    [409, 'MOTIVE_LOCKED', 'El administrador ya revisó este desvío; el motivo ya no se puede cambiar.'],
+    [409, 'IDEMPOTENCY_CONFLICT', 'No se pudo registrar tu marca. Tocá Actualizar y volvé a marcar.'],
+    [409, 'MOTIVE_LOCKED', 'Tu encargado ya lo revisó: ya no se puede cambiar.'],
     [409, 'JORNADA_EXISTS', 'Ya hay una jornada declarada para ese empleado, sede y fecha.'],
     [409, 'MEMBERSHIP_EXISTS', 'Esa persona ya tiene un rol en esta empresa.'],
     [409, 'ACCOUNT_INACTIVE', 'La cuenta de ese DNI no está habilitada y no se puede agregar a la empresa.'],
