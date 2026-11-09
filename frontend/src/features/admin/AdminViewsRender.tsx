@@ -1,9 +1,8 @@
 import { Fragment, type FormEvent, type ReactNode } from 'react'
 import { Empty, FormField, Loading, PageMessage, Panel } from '../../app/ui'
-import type { BulkDeclarationResult, BulkSkipReason, Deviation, Employee, Jornada, JornadaAudit, JornadaAuditEntry, JornadaSummary, Mark, MarkAction, Site, SiteCoordinates, Template, TemplateAssignment, TemplateBlock } from '../../shared/api/types'
-import { formatBlock, formatDateTime, formatLocalDate, jornadaStateLabel } from '../../shared/format'
+import type { BulkDeclarationResult, BulkSkipReason, Deviation, Employee, Jornada, JornadaAudit, JornadaAuditEntry, JornadaSummary, Mark, MarkAction, Site, SiteCoordinates, Template } from '../../shared/api/types'
+import { formatDateTime, formatLocalDate, jornadaStateLabel } from '../../shared/format'
 import type { SiteLocationErrorKind } from './siteLocation'
-import { PASSWORD_LENGTH_HINT, PASSWORD_MAX_CHARACTERS } from '../../shared/password'
 import type { GeocodeResult } from '../../shared/api/geocode'
 import { SiteMapPanel, type SiteMapPanelState } from './SiteMapPanel'
 import { mapRadiusMeters } from './siteMap'
@@ -137,7 +136,7 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, name
             kind === 'invalid-position' ? 'Datos de ubicación inválidos' :
               kind === 'request-failed' ? 'No se pudo iniciar la captura' : 'No se pudo determinar la ubicación'
   return <>
-    <PageHeading eyebrow="ORGANIZACIÓN" title="Sedes" subtitle="Cada sede define su zona horaria y sus plantillas." />
+    <PageHeading eyebrow="ORGANIZACIÓN" title="Sedes" subtitle="Cada sede define su zona horaria y sus horarios." />
     {error && <PageMessage kind="error">{error}</PageMessage>}
     {notice && <PageMessage kind="success">{notice}</PageMessage>}
     <div className="content-grid"><Panel title="Sedes registradas">{loading ? <Loading /> : loadError ? <LoadFailure message={loadError} onRetry={onReload} /> : sites.length ? <div className="simple-list">{sites.map((site) => <article key={site.id} className="form-stack">
@@ -252,80 +251,6 @@ export function SiteLocationAuditSection({ siteId, siteName, timeZone, audit, lo
   </section>
 }
 
-export function EmployeesViewRender({ employees, sites, loading, loadError, error, notice, busy, dni, displayName, siteIds, tolerance, temporaryPassword, draft, assignmentsPanel, onReload, onCreate, onDniChange, onDisplayNameChange, onToggleSite, onToleranceChange, onTemporaryPasswordChange, onSave, onDraftChange, onStartEditing, onCancelEditing, onOpenAssignments, resetTarget, issuedPassword, onAskReset, onConfirmReset, onCancelReset, onDismissIssuedPassword }: {
-  employees: Employee[]; sites: Site[]; loading: boolean; loadError: string; error: string; notice: string; busy: boolean
-  dni: string; displayName: string; siteIds: string[]; tolerance: string; temporaryPassword: string; draft: Employee | null
-  /** The template assignments of one employee (TemplateAssignmentsRender), shown under the list. */
-  assignmentsPanel?: ReactNode
-  onReload: () => void; onCreate: (event: FormEvent<HTMLFormElement>) => void; onDniChange: (value: string) => void; onDisplayNameChange: (value: string) => void
-  onToggleSite: (id: string) => void; onToleranceChange: (value: string) => void; onTemporaryPasswordChange: (value: string) => void
-  onSave: () => void; onDraftChange: (patch: Partial<Employee>) => void; onStartEditing: (id: string) => void; onCancelEditing: () => void
-  onOpenAssignments: (id: string) => void
-  resetTarget: string | null; issuedPassword: { displayName: string; temporaryPassword: string } | null
-  onAskReset: (id: string) => void; onConfirmReset: () => void; onCancelReset: () => void; onDismissIssuedPassword: () => void
-}) {
-  const rowActions = (saved: Employee) => resetTarget === saved.id
-    ? <div className="button-row"><span>Se cierran todas sus sesiones y se genera una contraseña provisoria.</span>
-      <button className="button button-small button-primary" disabled={busy} onClick={onConfirmReset}>{busy ? 'Restableciendo…' : 'Confirmar restablecimiento'}</button>
-      <button type="button" className="button button-small button-quiet" aria-label="Cancelar restablecimiento" disabled={busy} onClick={onCancelReset}>Cancelar</button></div>
-    : <div className="button-row"><button className="button button-small button-quiet" aria-label={`Editar empleado ${saved.displayName}`} disabled={busy} onClick={() => onStartEditing(saved.id)}>Editar</button>
-      <button className="button button-small button-quiet" aria-label={`Plantillas de ${saved.displayName}`} onClick={() => onOpenAssignments(saved.id)}>Plantillas</button>
-      <button className="button button-small button-quiet" aria-label={`Restablecer contraseña de ${saved.displayName}`} aria-describedby={saved.active ? undefined : `reset-inactive-${saved.id}`} disabled={busy || !saved.active} onClick={() => onAskReset(saved.id)}>Restablecer contraseña</button>
-      {!saved.active && <span className="field-hint" id={`reset-inactive-${saved.id}`}>Está inactivo: activalo para restablecer su contraseña.</span>}</div>
-  return <>
-    <PageHeading eyebrow="EQUIPO" title="Empleados" subtitle="Las cuentas se identifican por DNI. La tolerancia se guarda por empleado." />
-    {error && <PageMessage kind="error">{error}</PageMessage>}
-    {notice && <PageMessage kind="success">{notice}</PageMessage>}
-    {issuedPassword && <Panel title={`Contraseña provisoria de ${issuedPassword.displayName}`}>
-      <p><code>{issuedPassword.temporaryPassword}</code></p>
-      <p>Entregásela en persona; se pide cambiarla al ingresar.</p>
-      <p className="field-hint">No se vuelve a mostrar. Sus sesiones abiertas se cerraron.</p>
-      <button type="button" className="button button-small button-primary" onClick={onDismissIssuedPassword}>Listo, ya la entregué</button>
-    </Panel>}
-    <Panel title={loading || loadError ? 'Empleados' : `Empleados (${employees.length})`}>{loading ? <Loading /> : loadError ? <LoadFailure message={loadError} onRetry={onReload} /> : employees.length ? <div className="table-scroll"><table><thead><tr><th>Nombre</th><th>DNI</th><th>Sedes</th><th>Tolerancia</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{employees.map((saved) => {
-      const edit = draft?.id === saved.id ? draft : null
-      return <tr key={saved.id}>
-        <td>{edit ? <input aria-label={`Nombre del empleado con ${who(saved)}`} value={edit.displayName} onChange={(event) => onDraftChange({ displayName: event.target.value })} /> : <strong>{saved.displayName}</strong>}</td><td>{saved.dni ?? '—'}</td>
-        <td>{edit ? <div className="inline-checks">{sites.map((site) => <label key={site.id}><input type="checkbox" aria-label={`${site.name} (${who(saved)})`} checked={edit.siteIds.includes(site.id)} onChange={() => onDraftChange({ siteIds: edit.siteIds.includes(site.id) ? edit.siteIds.filter((id) => id !== site.id) : [...edit.siteIds, site.id] })} />{site.name}</label>)}</div> : saved.siteIds.map((id) => sites.find((site) => site.id === id)?.name ?? 'Sede').join(', ')}</td>
-        <td>{edit ? <input className="short-input" aria-label={`Tolerancia en minutos del empleado con ${who(saved)}`} type="number" min="0" max="240" value={edit.toleranceMinutes} onChange={(event) => onDraftChange({ toleranceMinutes: Number(event.target.value) })} /> : `${saved.toleranceMinutes} min`}</td>
-        <td>{edit ? <label><input type="checkbox" aria-label={`Activo (${who(saved)})`} checked={edit.active} onChange={(event) => onDraftChange({ active: event.target.checked })} /> Activo</label> : saved.active ? 'Activo' : 'Inactivo'}</td>
-        <td>{edit ? <div className="button-row"><button className="button button-small button-primary" disabled={busy || edit.siteIds.length === 0} onClick={onSave}>{busy ? 'Guardando…' : 'Guardar'}</button><button type="button" className="button button-small button-quiet" disabled={busy} onClick={onCancelEditing}>Cancelar</button></div> : rowActions(saved)}</td>
-      </tr>
-    })}</tbody></table></div> : <Empty>No hay empleados cargados.</Empty>}</Panel>
-    {assignmentsPanel}
-    <Panel title="Dar de alta un empleado"><form className="form-grid" onSubmit={onCreate}>
-      <FormField label="Nombre y apellido"><input required maxLength={160} value={displayName} onChange={(event) => onDisplayNameChange(event.target.value)} /></FormField>
-      <FormField label="DNI"><input required minLength={7} maxLength={12} inputMode="numeric" value={dni} onChange={(event) => onDniChange(event.target.value)} /></FormField>
-      <FormField label="Tolerancia individual (minutos)"><input type="number" min="0" max="240" required value={tolerance} onChange={(event) => onToleranceChange(event.target.value)} /></FormField>
-      <FormField label="Contraseña provisoria" hint={`Solo hace falta si el DNI todavía no tiene cuenta. ${PASSWORD_LENGTH_HINT}`}><input type="password" autoComplete="new-password" minLength={12} maxLength={PASSWORD_MAX_CHARACTERS} value={temporaryPassword} onChange={(event) => onTemporaryPasswordChange(event.target.value)} /></FormField>
-      <fieldset className="field field-wide"><legend className="field-label">Sedes habilitadas</legend><div className="check-grid">{sites.map((site) => <label key={site.id}><input type="checkbox" checked={siteIds.includes(site.id)} onChange={() => onToggleSite(site.id)} />{site.name}</label>)}</div>{sites.length === 0 && <span className="field-hint">{loadError ? 'Reintentá la carga antes de dar de alta un empleado.' : loading ? 'Cargando sedes…' : 'Primero creá una sede.'}</span>}</fieldset>
-      <div className="field-wide button-row"><button className="button button-primary" aria-describedby={sites.length > 0 && siteIds.length === 0 ? 'create-employee-needs-site' : undefined} disabled={busy || loading || Boolean(loadError) || siteIds.length === 0}>{busy ? 'Guardando…' : 'Crear empleado'}</button>
-        {sites.length > 0 && siteIds.length === 0 && <span className="field-hint" id="create-employee-needs-site">Marcá al menos una sede para crear el empleado.</span>}</div>
-    </form></Panel>
-  </>
-}
-
-/** D-20261015-02: history (newest start first) and a new assignment from a date; templates are those of the employee's sites. */
-export function TemplateAssignmentsRender({ employee, sites, templates, assignments, loading, loadError, error, busy, templateId, validFrom, onTemplateChange, onValidFromChange, onSubmit, onRetry, onClose }: {
-  employee: Employee; sites: Site[]; templates: Template[]; assignments: TemplateAssignment[]; loading: boolean; loadError: string; error: string; busy: boolean
-  templateId: string; validFrom: string; onTemplateChange: (value: string) => void; onValidFromChange: (value: string) => void
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void; onRetry: () => void; onClose: () => void
-}) {
-  const siteName = (id: string) => sites.find((site) => site.id === id)?.name ?? 'Sede'
-  return <Panel title={`Plantillas de ${employee.displayName}`} action={<button type="button" className="button button-small button-quiet" onClick={onClose}>Cerrar</button>}>
-    <p className="muted">Cada sede tiene su plantilla con fecha de inicio. Una asignación nueva rige desde esa fecha y el historial se conserva; las jornadas ya declaradas no cambian.</p>
-    {error && <PageMessage kind="error">{error}</PageMessage>}
-    {loading ? <Loading label="Cargando plantillas…" /> : loadError ? <LoadFailure message={loadError} onRetry={onRetry} /> : <>
-      {assignments.length ? <ul className="simple-list" aria-label={`Historial de plantillas de ${employee.displayName}`}>{assignments.map((item) => <li key={item.id} className="simple-row">{`${item.templateName} · ${siteName(item.siteId)} · desde ${formatLocalDate(item.validFrom)}`}</li>)}</ul> : <Empty>Todavía no tiene plantillas asignadas.</Empty>}
-      <form className="form-grid" onSubmit={onSubmit}>
-        <FormField label="Plantilla" hint={templates.length === 0 ? 'No hay plantillas activas en las sedes de este empleado.' : undefined}><select required value={templateId} onChange={(event) => onTemplateChange(event.target.value)}><option value="">Elegí una plantilla</option>{templates.map((template) => <option key={template.id} value={template.id}>{`${template.name} · ${siteName(template.siteId)}`}</option>)}</select></FormField>
-        <FormField label="Vigente desde"><input type="date" required value={validFrom} onChange={(event) => onValidFromChange(event.target.value)} /></FormField>
-        <div className="field-wide"><button className="button button-primary" disabled={busy || !templateId || !validFrom}>{busy ? 'Guardando…' : 'Asignar plantilla'}</button></div>
-      </form>
-    </>}
-  </Panel>
-}
-
 const WEEKDAYS: { value: number; label: string }[] = [
   { value: 1, label: 'Lunes' }, { value: 2, label: 'Martes' }, { value: 3, label: 'Miércoles' }, { value: 4, label: 'Jueves' },
   { value: 5, label: 'Viernes' }, { value: 6, label: 'Sábado' }, { value: 7, label: 'Domingo' }
@@ -361,36 +286,6 @@ export function BulkDeclarationRender({ sites, employees, templates, siteId, emp
       {result.skipped.length > 0 && <ul className="simple-list" aria-label="Fechas salteadas">{result.skipped.map((item) => <li key={`${item.employeeId}-${item.localDate}`} className="simple-row">{`${peopleById.get(item.employeeId) ?? 'Empleado'} · ${formatLocalDate(item.localDate)} · ${SKIP_REASONS[item.reason] ?? item.reason}`}</li>)}</ul>}
     </div>}
   </form></Panel>
-}
-
-export function TemplatesViewRender({ sites, siteTemplates, loading, loadError, error, notice, busy, selectedSite, editing, name, blocks, breakfast, lunch, onReload, onSiteChange, onBeginEdit, onSubmit, onNameChange, onBlockChange, onRemoveBlock, onAddBlock, onBreakfastChange, onLunchChange, onResetForm }: {
-  sites: Site[]; siteTemplates: Template[]; loading: boolean; loadError: string; error: string; notice: string; busy: boolean; selectedSite: string; editing: string; name: string; blocks: TemplateBlock[]; breakfast: string; lunch: string
-  onReload: () => void; onSiteChange: (id: string) => void; onBeginEdit: (template: Template) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void
-  onNameChange: (value: string) => void; onBlockChange: (index: number, patch: Partial<TemplateBlock>) => void; onRemoveBlock: (index: number) => void; onAddBlock: () => void
-  onBreakfastChange: (value: string) => void; onLunchChange: (value: string) => void; onResetForm: () => void
-}) {
-  return <>
-    <PageHeading eyebrow="HORARIOS" title="Plantillas" subtitle="Configurá bloques por sede. Los horarios pueden cruzar la medianoche." />
-    {error && <PageMessage kind="error">{error}</PageMessage>}
-    {notice && <PageMessage kind="success">{notice}</PageMessage>}
-    <div className="toolbar"><FormField label="Sede"><select value={selectedSite} onChange={(event) => onSiteChange(event.target.value)}>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></FormField></div>
-    <div className="content-grid"><Panel title="Plantillas de la sede">{loading ? <Loading /> : loadError ? <LoadFailure message={loadError} onRetry={onReload} /> : siteTemplates.length ? <div className="template-list">{siteTemplates.map((template) => <article className="template-card" key={template.id}><div><div className="template-title"><strong>{template.name}</strong><span className={`status-chip ${template.active ? 'status-justificado' : 'status-inactivo'}`}>{template.active ? 'Activa' : 'Inactiva'}</span></div><p>{template.blocks.map(formatBlock).join(' · ')}</p><small>Pausas: desayuno {template.breakfastLimitMinutes} min · almuerzo {template.lunchLimitMinutes} min</small></div><button className="button button-small button-quiet" aria-label={`Editar plantilla ${template.name}`} onClick={() => onBeginEdit(template)}>Editar</button></article>)}</div> : <Empty>No hay plantillas para esta sede.</Empty>}</Panel>
-      <Panel title={editing ? 'Editar plantilla' : 'Crear plantilla'}><form className="form-stack" onSubmit={onSubmit}>
-        <FormField label="Nombre"><input required maxLength={120} value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="Mañana, tarde, noche…" /></FormField>
-        <div className="form-subhead"><strong>Bloques de trabajo</strong><span>{blocks.length}/4</span></div>
-        {blocks.map((block, index) => <fieldset className="block-editor" key={index}><legend>Bloque {index + 1}</legend><div className="block-fields">
-          <FormField label="Empieza"><input type="time" required value={block.start} onChange={(event) => onBlockChange(index, { start: event.target.value })} /></FormField>
-          <FormField label="Empieza el día"><select value={block.startDayOffset} disabled={index === 0} onChange={(event) => onBlockChange(index, { startDayOffset: Number(event.target.value) as 0 | 1 })}><option value={0}>Mismo día</option><option value={1}>Día siguiente</option></select></FormField>
-          <FormField label="Termina"><input type="time" required value={block.end} onChange={(event) => onBlockChange(index, { end: event.target.value })} /></FormField>
-          <FormField label="Termina el día"><select value={block.endDayOffset} onChange={(event) => onBlockChange(index, { endDayOffset: Number(event.target.value) as 0 | 1 })}><option value={0}>Mismo día</option><option value={1}>Día siguiente</option></select></FormField>
-          {blocks.length > 1 && <button type="button" className="button button-small button-quiet remove-block" onClick={() => onRemoveBlock(index)}>Quitar</button>}
-        </div></fieldset>)}
-        <button type="button" className="button button-quiet" disabled={blocks.length >= 4} onClick={onAddBlock}>+ Agregar bloque</button>
-        <div className="form-grid"><FormField label="Límite desayuno (min)"><input type="number" min="0" max="240" required value={breakfast} onChange={(event) => onBreakfastChange(event.target.value)} /></FormField><FormField label="Límite almuerzo (min)"><input type="number" min="0" max="240" required value={lunch} onChange={(event) => onLunchChange(event.target.value)} /></FormField></div>
-        <div className="button-row"><button className="button button-primary" disabled={busy || loading || Boolean(loadError) || !selectedSite}>{busy ? 'Guardando…' : editing ? 'Guardar cambios' : 'Crear plantilla'}</button>{editing && <button type="button" className="button button-quiet" onClick={onResetForm}>Cancelar</button>}</div>
-      </form></Panel>
-    </div>
-  </>
 }
 
 export function JourneysViewRender({ bulkPanel, sites, eligibleEmployees, siteTemplates, jornadas, loading, journeysLoading, journeysDate, journeysError, dependencyError, error, notice, busy, detail, detailLoading, markBusy, date, dateError, employeeId, siteId, templateId, peopleById, detailSite, detailTimeZone, forgotAction, forgotOccurredAt, forgotReason, editingMarkId, correctedAction, correctedOccurredAt, correctionReason, cancelOpen, cancelReason, voidingMarkId, voidReason, auditOpen, audit, auditLoading, auditError, onToggleAudit, onRetryAudit, onDateChange, onEmployeeChange, onSiteChange, onTemplateChange, onDeclare, onRetryDependencies, onReloadJourneys, onShowDetail, onForgotActionChange, onForgotOccurredAtChange, onForgotReasonChange, onAddForgottenMark, onBeginMarkCorrection, onCorrectedActionChange, onCorrectedOccurredAtChange, onCorrectionReasonChange, onCorrectMark, onCancelMarkCorrection, onBeginCancel, onCancelReasonChange, onConfirmCancel, onAbortCancel, onBeginVoid, onVoidReasonChange, onConfirmVoid, onAbortVoid }: {
@@ -547,13 +442,12 @@ export function AdminHistoryRender({ employees, sites, loadingOptions, optionsEr
   </>
 }
 
-function LoadFailure({ message, onRetry }: { message: string; onRetry: () => void }) {
+export function LoadFailure({ message, onRetry }: { message: string; onRetry: () => void }) {
   return <div className="form-stack"><PageMessage kind="error">{message}</PageMessage><button type="button" className="button button-quiet" onClick={onRetry}>Reintentar</button></div>
 }
 
-const who = (person: Employee) => person.dni ? `DNI ${person.dni}` : 'identificador interno'
 
-function PageHeading({ eyebrow, title, subtitle }: { eyebrow: string; title: string; subtitle: string }) {
+export function PageHeading({ eyebrow, title, subtitle }: { eyebrow: string; title: string; subtitle: string }) {
   return <div className="page-title-row"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p className="muted">{subtitle}</p></div></div>
 }
 

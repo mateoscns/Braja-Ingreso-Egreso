@@ -55,22 +55,22 @@ describe('ApiClient', () => {
     })
   })
 
-  it('explica que falta una plantilla vigente al declarar sin plantilla (422 TEMPLATE_REQUIRED)', async () => {
+  it('explica que falta un horario al cargar el día sin horario (422 TEMPLATE_REQUIRED)', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 422, code: 'TEMPLATE_REQUIRED', detail: 'internal' }),
       { status: 422, headers: { 'Content-Type': 'application/problem+json' } })))
 
     await expect(new ApiClient().get('/jornadas')).rejects.toMatchObject({
       status: 422, code: 'TEMPLATE_REQUIRED',
-      message: 'El empleado no tiene una plantilla vigente en esa sede para esa fecha. Elegí una plantilla o asignale una desde Empleados.'
+      message: 'Esa persona no tiene un horario en ese local para ese día. Elegí un horario o asignale uno desde Empleados.'
     })
   })
 
-  it('explica que ya hay una asignación de plantilla para esa sede y fecha (409 ASSIGNMENT_EXISTS)', async () => {
+  it('explica que ya hay un horario asignado en ese local desde ese día (409 ASSIGNMENT_EXISTS)', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 409, code: 'ASSIGNMENT_EXISTS' }),
       { status: 409, headers: { 'Content-Type': 'application/problem+json' } })))
 
     await expect(new ApiClient().get('/employees')).rejects.toMatchObject({
-      message: 'Ese empleado ya tiene una plantilla asignada en esa sede desde esa fecha. Elegí otra fecha de inicio.'
+      message: 'Esa persona ya tiene un horario en ese local desde ese día. Elegí otro día.'
     })
   })
 })
@@ -350,7 +350,8 @@ describe('ApiClient: codes of the production backend and proxy', () => {
 
   it.each([
     [409, 'EMPLOYEE_NOT_IN_SITE', 'Ese empleado no está asignado a esa sede. Agregale la sede desde Empleados y volvé a intentar.'],
-    [422, 'TEMPLATE_INVALID', 'La plantilla está inactiva y no se puede usar. Elegí otra plantilla o revisala en Plantillas.'],
+    [422, 'TEMPLATE_INVALID', 'Ese horario está desactivado y no se puede usar. Elegí otro o revisalo en Horarios.'],
+    [409, 'TEMPLATE_IN_USE', 'Ese horario ya se usa, así que no puede pasar a otro local. Creá un horario nuevo para ese local.'],
     [422, 'PASSWORD_TOO_LONG', 'La contraseña es demasiado larga: puede tener hasta 72 bytes. Las letras con tilde y la ñ ocupan 2 cada una.'],
     [413, 'PAYLOAD_TOO_LARGE', 'Los datos enviados son demasiado grandes. Acortá los textos y volvé a intentar.']
   ])('a %i %s has a specific message', async (status, code, message) => {
