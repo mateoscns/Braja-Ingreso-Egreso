@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AdminApp } from './AdminApp'
 import { AdminInbox, EmployeesView, JourneysView, SitesView, TemplatesView } from './AdminViews'
-import { formatLocalDate } from '../../shared/format'
+import { formatLocalDate, jornadaStateLabel as formatJornadaState } from '../../shared/format'
 
 const apiMocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn() }))
 const adminSessionMocks = vi.hoisted(() => ({
@@ -498,6 +498,53 @@ describe('administración de desvíos y marcas', () => {
     }
   })
 
+  // 2026-11-09 (integrated check of PR #107): at 360 px the day list was a table to swipe sideways for "Ver marcas", and the
+  // five inbox filters pushed the first case down to about 1040 px.
+  describe('en un teléfono', () => {
+    let previousMatchMedia: PropertyDescriptor | undefined
+    beforeEach(() => {
+      previousMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia')
+      Object.defineProperty(window, 'matchMedia', { configurable: true, value: vi.fn((query: string) => ({ matches: query === '(max-width: 520px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })) })
+    })
+    afterEach(() => {
+      if (previousMatchMedia) Object.defineProperty(window, 'matchMedia', previousMatchMedia)
+      else Reflect.deleteProperty(window, 'matchMedia')
+    })
+
+    it('muestra los días cargados como tarjetas, con "Ver marcas" a la vista', async () => {
+      render(<JourneysView />)
+      const card = await screen.findByRole('article', { name: 'Lucía Pérez' })
+      expect(screen.queryByRole('columnheader', { name: 'Empleado' })).not.toBeInTheDocument()
+      expect(card).toHaveTextContent('Local Centro')
+      expect(card).toHaveTextContent(formatJornadaState('EN_CURSO'))
+      fireEvent.click(within(card).getByRole('button', { name: 'Ver marcas de Lucía Pérez' }))
+      expect(await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')).toBeInTheDocument()
+    })
+
+    it('pliega los filtros de la bandeja y resume en una línea los que están aplicados', async () => {
+      render(<AdminInbox />)
+      await screen.findByText(/Lucía Pérez ·/)
+      const fold = screen.getByText('Filtros: todos').closest('details')!
+      expect(fold).not.toHaveAttribute('open')
+      const form = screen.getByRole('form', { name: 'Filtros de la bandeja', hidden: true })
+      expect(fold).toContainElement(form)
+
+      await waitFor(() => expect(within(form).getAllByRole('option', { name: 'Lucía Pérez', hidden: true })).toHaveLength(1))
+      fireEvent.change(within(form).getByLabelText('Empleado'), { target: { value: 'e-1' } })
+      fireEvent.change(within(form).getByLabelText('Sede'), { target: { value: 's-1' } })
+      fireEvent.click(within(form).getByRole('button', { name: 'Aplicar', hidden: true }))
+      expect(await screen.findByText('Filtros: Lucía Pérez · Local Centro')).toBeInTheDocument()
+    })
+
+    it('en la pantalla ancha los filtros siguen abiertos, sin pliegue', async () => {
+      Object.defineProperty(window, 'matchMedia', { configurable: true, value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })) })
+      render(<AdminInbox />)
+      await screen.findByText(/Lucía Pérez ·/)
+      expect(screen.getByRole('form', { name: 'Filtros de la bandeja' }).closest('details')).toBeNull()
+      expect(screen.queryByText(/^Filtros:/)).not.toBeInTheDocument()
+    })
+  })
+
   it('da contexto accesible al botón Corregir de cada marca', async () => {
     render(<JourneysView />)
     fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
@@ -605,7 +652,7 @@ describe('administración de desvíos y marcas', () => {
 
     it('does not call the API with a 73-byte password that fits in 72 characters and explains the limit', async () => {
       await fillNewEmployee(`ñ${'a'.repeat(71)}`)
-      expect(await screen.findByText('La contraseña es demasiado larga: puede tener hasta 72 bytes. Las letras con tilde y la ñ ocupan 2 cada una.')).toBeInTheDocument()
+      expect(await screen.findByText('La contraseña es demasiado larga: puede tener hasta 72 caracteres, y las letras con tilde y la ñ cuentan como 2.')).toBeInTheDocument()
       expect(apiMocks.post).not.toHaveBeenCalled()
     })
 
@@ -699,9 +746,9 @@ describe('administración de desvíos y marcas', () => {
 
   it('un error de red en la vista de administración no usa el texto de marca del empleado', async () => {
     const previousGet = apiMocks.get.getMockImplementation()!
-    apiMocks.get.mockImplementation((path: string) => path === '/employees' ? Promise.reject(new Error('No se pudo conectar con el servidor. Revisá tu conexión y reintentá.')) : previousGet(path))
+    apiMocks.get.mockImplementation((path: string) => path === '/employees' ? Promise.reject(new Error('No se pudo conectar. Revisá tu conexión a internet y reintentá.')) : previousGet(path))
     render(<EmployeesView />)
-    expect(await screen.findByText(/No se pudo conectar con el servidor/)).toBeInTheDocument()
+    expect(await screen.findByText(/No se pudo conectar. Revisá tu conexión/)).toBeInTheDocument()
     expect(screen.queryByText(/marca no fue confirmada/)).not.toBeInTheDocument()
   })
 
@@ -1078,9 +1125,11 @@ describe('administración de desvíos y marcas', () => {
       await panel.findByRole('checkbox', { name: 'Lucía Pérez' })
       fireEvent.click(panel.getByRole('button', { name: 'Cargar días' }))
 
-      expect(await panel.findByText('Se cargó 1 día. No se cargaron 3:', { exact: false })).toBeInTheDocument()
+      const outcome = await panel.findByText('Se cargó 1 día. No se cargaron 3:', { exact: false })
       const skipped = panel.getByRole('list', { name: 'Días que no se cargaron' })
-      expect(skipped).toHaveTextContent('Ya tenían día cargado (2)')
+      // The reasons sit inside the result box, and each group names its people.
+      expect(outcome).toContainElement(skipped)
+      expect(skipped).toHaveTextContent('Ya tenían día cargado: Lucía Pérez (2)')
       expect(skipped).toHaveTextContent('Sin horario asignado: Lucía Pérez (1)')
       expect(within(skipped).getAllByRole('listitem')).toHaveLength(2)
       fireEvent.click(panel.getByRole('button', { name: 'Asignar horario' }))

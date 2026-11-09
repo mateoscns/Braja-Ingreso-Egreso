@@ -143,23 +143,23 @@ export function AdminPushControl({ companyName }: { companyName: string }) {
     finally { setBusy(false) }
   }
 
-  const unavailable = !supported
-    ? 'Este navegador no admite avisos. En iPhone, instalá la app desde Safari (Compartir, Agregar a pantalla de inicio) y abrila desde el ícono.'
+  const [unavailable, unavailableShort] = !supported
+    ? ['Este navegador no admite avisos. En iPhone, instalá la app desde Safari (Compartir, Agregar a pantalla de inicio) y abrila desde el ícono.', 'Avisos: no disponibles en este navegador']
     : config && (!config.pushEnabled || !config.vapidPublicKey)
-      ? 'Los avisos no están habilitados en el servidor.'
+      ? ['Los avisos todavía no están habilitados en Fichaje.', 'Avisos: no disponibles']
       : !enabled && Notification.permission === 'denied'
-        ? 'No podemos avisarte porque bloqueaste los avisos en este navegador. Habilitalos desde los permisos del sitio.'
-        : ''
-  if (unavailable) return <aside className="push-control" aria-label="Avisos de la aplicación">
-    <div className="push-copy"><strong>Alertas en este dispositivo</strong><span>{unavailable}</span></div>
-  </aside>
+        ? ['No podemos avisarte porque bloqueaste los avisos en este navegador. Habilitalos desde los permisos del sitio.', 'Avisos: bloqueados en este navegador']
+        : ['', '']
+  // On phones and small tablets (styles.css, 760 px or less) only the short status shows, so the fixed bar stays one or two lines tall.
+  const copy = (detail: string, short: string) => <div className="push-copy"><strong className="push-title">Alertas en este dispositivo</strong>
+    <strong className="push-status-short">{short}</strong><span className="push-detail">{detail}</span></div>
+  if (unavailable) return <aside className="push-control" aria-label="Avisos de la aplicación">{copy(unavailable, unavailableShort)}</aside>
   return <aside className="push-control" aria-label="Avisos de la aplicación" aria-busy={configLoading}>
     {configLoading && <PageMessage>Consultando la configuración de avisos…</PageMessage>}
     {configError && <PageMessage kind="error">{configError}</PageMessage>}
     {error && <PageMessage kind="error">{error}</PageMessage>}{message && <PageMessage kind="success">{message}</PageMessage>}
-    <div className="push-copy"><strong>Alertas en este dispositivo</strong><span>
-      {enabled ? `Activadas para ${companyName}.` : `Desactivadas para ${companyName}; cada empresa se activa por separado.`} Solo avisan sobre ingresos pendientes o llegadas tarde.
-    </span></div>
+    {copy(`${enabled ? `Activadas para ${companyName}.` : `Desactivadas para ${companyName}; cada empresa se activa por separado.`} Solo avisan sobre ingresos pendientes o llegadas tarde.`,
+      enabled ? 'Avisos: activados' : 'Avisos: desactivados')}
     {enabled ? <button className="button button-small button-quiet" onClick={() => void deactivate()} disabled={busy}>{busy ? 'Actualizando…' : 'Desactivar'}</button>
       : configError
         ? <button className="button button-small button-outline" onClick={retryConfig} disabled={configLoading}>Reintentar consulta</button>

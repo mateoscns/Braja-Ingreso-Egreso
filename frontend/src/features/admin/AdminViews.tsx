@@ -105,6 +105,7 @@ export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; 
   const [correction, setCorrection] = useState<{ deviationId: string; classification: DeviationClassification } | null>(null)
   const [correctionReason, setCorrectionReason] = useState('')
   const [targetDeviation] = useState(() => new URLSearchParams(window.location.search).get('deviation') ?? '')
+  const narrow = useNarrowScreen()
   // A new filter set always starts from the first page: a cursor is only valid for the filters that produced it.
   const reload = async (active: InboxFilterValues = appliedFilters) => {
     const requestId = ++generation.current
@@ -170,7 +171,7 @@ export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; 
     } catch (reason) { if (requestId === generation.current) setError(errText(reason)) } finally { setBusy('') }
   }
   const filtered = Object.values(appliedFilters).some(Boolean)
-  return <AdminInboxRender coverage={coverage} onOpenJornada={onOpenJornada} items={items} employees={employees} sites={sites} filters={filters} filterError={filterError} filtered={filtered} onFiltersChange={(patch) => setFilters((current) => ({ ...current, ...patch }))} onApplyFilters={applyFilters} onClearFilters={clearFilters} timeZones={timeZones} nextCursor={nextCursor} loading={loading} inboxLoadError={inboxLoadError} timeZoneLoadError={timeZoneLoadError} error={error} notice={notice} busy={busy} correction={correction} correctionReason={correctionReason} targetDeviation={targetDeviation}
+  return <AdminInboxRender narrow={narrow} appliedFilters={appliedFilters} coverage={coverage} onOpenJornada={onOpenJornada} items={items} employees={employees} sites={sites} filters={filters} filterError={filterError} filtered={filtered} onFiltersChange={(patch) => setFilters((current) => ({ ...current, ...patch }))} onApplyFilters={applyFilters} onClearFilters={clearFilters} timeZones={timeZones} nextCursor={nextCursor} loading={loading} inboxLoadError={inboxLoadError} timeZoneLoadError={timeZoneLoadError} error={error} notice={notice} busy={busy} correction={correction} correctionReason={correctionReason} targetDeviation={targetDeviation}
     onReload={() => void reload()} onClassify={requestClassification} onRetry={() => void reload()} onLoadMore={() => void loadMore()} onCorrectionReasonChange={setCorrectionReason}
     onSubmitCorrection={(item) => void classify(item, correction!.classification, correctionReason)} onCancelCorrection={() => { setCorrection(null); setCorrectionReason('') }} />
 }
@@ -705,10 +706,13 @@ export function EmployeesView() {
   // gone when the ADMIN dismisses the panel or leaves the view.
   const [resetTarget, setResetTarget] = useState<string | null>(null)
   const [issuedPassword, setIssuedPassword] = useState<IssuedPassword | null>(null)
-  // After creating an employee the password panel sits next to the form, below the list; bring it into view.
+  // After creating an employee the password panel sits next to the form, below the list; bring it into view. The keyboard
+  // focus goes there too (also after a reset, whose confirm button disappears), so it can be read out right away.
   useEffect(() => {
-    if (issuedPassword?.reason !== 'created') return
-    document.getElementById(ISSUED_PASSWORD_ID)?.scrollIntoView?.({ block: 'nearest' })
+    if (!issuedPassword) return
+    const panel = document.getElementById(ISSUED_PASSWORD_ID)
+    if (issuedPassword.reason === 'created') panel?.scrollIntoView?.({ block: 'nearest' })
+    panel?.focus({ preventScroll: issuedPassword.reason === 'created' })
   }, [issuedPassword])
   function askReset(id: string) { setResetTarget(id); setIssuedPassword(null); setError(''); setNotice('') }
   async function confirmReset() {

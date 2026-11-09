@@ -24,7 +24,7 @@ export function SiteMapPanel({ state, radiusMeters, disabled, onPick, onQueryCha
     <div className="site-map-search">
       {/* Not a nested form: Enter searches here instead of submitting the site form around it. */}
       <FormField label="Buscá la dirección del local">
-        <input type="text" maxLength={200} value={state.query} disabled={disabled} placeholder="Calle, número y localidad" enterKeyHint="search" autoComplete="off"
+        <input type="text" maxLength={200} value={state.query} disabled={disabled} placeholder="Calle y número" enterKeyHint="search" autoComplete="off"
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); onSearch() } }} />
       </FormField>

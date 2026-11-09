@@ -107,6 +107,14 @@ describe('ApiClient: mensajes de error', () => {
     const failure = await new ApiClient().get('/employees').catch((reason: Error) => reason)
     expect((failure as Error).name).toBe('NetworkError')
     expect((failure as Error).message).not.toMatch(/marca/i)
+    expect((failure as Error).message).toBe('No se pudo conectar. Revisá tu conexión a internet y reintentá.')
+  })
+
+  it('un token de seguridad inválido se explica sin palabras técnicas', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ token: 'short' }), { status: 200, headers: { 'Content-Type': 'application/json' } })))
+    const failure = await new ApiClient().put('/companies/active', { companyId: 'company-1' }).catch((reason: Error) => reason)
+    expect((failure as Error).message).toBe('No se pudo preparar la operación. Reintentá en unos segundos.')
+    expect((failure as Error).message).not.toMatch(/servidor|token|CSRF/)
   })
 })
 
@@ -120,7 +128,7 @@ describe('ApiClient: códigos de error conocidos', () => {
     const failure = await new ApiClient().get('/jornadas').catch((reason: unknown) => reason)
     expect(failure).toBeInstanceOf(ApiError)
     expect((failure as ApiError).message).not.toMatch(/ya fue procesada/)
-    expect((failure as ApiError).message).toBe('El servidor estaba ocupado y no completó la operación. Reintentá en unos segundos.')
+    expect((failure as ApiError).message).toBe('El sistema estaba ocupado y no completó la operación. Reintentá en unos segundos.')
     expect((failure as ApiError).code).toBe('RETRYABLE_TRANSACTION_CONFLICT')
     expect((failure as ApiError).retryAfterSeconds).toBe(1)
   })
@@ -255,7 +263,7 @@ describe('ApiClient: tiempo de espera', () => {
 
     const failure = await pending.catch((reason: unknown) => reason)
     expect(failure).toBeInstanceOf(TimeoutError)
-    expect((failure as Error).message).toBe('El servidor tardó demasiado en responder.')
+    expect((failure as Error).message).toBe('El sistema tardó demasiado en responder.')
   })
 
   it('la espera agotada también corta un pedido de token CSRF que no responde y no envía la mutación', async () => {
@@ -352,7 +360,7 @@ describe('ApiClient: codes of the production backend and proxy', () => {
     [409, 'EMPLOYEE_NOT_IN_SITE', 'Esa persona no trabaja en ese local. Agregale el local desde Empleados y volvé a intentar.'],
     [422, 'TEMPLATE_INVALID', 'Ese horario está desactivado y no se puede usar. Elegí otro o revisalo en Horarios.'],
     [409, 'TEMPLATE_IN_USE', 'Ese horario ya se usa, así que no puede pasar a otro local. Creá un horario nuevo para ese local.'],
-    [422, 'PASSWORD_TOO_LONG', 'La contraseña es demasiado larga: puede tener hasta 72 bytes. Las letras con tilde y la ñ ocupan 2 cada una.'],
+    [422, 'PASSWORD_TOO_LONG', 'La contraseña es demasiado larga: puede tener hasta 72 caracteres, y las letras con tilde y la ñ cuentan como 2.'],
     [413, 'PAYLOAD_TOO_LARGE', 'Los datos enviados son demasiado grandes. Acortá los textos y volvé a intentar.']
   ])('a %i %s has a specific message', async (status, code, message) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(coded(status, code)))

@@ -116,7 +116,7 @@ describe('resultado agrupado por motivo', () => {
     }, (id) => names.get(id) ?? 'Una persona')
     expect(summary).toEqual({
       created: 2, skipped: 5,
-      existing: 1,
+      existing: { count: 1, names: ['Lucía'] },
       noSchedule: { count: 3, names: ['Ana', 'Pedro'] },
       inactiveSchedule: { count: 1, names: ['Pedro'] }
     })

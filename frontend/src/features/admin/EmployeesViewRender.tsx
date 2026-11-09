@@ -17,8 +17,9 @@ export const employeeDetailId = (employeeId: string) => `employee-detail-${emplo
 export const ISSUED_PASSWORD_ID = 'issued-password'
 
 function IssuedPasswordPanel({ issued, onDismiss }: { issued: IssuedPassword; onDismiss: () => void }) {
-  return <div id={ISSUED_PASSWORD_ID} className="employee-detail"><Panel title={`Contraseña provisoria de ${issued.displayName}`}>
-    <p><code>{issued.temporaryPassword}</code></p>
+  // tabIndex -1: the container moves the keyboard focus here once the password is shown.
+  return <div id={ISSUED_PASSWORD_ID} className="employee-detail" tabIndex={-1}><Panel title={`Contraseña provisoria de ${issued.displayName}`}>
+    <p><code className="issued-password-code">{issued.temporaryPassword}</code></p>
     <p>Entregásela en persona; se pide cambiarla al ingresar.</p>
     <p className="field-hint">{issued.reason === 'created' ? 'No se vuelve a mostrar. Si ese DNI ya tenía cuenta en Fichaje, esta no se usa: sigue entrando con la suya.' : 'No se vuelve a mostrar. Sus sesiones abiertas se cerraron.'}</p>
     <button type="button" className="button button-small button-primary" onClick={onDismiss}>Listo, ya la entregué</button>

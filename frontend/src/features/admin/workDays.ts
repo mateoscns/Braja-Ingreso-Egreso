@@ -157,7 +157,7 @@ export function validateWorkDays(draft: BulkDeclarationDraft): string {
 }
 
 export type BulkResultSummary = {
-  created: number; skipped: number; existing: number
+  created: number; skipped: number; existing: { count: number; names: string[] }
   noSchedule: { count: number; names: string[] }; inactiveSchedule: { count: number; names: string[] }
 }
 
@@ -169,7 +169,6 @@ export function summarizeBulkResult(result: BulkDeclarationResult, nameOf: (empl
   }
   return {
     created: result.created.length, skipped: result.skipped.length,
-    existing: result.skipped.filter((item) => item.reason === 'JORNADA_EXISTS').length,
-    noSchedule: group('TEMPLATE_REQUIRED'), inactiveSchedule: group('TEMPLATE_INVALID')
+    existing: group('JORNADA_EXISTS'), noSchedule: group('TEMPLATE_REQUIRED'), inactiveSchedule: group('TEMPLATE_INVALID')
   }
 }

@@ -6,6 +6,8 @@ import type { SiteLocationErrorKind } from './siteLocation'
 import type { GeocodeResult } from '../../shared/api/geocode'
 import { SiteMapPanel, type SiteMapPanelState } from './SiteMapPanel'
 import { mapRadiusMeters } from './siteMap'
+import { SiteZoneField } from './SiteZoneField'
+import { timeZoneLabel } from './siteZone'
 
 const stateLabel = jornadaStateLabel
 /** The geofence radius in the owner's words (D-20261109-01): how far from the site's point a mark still counts as on site. */
@@ -44,7 +46,20 @@ function journeysTitle(date: string) {
   return `Jornadas del ${formattedDate}`
 }
 
-export function AdminInboxRender({ coverage, onOpenJornada, items, employees, sites, filters, filterError, filtered, onFiltersChange, onApplyFilters, onClearFilters, timeZones, nextCursor, loading, inboxLoadError, timeZoneLoadError, error, notice, busy, correction, correctionReason, targetDeviation, onReload, onClassify, onRetry, onLoadMore, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
+/** "Filtros: Lucía Pérez · Local Centro · desde 1 nov 2026": the filters in force, for the folded filter line on phones. */
+function inboxFilterSummary(applied: InboxFilterValues, employees: Employee[], sites: Site[]): string {
+  const parts = [
+    applied.employeeId && (employees.find((person) => person.id === applied.employeeId)?.displayName ?? 'Un empleado'),
+    applied.siteId && (sites.find((site) => site.id === applied.siteId)?.name ?? 'Una sede'),
+    applied.from && `desde ${formatLocalDate(applied.from)}`,
+    applied.to && `hasta ${formatLocalDate(applied.to)}`
+  ].filter(Boolean)
+  return `Filtros: ${parts.length ? parts.join(' · ') : 'todos'}`
+}
+
+export function AdminInboxRender({ narrow = false, appliedFilters = EMPTY_INBOX_FILTERS, coverage, onOpenJornada, items, employees, sites, filters, filterError, filtered, onFiltersChange, onApplyFilters, onClearFilters, timeZones, nextCursor, loading, inboxLoadError, timeZoneLoadError, error, notice, busy, correction, correctionReason, targetDeviation, onReload, onClassify, onRetry, onLoadMore, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
+  /** Phone width: the filters fold under one line that says which ones are applied, so the first case is in sight. */
+  narrow?: boolean; appliedFilters?: InboxFilterValues
   /** The notice of days loaded (CoverageNotice) and the way to a deviation's jornada, both given by AdminApp. */
   coverage?: ReactNode; onOpenJornada?: (item: Deviation) => void
   items: Deviation[]; employees: Employee[]; sites: Site[]; filters: InboxFilterValues; filterError: string; filtered: boolean
@@ -54,6 +69,14 @@ export function AdminInboxRender({ coverage, onOpenJornada, items, employees, si
   onReload: () => void; onClassify: (item: Deviation, classification: DeviationClassification) => void; onRetry: () => void; onLoadMore: () => void
   onCorrectionReasonChange: (reason: string) => void; onSubmitCorrection: (item: Deviation) => void; onCancelCorrection: () => void
 }) {
+  const filterForm = <form className="filter-bar" aria-label="Filtros de la bandeja" noValidate onSubmit={(event) => { event.preventDefault(); onApplyFilters() }}>
+    <FormField label="Empleado"><select value={filters.employeeId} onChange={(event) => onFiltersChange({ employeeId: event.target.value })}><option value="">Todos</option>{employees.map((person) => <option key={person.id} value={person.id}>{person.displayName}</option>)}</select></FormField>
+    <FormField label="Sede"><select value={filters.siteId} onChange={(event) => onFiltersChange({ siteId: event.target.value })}><option value="">Todas</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></FormField>
+    <FormField label="Desde"><input type="date" value={filters.from} onChange={(event) => onFiltersChange({ from: event.target.value })} /></FormField>
+    <FormField label="Hasta"><input type="date" value={filters.to} onChange={(event) => onFiltersChange({ to: event.target.value })} /></FormField>
+    <div className="button-row filter-actions"><button className="button button-primary" disabled={loading}>Aplicar</button><button type="button" className="button button-quiet" disabled={loading} onClick={onClearFilters}>Limpiar</button></div>
+    {filterError && <div className="filter-error"><PageMessage kind="error">{filterError}</PageMessage></div>}
+  </form>
   return <>
     <div className="page-title-row"><div><p className="eyebrow">CENTRO DE CONTROL</p><h1>Bandeja de desvíos</h1><p className="muted">Revisá motivos y resolvé cada caso. Las notificaciones no incluyen datos privados.</p></div><button className="button button-quiet" disabled={loading} onClick={onReload}>{loading ? 'Actualizando…' : 'Actualizar'}</button></div>
     {error && <PageMessage kind="error">{error}</PageMessage>}
@@ -61,14 +84,7 @@ export function AdminInboxRender({ coverage, onOpenJornada, items, employees, si
     {timeZoneLoadError && <PageMessage kind="error">No se pudieron cargar las zonas horarias de las sedes: {timeZoneLoadError} Las horas se muestran en la zona horaria de este dispositivo.</PageMessage>}
     {targetDeviation && items.some((item) => item.id === targetDeviation) && <PageMessage kind="success">Abriste el desvío indicado por la notificación.</PageMessage>}
     {coverage}
-    <form className="filter-bar" aria-label="Filtros de la bandeja" noValidate onSubmit={(event) => { event.preventDefault(); onApplyFilters() }}>
-      <FormField label="Empleado"><select value={filters.employeeId} onChange={(event) => onFiltersChange({ employeeId: event.target.value })}><option value="">Todos</option>{employees.map((person) => <option key={person.id} value={person.id}>{person.displayName}</option>)}</select></FormField>
-      <FormField label="Sede"><select value={filters.siteId} onChange={(event) => onFiltersChange({ siteId: event.target.value })}><option value="">Todas</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></FormField>
-      <FormField label="Desde"><input type="date" value={filters.from} onChange={(event) => onFiltersChange({ from: event.target.value })} /></FormField>
-      <FormField label="Hasta"><input type="date" value={filters.to} onChange={(event) => onFiltersChange({ to: event.target.value })} /></FormField>
-      <div className="button-row filter-actions"><button className="button button-primary" disabled={loading}>Aplicar</button><button type="button" className="button button-quiet" disabled={loading} onClick={onClearFilters}>Limpiar</button></div>
-      {filterError && <div className="filter-error"><PageMessage kind="error">{filterError}</PageMessage></div>}
-    </form>
+    {narrow ? <details className="fold filter-fold"><summary>{inboxFilterSummary(appliedFilters, employees, sites)}</summary>{filterForm}</details> : filterForm}
     <Panel title="Casos recientes">{inboxLoadError ? <LoadFailure message={inboxLoadError} onRetry={onRetry} /> : <>
       <DeviationList items={items} onOpenJornada={onOpenJornada} filtered={filtered} loading={loading} busy={busy} onClassify={onClassify} targetId={targetDeviation} timeZones={timeZones}
         correction={correction} correctionReason={correctionReason} onCorrectionReasonChange={onCorrectionReasonChange}
@@ -144,7 +160,7 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, name
     {error && <PageMessage kind="error">{error}</PageMessage>}
     {notice && <PageMessage kind="success">{notice}</PageMessage>}
     <div className="content-grid"><Panel title="Sedes registradas">{loading ? <Loading /> : loadError ? <LoadFailure message={loadError} onRetry={onReload} /> : sites.length ? <div className="simple-list">{sites.map((site) => <article key={site.id} className="form-stack">
-      <div className="simple-row"><span className="row-avatar" aria-hidden="true">⌖</span><span><strong>{site.name}</strong><small>{site.timeZone}</small><small>{typeof site.latitude === 'number' && typeof site.longitude === 'number' ? 'Ubicación cargada' : 'Sin ubicación cargada'}</small><small>Distancia permitida para marcar: {site.geofenceRadiusMeters ?? '—'} m</small></span></div>
+      <div className="simple-row"><span className="row-avatar" aria-hidden="true">⌖</span><span><strong>{site.name}</strong><small>{`Hora de ${timeZoneLabel(site.timeZone)}`}</small><small>{typeof site.latitude === 'number' && typeof site.longitude === 'number' ? 'Ubicación cargada' : 'Sin ubicación cargada'}</small><small>Distancia permitida para marcar: {site.geofenceRadiusMeters ?? '—'} m</small></span></div>
       <div className="button-row"><button type="button" className="button button-small button-quiet" disabled={busy} aria-label={`Cambiar ubicación de ${site.name}`} onClick={() => onBeginLocationEdit(site)}>Cambiar ubicación</button><button type="button" className="button button-small button-quiet" disabled={busy} aria-expanded={siteLocationAuditFor === site.id} aria-controls={`site-location-audit-${site.id}`} onClick={() => onToggleSiteLocationAudit(site.id)}>{siteLocationAuditFor === site.id ? 'Ocultar historial' : 'Ver historial de ubicación'}</button></div>
       {locationEdit?.siteId === site.id && <form className="form-stack" aria-label={`Cambiar ubicación de ${site.name}`} onSubmit={onSaveLocationEdit}>
         <fieldset className="site-location-field fieldset-plain">
@@ -211,7 +227,7 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, name
           </details>
         </fieldset>
         <FormField label={RADIUS_LABEL} hint="Desde el punto elegido: entre 50 y 500 m. Si no sabés, dejá 100 m."><input type="number" required min="50" max="500" step="1" value={createRadiusMeters} onChange={(event) => onCreateRadiusMetersChange(event.target.value)} /></FormField>
-        <FormField label="Zona horaria" hint="Usá la zona por región de la base IANA, como America/Argentina/Buenos_Aires (no EST ni -03:00)."><input required maxLength={64} value={timeZone} onChange={(event) => onTimeZoneChange(event.target.value)} placeholder="America/Argentina/Buenos_Aires" /></FormField>
+        <SiteZoneField value={timeZone} onChange={onTimeZoneChange} />
         <button className="button button-primary" disabled={busy || locating}>{busy ? 'Guardando…' : 'Crear sede'}</button>
       </form></Panel>
     </div>
@@ -306,7 +322,14 @@ export function JourneysViewRender({ workDaysPanel, coverage, narrow = false, si
     </details></section>
     <Panel title={journeysTitle(date)} action={<button className="button button-small button-quiet" disabled={journeysLoading} onClick={onReloadJourneys}>{journeysLoading ? 'Actualizando…' : 'Actualizar'}</button>}>
       <div className="toolbar"><FormField label="Fecha" hint={dateError || undefined}><input type="date" required aria-invalid={Boolean(dateError)} disabled={loading} value={date} onChange={(event) => onDateChange(event.target.value)} /></FormField></div>
-      {!date ? <Empty>{dateError}</Empty> : loading || journeysLoading || journeysDate !== date ? <Loading label={loading || !journeysDate ? 'Cargando jornadas…' : 'Actualizando jornadas…'} /> : journeysError ? <LoadFailure message={journeysError} onRetry={onReloadJourneys} /> : jornadas.length ? <div className="table-scroll"><table><thead><tr><th>Empleado</th><th>Sede</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{jornadas.map((jornada) => <tr key={jornada.id}><td>{peopleById.get(jornada.employeeId) ?? 'Empleado'}</td><td>{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Sede'}</td><td><span className={`status-chip status-${jornada.state.toLowerCase()}`}>{stateLabel(jornada.state)}</span></td><td><button className="button button-small button-quiet" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></td></tr>)}</tbody></table></div> : <Empty>No hay días cargados para esta fecha.</Empty>}
+      {!date ? <Empty>{dateError}</Empty> : loading || journeysLoading || journeysDate !== date ? <Loading label={loading || !journeysDate ? 'Cargando jornadas…' : 'Actualizando jornadas…'} /> : journeysError ? <LoadFailure message={journeysError} onRetry={onReloadJourneys} /> : jornadas.length ? narrow ? <div className="history-list">{jornadas.map((jornada) => {
+        // Phones: one card per day loaded, so "Ver marcas" is in sight without swiping a table sideways.
+        const person = peopleById.get(jornada.employeeId) ?? 'Empleado'
+        return <article className="history-card" key={jornada.id} aria-labelledby={`jornada-${jornada.id}-person`}>
+          <div className="history-head"><strong id={`jornada-${jornada.id}-person`}>{person}</strong><span className="muted">{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Sede'}</span><span className={`status-chip status-${jornada.state.toLowerCase()}`}>{stateLabel(jornada.state)}</span></div>
+          <button className="button button-small button-quiet" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button>
+        </article>
+      })}</div> : <div className="table-scroll"><table><thead><tr><th>Empleado</th><th>Sede</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{jornadas.map((jornada) => <tr key={jornada.id}><td>{peopleById.get(jornada.employeeId) ?? 'Empleado'}</td><td>{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Sede'}</td><td><span className={`status-chip status-${jornada.state.toLowerCase()}`}>{stateLabel(jornada.state)}</span></td><td><button className="button button-small button-quiet" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></td></tr>)}</tbody></table></div> : <Empty>No hay días cargados para esta fecha.</Empty>}
     </Panel>
     {detailLoading && <Panel title="Detalle"><Loading label="Consultando marcas…" /></Panel>}
     {detail && !detailLoading && <div id="jornada-detail"><Panel title={`Marcas de ${peopleById.get(detail.employeeId) ?? 'empleado'}`}>

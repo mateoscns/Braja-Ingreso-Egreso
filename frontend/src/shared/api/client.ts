@@ -21,7 +21,7 @@ export class ApiError extends Error {
 /** Network failure: the request never got a response. Each screen decides how to contextualize it. */
 export class NetworkError extends Error {
   constructor() {
-    super('No se pudo conectar con el servidor. Revisá tu conexión y reintentá.')
+    super('No se pudo conectar. Revisá tu conexión a internet y reintentá.')
     this.name = 'NetworkError'
   }
 }
@@ -29,7 +29,7 @@ export class NetworkError extends Error {
 /** The caller's deadline expired before a response arrived; the server may or may not have applied the request. */
 export class TimeoutError extends Error {
   constructor() {
-    super('El servidor tardó demasiado en responder.')
+    super('El sistema tardó demasiado en responder.')
     this.name = 'TimeoutError'
   }
 }
@@ -44,7 +44,7 @@ function waitText(seconds?: number): string {
 const STALE_MARK = 'El estado de la jornada cambió y esa marca ya no corresponde. Revisá el estado actualizado.'
 const CONFLICT_MESSAGES: Record<string, string> = {
   MARK_TOO_EARLY: 'Todavía es temprano para marcar. La entrada se puede marcar desde 30 minutos antes de tu horario; las demás marcas, desde que empieza tu turno.',
-  RETRYABLE_TRANSACTION_CONFLICT: 'El servidor estaba ocupado y no completó la operación. Reintentá en unos segundos.',
+  RETRYABLE_TRANSACTION_CONFLICT: 'El sistema estaba ocupado y no completó la operación. Reintentá en unos segundos.',
   INVALID_MARK_TRANSITION: STALE_MARK,
   INVALID_MARK_ORDER: STALE_MARK,
   INVALID_MARK_HISTORY: STALE_MARK,
@@ -207,7 +207,7 @@ export class ApiClient {
         method: 'GET', credentials: 'include', cache: 'no-store', redirect: 'error', referrerPolicy: 'same-origin'
       }).then(({ token }) => {
         if (typeof token !== 'string' || token.length < 16 || token.length > 256) {
-          throw new Error('El servidor no entregó un token CSRF válido.')
+          throw new Error('No se pudo preparar la operación. Reintentá en unos segundos.')
         }
         this.csrfToken = token
         return token

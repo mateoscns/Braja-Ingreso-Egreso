@@ -86,10 +86,31 @@ describe('AdminPushControl', () => {
     expect(screen.queryByRole('button', { name: 'Activar avisos' })).not.toBeInTheDocument()
   })
 
-  it('explica que el servidor tiene los avisos deshabilitados', async () => {
+  it('explica que los avisos no están habilitados, sin hablar de servidores', async () => {
     vi.mocked(api.publicConfig<PublicConfig>).mockResolvedValue({ pushEnabled: false, vapidPublicKey: null })
-    render(<AdminPushControl companyName="Braja Centro" />)
-    expect(await screen.findByText(/no están habilitados en el servidor/)).toBeInTheDocument()
+    const { container } = render(<AdminPushControl companyName="Braja Centro" />)
+    expect(await screen.findByText('Los avisos todavía no están habilitados en Fichaje.')).toBeInTheDocument()
+    expect(container).not.toHaveTextContent(/servidor/)
+    expect(container.querySelector('.push-status-short')).toHaveTextContent('Avisos: no disponibles')
+  })
+
+  // 2026-11-09 (integrated check of PR #107): at 360 px the bar wrapped to four lines and took 127 px of the screen.
+  it('en el celular muestra un estado corto al lado del botón: "Avisos: desactivados" o "Avisos: activados"', async () => {
+    useBrowserSubscription(browserSubscription())
+    vi.mocked(api.publicConfig<PublicConfig>).mockResolvedValue({ pushEnabled: true, vapidPublicKey: 'public-vapid-key' })
+    vi.mocked(api.post).mockResolvedValue({ subscribed: false })
+    const { container } = render(<AdminPushControl companyName="Braja Norte" />)
+
+    await screen.findByText(/Desactivadas para Braja Norte/)
+    expect(container.querySelector('.push-status-short')).toHaveTextContent(/^Avisos: desactivados$/)
+    expect(container.querySelector('.push-title')).toHaveTextContent('Alertas en este dispositivo')
+    expect(container.querySelector('.push-detail')).toHaveTextContent(/Desactivadas para Braja Norte/)
+
+    cleanup()
+    vi.mocked(api.post).mockResolvedValue({ subscribed: true, id: 'sub-1' })
+    const enabled = render(<AdminPushControl companyName="Braja Centro" />)
+    await screen.findByText(/Activadas para Braja Centro/)
+    expect(enabled.container.querySelector('.push-status-short')).toHaveTextContent(/^Avisos: activados$/)
   })
 
   it('explica cómo habilitar los avisos cuando el permiso está bloqueado', async () => {

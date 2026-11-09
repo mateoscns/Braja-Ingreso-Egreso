@@ -48,8 +48,11 @@ describe('Empleados: easier for a shop owner', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Crear empleado' }))
 
     await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/employees', expect.objectContaining({ temporaryPassword: generated })))
-    const panel = within(await screen.findByRole('region', { name: 'Contraseña provisoria de Ana Gómez' }))
-    expect(panel.getByText(generated)).toBeInTheDocument()
+    const region = await screen.findByRole('region', { name: 'Contraseña provisoria de Ana Gómez' })
+    const panel = within(region)
+    // Large, spaced code, and the keyboard lands on it (2026-11-09: it was small and focus stayed on the form below).
+    expect(panel.getByText(generated)).toHaveClass('issued-password-code')
+    await waitFor(() => expect(document.activeElement).toContainElement(region))
     expect(panel.getByText('Entregásela en persona; se pide cambiarla al ingresar.')).toBeInTheDocument()
     expect(storageWrites).not.toHaveBeenCalled()
     fireEvent.click(panel.getByRole('button', { name: 'Listo, ya la entregué' }))

@@ -59,7 +59,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     try { await api.delete('/session') } catch (reason) {
       // A 401 means the server session was already gone, which is what signing out wants.
       if (!(reason instanceof ApiError && reason.status === 401)) {
-        failure = 'No se pudo confirmar el cierre de sesión con el servidor. Cerrá también esta pestaña si terminaste.'
+        failure = 'No pudimos confirmar que la sesión se cerró. Si terminaste, cerrá también esta pestaña.'
       }
     } finally {
       api.clearCsrf()

@@ -72,17 +72,18 @@ export function WorkDaysFormRender({ sites, employees, templates, values, previe
     {error && <div id={errorId}><PageMessage kind="error">{error}</PageMessage></div>}
     <div><button className="button button-primary" disabled={busy || disabled}>{busy ? 'Cargando…' : 'Cargar días'}</button></div>
     {result && <div className="form-stack" aria-label="Resultado de la carga" role="group">
+      {/* The reasons sit inside the result box, each group with the people it names. */}
       <PageMessage kind={result.created > 0 ? 'success' : 'info'}>
         {result.created === 0 ? 'No se cargó ningún día.' : result.created === 1 ? 'Se cargó 1 día.' : `Se cargaron ${result.created} días.`}
         {result.skipped > 0 && (result.skipped === 1 ? ' No se cargó 1:' : ` No se cargaron ${result.skipped}:`)}
+        {result.skipped > 0 && <ul className="simple-list work-days-skips" aria-label="Días que no se cargaron">
+          {result.existing.count > 0 && <li className="simple-row">{result.existing.count === 1 ? 'Ya tenía día cargado' : 'Ya tenían día cargado'}: {listNames(result.existing.names)} ({result.existing.count})</li>}
+          {result.noSchedule.count > 0 && <li className="simple-row work-days-skip"><span>Sin horario asignado: {listNames(result.noSchedule.names)} ({result.noSchedule.count})</span>
+            <button type="button" className="button button-small button-outline" onClick={onAssignSchedules}>Asignar horario</button></li>}
+          {result.inactiveSchedule.count > 0 && <li className="simple-row work-days-skip"><span>Con el horario desactivado: {listNames(result.inactiveSchedule.names)} ({result.inactiveSchedule.count})</span>
+            <button type="button" className="button button-small button-outline" onClick={onReviewSchedules}>Revisar horarios</button></li>}
+        </ul>}
       </PageMessage>
-      {result.skipped > 0 && <ul className="simple-list work-days-skips" aria-label="Días que no se cargaron">
-        {result.existing > 0 && <li className="simple-row">{result.existing === 1 ? 'Ya tenía día cargado' : 'Ya tenían día cargado'} ({result.existing})</li>}
-        {result.noSchedule.count > 0 && <li className="simple-row work-days-skip"><span>Sin horario asignado: {listNames(result.noSchedule.names)} ({result.noSchedule.count})</span>
-          <button type="button" className="button button-small button-outline" onClick={onAssignSchedules}>Asignar horario</button></li>}
-        {result.inactiveSchedule.count > 0 && <li className="simple-row work-days-skip"><span>Con el horario desactivado: {listNames(result.inactiveSchedule.names)} ({result.inactiveSchedule.count})</span>
-          <button type="button" className="button button-small button-outline" onClick={onReviewSchedules}>Revisar horarios</button></li>}
-      </ul>}
     </div>}
   </form></Panel>
 }
