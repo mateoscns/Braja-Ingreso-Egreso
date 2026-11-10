@@ -32,6 +32,11 @@ public class AccountService {
     /** BCrypt reads only the first 72 bytes of a password; any byte after them is silently ignored. */
     public static final int MAX_PASSWORD_BYTES = 72;
     public static final int MIN_PASSWORD_LENGTH = 12;
+    /**
+     * Idle lifetime of a session whose account is only an employee (D-20261109-02). An account that is ADMIN in any
+     * company keeps {@code spring.session.timeout} (30 min). 2026-11-09: employees had to sign in before almost every mark.
+     */
+    public static final int EMPLOYEE_SESSION_IDLE_SECONDS = 30 * 24 * 3600;
     private static final Logger LOGGER = LoggerFactory.getLogger(AccountService.class);
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
@@ -115,6 +120,9 @@ public class AccountService {
         context.setAuthentication(authentication);
         SecurityContextHolder.setContext(context);
         contextRepository.saveContext(context, request, response);
+        if (activeMemberships.stream().allMatch(membership -> "EMPLOYEE".equals(membership.role()))) {
+            request.getSession(true).setMaxInactiveInterval(EMPLOYEE_SESSION_IDLE_SECONDS);
+        }
         UUID activeCompany = activeMemberships.getFirst().companyId();
         if (activeCompany != null) request.getSession(true).setAttribute(CurrentActor.ACTIVE_COMPANY_SESSION_KEY, activeCompany);
         return session(accountId, request);

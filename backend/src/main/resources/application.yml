@@ -28,6 +28,9 @@ server:
     session:
       cookie:
         name: BRAJA_SESSION
+        # Persistent cookie so a closed PWA keeps the session (D-20261109-02); the server still expires an idle
+        # session after spring.session.timeout, or after 30 days for an employee-only account.
+        max-age: 30d
         http-only: true
         secure: ${BRAJA_SESSION_COOKIE_SECURE:true}
         same-site: lax

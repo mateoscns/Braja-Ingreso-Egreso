@@ -674,7 +674,12 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     la IP real del proxy es responsabilidad del operador. Guarda:
     `ClientAddressResolverTest.rejectsTrustedProxyRangesThatTogetherCoverAWholeAddressFamily`.
 23. **Cambios sensibles revocan acceso.** No hay `token_version`: la
-    autenticación es sesión en MySQL (30 min de inactividad). Baja de
+    autenticación es sesión en MySQL: 30 min de inactividad, o 30 días si la
+    cuenta solo es `EMPLOYEE`, con cookie `Max-Age` de 30 días desde el login
+    (D-20261109-02, 2026-11-09: el empleado volvía a ingresar antes de casi
+    cada marca; guarda:
+    `LoginHardeningMySqlTest.anEmployeeStaysSignedInForThirtyIdleDaysAndTheCookieSurvivesClosingTheApp`,
+    `.anAccountThatIsAdminInAnyCompanyKeepsTheThirtyMinuteSession`). Baja de
     empleado, membresía o cuenta cortan el acceso en la siguiente request
     porque `ScopeService` relee la base (guarda: `Baja`). El cambio de
     contraseña borra las demás sesiones de la cuenta (guarda:
