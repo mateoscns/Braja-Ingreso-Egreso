@@ -103,6 +103,7 @@ class LoginHardeningMySqlTest {
         jdbc.update("DELETE FROM login_ip_throttles");
         jdbc.update("DELETE FROM login_throttles");
         jdbc.update("DELETE FROM SPRING_SESSION");
+        jdbc.update("DELETE FROM employees");
         jdbc.update("DELETE FROM company_memberships");
         jdbc.update("DELETE FROM accounts");
         jdbc.update("DELETE FROM companies");
@@ -407,6 +408,79 @@ class LoginHardeningMySqlTest {
         }
     }
 
+    // 2026-11-09, demo with real phones: the session expired after 30 idle minutes, so an employee had to sign in again
+    // before almost every mark, and the cookie had no Max-Age, so closing the app could drop it.
+    @Test
+    void anEmployeeStaysSignedInForThirtyIdleDaysAndTheCookieSurvivesClosingTheApp() throws Exception {
+        employeeMembership(accountWithoutMembership("41000101"), companyId);
+
+        MvcResult login = login("41000101", PASSWORD);
+
+        assertEquals(200, login.getResponse().getStatus());
+        assertEquals(30 * 24 * 3600, maxInactiveSeconds(login));
+        String cookie = setCookie(login, "BRAJA_SESSION");
+        assertTrue(cookie.contains("Max-Age=" + 30 * 24 * 3600), cookie);
+    }
+
+    @Test
+    void anAdminSessionStillExpiresAfterThirtyIdleMinutes() throws Exception {
+        account("41000102");
+
+        MvcResult login = login("41000102", PASSWORD);
+
+        assertEquals(200, login.getResponse().getStatus());
+        assertEquals(30 * 60, maxInactiveSeconds(login));
+    }
+
+    // 2026-11-09 review of #108: the session id changes at login but the session, and its idle interval, is kept, so an
+    // ADMIN signing in on a phone that still held an employee's session would inherit the 30 days.
+    @Test
+    void anAdminSigningInOverAnEmployeeSessionGetsThirtyMinutesNotThirtyDays() throws Exception {
+        employeeMembership(accountWithoutMembership("41000104"), companyId);
+        account("41000105");
+        MvcResult employee = login("41000104", PASSWORD);
+        assertEquals(30 * 24 * 3600, maxInactiveSeconds(employee));
+        Cookie employeeSession = new Cookie("BRAJA_SESSION", cookieValue(employee, "BRAJA_SESSION"));
+
+        MvcResult admin = mockMvc.perform(post("/api/v1/session")
+                        .cookie(employeeSession)
+                        .header("X-CSRF-TOKEN", csrfToken(employeeSession))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dni\":\"41000105\",\"password\":\"" + PASSWORD + "\"}"))
+                .andReturn();
+
+        assertEquals(200, admin.getResponse().getStatus());
+        assertEquals(30 * 60, maxInactiveSeconds(admin));
+    }
+
+    @Test
+    void anAccountThatIsAdminInAnyCompanyKeepsTheThirtyMinuteSession() throws Exception {
+        account("41000103");
+        UUID otherCompany = UUID.randomUUID();
+        jdbc.update("INSERT INTO companies(id,name,created_at) VALUES(?,?,?)", otherCompany.toString(), "Otra empresa", Timestamp.from(Instant.now()));
+        UUID accountId = jdbc.queryForObject("SELECT id FROM accounts WHERE dni_normalized='41000103'", (rs, row) -> UUID.fromString(rs.getString(1)));
+        employeeMembership(accountId, otherCompany);
+
+        MvcResult login = login("41000103", PASSWORD);
+
+        assertEquals(200, login.getResponse().getStatus());
+        assertEquals(30 * 60, maxInactiveSeconds(login));
+    }
+
+    private int maxInactiveSeconds(MvcResult login) {
+        String sessionId = new String(Base64.getDecoder().decode(cookieValue(login, "BRAJA_SESSION")), StandardCharsets.US_ASCII);
+        Integer seconds = jdbc.queryForObject("SELECT MAX_INACTIVE_INTERVAL FROM SPRING_SESSION WHERE SESSION_ID=?", Integer.class, sessionId);
+        return seconds == null ? -1 : seconds;
+    }
+
+    private void employeeMembership(UUID accountId, UUID company) {
+        Timestamp now = Timestamp.from(Instant.now());
+        jdbc.update("INSERT INTO company_memberships(id,company_id,account_id,role,active,created_at) VALUES(?,?,?,'EMPLOYEE',TRUE,?)",
+                UUID.randomUUID().toString(), company.toString(), accountId.toString(), now);
+        jdbc.update("INSERT INTO employees(id,company_id,account_id,display_name,tolerance_minutes,active,created_at,updated_at) VALUES(?,?,?,?,10,TRUE,?,?)",
+                UUID.randomUUID().toString(), company.toString(), accountId.toString(), "Empleado", now, now);
+    }
+
     private void account(String dni) {
         UUID accountId = accountWithoutMembership(dni);
         jdbc.update("INSERT INTO company_memberships(id,company_id,account_id,role,active,created_at) VALUES(?,?,?,'ADMIN',TRUE,?)",
@@ -454,11 +528,14 @@ class LoginHardeningMySqlTest {
     }
 
     private String cookieValue(MvcResult result, String name) {
-        String header = result.getResponse().getHeaders("Set-Cookie").stream()
+        return setCookie(result, name).split(";", 2)[0].substring(name.length() + 1);
+    }
+
+    private String setCookie(MvcResult result, String name) {
+        return result.getResponse().getHeaders("Set-Cookie").stream()
                 .filter(value -> value.startsWith(name + "="))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Missing " + name + " Set-Cookie header"));
-        return header.split(";", 2)[0].substring(name.length() + 1);
     }
 
     private JsonNode body(MvcResult result) throws Exception {

@@ -107,9 +107,9 @@ en un estado:
   `ADMIN`.
 - **Registro de decisiones**: `docs/DECISIONES.md`, filas `ID
   (D-AAAAMMDD-NN) | fecha | decisión | propuesta por | estado | motivo`. Al
-  2026-11-02: 66 filas, todas adoptadas y 0 propuestas (16 del 2026-10-14, 6
+  2026-11-09: 69 filas, todas adoptadas y 0 propuestas (16 del 2026-10-14, 6
   del 10-15, 5 del 10-16, 1 del 10-18, 6 del 10-19, 2 del 10-23, 12 del 10-27,
-  1 del 10-29, 2 del 10-30 y 15 del 11-02). Las 15 del 2026-11-02
+  1 del 10-29, 2 del 10-30, 15 del 11-02 y 3 del 11-09). Las 15 del 2026-11-02
   (D-20261102-01 a -15) son propuestas de la IA durante la campaña #72 que
   Mateo adoptó con su aprobación general de ese día al plan de producción
   (`odd/tasks/production-readiness.md`); cada una lo dice en su motivo.
@@ -674,7 +674,15 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     la IP real del proxy es responsabilidad del operador. Guarda:
     `ClientAddressResolverTest.rejectsTrustedProxyRangesThatTogetherCoverAWholeAddressFamily`.
 23. **Cambios sensibles revocan acceso.** No hay `token_version`: la
-    autenticación es sesión en MySQL (30 min de inactividad). Baja de
+    autenticación es sesión en MySQL: 30 min de inactividad, o 30 días si la
+    cuenta solo es `EMPLOYEE`, con cookie `Max-Age` de 30 días desde el login
+    (D-20261109-02, 2026-11-09: el empleado volvía a ingresar antes de casi
+    cada marca; guarda:
+    `LoginHardeningMySqlTest.anEmployeeStaysSignedInForThirtyIdleDaysAndTheCookieSurvivesClosingTheApp`,
+    `.anAccountThatIsAdminInAnyCompanyKeepsTheThirtyMinuteSession`,
+    `.anAdminSigningInOverAnEmployeeSessionGetsThirtyMinutesNotThirtyDays`;
+    el login fija siempre la duración, porque conserva la sesión previa del
+    navegador). Baja de
     empleado, membresía o cuenta cortan el acceso en la siguiente request
     porque `ScopeService` relee la base (guarda: `Baja`). El cambio de
     contraseña borra las demás sesiones de la cuenta (guarda:
@@ -941,11 +949,12 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
   `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`,
   `npm run audit:prod`, que corre `npm audit --omit=dev` con la política de
   §5.39; 15 min). **Checks requeridos**: `main` exige "Backend (Java 21 +
-  MySQL 8.4)" y "Frontend (Node 24)" (D-20261019-06; `gh api
-  repos/mateoscns/Braja-Ingreso-Egreso/branches/main/protection`, 2026-11-02,
-  `strict: false`), sin costo porque el repo es público (D-20261019-02).
-  **"Backend campaign" no es requerido**: un PR puede fusionarse con la campaña
-  en rojo. Hacerlo requerido es una decisión de Mateo, pendiente (§7).
+  MySQL 8.4)", "Frontend (Node 24)" (D-20261019-06) y, desde el 2026-11-09,
+  "Backend campaign (MySQL 8.4)" (D-20261109-03; antes un PR podía fusionarse
+  con la campaña en rojo), según `gh api
+  repos/mateoscns/Braja-Ingreso-Egreso/branches/main/protection` del
+  2026-11-09, con `strict: false`; sin costo porque el repo es público
+  (D-20261019-02).
 - **No se apilan suites y builds a la vez** en la máquina de desarrollo: la
   degradan y falsean tiempos.
 
@@ -996,7 +1005,6 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     restaurar los checks requeridos del frontend. Issue #83 (asignado a Mateo, en
     curso): `pushsubscriptionchange` en `sw.ts` y los mensajes de
     `PASSWORD_TOO_LONG` y `EMPLOYEE_NOT_IN_SITE` en la PWA.
-  - El job "Backend campaign" no es un check requerido (§6).
   - Agregar reglas ESLint para límites entre capas, ciclos y exports sin uso
     (35), y una prueba arquitectónica para proteger la separación
     contenedor/render (36).
@@ -1110,9 +1118,9 @@ si cada clon hace `git config core.hooksPath .githooks`**. Hoy no existe
   El deploy toma un backup nuevo antes de cada migración (`deploy/deploy.sh`,
   regla 32); no mira la antigüedad de un backup anterior.
 - **Merge**: merge commit tras CI verde, fijado al commit verificado (§1).
-  `main` exige los checks "Backend (Java 21 + MySQL 8.4)" y "Frontend
-  (Node 24)" para fusionar (D-20261019-06); "Backend campaign" no es requerido
-  (§6).
+  `main` exige los checks "Backend (Java 21 + MySQL 8.4)", "Frontend
+  (Node 24)" (D-20261019-06) y "Backend campaign (MySQL 8.4)" (D-20261109-03)
+  para fusionar (§6).
 
 ## 9. Arranque (checklist de este proyecto)
 

@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
@@ -25,6 +26,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.*;
 
 @Service
@@ -32,6 +34,11 @@ public class AccountService {
     /** BCrypt reads only the first 72 bytes of a password; any byte after them is silently ignored. */
     public static final int MAX_PASSWORD_BYTES = 72;
     public static final int MIN_PASSWORD_LENGTH = 12;
+    /**
+     * Idle lifetime of a session whose account is only an employee (D-20261109-02). An account that is ADMIN in any
+     * company keeps {@code spring.session.timeout} (30 min). 2026-11-09: employees had to sign in before almost every mark.
+     */
+    public static final int EMPLOYEE_SESSION_IDLE_SECONDS = 30 * 24 * 3600;
     private static final Logger LOGGER = LoggerFactory.getLogger(AccountService.class);
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
@@ -45,14 +52,17 @@ public class AccountService {
     private final LoginThrottleService throttle;
     private final ClientAddressResolver clientAddressResolver;
     private final Clock clock;
+    private final int defaultSessionIdleSeconds;
 
     public AccountService(JdbcTemplate jdbc, AuthenticationManager authenticationManager, PasswordEncoder passwordEncoder,
                           CurrentActor currentActor, SessionAuthenticationStrategy sessionStrategy,
                           SecurityContextRepository contextRepository, CsrfTokenRepository csrfRepository,
                           BrajaProperties properties, LoginThrottleService throttle, ClientAddressResolver clientAddressResolver,
-                          PlatformTransactionManager transactionManager, Clock clock) {
+                          PlatformTransactionManager transactionManager, Clock clock,
+                          @Value("${spring.session.timeout}") Duration defaultSessionTimeout) {
         this.jdbc = jdbc;
         this.clock = clock;
+        this.defaultSessionIdleSeconds = Math.toIntExact(defaultSessionTimeout.toSeconds());
         this.transactions = new TransactionTemplate(transactionManager);
         this.authenticationManager = authenticationManager;
         this.passwordEncoder = passwordEncoder;
@@ -115,6 +125,10 @@ public class AccountService {
         context.setAuthentication(authentication);
         SecurityContextHolder.setContext(context);
         contextRepository.saveContext(context, request, response);
+        // Always set: login keeps the browser's previous session (only its id changes), so an ADMIN signing in over an
+        // employee's session would otherwise inherit the 30 days (2026-11-09 review of #108).
+        boolean employeeOnly = activeMemberships.stream().allMatch(membership -> "EMPLOYEE".equals(membership.role()));
+        request.getSession(true).setMaxInactiveInterval(employeeOnly ? EMPLOYEE_SESSION_IDLE_SECONDS : defaultSessionIdleSeconds);
         UUID activeCompany = activeMemberships.getFirst().companyId();
         if (activeCompany != null) request.getSession(true).setAttribute(CurrentActor.ACTIVE_COMPANY_SESSION_KEY, activeCompany);
         return session(accountId, request);
