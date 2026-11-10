@@ -432,6 +432,27 @@ class LoginHardeningMySqlTest {
         assertEquals(30 * 60, maxInactiveSeconds(login));
     }
 
+    // 2026-11-09 review of #108: the session id changes at login but the session, and its idle interval, is kept, so an
+    // ADMIN signing in on a phone that still held an employee's session would inherit the 30 days.
+    @Test
+    void anAdminSigningInOverAnEmployeeSessionGetsThirtyMinutesNotThirtyDays() throws Exception {
+        employeeMembership(accountWithoutMembership("41000104"), companyId);
+        account("41000105");
+        MvcResult employee = login("41000104", PASSWORD);
+        assertEquals(30 * 24 * 3600, maxInactiveSeconds(employee));
+        Cookie employeeSession = new Cookie("BRAJA_SESSION", cookieValue(employee, "BRAJA_SESSION"));
+
+        MvcResult admin = mockMvc.perform(post("/api/v1/session")
+                        .cookie(employeeSession)
+                        .header("X-CSRF-TOKEN", csrfToken(employeeSession))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dni\":\"41000105\",\"password\":\"" + PASSWORD + "\"}"))
+                .andReturn();
+
+        assertEquals(200, admin.getResponse().getStatus());
+        assertEquals(30 * 60, maxInactiveSeconds(admin));
+    }
+
     @Test
     void anAccountThatIsAdminInAnyCompanyKeepsTheThirtyMinuteSession() throws Exception {
         account("41000103");
