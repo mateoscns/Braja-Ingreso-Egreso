@@ -679,7 +679,10 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     (D-20261109-02, 2026-11-09: el empleado volvía a ingresar antes de casi
     cada marca; guarda:
     `LoginHardeningMySqlTest.anEmployeeStaysSignedInForThirtyIdleDaysAndTheCookieSurvivesClosingTheApp`,
-    `.anAccountThatIsAdminInAnyCompanyKeepsTheThirtyMinuteSession`). Baja de
+    `.anAccountThatIsAdminInAnyCompanyKeepsTheThirtyMinuteSession`,
+    `.anAdminSigningInOverAnEmployeeSessionGetsThirtyMinutesNotThirtyDays`;
+    el login fija siempre la duración, porque conserva la sesión previa del
+    navegador). Baja de
     empleado, membresía o cuenta cortan el acceso en la siguiente request
     porque `ScopeService` relee la base (guarda: `Baja`). El cambio de
     contraseña borra las demás sesiones de la cuenta (guarda:
