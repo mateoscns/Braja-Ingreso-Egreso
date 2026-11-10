@@ -86,7 +86,7 @@ export function PasswordChangeScreen({ onChange, onSignOut }: { onChange: (curre
       {error && <PageMessage kind="error">{error}</PageMessage>}
       {busy && <p role="status" aria-live="polite" aria-atomic="true">Guardando tu contraseña…</p>}
       <form onSubmit={submit} className="form-stack" aria-busy={busy} noValidate>
-        <FormField label="Contraseña actual"><input type={type} autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} /></FormField>
+        <FormField label="Contraseña que te dieron"><input type={type} autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} /></FormField>
         <FormField label="Nueva contraseña" hint={lengthCounter(next)}><input type={type} autoComplete="new-password" minLength={PASSWORD_MIN_CHARACTERS} maxLength={PASSWORD_MAX_CHARACTERS} required value={next} onChange={(e) => setNext(e.target.value)} /></FormField>
         <FormField label="Repetí la nueva contraseña"><input type={type} autoComplete="new-password" minLength={PASSWORD_MIN_CHARACTERS} maxLength={PASSWORD_MAX_CHARACTERS} required value={confirm} onChange={(e) => setConfirm(e.target.value)} /></FormField>
         <PasswordToggle shown={shown} label="Mostrar contraseñas" onToggle={() => setShown((value) => !value)} />

@@ -661,8 +661,11 @@ export function EmployeesView() {
     try {
       const [people, availableSites] = await Promise.all([api.get<Employee[]>('/employees'), api.get<Site[]>('/sites')])
       setEmployees(people); setSites(availableSites)
+      setSiteIds((current) => current.length === 0 ? onlySite(availableSites) : current)
     } catch (reason) { setEmployees([]); setSites([]); setLoadError(errText(reason)) } finally { setLoading(false) }
   }
+  // 2026-11-10 (#110): with a single site its box came unticked and "Crear empleado" stayed blocked until the owner found it.
+  function onlySite(available: Site[]) { return available.length === 1 ? [available[0].id] : [] }
   useEffect(() => { void reload() }, [])
   function toggleSite(id: string) { setSiteIds((current) => current.includes(id) ? current.filter((siteId) => siteId !== id) : [...current, id]) }
   async function create(event: FormEvent<HTMLFormElement>) {
@@ -672,7 +675,7 @@ export function EmployeesView() {
     try {
       const sentPassword = temporaryPassword
       const created = await api.post<Employee>('/employees', { dni: dni.trim(), displayName: displayName.trim(), siteIds, toleranceMinutes: Number(tolerance), ...(sentPassword ? { temporaryPassword: sentPassword } : {}) })
-      setEmployees((current) => [...current, created]); setDni(''); setDisplayName(''); setSiteIds([]); setTolerance('5'); setTemporaryPassword(''); setGeneratedPassword(false)
+      setEmployees((current) => [...current, created]); setDni(''); setDisplayName(''); setSiteIds(onlySite(sites)); setTolerance('5'); setTemporaryPassword(''); setGeneratedPassword(false)
       // An account that already existed keeps its password and the one sent is not used (OrganizationService.createEmployee).
       if (sentPassword && created.mustChangePassword === false) setNotice('Empleado creado. Ese DNI ya tenía cuenta: sigue entrando con su contraseña de siempre.')
       else {

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ASSIGNMENT_CHECK_LIMIT, coverageNotice, loadSetupData, readyTomorrow, setupComplete, setupSteps, type SetupData } from './setupStatus'
 
-const site = { id: 's-1', name: 'Casa', timeZone: 'America/Argentina/Buenos_Aires', latitude: null, longitude: null, geofenceRadiusMeters: 100 }
+const site = { id: 's-1', name: 'Casa', timeZone: 'America/Argentina/Buenos_Aires', latitude: -34.6037, longitude: -58.3816, geofenceRadiusMeters: 100 }
 const template = { id: 't-1', siteId: 's-1', name: 'Mañana', active: true, blocks: [{ startDayOffset: 0 as const, start: '09:00', end: '17:00', endDayOffset: 0 as const }], breakfastLimitMinutes: 15, lunchLimitMinutes: 60 }
 const person = (id: string, displayName: string, active = true) => ({ id, displayName, siteIds: ['s-1'], toleranceMinutes: 5, active })
 const assigned = (employeeId: string, validFrom = '2026-11-01') => ({ id: `a-${employeeId}`, employeeId, siteId: 's-1', templateId: 't-1', templateName: 'Mañana', validFrom, createdAt: '2026-11-01T12:00:00Z' })
@@ -30,6 +30,15 @@ describe('primeros pasos', () => {
     const empty = data({ sites: [], templates: [], employees: [], assignments: new Map(), tomorrow: new Map(), jornadas: new Map() })
     expect(setupSteps(empty).map((step) => step.done)).toEqual([false, false, false, false, false])
     expect(setupComplete(setupSteps(empty))).toBe(false)
+  })
+
+  // 2026-11-10, end-to-end check (#110): the first install creates the site without a location, so step 1 came ticked and the
+  // owner never set where the shop is; without it no mark is checked against the site.
+  it('un local sin ubicación deja pendiente el paso 1 y lo nombra', () => {
+    const noLocation = { ...site, id: 's-2', name: 'Centro', latitude: null, longitude: null }
+    const steps = setupSteps(data({ sites: [site, noLocation] }))
+    expect(steps[0]).toMatchObject({ done: false, detail: 'Falta dónde queda: Centro.' })
+    expect(setupComplete(steps)).toBe(false)
   })
 
   it('nombra el local sin horario y las personas sin horario asignado', () => {

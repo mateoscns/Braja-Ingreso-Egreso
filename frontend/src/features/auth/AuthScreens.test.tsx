@@ -73,7 +73,7 @@ describe('pantallas de acceso', () => {
     const pending = new Promise<void>((_, reject) => { rejectChange = reject })
     const onChange = vi.fn(() => pending)
     render(<PasswordChangeScreen onChange={onChange} onSignOut={vi.fn()} />)
-    const current = screen.getByLabelText('Contraseña actual')
+    const current = screen.getByLabelText('Contraseña que te dieron')
     const next = screen.getByLabelText('Nueva contraseña')
     const confirm = screen.getByLabelText('Repetí la nueva contraseña')
 
@@ -100,7 +100,7 @@ describe('pantallas de acceso', () => {
   describe('new password limit: 72 UTF-8 bytes (BCrypt)', () => {
     function submitNewPassword(onChange: () => Promise<void>, password: string) {
       render(<PasswordChangeScreen onChange={onChange} onSignOut={vi.fn()} />)
-      fireEvent.change(screen.getByLabelText('Contraseña actual'), { target: { value: 'temporary-password' } })
+      fireEvent.change(screen.getByLabelText('Contraseña que te dieron'), { target: { value: 'temporary-password' } })
       fireEvent.change(screen.getByLabelText('Nueva contraseña'), { target: { value: password } })
       fireEvent.change(screen.getByLabelText('Repetí la nueva contraseña'), { target: { value: password } })
       fireEvent.click(screen.getByRole('button', { name: 'Guardar contraseña' }))
@@ -142,7 +142,7 @@ describe('pantallas de acceso', () => {
     it('dice en palabras simples que la clave nueva es corta y no la envía', async () => {
       const onChange = vi.fn()
       render(<PasswordChangeScreen onChange={onChange} onSignOut={vi.fn()} />)
-      fireEvent.change(screen.getByLabelText('Contraseña actual'), { target: { value: 'temporary-password' } })
+      fireEvent.change(screen.getByLabelText('Contraseña que te dieron'), { target: { value: 'temporary-password' } })
       fireEvent.change(screen.getByLabelText('Nueva contraseña'), { target: { value: 'corta' } })
       fireEvent.change(screen.getByLabelText('Repetí la nueva contraseña'), { target: { value: 'corta' } })
       fireEvent.click(screen.getByRole('button', { name: 'Guardar contraseña' }))
@@ -156,7 +156,7 @@ describe('pantallas de acceso', () => {
       expect(toggle).toHaveAttribute('aria-pressed', 'false')
       fireEvent.click(toggle)
       expect(toggle).toHaveAttribute('aria-pressed', 'true')
-      for (const label of ['Contraseña actual', 'Nueva contraseña', 'Repetí la nueva contraseña']) expect(screen.getByLabelText(label)).toHaveAttribute('type', 'text')
+      for (const label of ['Contraseña que te dieron', 'Nueva contraseña', 'Repetí la nueva contraseña']) expect(screen.getByLabelText(label)).toHaveAttribute('type', 'text')
       fireEvent.click(toggle)
       expect(screen.getByLabelText('Nueva contraseña')).toHaveAttribute('type', 'password')
     })
