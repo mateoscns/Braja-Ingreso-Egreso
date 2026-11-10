@@ -33,7 +33,7 @@ const deviation = {
   id: 'd-1', jornadaId: 'j-1', siteId: 's-1', employeeId: 'e-1', employeeDisplayName: 'Lucía Pérez',
   type: 'LLEGADA_TARDE' as const, status: 'JUSTIFICADO' as const, category: null, createdAt: '2026-10-16T12:00:00Z', pushEligible: true
 }
-const site = { id: 's-1', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires' }
+const site = { id: 's-1', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: -34.6037, longitude: -58.3816, geofenceRadiusMeters: 100 }
 const employee = { id: 'e-1', displayName: 'Lucía Pérez', dni: '30123456', siteIds: ['s-1'], toleranceMinutes: 5, active: true }
 const jornada = {
   id: 'j-1', employeeId: 'e-1', siteId: 's-1', localDate: '2026-10-16', state: 'EN_CURSO' as const,
@@ -645,7 +645,7 @@ describe('administración de desvíos y marcas', () => {
       render(<EmployeesView />)
       fireEvent.change(await screen.findByLabelText('Nombre y apellido'), { target: { value: 'Ana Ñandú' } })
       fireEvent.change(screen.getByLabelText('DNI'), { target: { value: '30111222' } })
-      fireEvent.click(await screen.findByRole('checkbox', { name: 'Local Centro' }))
+      await waitFor(async () => expect(await screen.findByRole('checkbox', { name: 'Local Centro' })).toBeChecked())
       fireEvent.change(screen.getByLabelText(/Contraseña provisoria/), { target: { value: password } })
       fireEvent.click(screen.getByRole('button', { name: 'Crear empleado' }))
     }

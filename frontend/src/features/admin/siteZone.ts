@@ -1,18 +1,21 @@
 export const REGION_TIME_ZONE_MESSAGE = 'Esa zona horaria no sirve. Elegí una provincia de la lista o escribí la zona de una ciudad, por ejemplo America/Santiago.'
 
-/** The Argentine zones of the site form, by the province the owner knows; Buenos Aires is the default. */
+/**
+ * The Argentine zones of the site form, named by every province each one covers (tzdata's zone1970.tab), so every owner
+ * finds their own; Buenos Aires is the default. 2026-11-10 (#110): twelve provinces were missing, Santa Fe among them.
+ */
 export const ARGENTINE_TIME_ZONES: readonly { zone: string; label: string }[] = [
-  { zone: 'America/Argentina/Buenos_Aires', label: 'Buenos Aires' },
-  { zone: 'America/Argentina/Catamarca', label: 'Catamarca' },
-  { zone: 'America/Argentina/Cordoba', label: 'Córdoba' },
+  { zone: 'America/Argentina/Buenos_Aires', label: 'Buenos Aires y CABA' },
+  { zone: 'America/Argentina/Catamarca', label: 'Catamarca y Chubut' },
+  { zone: 'America/Argentina/Cordoba', label: 'Córdoba, Santa Fe, Entre Ríos, Corrientes, Misiones, Chaco, Formosa y Santiago del Estero' },
   { zone: 'America/Argentina/Jujuy', label: 'Jujuy' },
   { zone: 'America/Argentina/La_Rioja', label: 'La Rioja' },
   { zone: 'America/Argentina/Mendoza', label: 'Mendoza' },
-  { zone: 'America/Argentina/Salta', label: 'Salta' },
+  { zone: 'America/Argentina/Salta', label: 'Salta, La Pampa, Neuquén y Río Negro' },
   { zone: 'America/Argentina/San_Juan', label: 'San Juan' },
   { zone: 'America/Argentina/San_Luis', label: 'San Luis' },
-  { zone: 'America/Argentina/Rio_Gallegos', label: 'Santa Cruz (Río Gallegos)' },
-  { zone: 'America/Argentina/Ushuaia', label: 'Tierra del Fuego (Ushuaia)' },
+  { zone: 'America/Argentina/Rio_Gallegos', label: 'Santa Cruz' },
+  { zone: 'America/Argentina/Ushuaia', label: 'Tierra del Fuego' },
   { zone: 'America/Argentina/Tucuman', label: 'Tucumán' }
 ]
 

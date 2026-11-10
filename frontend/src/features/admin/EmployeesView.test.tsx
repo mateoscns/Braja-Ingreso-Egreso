@@ -33,13 +33,29 @@ afterEach(() => {
 })
 
 describe('Empleados: easier for a shop owner', () => {
+  // 2026-11-10, end-to-end check (#110): with a single site the box came unticked and "Crear empleado" stayed blocked.
+  it('ticks the only site by default, also for the next employee', async () => {
+    apiMocks.post.mockImplementation((_path: string, body: Record<string, unknown>) => Promise.resolve({ id: 'e-9', displayName: body.displayName, dni: body.dni, siteIds: body.siteIds, toleranceMinutes: 5, active: true, mustChangePassword: true }))
+    render(<EmployeesView />)
+    const box = await screen.findByRole('checkbox', { name: 'Local Centro' })
+    await waitFor(() => expect(box).toBeChecked())
+    fireEvent.change(screen.getByLabelText('Nombre y apellido'), { target: { value: 'Ana Gómez' } })
+    fireEvent.change(screen.getByLabelText('DNI'), { target: { value: '30111222' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Generar contraseña' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Crear empleado' }))
+
+    await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/employees', expect.objectContaining({ siteIds: ['s-1'] })))
+    expect(await screen.findByText('Empleado creado.')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Local Centro' })).toBeChecked()
+  })
+
   it('generates a temporary password and shows it once after creating the employee', async () => {
     const storageWrites = vi.spyOn(Storage.prototype, 'setItem')
     apiMocks.post.mockImplementation((_path: string, body: Record<string, unknown>) => Promise.resolve({ id: 'e-9', displayName: body.displayName, dni: body.dni, siteIds: body.siteIds, toleranceMinutes: 5, active: true, mustChangePassword: true }))
     render(<EmployeesView />)
     fireEvent.change(await screen.findByLabelText('Nombre y apellido'), { target: { value: 'Ana Gómez' } })
     fireEvent.change(screen.getByLabelText('DNI'), { target: { value: '30111222' } })
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Local Centro' }))
+    await waitFor(async () => expect(await screen.findByRole('checkbox', { name: 'Local Centro' })).toBeChecked())
     fireEvent.click(screen.getByRole('button', { name: 'Generar contraseña' }))
     const field = screen.getByLabelText(/Contraseña provisoria/) as HTMLInputElement
     expect(field.value).toMatch(/^[A-HJ-NP-Za-km-z2-9]{4}(-[A-HJ-NP-Za-km-z2-9]{4}){3}$/)
@@ -65,7 +81,7 @@ describe('Empleados: easier for a shop owner', () => {
     render(<EmployeesView />)
     fireEvent.change(await screen.findByLabelText('Nombre y apellido'), { target: { value: 'Ana Gómez' } })
     fireEvent.change(screen.getByLabelText('DNI'), { target: { value: '30111222' } })
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Local Centro' }))
+    await waitFor(async () => expect(await screen.findByRole('checkbox', { name: 'Local Centro' })).toBeChecked())
     fireEvent.click(screen.getByRole('button', { name: 'Generar contraseña' }))
     fireEvent.click(screen.getByRole('button', { name: 'Crear empleado' }))
     expect(await screen.findByText('Empleado creado. Ese DNI ya tenía cuenta: sigue entrando con su contraseña de siempre.')).toBeInTheDocument()

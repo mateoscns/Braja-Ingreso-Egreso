@@ -20,7 +20,7 @@ vi.mock('../../shared/api/client', () => ({
   }
 }))
 
-const site = { id: 's-1', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: null, longitude: null, geofenceRadiusMeters: 100 }
+const site = { id: 's-1', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: -34.6037, longitude: -58.3816, geofenceRadiusMeters: 100 }
 const template = { id: 't-1', siteId: 's-1', name: 'Mañana', active: true, blocks: [{ startDayOffset: 0, start: '09:00', end: '17:00', endDayOffset: 0 }], breakfastLimitMinutes: 15, lunchLimitMinutes: 60 }
 const employee = { id: 'e-1', displayName: 'Lucía Pérez', dni: '30123456', siteIds: ['s-1'], toleranceMinutes: 5, active: true }
 const assignment = { id: 'a-1', employeeId: 'e-1', siteId: 's-1', templateId: 't-1', templateName: 'Mañana', validFrom: '2026-11-01', createdAt: '2026-11-01T12:00:00Z' }

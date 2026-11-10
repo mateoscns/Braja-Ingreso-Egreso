@@ -139,7 +139,7 @@ describe('SitesView location administration API', () => {
     const zone = screen.getByRole('combobox', { name: 'Hora del local' })
 
     expect(zone).toHaveValue('America/Argentina/Buenos_Aires')
-    expect(within(zone).getByRole('option', { name: 'Buenos Aires' })).toBeInTheDocument()
+    expect(within(zone).getByRole('option', { name: 'Buenos Aires y CABA' })).toBeInTheDocument()
     expect(within(zone).getByRole('option', { name: 'Otra (fuera de Argentina)' })).toBeInTheDocument()
     expect(container).not.toHaveTextContent(/IANA|America\/Argentina/)
     expect(screen.queryByRole('textbox', { name: /otro país/ })).not.toBeInTheDocument()
@@ -148,7 +148,7 @@ describe('SitesView location administration API', () => {
     fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
     await screen.findByText('Sede creada.')
     expect(post).toHaveBeenCalledWith('/sites', expect.objectContaining({ timeZone: 'America/Argentina/Cordoba' }))
-    expect(screen.getByText('Hora de Córdoba')).toBeInTheDocument()
+    expect(screen.getByText('Hora de Córdoba, Santa Fe, Entre Ríos, Corrientes, Misiones, Chaco, Formosa y Santiago del Estero')).toBeInTheDocument()
   })
 
   it('accepts another country zone written by hand and rejects an abbreviation or a fixed offset before calling the server', async () => {

@@ -91,10 +91,14 @@ export function setupSteps(data: SetupData): SetupStep[] {
     return !loaded(data.jornadas.get(site.id)).some((row) => row.localDate >= from && row.localDate <= to)
   })
   const scheduleDone: boolean | 'unknown' = active.length === 0 || withoutSchedule.length > 0 ? false : data.checkedAll ? true : 'unknown'
+  // 2026-11-10 (#110): the first install creates its site without a location; without one no mark is checked against it.
+  const sitesWithoutLocation = data.sites.filter((site) => site.latitude == null || site.longitude == null)
   return [
     {
       title: 'Tu local', explanation: 'Cargá el local donde trabaja tu equipo y dónde queda, para saber si marcan desde ahí.',
-      done: data.sites.length > 0, section: 'sedes', sectionLabel: 'Sedes'
+      done: data.sites.length > 0 && sitesWithoutLocation.length === 0,
+      detail: sitesWithoutLocation.length > 0 ? `Falta dónde queda: ${joinNames(sitesWithoutLocation.map((site) => site.name))}.` : undefined,
+      section: 'sedes', sectionLabel: 'Sedes'
     },
     {
       title: 'Tus horarios', explanation: 'Armá los horarios de cada local: a qué hora se entra, se sale y cuánto duran las pausas.',
