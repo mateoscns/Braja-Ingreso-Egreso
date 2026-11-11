@@ -1166,6 +1166,11 @@ describe('dirección de cada sección del ADMIN', () => {
   const menuButton = (name: string) => within(screen.getByRole('navigation', { name: 'Navegación principal' })).getByRole('button', { name })
   // Back and Forward fire hashchange as a task, after the history step.
   const hashSettles = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)))
+  // A history step is waited for by its own hashchange: one tick is not enough under the load of the whole suite.
+  const back = () => act(() => new Promise<void>((resolve) => {
+    window.addEventListener('hashchange', () => setTimeout(resolve, 0), { once: true })
+    window.history.back()
+  }))
   // The default world misses step 5 (no days loaded from tomorrow on), so the start section is «Primeros pasos».
   const startsOnFirstSteps = async () => {
     expect(await screen.findByRole('heading', { name: 'Primeros pasos', level: 1 })).toBeInTheDocument()
@@ -1227,8 +1232,7 @@ describe('dirección de cada sección del ADMIN', () => {
     const sitesReads = () => apiMocks.get.mock.calls.filter(([path]) => path === '/sites').length
     await waitFor(() => expect(sitesReads()).toBe(2))
 
-    window.history.back()
-    await hashSettles()
+    await back()
     await startsOnFirstSteps()
     expect(menuButton('Sedes')).not.toHaveAttribute('aria-current')
     expect(window.location.hash).toBe('#/configuracion/primeros-pasos')

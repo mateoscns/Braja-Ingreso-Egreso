@@ -7,7 +7,14 @@ import { SECTION_ADDRESSES, sectionFromHash, useAdminSection } from './useAdminS
 const at = (hash: string) => window.history.replaceState(null, '', `/admin${hash}`)
 // jsdom fires hashchange as a task, like a browser does after Back or Forward.
 const hashSettles = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)))
-const back = async () => { window.history.back(); await hashSettles() }
+// A history step is waited for by its own hashchange: one tick was not enough under the load of the whole suite
+// (2026-11-11, the second Back still showed the previous section).
+const traverse = (step: () => void) => act(() => new Promise<void>((resolve) => {
+  window.addEventListener('hashchange', () => setTimeout(resolve, 0), { once: true })
+  step()
+}))
+const back = () => traverse(() => window.history.back())
+const forward = () => traverse(() => window.history.forward())
 
 beforeEach(() => at(''))
 afterEach(() => { cleanup(); at('') })
@@ -90,8 +97,7 @@ describe('useAdminSection', () => {
     expect(result.current.section).toBe('jornadas')
     await back()
     expect(result.current.section).toBe('inbox')
-    window.history.forward()
-    await hashSettles()
+    await forward()
     expect(result.current.section).toBe('jornadas')
   })
 
