@@ -113,6 +113,21 @@ describe('SitesViewRender location picker', () => {
     expect(screen.getByText(formatDateTime(audit.entries[0].changedAt, site.timeZone))).toBeInTheDocument()
     expect(screen.getByText('Centro nuevo: -34.6037220, -58.3815920 · radio: 100 m')).toBeInTheDocument()
   })
+
+  // 2026-11-10 (#115): the API leaves empty fields out instead of sending null, so the first change of a site has no
+  // previous values at all. "Ver historial de ubicación" threw on them and blanked the whole app until reload.
+  it('shows the first location change when the server leaves its empty previous values out', () => {
+    const site: Site = { id: 'site-1', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: -34.603722, longitude: -58.381592, geofenceRadiusMeters: 100 }
+    const audit: SiteLocationAuditResponse = { entries: [{
+      id: 'audit-1', changedAt: '2026-11-10T15:30:00Z', actorDisplayName: 'Mateo',
+      afterLatitude: site.latitude!, afterLongitude: site.longitude!, afterRadiusMeters: 100, locationSource: 'MANUAL'
+    }] }
+    renderSitesView(null, false, vi.fn(), { sites: [site], siteLocationAuditFor: site.id, siteLocationAudit: audit })
+
+    expect(screen.getByText('Configuración inicial de ubicación')).toBeInTheDocument()
+    expect(screen.getByText('Centro anterior: Sin coordenadas · radio: —')).toBeInTheDocument()
+    expect(screen.getByText('Centro nuevo: -34.6037220, -58.3815920 · radio: 100 m')).toBeInTheDocument()
+  })
 })
 
 describe('SitesView location administration API', () => {

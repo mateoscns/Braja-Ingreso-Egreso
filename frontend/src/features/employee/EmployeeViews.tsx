@@ -3,7 +3,7 @@ import { Empty, FormField, Loading, PageMessage, Panel } from '../../app/ui'
 import type { Deviation, Jornada, MarkAction, Site } from '../../shared/api/types'
 import { formatBlock, formatDateTime, formatLocalDate, jornadaStateLabel } from '../../shared/format'
 import {
-  actionLabel, confirmationText, describeDeviation, deviationName, formatTime, locationOutcomeText, markLocationLabel, markName,
+  actionLabel, confirmationText, describeDeviation, deviationName, formatTime, locationOutcomeText, markInstant, markLocationLabel, markName,
   type LocationOutcome, type MarkOptions
 } from './employeeDay'
 
@@ -83,7 +83,7 @@ export function DayMarksPanel({ title, jornada, site }: { title: string; jornada
     <div className="mark-timeline">{jornada.marks.length ? jornada.marks.map((mark) => {
       const location = mark.voided ? '' : markLocationLabel(mark.locationStatus)
       return <div className={`mark-row ${mark.voided ? 'mark-row-voided' : ''}`} key={mark.id}><span className="timeline-point" aria-hidden="true" />
-        <strong>{mark.voided ? <s>{markName[mark.action]}</s> : markName[mark.action]}</strong><time>{formatTime(mark.acceptedAt, site?.timeZone)}</time>
+        <strong>{mark.voided ? <s>{markName[mark.action]}</s> : markName[mark.action]}</strong><time>{formatTime(markInstant(mark), site?.timeZone)}</time>
         {mark.voided && <span className="status-chip">Anulada</span>}
         {location && <small className="mark-row-location">{location}</small>}
       </div>

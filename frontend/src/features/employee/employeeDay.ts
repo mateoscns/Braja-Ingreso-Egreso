@@ -59,6 +59,14 @@ export function scheduledEnd(jornada: Jornada, timeZone: string): Date | null {
   return ends.length ? new Date(Math.max(...ends)) : null
 }
 
+/**
+ * When a mark happened. A mark the ADMIN loaded or corrected carries that time in occurredAt, and acceptedAt is only
+ * when it was stored (2026-11-10, #115: the employee read the stored time).
+ */
+export function markInstant(mark: Mark): string {
+  return mark.occurredAt ?? mark.acceptedAt
+}
+
 /** A voided mark stays visible but no longer counts (D-20261027-08), exactly as the server derives the state. */
 function countedMarks(jornada: Jornada): Mark[] {
   return jornada.marks.filter((mark) => !mark.voided).sort((a, b) => a.sequence - b.sequence)
@@ -116,7 +124,7 @@ export function daySentence(jornada: Jornada | undefined, timeZone: string | und
       const breakfast = last?.action === 'SALIDA_DESAYUNO'
       if (!last || (!breakfast && last.action !== 'SALIDA_ALMUERZO')) return 'Estás en una pausa.'
       const limit = breakfast ? jornada.scheduleSnapshot.breakfastLimitMinutes : jornada.scheduleSnapshot.lunchLimitMinutes
-      const back = new Date(new Date(last.acceptedAt).getTime() + limit * MINUTE)
+      const back = new Date(new Date(markInstant(last)).getTime() + limit * MINUTE)
       const doing = breakfast ? 'Estás desayunando' : 'Estás almorzando'
       return now.getTime() <= back.getTime()
         ? `${doing}: volvé antes de las ${formatTime(back, timeZone)}.`
@@ -124,7 +132,7 @@ export function daySentence(jornada: Jornada | undefined, timeZone: string | und
     }
     case 'EN_CURSO': {
       const entry = marks.find((mark) => mark.action === 'INGRESO')
-      return entry ? `Estás trabajando desde las ${formatTime(entry.acceptedAt, timeZone)}.` : 'Estás trabajando.'
+      return entry ? `Estás trabajando desde las ${formatTime(markInstant(entry), timeZone)}.` : 'Estás trabajando.'
     }
   }
 }
@@ -161,7 +169,7 @@ function pauseMinutes(jornada: Jornada, out: MarkAction, back: MarkAction): numb
   const start = marks.find((mark) => mark.action === out)
   const end = marks.find((mark) => mark.action === back)
   if (!start || !end) return null
-  return Math.round((new Date(end.acceptedAt).getTime() - new Date(start.acceptedAt).getTime()) / MINUTE)
+  return Math.round((new Date(markInstant(end)).getTime() - new Date(markInstant(start)).getTime()) / MINUTE)
 }
 
 /**
