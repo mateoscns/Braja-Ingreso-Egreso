@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AdminApp } from './AdminApp'
 import { AdminInbox, EmployeesView, JourneysView, SitesView, TemplatesView } from './AdminViews'
-import { formatLocalDate, jornadaStateLabel as formatJornadaState } from '../../shared/format'
+import { formatDateTime, formatLocalDate, jornadaStateLabel as formatJornadaState } from '../../shared/format'
 
 const apiMocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn() }))
 const adminSessionMocks = vi.hoisted(() => ({
@@ -487,7 +487,7 @@ describe('administración de desvíos y marcas', () => {
     expect(corrected).toHaveValue('2026-10-16T09:00')
   })
 
-  it('en un teléfono muestra las marcas como tarjetas y los formularios fuera de la lista', async () => {
+  it('en un teléfono muestra las marcas como tarjetas y el formulario dentro de la marca que cambia', async () => {
     const previousMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia')
     Object.defineProperty(window, 'matchMedia', { configurable: true, value: vi.fn((query: string) => ({ matches: query.startsWith('(max-width'), addEventListener: vi.fn(), removeEventListener: vi.fn() })) })
     try {
@@ -500,7 +500,8 @@ describe('administración de desvíos y marcas', () => {
       expect(card).toHaveTextContent('Sin ubicación')
       fireEvent.click(within(card).getByRole('button', { name: /^Anular marca Entrada/ }))
       const form = screen.getByRole('form', { name: /^Anular la marca Entrada/ })
-      expect(marks).not.toContainElement(form)
+      // D-20261111-02: the form opens inside the mark it changes (until N2 it opened under the whole list).
+      expect(card).toContainElement(form)
       expect(within(form).getByLabelText('Motivo de anulación')).toBeRequired()
     } finally {
       if (previousMatchMedia) Object.defineProperty(window, 'matchMedia', previousMatchMedia)
@@ -959,6 +960,180 @@ describe('administración de desvíos y marcas', () => {
     })
   })
 
+  // D-20261111-02, step 1 (findings P-01, F-03): the list of the date came under two load forms, «Ver marcas» opened the day
+  // under the whole list without scrolling to it, and «Corregir» and «Anular» opened their forms under the whole list of marks.
+  describe('el día se abre en su fila y cada formulario debajo de lo que cambia (D-20261111-02)', () => {
+    const openDay = async () => {
+      const button = await screen.findByRole('button', { name: 'Ver marcas de Lucía Pérez' })
+      fireEvent.click(button)
+      await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
+      return button
+    }
+    // The row of the mark itself: a form opened under it starts with its own name, not with the name of the mark.
+    const markRow = () => screen.getByRole('row', { name: /^Entrada/ })
+    const correctButton = () => within(markRow()).getByRole('button', { name: /^Corregir marca Entrada/ })
+    const voidButton = () => within(markRow()).getByRole('button', { name: /^Anular marca Entrada/ })
+    function withDayDetail(detail: object) {
+      const previousGet = apiMocks.get.getMockImplementation()!
+      apiMocks.get.mockImplementation((path: string) => path === '/jornadas/j-1' ? Promise.resolve({ ...jornada, ...detail }) : previousGet(path))
+    }
+
+    it('la lista del día va antes que la carga de días', async () => {
+      render(<JourneysView />)
+      const list = await screen.findByRole('region', { name: /^Jornadas del/ })
+      expect(list.compareDocumentPosition(screen.getByRole('region', { name: 'Cargar días de trabajo' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(list.compareDocumentPosition(screen.getByRole('region', { name: 'Cargar o cambiar un solo día' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+
+    it('«Ver marcas» abre el día en la fila de abajo de la suya y lleva el foco a su título', async () => {
+      render(<JourneysView />)
+      const button = await openDay()
+      const detailRow = button.closest('tr')!.nextElementSibling
+      expect(detailRow).not.toBeNull()
+      expect(detailRow).toContainElement(screen.getByRole('region', { name: 'Marcas de Lucía Pérez' }))
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Marcas de Lucía Pérez' })).toHaveFocus())
+    })
+
+    it('«Corregir» abre el formulario debajo de su marca con el foco en el primer campo, y «Cancelar» devuelve el foco al botón', async () => {
+      render(<JourneysView />)
+      await openDay()
+      fireEvent.click(correctButton())
+      const form = screen.getByRole('form', { name: /^Corregir la marca Entrada/ })
+      expect(markRow().nextElementSibling).toContainElement(form)
+      await waitFor(() => expect(within(form).getByLabelText('Tipo de marca corregida')).toHaveFocus())
+
+      fireEvent.click(within(form).getByRole('button', { name: 'Cancelar' }))
+      expect(form).not.toBeInTheDocument()
+      await waitFor(() => expect(correctButton()).toHaveFocus())
+    })
+
+    it('«Anular» abre el formulario debajo de su marca con el foco en el motivo, y «Volver» devuelve el foco al botón', async () => {
+      render(<JourneysView />)
+      await openDay()
+      fireEvent.click(voidButton())
+      const form = screen.getByRole('form', { name: /^Anular la marca Entrada/ })
+      expect(markRow().nextElementSibling).toContainElement(form)
+      await waitFor(() => expect(within(form).getByLabelText('Motivo de anulación')).toHaveFocus())
+
+      fireEvent.click(within(form).getByRole('button', { name: 'Volver' }))
+      expect(form).not.toBeInTheDocument()
+      await waitFor(() => expect(voidButton()).toHaveFocus())
+    })
+
+    it('una corrección guardada cierra el formulario, avisa al lado de la marca y devuelve el foco a «Corregir»', async () => {
+      render(<JourneysView />)
+      await openDay()
+      fireEvent.click(correctButton())
+      const form = screen.getByRole('form', { name: /^Corregir la marca Entrada/ })
+      fireEvent.change(within(form).getByLabelText('Motivo de corrección de marca'), { target: { value: 'Se verificó la hora.' } })
+      fireEvent.click(within(form).getByRole('button', { name: 'Guardar corrección de marca' }))
+
+      const notice = await screen.findByText('Marca corregida.')
+      expect(markRow().nextElementSibling).toContainElement(notice)
+      await waitFor(() => expect(correctButton()).toHaveFocus())
+    })
+
+    // Each rejection is queued right before its submit, so a failing step never leaves it to another test.
+    it('una corrección rechazada muestra su error dentro del formulario', async () => {
+      render(<JourneysView />)
+      await openDay()
+      fireEvent.click(correctButton())
+      const form = screen.getByRole('form', { name: /^Corregir la marca Entrada/ })
+      fireEvent.change(within(form).getByLabelText('Motivo de corrección de marca'), { target: { value: 'Se verificó la hora.' } })
+      apiMocks.post.mockRejectedValueOnce(Object.assign(new Error('Esa marca ya fue anulada y no se puede modificar.'), { status: 409, code: 'MARK_VOIDED' }))
+      fireEvent.click(within(form).getByRole('button', { name: 'Guardar corrección de marca' }))
+
+      expect(await within(form).findByRole('alert')).toHaveTextContent('Esa marca ya fue anulada y no se puede modificar.')
+    })
+
+    it('una anulación guardada avisa al lado de la marca anulada y lleva el foco al título del día', async () => {
+      withDayDetail({})
+      render(<JourneysView />)
+      await openDay()
+      // From now on the day comes back with the mark voided, as the server answers after the void.
+      withDayDetail({ marks: [{ ...jornada.marks[0], voided: true, voidedAt: '2026-10-16T13:00:00Z', voidReason: 'Tocó por error.' }] })
+      fireEvent.click(voidButton())
+      const form = screen.getByRole('form', { name: /^Anular la marca Entrada/ })
+      fireEvent.change(within(form).getByLabelText('Motivo de anulación'), { target: { value: 'Tocó por error.' } })
+      fireEvent.click(within(form).getByRole('button', { name: 'Confirmar anulación' }))
+
+      const notice = await screen.findByText('Marca anulada.')
+      expect(markRow().nextElementSibling).toContainElement(notice)
+      // The button that opened the form left with the mark: the title of the day takes the focus.
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Marcas de Lucía Pérez' })).toHaveFocus())
+    })
+
+    it('agregar una marca que faltó muestra su error y su resultado dentro de su formulario', async () => {
+      render(<JourneysView />)
+      await openDay()
+      // Found by its heading: the button reads «Guardando…» while the request runs.
+      const form = () => screen.getByRole('heading', { name: 'Agregar una marca que faltó' }).closest('form')!
+      fireEvent.change(within(form()).getByLabelText('Hora (Local Centro)'), { target: { value: '2026-10-16T08:30' } })
+      fireEvent.change(within(form()).getByLabelText('¿Por qué la agregás?'), { target: { value: 'Olvidó marcar.' } })
+      apiMocks.post.mockRejectedValueOnce(Object.assign(new Error('rechazada'), { status: 409, code: 'INVALID_MARK_ORDER' }))
+      fireEvent.click(within(form()).getByRole('button', { name: 'Agregar marca' }))
+      expect(await within(form()).findByRole('alert')).toHaveTextContent('La hora o la acción no encajan con las demás marcas de la jornada. Revisá el orden.')
+
+      fireEvent.click(within(form()).getByRole('button', { name: 'Agregar marca' }))
+      expect(await screen.findByText('Marca agregada.')).toBeInTheDocument()
+      expect(form()).toContainElement(screen.getByText('Marca agregada.'))
+    })
+
+    it('«Cancelar jornada» abre su formulario dentro del día con el foco en el motivo; su error queda en el formulario y «Volver» devuelve el foco', async () => {
+      withDayDetail({ state: 'NO_INGRESO', marks: [] })
+      render(<JourneysView />)
+      await openDay()
+      fireEvent.click(screen.getByRole('button', { name: 'Cancelar jornada' }))
+      const reason = screen.getByLabelText('Motivo de cancelación')
+      expect(screen.getByRole('region', { name: 'Marcas de Lucía Pérez' })).toContainElement(reason)
+      await waitFor(() => expect(reason).toHaveFocus())
+
+      fireEvent.change(reason, { target: { value: 'Feriado' } })
+      apiMocks.post.mockRejectedValueOnce(new Error('No se pudo conectar con el servidor.'))
+      fireEvent.click(screen.getByRole('button', { name: 'Confirmar cancelación' }))
+      expect(await within(reason.closest('form')!).findByRole('alert')).toHaveTextContent('No se pudo conectar con el servidor.')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Volver' }))
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Cancelar jornada' })).toHaveFocus())
+    })
+
+    describe('en un teléfono', () => {
+      let previousMatchMedia: PropertyDescriptor | undefined
+      beforeEach(() => {
+        previousMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia')
+        Object.defineProperty(window, 'matchMedia', { configurable: true, value: vi.fn((query: string) => ({ matches: query.startsWith('(max-width'), addEventListener: vi.fn(), removeEventListener: vi.fn() })) })
+      })
+      afterEach(() => {
+        if (previousMatchMedia) Object.defineProperty(window, 'matchMedia', previousMatchMedia)
+        else Reflect.deleteProperty(window, 'matchMedia')
+      })
+
+      it('el día se abre dentro de su tarjeta, el formulario dentro de su marca con el foco en el motivo, y «Volver» devuelve el foco', async () => {
+        render(<JourneysView />)
+        const card = await screen.findByRole('article', { name: 'Lucía Pérez' })
+        fireEvent.click(within(card).getByRole('button', { name: 'Ver marcas de Lucía Pérez' }))
+        const marks = await within(card).findByRole('list', { name: 'Marcas de la jornada' })
+        await waitFor(() => expect(screen.getByRole('heading', { name: 'Marcas de Lucía Pérez' })).toHaveFocus())
+
+        const [item] = within(marks).getAllByRole('listitem')
+        fireEvent.click(within(item).getByRole('button', { name: /^Anular marca Entrada/ }))
+        const form = within(item).getByRole('form', { name: /^Anular la marca Entrada/ })
+        await waitFor(() => expect(within(form).getByLabelText('Motivo de anulación')).toHaveFocus())
+        fireEvent.click(within(form).getByRole('button', { name: 'Volver' }))
+        await waitFor(() => expect(within(item).getByRole('button', { name: /^Anular marca Entrada/ })).toHaveFocus())
+      })
+
+      it('cada marca dice cuándo se registró, como la tabla de la pantalla ancha', async () => {
+        // A mark the ADMIN loaded: its time and the time it was recorded differ.
+        withDayDetail({ marks: [{ ...jornada.marks[0], occurredAt: '2026-10-16T12:00:00Z', recordedAt: '2026-10-16T14:30:00Z' }] })
+        render(<JourneysView />)
+        await openDay()
+        const [item] = within(screen.getByRole('list', { name: 'Marcas de la jornada' })).getAllByRole('listitem')
+        expect(item).toHaveTextContent(`Registrada: ${formatDateTime('2026-10-16T14:30:00Z', site.timeZone)}`)
+      })
+    })
+  })
+
   describe('horario asignado por empleado (D-20261015-02)', () => {
     it('muestra el historial de horarios de un empleado y asigna uno nuevo desde un día', async () => {
       apiMocks.post.mockResolvedValueOnce({ ...assignment, id: 'a-2', validFrom: '2026-11-10', createdAt: '2026-10-27T13:00:00Z' })
@@ -1266,6 +1441,25 @@ describe('dirección de cada sección del ADMIN', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Ver jornada de Lucía Pérez' }))
     expect(await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')).toBeInTheDocument()
     expect(window.location.hash).toBe('#/hoy')
+  })
+
+  it('ver una jornada desde la bandeja abre ese día dentro de su fila, lo trae a la vista y lleva el foco a su título', async () => {
+    const previousScrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView')
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView })
+    try {
+      openAt('#/para-revisar')
+      render(<AdminApp />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Ver jornada de Lucía Pérez' }))
+      const heading = await screen.findByRole('heading', { name: 'Marcas de Lucía Pérez' })
+      const detail = screen.getByRole('region', { name: 'Marcas de Lucía Pérez' })
+      expect(screen.getByRole('button', { name: 'Ver marcas de Lucía Pérez' }).closest('tr')!.nextElementSibling).toContainElement(detail)
+      await waitFor(() => expect(heading).toHaveFocus())
+      expect(scrollIntoView.mock.contexts).toContain(detail)
+    } finally {
+      if (previousScrollIntoView) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', previousScrollIntoView)
+      else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
+    }
   })
 
   it('al cambiar de empresa la nueva empieza por su inicio y no por la sección que tenía la anterior', async () => {
