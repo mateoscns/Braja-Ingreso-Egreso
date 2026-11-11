@@ -91,6 +91,16 @@ describe('daySentence', () => {
     const lunch = jornada('PAUSA_ABIERTA', [mark('INGRESO', '2026-11-09T11:02:00Z', 1), mark('SALIDA_ALMUERZO', '2026-11-09T16:00:00Z', 2)])
     expect(daySentence(lunch, timeZone, at('2026-11-09T16:10:00Z'))).toBe('Estás almorzando: volvé antes de las 13:45.')
   })
+
+  // 2026-11-10 (#115): a mark the ADMIN loaded or corrected carries the time it happened in occurredAt, and acceptedAt
+  // is when it was stored. The employee read the stored time: a day loaded at night said "desde las 21:15".
+  it('tells the time a mark happened, not the time the ADMIN stored it', () => {
+    const stored = '2026-11-10T00:15:00Z'
+    const working = jornada('EN_CURSO', [mark('INGRESO', stored, 1, { occurredAt: '2026-11-09T11:00:00Z' })])
+    expect(daySentence(working, timeZone, at('2026-11-09T12:00:00Z'))).toBe('Estás trabajando desde las 08:00.')
+    const breakfast = jornada('PAUSA_ABIERTA', [mark('INGRESO', stored, 1, { occurredAt: '2026-11-09T11:00:00Z' }), mark('SALIDA_DESAYUNO', stored, 2, { occurredAt: '2026-11-09T13:05:00Z' })])
+    expect(daySentence(breakfast, timeZone, at('2026-11-09T13:10:00Z'))).toBe('Estás desayunando: volvé antes de las 10:20.')
+  })
 })
 
 describe('exitConfirmation', () => {
@@ -134,6 +144,16 @@ describe('describeDeviation', () => {
 
   it('measures a long pause from its marks', () => {
     const marks = [mark('INGRESO', '2026-11-09T11:00:00Z', 1), mark('SALIDA_DESAYUNO', '2026-11-09T13:00:00Z', 2), mark('VUELTA_DESAYUNO', '2026-11-09T13:25:00Z', 3)]
+    expect(describeDeviation({ ...base, type: 'EXCESO_DESAYUNO' }, jornada('EN_CURSO', marks), timeZone)).toBe('Tu desayuno duró 25 minutos y tenías 15.')
+  })
+
+  // 2026-11-10 (#115): both marks of a pause the ADMIN loaded are stored at the same moment.
+  it('measures a pause the ADMIN loaded from the times it happened', () => {
+    const stored = '2026-11-10T00:15:00Z'
+    const marks = [
+      mark('INGRESO', stored, 1, { occurredAt: '2026-11-09T11:00:00Z' }), mark('SALIDA_DESAYUNO', stored, 2, { occurredAt: '2026-11-09T13:00:00Z' }),
+      mark('VUELTA_DESAYUNO', stored, 3, { occurredAt: '2026-11-09T13:25:00Z' })
+    ]
     expect(describeDeviation({ ...base, type: 'EXCESO_DESAYUNO' }, jornada('EN_CURSO', marks), timeZone)).toBe('Tu desayuno duró 25 minutos y tenías 15.')
   })
 

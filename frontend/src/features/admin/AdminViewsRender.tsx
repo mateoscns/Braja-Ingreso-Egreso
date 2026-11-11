@@ -27,9 +27,10 @@ export type SiteLocationEditDraft = {
 export type SiteMapTarget = { kind: 'create' } | { kind: 'edit'; siteId: string }
 export type SiteMapState = SiteMapPanelState & { target: SiteMapTarget }
 export type SiteLocationAuditEntry = {
-  id: string; changedAt: string; actorDisplayName: string | null
-  beforeLatitude: number | null; beforeLongitude: number | null; afterLatitude: number | null; afterLongitude: number | null
-  beforeRadiusMeters: number | null; afterRadiusMeters: number | null; locationSource?: 'CAPTURED' | 'MANUAL' | null
+  id: string; changedAt: string; actorDisplayName?: string | null
+  // The API leaves an empty field out instead of sending null: the first change of a site has no previous values.
+  beforeLatitude?: number | null; beforeLongitude?: number | null; afterLatitude?: number | null; afterLongitude?: number | null
+  beforeRadiusMeters?: number | null; afterRadiusMeters?: number | null; locationSource?: 'CAPTURED' | 'MANUAL' | null
 }
 export type SiteLocationAuditResponse = { entries: SiteLocationAuditEntry[] }
 
@@ -234,11 +235,13 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, name
   </>
 }
 
-function siteCenter(latitude: number | null, longitude: number | null) {
-  if (latitude === null && longitude === null) return 'Sin coordenadas'
-  if (latitude === null || longitude === null) return 'Coordenadas incompletas'
+function siteCenter(latitude?: number | null, longitude?: number | null) {
+  if (latitude == null && longitude == null) return 'Sin coordenadas'
+  if (latitude == null || longitude == null) return 'Coordenadas incompletas'
   return `${latitude.toFixed(7)}, ${longitude.toFixed(7)}`
 }
+
+const radiusText = (meters?: number | null) => meters == null ? '—' : `${meters} m`
 
 function siteCoordinates(latitudeText: string, longitudeText: string): SiteCoordinates | null {
   if (!latitudeText.trim() || !longitudeText.trim()) return null
@@ -258,14 +261,14 @@ export function SiteLocationAuditSection({ siteId, siteName, timeZone, audit, lo
   return <section id={`site-location-audit-${siteId}`} aria-label={`Historial de ubicación de ${siteName}`} className="audit-history">
     <h3>Historial de ubicación</h3>
     {loading ? <Loading label="Cargando historial de ubicación…" /> : error ? <LoadFailure message={error} onRetry={onRetry} /> : !audit ? null : audit.entries.length === 0 ? <Empty>Esta sede todavía no tiene cambios de ubicación auditados.</Empty> : <ol className="history-items audit-items" aria-label={`Cambios de ubicación de ${siteName}`}>{audit.entries.map((entry) => {
-      const initial = entry.beforeLatitude === null && entry.beforeLongitude === null && entry.beforeRadiusMeters === null
+      const initial = entry.beforeLatitude == null && entry.beforeLongitude == null && entry.beforeRadiusMeters == null
       return <li key={entry.id}>
         <strong>{initial ? 'Configuración inicial de ubicación' : 'Ubicación y radio actualizados'}</strong>
         <span>{dateTime(entry.changedAt, timeZone)}</span>
         <small>Por {entry.actorDisplayName?.trim() || 'un administrador'}</small>
         {entry.locationSource && <small>Origen del punto: {entry.locationSource === 'CAPTURED' ? 'captura automática' : 'carga manual'}</small>}
-        <small>Centro anterior: {siteCenter(entry.beforeLatitude, entry.beforeLongitude)} · radio: {entry.beforeRadiusMeters === null ? '—' : `${entry.beforeRadiusMeters} m`}</small>
-        <small>Centro nuevo: {siteCenter(entry.afterLatitude, entry.afterLongitude)} · radio: {entry.afterRadiusMeters === null ? '—' : `${entry.afterRadiusMeters} m`}</small>
+        <small>Centro anterior: {siteCenter(entry.beforeLatitude, entry.beforeLongitude)} · radio: {radiusText(entry.beforeRadiusMeters)}</small>
+        <small>Centro nuevo: {siteCenter(entry.afterLatitude, entry.afterLongitude)} · radio: {radiusText(entry.afterRadiusMeters)}</small>
       </li>
     })}</ol>}
   </section>
