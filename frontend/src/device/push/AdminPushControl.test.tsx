@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PublicConfig } from '../../shared/api/types'
 import { api } from '../../shared/api/client'
-import { AdminPushControl } from './AdminPushControl'
+import { AdminPushControl, AdminPushControlRender, type AdminPushControlRenderProps } from './AdminPushControl'
 
 vi.mock('../../shared/api/client', () => ({ api: { publicConfig: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() } }))
 
@@ -274,5 +274,145 @@ describe('AdminPushControl: subscription renewed by the browser (pushsubscriptio
 
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(api.put).not.toHaveBeenCalled()
+  })
+})
+
+// The render half takes everything by props (CLAUDE.md, rule 36), so each state is shown without a browser or a server.
+describe('AdminPushControlRender: lo que se lee y el botón que se ofrece en cada estado, con props fijas', () => {
+  // Avisos off in a browser that can receive them, with the configuration already loaded.
+  const OFF: Omit<AdminPushControlRenderProps, 'onActivate' | 'onDeactivate' | 'onRetryConfig'> = {
+    companyName: 'Braja Centro', availability: 'available', enabled: false, busy: false,
+    configLoading: false, configReady: true, configError: '', error: '', message: ''
+  }
+
+  function show(overrides: Partial<typeof OFF> = {}) {
+    const handlers = { onActivate: vi.fn(), onDeactivate: vi.fn(), onRetryConfig: vi.fn() }
+    const view = render(<AdminPushControlRender {...OFF} {...overrides} {...handlers} />)
+    return { ...view, ...handlers, control: screen.getByRole('complementary', { name: 'Avisos de la aplicación' }) }
+  }
+
+  it('mientras carga la configuración lo dice y no deja activar todavía', () => {
+    const { control } = show({ configLoading: true, configReady: false })
+
+    expect(screen.getByRole('status')).toHaveTextContent('Consultando la configuración de avisos…')
+    expect(control).toHaveAttribute('aria-busy', 'true')
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Cargando configuración…' })).toBeDisabled()
+  })
+
+  it('si el navegador no admite avisos lo explica y no ofrece ningún botón', () => {
+    const { container } = show({ availability: 'unsupported' })
+
+    expect(container.querySelector('.push-title')).toHaveTextContent('Alertas en este dispositivo')
+    expect(container.querySelector('.push-detail')).toHaveTextContent(
+      'Este navegador no admite avisos. En iPhone, instalá la app desde Safari (Compartir, Agregar a pantalla de inicio) y abrila desde el ícono.')
+    expect(container.querySelector('.push-status-short')).toHaveTextContent(/^Avisos: no disponibles en este navegador$/)
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it('si los avisos no están habilitados en Fichaje lo explica y no ofrece ningún botón', () => {
+    const { container } = show({ availability: 'unconfigured' })
+
+    expect(container.querySelector('.push-detail')).toHaveTextContent('Los avisos todavía no están habilitados en Fichaje.')
+    expect(container.querySelector('.push-status-short')).toHaveTextContent(/^Avisos: no disponibles$/)
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it('si los avisos están bloqueados en el navegador explica cómo habilitarlos y no ofrece ningún botón', () => {
+    const { container } = show({ availability: 'blocked' })
+
+    expect(container.querySelector('.push-detail')).toHaveTextContent(
+      'No podemos avisarte porque bloqueaste los avisos en este navegador. Habilitalos desde los permisos del sitio.')
+    expect(container.querySelector('.push-status-short')).toHaveTextContent(/^Avisos: bloqueados en este navegador$/)
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  // An unavailable control shows only its explanation: no pending notice and no "busy" mark.
+  it('cuando no hay avisos disponibles no muestra mensajes ni se marca como ocupado', () => {
+    const { control } = show({ availability: 'blocked', configLoading: true, configError: 'Sin conexión.', error: 'Falló.', message: 'Listo.' })
+
+    expect(control).not.toHaveAttribute('aria-busy')
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('con los avisos desactivados nombra la empresa y ofrece «Activar avisos»', () => {
+    const { container, control, onActivate, onDeactivate, onRetryConfig } = show({ companyName: 'Braja Norte' })
+
+    expect(container.querySelector('.push-title')).toHaveTextContent('Alertas en este dispositivo')
+    expect(container.querySelector('.push-detail')).toHaveTextContent(
+      'Desactivadas para Braja Norte; cada empresa se activa por separado. Solo avisan sobre ingresos pendientes o llegadas tarde.')
+    expect(container.querySelector('.push-status-short')).toHaveTextContent(/^Avisos: desactivados$/)
+    expect(control).toHaveAttribute('aria-busy', 'false')
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Activar avisos' })).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Activar avisos' }))
+    expect(onActivate).toHaveBeenCalledTimes(1)
+    expect(onDeactivate).not.toHaveBeenCalled()
+    expect(onRetryConfig).not.toHaveBeenCalled()
+  })
+
+  it('con los avisos activados nombra la empresa y ofrece «Desactivar»', () => {
+    const { container, onActivate, onDeactivate, onRetryConfig } = show({ enabled: true })
+
+    expect(container.querySelector('.push-detail')).toHaveTextContent(/^Activadas para Braja Centro\. Solo avisan sobre ingresos pendientes o llegadas tarde\.$/)
+    expect(container.querySelector('.push-status-short')).toHaveTextContent(/^Avisos: activados$/)
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Desactivar' })).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Desactivar' }))
+    expect(onDeactivate).toHaveBeenCalledTimes(1)
+    expect(onActivate).not.toHaveBeenCalled()
+    expect(onRetryConfig).not.toHaveBeenCalled()
+  })
+
+  it('mientras activa muestra «Activando…» y no deja repetir el pedido', () => {
+    show({ busy: true })
+
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Activando…' })).toBeDisabled()
+  })
+
+  it('mientras desactiva muestra «Actualizando…» y no deja repetir el pedido', () => {
+    show({ enabled: true, busy: true })
+
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Actualizando…' })).toBeDisabled()
+  })
+
+  it('si activar o desactivar falla muestra el error y deja volver a intentarlo', () => {
+    show({ error: 'No se pudieron activar los avisos.' })
+
+    expect(screen.getByRole('alert')).toHaveTextContent('No se pudieron activar los avisos.')
+    expect(screen.getByRole('button', { name: 'Activar avisos' })).toBeEnabled()
+  })
+
+  it('si no se pudo consultar la configuración muestra el error y ofrece «Reintentar consulta»', () => {
+    const { onActivate, onRetryConfig } = show({ configReady: false, configError: 'No se pudo consultar la configuración de avisos.' })
+
+    expect(screen.getByRole('alert')).toHaveTextContent('No se pudo consultar la configuración de avisos.')
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar consulta' }))
+    expect(onRetryConfig).toHaveBeenCalledTimes(1)
+    expect(onActivate).not.toHaveBeenCalled()
+  })
+
+  it('después de un cambio muestra la confirmación que recibe', () => {
+    show({ enabled: true, message: 'Avisos activados para Braja Centro en este dispositivo.' })
+
+    expect(screen.getByRole('status')).toHaveTextContent('Avisos activados para Braja Centro en este dispositivo.')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('no consulta nada por su cuenta: solo muestra lo que recibe', () => {
+    show().unmount()
+    show({ enabled: true, configLoading: true }).unmount()
+
+    expect(api.publicConfig).not.toHaveBeenCalled()
+    expect(api.post).not.toHaveBeenCalled()
+    expect(api.put).not.toHaveBeenCalled()
+    expect(api.delete).not.toHaveBeenCalled()
   })
 })
