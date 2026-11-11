@@ -267,7 +267,7 @@ export function EmployeeApp() {
   const motiveForms = [...pendingMotives, ...deviations.filter((item) => editingMotives.includes(item.id) && !pendingMotives.some((pending) => pending.id === item.id))]
   const name = session.displayName?.trim() || (session.dni ? `DNI ${session.dni}` : 'bienvenido')
   const sentence = loading || loadFailed ? ''
-    : date ? `Estás viendo el ${formatLocalDate(date)}.${jornadas.length ? '' : ' No hay turno cargado ese día.'}`
+    : date ? `Estás viendo el ${formatLocalDate(date)}.${jornadas.length ? '' : ' Ese día no tenés un día de trabajo cargado.'}`
     : daySentence(selected, zone, now)
 
   return <div className="app-frame employee-frame">

@@ -77,7 +77,7 @@ describe('markOptions', () => {
 
 describe('daySentence', () => {
   it('says what is going on today in one sentence', () => {
-    expect(daySentence(undefined, timeZone, at('2026-11-09T12:00:00Z'))).toBe('Hoy no tenés turno cargado. Si tenés que trabajar, avisale a tu encargado.')
+    expect(daySentence(undefined, timeZone, at('2026-11-09T12:00:00Z'))).toBe('Hoy no tenés un día de trabajo cargado. Si tenés que trabajar, avisale a tu encargado.')
     expect(daySentence(jornada('NO_INGRESO'), timeZone, at('2026-11-09T10:50:00Z'))).toBe('Todavía no marcaste tu entrada.')
     expect(daySentence(jornada('EN_CURSO', [mark('INGRESO', '2026-11-09T11:02:00Z', 1)]), timeZone, at('2026-11-09T12:00:00Z'))).toBe('Estás trabajando desde las 08:02.')
     expect(daySentence(jornada('EGRESADA'), timeZone, at('2026-11-09T21:00:00Z'))).toBe('Ya terminaste tu día.')
@@ -138,7 +138,7 @@ describe('describeDeviation', () => {
 
   it('counts the minutes against the schedule of a loaded day', () => {
     expect(describeDeviation(base, jornada('EN_CURSO'), timeZone)).toBe('Llegaste 18 minutos tarde (tu entrada era 08:00).')
-    expect(describeDeviation({ ...base, type: 'EGRESO_TEMPRANO', occurredAt: '2026-11-09T19:40:00Z' }, jornada('EGRESADA'), timeZone)).toBe('Te fuiste 20 minutos antes (tu salida era 17:00).')
+    expect(describeDeviation({ ...base, type: 'EGRESO_TEMPRANO', occurredAt: '2026-11-09T19:40:00Z' }, jornada('EGRESADA'), timeZone)).toBe('Saliste 20 minutos antes (tu salida era 17:00).')
     expect(describeDeviation({ ...base, type: 'EGRESO_TARDIO', occurredAt: '2026-11-09T21:01:00Z' }, jornada('EGRESADA'), timeZone)).toBe('Marcaste la salida 61 minutos después de tu horario (tu salida era 17:00).')
   })
 

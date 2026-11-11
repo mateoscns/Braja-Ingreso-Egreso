@@ -4,7 +4,8 @@ export type SafeNotification = {
   url: string
 }
 
-const GENERIC_BODY = 'Hay un desvío para revisar en la bandeja.'
+// The title names the section («Para revisar»), so the body does not repeat where to look.
+const GENERIC_BODY = 'Hay un caso para revisar.'
 const GENERIC_TAG = 'braja-desvios-pendientes'
 const MAX_COUNT = 1_000_000
 
@@ -48,16 +49,16 @@ function getValidatedPayload(payload: unknown): { totalCount: number; siteCounts
 function notificationBody(payload: unknown): string {
   const validated = getValidatedPayload(payload)
   if (!validated) return GENERIC_BODY
-  const countLabel = validated.totalCount === 1 ? '1 desvío nuevo' : `${validated.totalCount} desvíos nuevos`
+  const countLabel = validated.totalCount === 1 ? '1 caso nuevo' : `${validated.totalCount} casos nuevos`
   const breakdown = validated.siteCounts.map(({ siteName, count }) => `${siteName}: ${count}`).join(' · ')
-  return breakdown ? `Hay ${countLabel} para revisar. ${breakdown}` : `Hay ${countLabel} para revisar en la bandeja.`
+  return breakdown ? `Hay ${countLabel} para revisar. ${breakdown}` : `Hay ${countLabel} para revisar.`
 }
 
 export function safeDeviationNotification(payload?: unknown): SafeNotification {
   const url = '/admin'
   const tag = isRecord(payload) ? safeNotificationTag(payload.tag) : GENERIC_TAG
   return {
-    title: 'Fichaje Braja · Desvíos pendientes',
+    title: 'Fichaje Braja · Para revisar',
     options: {
       body: notificationBody(payload),
       tag,

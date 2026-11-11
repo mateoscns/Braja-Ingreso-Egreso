@@ -51,7 +51,7 @@ describe('ApiClient', () => {
     const client = new ApiClient()
 
     await expect(client.get('/jornadas')).rejects.toMatchObject({
-      message: 'Todavía es temprano para marcar. La entrada se puede marcar desde 30 minutos antes de tu horario; las demás marcas, desde que empieza tu turno.'
+      message: 'Todavía es temprano para marcar. La entrada se puede marcar desde 30 minutos antes de tu horario; las demás marcas, desde que empieza tu día de trabajo.'
     })
   })
 
@@ -134,8 +134,8 @@ describe('ApiClient: códigos de error conocidos', () => {
   })
 
   it.each([
-    [409, 'INVALID_MARK_TRANSITION', 'El estado de la jornada cambió y esa marca ya no corresponde. Revisá el estado actualizado.'],
-    [409, 'INVALID_MARK_ORDER', 'El estado de la jornada cambió y esa marca ya no corresponde. Revisá el estado actualizado.'],
+    [409, 'INVALID_MARK_TRANSITION', 'El estado del día de trabajo cambió y esa marca ya no corresponde. Revisá el estado actualizado.'],
+    [409, 'INVALID_MARK_ORDER', 'El estado del día de trabajo cambió y esa marca ya no corresponde. Revisá el estado actualizado.'],
     [409, 'IDEMPOTENCY_CONFLICT', 'No se pudo registrar tu marca. Tocá Actualizar y volvé a marcar.'],
     [409, 'MOTIVE_LOCKED', 'Tu encargado ya lo revisó: ya no se puede cambiar.'],
     [409, 'JORNADA_EXISTS', 'Esa persona ya tiene ese día cargado en ese local.'],
@@ -143,8 +143,8 @@ describe('ApiClient: códigos de error conocidos', () => {
     [409, 'ACCOUNT_INACTIVE', 'La cuenta de ese DNI no está habilitada y no se puede agregar a la empresa.'],
     [409, 'ACCOUNT_SHARED', 'Esta persona también tiene acceso en otra empresa o como ADMIN; su contraseña la restablece el operador.'],
     [409, 'EMPLOYEE_INACTIVE', 'El empleado está dado de baja; reactivalo antes de restablecer la contraseña.'],
-    [409, 'JORNADA_HAS_MARKS', 'La jornada ya tiene marcas y no se puede cancelar. Corregí o anulá sus marcas.'],
-    [409, 'JORNADA_CANCELLED', 'Esta jornada fue cancelada por el administrador y no admite marcas.'],
+    [409, 'JORNADA_HAS_MARKS', 'El día de trabajo ya tiene marcas y no se puede cancelar. Corregí o anulá sus marcas.'],
+    [409, 'JORNADA_CANCELLED', 'Este día de trabajo fue cancelado por el administrador y no admite marcas.'],
     [409, 'MARK_VOIDED', 'Esa marca ya fue anulada y no se puede modificar.'],
     [403, 'PASSWORD_CHANGE_REQUIRED', 'Tenés que cambiar tu contraseña provisoria antes de continuar.']
   ])('un %i %s tiene un mensaje específico', async (status, code, message) => {

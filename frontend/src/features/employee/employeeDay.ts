@@ -100,7 +100,7 @@ export function exitConfirmation(jornada: Jornada, timeZone: string, now: Date):
 
 /** The state of today in one sentence. */
 export function daySentence(jornada: Jornada | undefined, timeZone: string | undefined, now: Date): string {
-  if (!jornada) return 'Hoy no tenés turno cargado. Si tenés que trabajar, avisale a tu encargado.'
+  if (!jornada) return 'Hoy no tenés un día de trabajo cargado. Si tenés que trabajar, avisale a tu encargado.'
   const marks = countedMarks(jornada)
   switch (jornada.state) {
     case 'NO_INGRESO': return 'Todavía no marcaste tu entrada.'
@@ -175,7 +175,7 @@ export function describeDeviation(item: Deviation, jornada: Jornada | undefined,
     }
     case 'EGRESO_TEMPRANO': {
       const early = end ? Math.round((end.getTime() - factMs) / MINUTE) : 0
-      return end && early > 0 ? `Te fuiste ${minutesWord(early)} antes (tu salida era ${formatTime(end, timeZone)}).` : `Marcaste la salida antes de tu horario, a las ${factTime}.`
+      return end && early > 0 ? `Saliste ${minutesWord(early)} antes (tu salida era ${formatTime(end, timeZone)}).` : `Marcaste la salida antes de tu horario, a las ${factTime}.`
     }
     case 'EGRESO_TARDIO': {
       const after = end ? Math.round((factMs - end.getTime()) / MINUTE) : 0

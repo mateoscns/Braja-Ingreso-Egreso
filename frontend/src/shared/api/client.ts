@@ -41,9 +41,9 @@ function waitText(seconds?: number): string {
   return `${minutes} minutos`
 }
 
-const STALE_MARK = 'El estado de la jornada cambió y esa marca ya no corresponde. Revisá el estado actualizado.'
+const STALE_MARK = 'El estado del día de trabajo cambió y esa marca ya no corresponde. Revisá el estado actualizado.'
 const CONFLICT_MESSAGES: Record<string, string> = {
-  MARK_TOO_EARLY: 'Todavía es temprano para marcar. La entrada se puede marcar desde 30 minutos antes de tu horario; las demás marcas, desde que empieza tu turno.',
+  MARK_TOO_EARLY: 'Todavía es temprano para marcar. La entrada se puede marcar desde 30 minutos antes de tu horario; las demás marcas, desde que empieza tu día de trabajo.',
   RETRYABLE_TRANSACTION_CONFLICT: 'El sistema estaba ocupado y no completó la operación. Reintentá en unos segundos.',
   INVALID_MARK_TRANSITION: STALE_MARK,
   INVALID_MARK_ORDER: STALE_MARK,
@@ -55,8 +55,8 @@ const CONFLICT_MESSAGES: Record<string, string> = {
   ACCOUNT_INACTIVE: 'La cuenta de ese DNI no está habilitada y no se puede agregar a la empresa.',
   ACCOUNT_SHARED: 'Esta persona también tiene acceso en otra empresa o como ADMIN; su contraseña la restablece el operador.',
   EMPLOYEE_INACTIVE: 'El empleado está dado de baja; reactivalo antes de restablecer la contraseña.',
-  JORNADA_HAS_MARKS: 'La jornada ya tiene marcas y no se puede cancelar. Corregí o anulá sus marcas.',
-  JORNADA_CANCELLED: 'Esta jornada fue cancelada por el administrador y no admite marcas.',
+  JORNADA_HAS_MARKS: 'El día de trabajo ya tiene marcas y no se puede cancelar. Corregí o anulá sus marcas.',
+  JORNADA_CANCELLED: 'Este día de trabajo fue cancelado por el administrador y no admite marcas.',
   MARK_VOIDED: 'Esa marca ya fue anulada y no se puede modificar.',
   ASSIGNMENT_EXISTS: 'Esa persona ya tiene un horario en ese local desde ese día. Elegí otro día.',
   TEMPLATE_IN_USE: 'Ese horario ya se usa, así que no puede pasar a otro local. Creá un horario nuevo para ese local.',

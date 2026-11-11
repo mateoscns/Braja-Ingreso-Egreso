@@ -162,7 +162,7 @@ describe('EmployeeApp', () => {
 
       expect(await screen.findByText('Estás trabajando desde las 09:00.')).toBeInTheDocument()
       const headings = [...container.querySelectorAll('h1, h2')].map((heading) => heading.textContent)
-      expect(headings).toEqual(['Hola, DNI 30123456', 'Marcar', 'Tus marcas de hoy', 'Para explicar', 'Desvíos del día', 'Ver otros días'])
+      expect(headings).toEqual(['Hola, DNI 30123456', 'Marcar', 'Tus marcas de hoy', 'Para explicar', 'Lo que pasó este día', 'Ver otros días'])
       const sentence = screen.getByText('Estás trabajando desde las 09:00.')
       expect(sentence.compareDocumentPosition(screen.getByRole('button', { name: 'Me voy a desayunar' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     })
@@ -190,7 +190,7 @@ describe('EmployeeApp', () => {
       expect(container.textContent).not.toMatch(/servidor|secuencia|comprobante|día local|Registrar|Enviar marca/)
     })
 
-    it('dice que hoy no hay turno cargado y a quién avisar', async () => {
+    it('dice que hoy no hay un día de trabajo cargado y a quién avisar', async () => {
       mocks.apiGet.mockImplementation((path: string) => {
         if (path === '/sites') return Promise.resolve(sites)
         if (path.startsWith('/jornadas/mine?')) return Promise.resolve([])
@@ -198,7 +198,7 @@ describe('EmployeeApp', () => {
         throw new Error(`GET inesperado: ${path}`)
       })
       render(<EmployeeApp />)
-      expect(await screen.findByText('Hoy no tenés turno cargado. Si tenés que trabajar, avisale a tu encargado.')).toBeInTheDocument()
+      expect(await screen.findByText('Hoy no tenés un día de trabajo cargado. Si tenés que trabajar, avisale a tu encargado.')).toBeInTheDocument()
       expect(screen.queryByRole('region', { name: 'Marcar' })).not.toBeInTheDocument()
     })
 
@@ -227,6 +227,7 @@ describe('EmployeeApp', () => {
 
     const options = await screen.findAllByRole('button', { name: /Mañana/ })
     expect(options).toHaveLength(2)
+    expect(within(screen.getByRole('region', { name: 'Elegí tu turno' })).getByRole('group', { name: 'Turnos de este día' })).toContainElement(options[0])
     expect(options[0]).toHaveAccessibleName(/Local Centro/)
     expect(options[1]).toHaveAccessibleName(/Local Norte/)
     expect(options[0]).toHaveAttribute('aria-pressed', 'true')
@@ -362,7 +363,7 @@ describe('EmployeeApp', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Servidor no disponible.')
     expect(screen.getByRole('heading', { name: 'No pudimos cargar tu día' })).toBeInTheDocument()
-    expect(screen.queryByText(/no tenés turno cargado/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/no tenés un día de trabajo cargado/)).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
 
@@ -482,7 +483,7 @@ describe('EmployeeApp', () => {
       const card = (await screen.findByLabelText('Contá qué pasó')).closest('form')!
       expect(card).toHaveTextContent('No marcaste tu salida.')
       expect(mocks.apiGet).toHaveBeenCalledWith('/deviations?status=MOTIVO_PENDIENTE&limit=100')
-      expect(screen.getByText('No hay desvíos este día.')).toBeInTheDocument()
+      expect(screen.getByText('Este día no hubo nada para explicar.')).toBeInTheDocument()
 
       fireEvent.click(screen.getByRole('radio', { name: /Otra/ }))
       fireEvent.change(screen.getByLabelText('Contá qué pasó'), { target: { value: 'Me olvidé de marcar al salir.' } })
