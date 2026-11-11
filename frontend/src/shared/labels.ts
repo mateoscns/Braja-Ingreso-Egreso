@@ -4,8 +4,8 @@ type MotiveCategory = NonNullable<Deviation['category']>
 
 /**
  * The visible name of every mark, case (deviation), state and category. Screens read them from here so a word changes in
- * one place. The ADMIN and the employee still read different words; D-20261111-01 asks for one set, and until it is applied
- * here both are kept with the same shape, so that they can become one.
+ * one place. D-20261111-01 gives the ADMIN and the employee one set of words; the two vocabularies below keep the same
+ * shape and share everything except the one name that still depends on who reads it.
  */
 export type Vocabulary = {
   mark: Record<MarkAction, string>
@@ -15,7 +15,22 @@ export type Vocabulary = {
   jornadaState: Record<JornadaStatus, string>
 }
 
-// The words both roles already share are written once.
+// The words both roles read are written once.
+
+// The decision names only the entry and the exit. The break marks are still open: until the owner chooses, both roles read
+// the names the employee already had.
+const mark: Record<MarkAction, string> = {
+  INGRESO: 'Entrada', SALIDA_DESAYUNO: 'Salida a desayunar', VUELTA_DESAYUNO: 'Vuelta del desayuno',
+  SALIDA_ALMUERZO: 'Salida a almorzar', VUELTA_ALMUERZO: 'Vuelta del almuerzo', EGRESO: 'Salida'
+}
+const deviation: Record<Deviation['type'], string> = {
+  SIN_INGRESO: 'No marcó la entrada', LLEGADA_TARDE: 'Llegada tarde', EGRESO_TEMPRANO: 'Salió antes', EGRESO_TARDIO: 'Salió después de hora',
+  MARCA_FALTANTE: 'No marcó la salida', EXCESO_DESAYUNO: 'Desayuno largo', EXCESO_ALMUERZO: 'Almuerzo largo', FUERA_DE_SEDE: 'Fuera del local'
+}
+const reviewedStatus: Record<Exclude<Deviation['status'], 'MOTIVO_PENDIENTE'>, string> = {
+  PENDIENTE_REVISION: 'A revisar', JUSTIFICADO: 'Justificado', NO_JUSTIFICADO: 'No justificado'
+}
+// The decision leaves the states of a day open, so they keep their words («Sin ingreso» included).
 const jornadaState: Record<JornadaStatus, string> = {
   NO_INGRESO: 'Sin ingreso',
   EN_CURSO: 'En curso',
@@ -26,29 +41,20 @@ const jornadaState: Record<JornadaStatus, string> = {
 const motiveCategory: Record<MotiveCategory, string> = { SALUD: 'Salud', TRANSPORTE: 'Transporte', EMERGENCIA: 'Emergencia', OTRA: 'Otra' }
 
 export const forAdmin: Vocabulary = {
-  mark: {
-    INGRESO: 'Ingreso', EGRESO: 'Egreso', SALIDA_DESAYUNO: 'Salida desayuno', VUELTA_DESAYUNO: 'Vuelta desayuno',
-    SALIDA_ALMUERZO: 'Salida almuerzo', VUELTA_ALMUERZO: 'Vuelta almuerzo'
-  },
-  deviation: {
-    SIN_INGRESO: 'Sin ingreso', LLEGADA_TARDE: 'Llegada tarde', EGRESO_TEMPRANO: 'Egreso temprano', EGRESO_TARDIO: 'Egreso tardío',
-    MARCA_FALTANTE: 'Egreso sin marcar', EXCESO_DESAYUNO: 'Exceso de desayuno', EXCESO_ALMUERZO: 'Exceso de almuerzo', FUERA_DE_SEDE: 'Fuera de sede'
-  },
-  deviationStatus: { MOTIVO_PENDIENTE: 'Falta motivo', PENDIENTE_REVISION: 'A revisar', JUSTIFICADO: 'Justificado', NO_JUSTIFICADO: 'No justificado' },
+  mark,
+  deviation,
+  // The ADMIN reads about another person, so the tag says what that person has not done yet (the word of the decision).
+  deviationStatus: { MOTIVO_PENDIENTE: 'Todavía no explicó', ...reviewedStatus },
   motiveCategory,
   jornadaState
 }
 
 export const forEmployee: Vocabulary = {
-  mark: {
-    INGRESO: 'Entrada', SALIDA_DESAYUNO: 'Salida a desayunar', VUELTA_DESAYUNO: 'Vuelta del desayuno',
-    SALIDA_ALMUERZO: 'Salida a almorzar', VUELTA_ALMUERZO: 'Vuelta del almuerzo', EGRESO: 'Salida'
-  },
-  deviation: {
-    SIN_INGRESO: 'Faltó la entrada', LLEGADA_TARDE: 'Llegada tarde', EGRESO_TEMPRANO: 'Salida temprana', EGRESO_TARDIO: 'Salida tarde',
-    MARCA_FALTANTE: 'Faltó la salida', EXCESO_DESAYUNO: 'Desayuno largo', EXCESO_ALMUERZO: 'Almuerzo largo', FUERA_DE_SEDE: 'Fuera del local'
-  },
-  deviationStatus: { MOTIVO_PENDIENTE: 'Falta explicar', PENDIENTE_REVISION: 'A revisar', JUSTIFICADO: 'Justificado', NO_JUSTIFICADO: 'No justificado' },
+  mark,
+  deviation,
+  // The employee reads about themselves: the same state, said as what is left for them to do. Kept as an assumption, since
+  // the decision names only the ADMIN's word.
+  deviationStatus: { MOTIVO_PENDIENTE: 'Falta explicar', ...reviewedStatus },
   motiveCategory,
   jornadaState
 }

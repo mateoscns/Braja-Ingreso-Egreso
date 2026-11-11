@@ -278,7 +278,7 @@ describe('administración de desvíos y marcas', () => {
       ? Promise.resolve({ items: [{ ...deviation, type: 'MARCA_FALTANTE' as const, status: 'MOTIVO_PENDIENTE' as const, pushEligible: false }], nextCursor: null })
       : previous(path))
     render(<AdminInbox />)
-    expect(await screen.findByText('Egreso sin marcar')).toBeInTheDocument()
+    expect(await screen.findByText('No marcó la salida')).toBeInTheDocument()
   })
 
   it('identifica la marca que originó un FUERA_DE_SEDE en la bandeja', async () => {
@@ -287,8 +287,8 @@ describe('administración de desvíos y marcas', () => {
       ? Promise.resolve({ items: [{ ...deviation, type: 'FUERA_DE_SEDE' as const, sourceMarkId: 'm-2', sourceMarkAction: 'SALIDA_ALMUERZO' as const, sourceMarkSequence: 2, pushEligible: false }], nextCursor: null })
       : previous(path))
     render(<AdminInbox />)
-    expect(await screen.findByText('Fuera de sede')).toBeInTheDocument()
-    expect(screen.getByText('Marca: Salida almuerzo')).toBeInTheDocument()
+    expect(await screen.findByText('Fuera del local')).toBeInTheDocument()
+    expect(screen.getByText('Marca: Salida a almorzar')).toBeInTheDocument()
     expect(screen.queryByText(/secuencia/)).not.toBeInTheDocument()
   })
 
@@ -373,7 +373,7 @@ describe('administración de desvíos y marcas', () => {
       action: 'SALIDA_ALMUERZO', occurredAt: '2026-10-16T15:30:00.000Z', auditReason: 'La persona olvidó registrar la salida.'
     }))
 
-    const markRow = await screen.findByRole('row', { name: /Ingreso/ })
+    const markRow = await screen.findByRole('row', { name: /Entrada/ })
     fireEvent.click(within(markRow).getByRole('button', { name: /^Corregir marca/ }))
     fireEvent.change(screen.getByLabelText('Motivo de corrección de marca'), { target: { value: 'Se verificó la hora con la persona.' } })
     fireEvent.click(screen.getByRole('button', { name: 'Guardar corrección de marca' }))
@@ -404,7 +404,7 @@ describe('administración de desvíos y marcas', () => {
       apiMocks.post.mockRejectedValueOnce(rejection(code))
       render(<JourneysView />)
       fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
-      const markRow = await screen.findByRole('row', { name: /Ingreso/ })
+      const markRow = await screen.findByRole('row', { name: /Entrada/ })
       fireEvent.click(within(markRow).getByRole('button', { name: /^Corregir marca/ }))
       fireEvent.change(screen.getByLabelText('Motivo de corrección de marca'), { target: { value: 'Se verificó la hora.' } })
       fireEvent.click(screen.getByRole('button', { name: 'Guardar corrección de marca' }))
@@ -417,7 +417,7 @@ describe('administración de desvíos y marcas', () => {
       apiMocks.post.mockRejectedValueOnce(Object.assign(new Error('Esa marca ya fue anulada y no se puede modificar.'), { status: 409, code: 'MARK_VOIDED' }))
       render(<JourneysView />)
       fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
-      const markRow = await screen.findByRole('row', { name: /Ingreso/ })
+      const markRow = await screen.findByRole('row', { name: /Entrada/ })
       fireEvent.click(within(markRow).getByRole('button', { name: /^Corregir marca/ }))
       fireEvent.change(screen.getByLabelText('Motivo de corrección de marca'), { target: { value: 'Se verificó la hora.' } })
       fireEvent.click(screen.getByRole('button', { name: 'Guardar corrección de marca' }))
@@ -471,7 +471,7 @@ describe('administración de desvíos y marcas', () => {
     await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
     expect(screen.getByRole('heading', { name: 'Agregar una marca que faltó' })).toBeInTheDocument()
     expect(screen.getByLabelText('Hora (Local Centro)')).not.toHaveAttribute('step')
-    fireEvent.click(screen.getByRole('button', { name: /^Corregir marca Ingreso/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^Corregir marca Entrada/ }))
     const corrected = screen.getByLabelText('Hora corregida (Local Centro)')
     expect(corrected).not.toHaveAttribute('step')
     expect(corrected).toHaveValue('2026-10-16T09:00')
@@ -486,10 +486,10 @@ describe('administración de desvíos y marcas', () => {
       const marks = await screen.findByRole('list', { name: 'Marcas de la jornada' })
       expect(screen.queryByRole('columnheader', { name: 'Ubicación' })).not.toBeInTheDocument()
       const [card] = within(marks).getAllByRole('listitem')
-      expect(card).toHaveTextContent('Ingreso')
+      expect(card).toHaveTextContent('Entrada')
       expect(card).toHaveTextContent('Sin ubicación')
-      fireEvent.click(within(card).getByRole('button', { name: /^Anular marca Ingreso/ }))
-      const form = screen.getByRole('form', { name: /^Anular la marca Ingreso/ })
+      fireEvent.click(within(card).getByRole('button', { name: /^Anular marca Entrada/ }))
+      const form = screen.getByRole('form', { name: /^Anular la marca Entrada/ })
       expect(marks).not.toContainElement(form)
       expect(within(form).getByLabelText('Motivo de anulación')).toBeRequired()
     } finally {
@@ -548,7 +548,7 @@ describe('administración de desvíos y marcas', () => {
   it('da contexto accesible al botón Corregir de cada marca', async () => {
     render(<JourneysView />)
     fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
-    expect(await screen.findByRole('button', { name: /^Corregir marca Ingreso de/ })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /^Corregir marca Entrada de/ })).toBeInTheDocument()
   })
 
   it('muestra los tramos del horario como HH:MM y el cruce de medianoche en palabras', async () => {
@@ -874,8 +874,8 @@ describe('administración de desvíos y marcas', () => {
       withDetail({})
       render(<JourneysView />)
       fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
-      const markRow = await screen.findByRole('row', { name: /Ingreso/ })
-      fireEvent.click(within(markRow).getByRole('button', { name: /^Anular marca Ingreso de/ }))
+      const markRow = await screen.findByRole('row', { name: /Entrada/ })
+      fireEvent.click(within(markRow).getByRole('button', { name: /^Anular marca Entrada de/ }))
       expect(screen.getByRole('textbox', { name: 'Motivo de anulación' })).toHaveAccessibleDescription(expect.stringContaining(healthHint))
     })
 
@@ -900,8 +900,8 @@ describe('administración de desvíos y marcas', () => {
       apiMocks.post.mockResolvedValue({ ...jornada.marks[0], voided: true, voidReason: 'Tocó por error.' })
       render(<JourneysView />)
       fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
-      const markRow = await screen.findByRole('row', { name: /Ingreso/ })
-      fireEvent.click(within(markRow).getByRole('button', { name: /^Anular marca Ingreso de/ }))
+      const markRow = await screen.findByRole('row', { name: /Entrada/ })
+      fireEvent.click(within(markRow).getByRole('button', { name: /^Anular marca Entrada de/ }))
 
       const confirm = screen.getByRole('button', { name: 'Confirmar anulación' })
       expect(confirm).toBeDisabled()
@@ -916,8 +916,8 @@ describe('administración de desvíos y marcas', () => {
       apiMocks.post.mockRejectedValue(Object.assign(new Error('conflict'), { status: 409, code: 'MARK_VOIDED' }))
       render(<JourneysView />)
       fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
-      const markRow = await screen.findByRole('row', { name: /Ingreso/ })
-      fireEvent.click(within(markRow).getByRole('button', { name: /^Anular marca Ingreso de/ }))
+      const markRow = await screen.findByRole('row', { name: /Entrada/ })
+      fireEvent.click(within(markRow).getByRole('button', { name: /^Anular marca Entrada de/ }))
       fireEvent.change(screen.getByLabelText('Motivo de anulación'), { target: { value: 'Tocó por error.' } })
       const detailCalls = apiMocks.get.mock.calls.filter(([path]) => path === '/jornadas/j-1').length
       fireEvent.click(screen.getByRole('button', { name: 'Confirmar anulación' }))
@@ -942,7 +942,7 @@ describe('administración de desvíos y marcas', () => {
       withDetail({ marks: [{ ...jornada.marks[0], voided: true, voidedAt: '2026-10-16T13:00:00Z', voidReason: 'Tocó por error.' }] })
       render(<JourneysView />)
       fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
-      const markRow = await screen.findByRole('row', { name: /Ingreso/ })
+      const markRow = await screen.findByRole('row', { name: /Entrada/ })
       expect(markRow).toHaveTextContent('Anulada')
       expect(markRow).toHaveTextContent('Tocó por error.')
       expect(within(markRow).queryByRole('button')).not.toBeInTheDocument()

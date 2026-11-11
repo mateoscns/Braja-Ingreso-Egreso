@@ -124,9 +124,9 @@ describe('aviso de días cargados', () => {
 })
 
 describe('Ver jornada desde un desvío', () => {
-  it('abre Jornadas en la fecha de esa jornada, con su detalle y la salida preelegida para un egreso sin marcar', async () => {
+  it('abre Jornadas en la fecha de esa jornada, con su detalle y la salida preelegida para una salida sin marcar', async () => {
     render(<AdminApp />)
-    const card = (await screen.findByText('Egreso sin marcar')).closest('article') as HTMLElement
+    const card = (await screen.findByText('No marcó la salida')).closest('article') as HTMLElement
     expect(card).not.toHaveTextContent(/secuencia/)
     fireEvent.click(within(card).getByRole('button', { name: 'Ver jornada de Lucía Pérez' }))
 
