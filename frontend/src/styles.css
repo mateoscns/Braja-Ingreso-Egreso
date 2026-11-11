@@ -130,8 +130,8 @@
 
 /* ===== Base: document defaults, headings, text helpers ===== */
 :root {
-  font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  color: var(--text-primary);
+  font-family: var(--font-sans);
+  color: var(--text);
   background: var(--page);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -142,19 +142,30 @@
 /* WCAG 2.4.11: scrolling to a focused control leaves it clear of the sticky top bar and of the fixed alerts bar. */
 html { scroll-padding-top: calc(var(--topbar-height) + env(safe-area-inset-top) + 8px); }
 html:has(.push-control) { scroll-padding-bottom: calc(var(--alerts-bar-clearance) + env(safe-area-inset-bottom)); }
-body { margin: 0; min-width: 320px; min-height: 100vh; min-height: 100dvh; background: var(--page); }
+body { margin: 0; min-width: 320px; min-height: 100vh; min-height: 100dvh; background: var(--page); line-height: var(--line-height-body); }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .68; }
-input, select, textarea { color: var(--text-primary); }
-a { color: inherit; text-decoration: none; }
+input, select, textarea { color: var(--text); }
+/* An example inside a field is text to read: one colour in every browser (each has its own grey, and Firefox adds opacity). */
+::placeholder { color: var(--text-muted); opacity: 1; }
+/* A link is told apart by its underline, not by its colour alone (WCAG 1.4.1). */
+a { color: var(--brand); text-decoration: underline; }
+/* The brand in the top bar is still a link without an underline; slice C1 redraws it. */
+a.brand { text-decoration: none; }
 h1, h2, h3, p { margin-top: 0; }
-h1, h2, h3, .brand, .auth-brand { font-family: 'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif; }
-h1 { font-size: clamp(1.7rem, 2.3vw, 2.18rem); letter-spacing: -.045em; line-height: 1.12; margin-bottom: .55rem; }
-h2 { font-size: 1rem; letter-spacing: -.02em; margin: 0; }
+/* Headings take the family of the page: one stack, three sizes, no letter-spacing. */
+h1, h2, h3 { font-weight: var(--font-weight-heavy); }
+h1 { font-size: var(--font-size-display); line-height: var(--line-height-tight); margin-bottom: .55rem; }
+h2 { font-size: var(--font-size-title); line-height: var(--line-height-heading); margin: 0; }
+h3 { font-size: var(--font-size-body-lg); line-height: var(--line-height-heading); }
 .muted { color: var(--muted); margin-bottom: 0; line-height: 1.55; }
 .small-copy { font-size: .88rem; margin: -4px 0 18px; }
-.eyebrow { color: var(--text-tertiary); font-size: .75rem; font-weight: 700; letter-spacing: .13em; margin: 0 0 10px; }
+.eyebrow { color: var(--text-tertiary); font-size: var(--font-size-meta); font-weight: var(--font-weight-heavy); margin: 0 0 10px; }
+/* Inline SVG icons (app/icons.tsx): sized by the text next to them and drawn with its colour; they never shrink in a row. */
+.icon { flex-shrink: 0; width: 1.25em; height: 1.25em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* Text for screen readers only (a table caption, the name of an empty cell): off the screen, still in the accessibility tree. */
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 /* ===== Loading ===== */
 .boot-screen { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; }
@@ -215,19 +226,14 @@ h2 { font-size: 1rem; letter-spacing: -.02em; margin: 0; }
 fieldset.field { min-width: 0; margin: 0; border: 0; padding: 0; }
 
 /* ===== Focus ===== */
-:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
-.field input:focus-visible, .field select:focus-visible, .field textarea:focus-visible,
-td input:focus-visible, .company-switch:focus-visible,
-button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
-  outline: 3px solid var(--focus);
-  outline-offset: 3px;
-}
+/* One ring for everything that takes focus: 3 px, 2 px away from the control, so it is read against the surface in the gap. */
+:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+/* The field rule above removes the outline with a more specific selector, so the fields name the same ring again. */
 .field input:focus-visible, .field select:focus-visible, .field textarea:focus-visible,
 td input:focus-visible, .company-switch:focus-visible {
-  outline-width: 2px;
-  outline-offset: 1px;
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
 }
-.button-primary:focus-visible { outline-color: var(--focus); box-shadow: 0 0 0 3px var(--surface); }
 
 /* ===== Buttons ===== */
 .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: var(--tap-target); border: 1px solid transparent; border-radius: var(--radius-control); padding: 0 16px; font-weight: 650; font-size: .875rem; transition: transform .12s, background .16s, border-color .16s, box-shadow .16s; }
@@ -457,7 +463,9 @@ td .short-input { width: 74px; }
   .employee-frame .brand > span:last-child { display: none; }
 }
 
-.push-control { position: fixed; z-index: 8; right: max(22px, env(safe-area-inset-right)); bottom: calc(18px + env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 15px; width: min(530px, calc(100vw - 32px)); padding: 11px 13px; border: 1px solid #dfe8e0; border-radius: 13px; background: rgba(255,255,255,.96); box-shadow: 0 12px 38px rgba(18,55,42,.12); backdrop-filter: blur(12px); }
+/* The bar keeps the line height it was measured with (98 px tall with three lines): with the 1.5 of body it grows to 107.5 px and
+   --alerts-bar-clearance (124 px) no longer covers it plus its 18 px offset. The bar and this line go away in slice N4. */
+.push-control { position: fixed; z-index: 8; right: max(22px, env(safe-area-inset-right)); bottom: calc(18px + env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 15px; width: min(530px, calc(100vw - 32px)); padding: 11px 13px; border: 1px solid #dfe8e0; border-radius: 13px; background: rgba(255,255,255,.96); box-shadow: 0 12px 38px rgba(18,55,42,.12); backdrop-filter: blur(12px); line-height: normal; }
 .push-control .message { position: absolute; bottom: 100%; right: 0; width: min(380px, 100%); margin-bottom: 8px; box-shadow: var(--shadow); }
 .push-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; margin-right: auto; }
 .push-copy strong { font-size: .875rem; color: #304838; }
@@ -554,12 +562,12 @@ td .short-input { width: 74px; }
 
 @media (forced-colors: active) {
   :focus-visible { outline-color: Highlight !important; }
-  .button-primary:focus-visible { box-shadow: none; }
   .status-chip { border: 1px solid CanvasText; }
   .spinner { border-color: CanvasText; border-top-color: Highlight; }
 }
 /* ===== Later additions: small modifiers of the regions above (folds, quick choices, work days, first steps) ===== */
-.mark-feedback:focus { outline: none; }
+/* The result of a mark takes focus by script: no ring after a tap or a click, the global ring when the keyboard is in use. */
+.mark-feedback:focus:not(:focus-visible) { outline: none; }
 .fieldset-plain { min-width: 0; margin: 0; border: 0; padding: 0; }
 .update-banner { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 50; display: flex; align-items: center; gap: 12px; width: max-content; max-width: calc(100% - 32px); padding: 10px 14px; border: 1px solid #d2e7d7; border-radius: 12px; color: var(--green); background: #fff; box-shadow: var(--shadow); font-size: .9rem; }
 /* U3 (issue #104), small modifiers from existing tokens. A folded section (details/summary) like .site-location-manual, also

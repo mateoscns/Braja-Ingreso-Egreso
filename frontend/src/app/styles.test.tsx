@@ -214,9 +214,9 @@ const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui',
 // pattern of its own test when the token block came in (2026-11-11). A slice that moves rules to tokens lowers the number in
 // the same commit; nobody raises one. Slice H1 turns the four into equalities with zero.
 const COLOR_LITERAL_CEILING = 144
-const UNTOKENED_FONT_SIZE_CEILING = 82
-const BOX_SHADOW_CEILING = 16
-const LEGACY_TOKEN_USE_CEILING = 142
+const UNTOKENED_FONT_SIZE_CEILING = 79
+const BOX_SHADOW_CEILING = 14
+const LEGACY_TOKEN_USE_CEILING = 137
 
 // The old names with the values they had before the token block. A name is deleted from the stylesheet once nothing uses it
 // and never gets a new value in the meantime: a half-migrated rule must look exactly as it did.
@@ -293,5 +293,95 @@ describe('tokens de diseño: el bloque de arriba y lo que todavía queda fuera d
 
     expect(withoutComments(css.slice(0, markerIndex(LEGACY_START)))).toMatch(/(?<![\w-])color-scheme:\s*light\s*;/)
     expect(declarations).toEqual(['light'])
+  })
+})
+
+/** Every rule of the stylesheet, media blocks included, with its selector list split. */
+function allRules() {
+  return [...withoutComments(css).matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({
+    selectors: match[1].split(',').map((selector) => selector.replace(/\s+/g, ' ').trim()),
+    declarations: match[2]
+  }))
+}
+
+describe('base del documento: tipografía, enlaces, foco y placeholder', () => {
+  it('hay una sola familia de letra: toda font-family sale de un token', () => {
+    const families = [...belowTokens().matchAll(/(?<![\w-])font-family\s*:\s*([^;}]+)/g)].map((match) => match[1].trim())
+
+    // The first :root is the token rule; the document defaults are the :root under it.
+    expect(rule(':root', belowTokens())).toMatch(/font-family:\s*var\(--font-sans\)/)
+    expect(families.filter((family) => !/^var\(--font-(?:sans|mono)\)$/.test(family))).toEqual([])
+  })
+
+  it('el texto corrido tiene interlineado: body usa el token de 1.5', () => {
+    expect(rule('body')).toMatch(/line-height:\s*var\(--line-height-body\)/)
+  })
+
+  // Measured 2026-11-11 with headless Chrome at 1366 px: with the line height of body the bar grows from 98 to 107.5 px and
+  // the 124 px of --alerts-bar-clearance stop covering it plus its 18 px offset (2.4.11, the test of the fixed bar above).
+  it('la barra de avisos fija no hereda el interlineado del cuerpo: conserva el alto con el que se midió su lugar', () => {
+    expect(rule('.push-control')).toMatch(/line-height:\s*normal/)
+  })
+
+  it('los títulos usan la escala de los tokens, sin espaciado entre letras', () => {
+    expect(rule('h1')).toMatch(/font-size:\s*var\(--font-size-display\)/)
+    expect(rule('h1')).toMatch(/line-height:\s*var\(--line-height-tight\)/)
+    expect(rule('h2')).toMatch(/font-size:\s*var\(--font-size-title\)/)
+    expect(rule('h2')).toMatch(/line-height:\s*var\(--line-height-heading\)/)
+    for (const heading of ['h1', 'h2']) expect(rule(heading), heading).not.toMatch(/letter-spacing/)
+  })
+
+  it('el texto chico de arriba de un título mide 14 px, en negrita y sin espaciado entre letras', () => {
+    const eyebrow = rule('.eyebrow')
+
+    expect(eyebrow).toMatch(/font-size:\s*var\(--font-size-meta\)/)
+    expect(eyebrow).toMatch(/font-weight:\s*var\(--font-weight-heavy\)/)
+    expect(eyebrow).not.toMatch(/letter-spacing/)
+  })
+
+  it('un enlace se reconoce sin depender del color: va subrayado y con el verde de la marca (1.4.1)', () => {
+    expect(rule('a')).toMatch(/text-decoration:\s*underline/)
+    expect(rule('a')).toMatch(/(?<![\w-])color:\s*var\(--brand\)/)
+  })
+
+  it('el foco se ve igual en todo control: un anillo de 3 px separado 2 px, con el color del token (2.4.7)', () => {
+    const fields = '.field input:focus-visible, .field select:focus-visible, .field textarea:focus-visible, td input:focus-visible, .company-switch:focus-visible'
+
+    for (const selector of [':focus-visible', fields]) {
+      expect(rule(selector), selector).toMatch(/outline:\s*3px solid var\(--focus-ring\)/)
+      expect(rule(selector), selector).toMatch(/outline-offset:\s*2px/)
+    }
+  })
+
+  it('ninguna regla quita el contorno sin su regla :focus-visible que lo devuelve (2.4.7)', () => {
+    const removesRing = /(?<![\w-])outline(?:-style|-width)?\s*:\s*(?:none|0)\s*(?:;|$)/
+    const drawsRing = /(?<![\w-])outline\s*:\s*(?!(?:none|0)\s*(?:;|$))[^;]+/
+    const ringed = new Set(allRules().filter(({ declarations }) => drawsRing.test(declarations)).flatMap(({ selectors }) => selectors))
+    const unguarded = allRules()
+      .filter(({ declarations }) => removesRing.test(declarations))
+      .flatMap(({ selectors }) => selectors)
+      // ":focus:not(:focus-visible)" only hides the ring where the browser would not draw one (a tap, a click).
+      .filter((selector) => !selector.endsWith(':not(:focus-visible)'))
+      .filter((selector) => !ringed.has(`${selector.replace(/:focus$/, '')}:focus-visible`))
+
+    expect(unguarded).toEqual([])
+  })
+
+  it('el texto de ejemplo de un campo se lee: placeholder con el color de texto secundario y sin transparencia (1.4.3)', () => {
+    const placeholder = rule('::placeholder')
+
+    expect(placeholder).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
+    expect(placeholder).toMatch(/opacity:\s*1\s*(?:;|$)/)
+  })
+
+  it('los íconos siguen el tamaño del texto y el texto solo para lectores de pantalla no se saca del árbol de accesibilidad', () => {
+    const hidden = rule('.visually-hidden')
+
+    expect(rule('.icon')).toMatch(/width:\s*1\.25em/)
+    expect(rule('.icon')).toMatch(/height:\s*1\.25em/)
+    expect(rule('.icon')).toMatch(/stroke:\s*currentColor/)
+    expect(hidden).toMatch(/position:\s*absolute/)
+    expect(hidden).toMatch(/clip-path:\s*inset\(50%\)/)
+    expect(hidden).not.toMatch(/display:\s*none|visibility:\s*hidden/)
   })
 })
