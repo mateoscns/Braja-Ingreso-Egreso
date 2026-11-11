@@ -116,7 +116,6 @@
   --green-3: #e7f1e9;
   --muted: var(--text-secondary);
   --line: #e4e9e5;
-  --shadow: 0 18px 55px rgba(24, 45, 34, .06);
 }
 @media (min-width: 600px) {
   :root { --gutter: var(--space-5); }
@@ -130,17 +129,22 @@
 :root {
   font-family: var(--font-sans);
   color: var(--text);
-  background: var(--page);
+  background: var(--surface);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 }
 
 * { box-sizing: border-box; }
-/* WCAG 2.4.11: scrolling to a focused control leaves it clear of the sticky top bar and of the fixed alerts bar. */
-html { scroll-padding-top: calc(var(--topbar-height) + env(safe-area-inset-top) + 8px); }
+/* WCAG 2.4.11: scrolling to a focused control leaves it clear of the band under the phone's status bar (below) and of the fixed
+   alerts bar. The top bar scrolls away with the page, so it needs no room of its own. */
+html { scroll-padding-top: calc(env(safe-area-inset-top) + 8px); }
 html:has(.push-control) { scroll-padding-bottom: calc(var(--alerts-bar-clearance) + env(safe-area-inset-bottom)); }
-body { margin: 0; min-width: 320px; min-height: 100vh; min-height: 100dvh; background: var(--page); line-height: var(--line-height-body); }
+body { margin: 0; min-width: 320px; min-height: 100vh; min-height: 100dvh; background: var(--surface); line-height: var(--line-height-body); }
+/* The installed app on an iPhone draws its clock and battery in white over the page (index.html: black-translucent). The top
+   bar is dark under them while the page is at its top, and scrolls away; this band keeps the area of the status bar dark after
+   that. It is as tall as the safe area, which is 0 everywhere else, and holds no content (finding F-15). */
+body::before { content: ""; position: fixed; z-index: 20; top: 0; right: 0; left: 0; height: env(safe-area-inset-top); background: var(--brand); pointer-events: none; }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
@@ -149,7 +153,7 @@ input, select, textarea { color: var(--text); }
 ::placeholder { color: var(--text-muted); opacity: 1; }
 /* A link is told apart by its underline, not by its colour alone (WCAG 1.4.1). */
 a { color: var(--brand); text-decoration: underline; }
-/* The brand in the top bar is still a link without an underline; slice C1 redraws it. */
+/* The brand is a lockup, not a line of text: where it is a link (the ADMIN's top bar) its name says so, not an underline. */
 a.brand { text-decoration: none; }
 h1, h2, h3, p { margin-top: 0; }
 /* Headings take the family of the page: one stack, three sizes, no letter-spacing. */
@@ -175,9 +179,12 @@ h3 { font-size: var(--font-size-body-lg); line-height: var(--line-height-heading
 
 /* ===== Auth screens, form layout, fields; the location and the map of a site ===== */
 .auth-page { min-height: 100vh; min-height: 100dvh; padding: max(56px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(32px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); display: flex; flex-direction: column; align-items: center; background: radial-gradient(ellipse at 50% 3%, #e8f1e8 0, var(--page) 48%); }
-.auth-brand { display: flex; align-items: center; gap: 11px; font-weight: 800; font-size: 1.05rem; margin-bottom: 32px; color: var(--green); }
-.brand-light { margin-left: 5px; color: var(--text-secondary); font-weight: 500; }
-.brand-mark { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; color: var(--lime); background: var(--green); font-weight: 800; font-size: 1.1rem; }
+/* The brand on the light page of the sign-in screens: its mark keeps the dark tile of the app icon, the only surface lime is
+   legible on; the words take the brand green. Slice D4 decides the rest of these screens. */
+.auth-brand { margin-bottom: 32px; }
+.auth-brand .brand { color: var(--brand); }
+.auth-brand .brand-light { color: var(--text-muted); }
+.auth-brand .brand-mark { border-color: var(--brand); background: var(--brand); }
 .auth-card { width: min(100%, 436px); padding: 38px; background: rgba(255,255,255,.92); border: 1px solid #e9eeea; border-radius: 22px; box-shadow: 0 24px 80px rgba(20, 49, 34, .08); }
 .auth-card h1 { font-size: 1.9rem; }
 .auth-card > .muted { font-size: .93rem; margin: 0 0 26px; }
@@ -323,10 +330,6 @@ fieldset.field { gap: var(--space-2); }
 /* Two opposite decisions of the same weight («Justificado» / «No justificado»): side by side when each one gets 160 px, one
    under the other when not (narrow phones, larger text). */
 .button-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); gap: var(--space-3); }
-/* The top bar is laid out around the width its buttons had (14 px text, 11 px of padding; 9 px on phones, further down). With
-   the base size the ADMIN bar with «Cómo instalar» takes a second row at 375 and 384 px, where it fitted one, and «Cerrar
-   sesión» breaks in two lines up to 600 px. Slice C1 redraws the bar and deletes this rule. */
-.topbar-actions .button { padding: 0 11px; font-size: .875rem; }
 
 /* ===== Option tiles ===== */
 /* One of a few options that need a line of explanation: a toggle button (the shift of a day, the kind of schedule) or a label
@@ -386,20 +389,57 @@ fieldset.field { gap: var(--space-2); }
 
 /* ===== Frame: top bar, ADMIN menu, page heading, panel, filters, change list ===== */
 .app-frame { min-height: 100vh; min-height: 100dvh; }
-.topbar { position: sticky; top: 0; z-index: 10; height: calc(var(--topbar-height) + env(safe-area-inset-top)); display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: env(safe-area-inset-top) max(34px, env(safe-area-inset-right)) 0 max(34px, env(safe-area-inset-left)); border-bottom: 1px solid #e7ece8; background: rgba(255,255,255,.95); backdrop-filter: blur(14px); }
-.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--green); font-weight: 800; font-size: .96rem; }
-.brand .brand-mark { width: 34px; height: 34px; font-size: .96rem; border-radius: 10px; }
-.topbar-actions { display: flex; align-items: center; gap: 12px; }
-.user-label { color: #68766e; font-size: .875rem; }
-.company-pill { color: #335541; border: 1px solid #d8e6da; background: #f3f8f4; border-radius: 99px; padding: 6px 11px; font-size: .875rem; font-weight: 650; }
-.company-switch { width: auto; min-height: var(--tap-target); padding: 5px 27px 5px 10px; }
-.company-switch-wrap { position: relative; }
-.company-switch-status { position: absolute; z-index: 12; top: calc(100% + 8px); right: 0; width: max-content; max-width: min(300px, 80vw); padding: 8px 10px; border: 1px solid #d8e6da; border-radius: 8px; background: #f3f8f4; color: #335541; box-shadow: var(--shadow); font-size: .875rem; line-height: 1.45; }
-.company-switch-error { position: absolute; z-index: 12; top: calc(100% + 8px); right: 0; width: max-content; max-width: min(300px, 80vw); padding: 8px 10px; border: 1px solid #f0d3cf; border-radius: 8px; background: #fff7f5; color: #8e3931; box-shadow: var(--shadow); font-size: .875rem; }
-.install-control { position: relative; }
-.install-help { position: absolute; z-index: 15; top: calc(100% + 10px); right: 0; width: 260px; padding: 12px 14px; border: 1px solid #dfe8e0; border-radius: 10px; background: #fff; color: #59675e; box-shadow: var(--shadow); font-size: .875rem; line-height: 1.55; }
+/* The top bar (AppHeader in app/ui.tsx), the only dark surface of the app. Three areas: the brand and «Cerrar sesión» on the dark
+   row, and the context (company, person, this device's controls) as a strip under it on phones and tablets; one dark row from
+   1024 px. It scrolls away with the page and has no fixed height: a larger text or a long company name makes it taller, never
+   cuts it. Each area keeps the page gutter and the phone's safe areas itself, so the strip runs from edge to edge. */
+.topbar {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "brand out" "context context";
+  grid-template-rows: minmax(3.5rem, auto) auto; align-items: center; column-gap: var(--space-3);
+  padding-top: env(safe-area-inset-top); color: var(--on-brand); background: var(--brand);
+}
+.topbar > .brand { grid-area: brand; justify-self: start; min-height: var(--target); margin-left: max(var(--gutter), env(safe-area-inset-left)); }
+.topbar-out { grid-area: out; margin-right: max(calc(var(--gutter) - var(--space-1)), env(safe-area-inset-right)); color: var(--on-brand); }
+/* The context strip: the company and the person in the muted text on the band, wrapping (a long company name is never cut). */
+.topbar-context {
+  grid-area: context; display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-4); min-width: 0;
+  padding: var(--space-1) max(var(--gutter), env(safe-area-inset-right)) var(--space-1) max(var(--gutter), env(safe-area-inset-left));
+  color: var(--text-muted); background: var(--surface-tint); border-bottom: var(--border-width) solid var(--rule);
+}
+/* Inline text, not a flex row: a long name wraps as a sentence and the spaces around «·» are kept. */
+.topbar-who { min-width: 0; margin: 0; padding: var(--space-1) 0; overflow-wrap: anywhere; }
+/* With a company switch the select shows the company: the words would say it twice. */
+.topbar-context:has(.company-switch) .topbar-company { display: none; }
+/* Lime only on the dark row: on the light strip the ring keeps the common colour. */
+.topbar > .brand:focus-visible, .topbar-out:focus-visible { outline-color: var(--lime); }
+/* The brand: the clock of the app icon in lime inside a lime frame, then «Fichaje» in bold and «Braja» in the muted weight. */
+.brand { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--on-brand); font-size: var(--font-size-body-lg); font-weight: var(--font-weight-heavy); line-height: var(--line-height-tight); }
+.brand-light { color: var(--on-brand-muted); font-weight: var(--font-weight-regular); }
+/* The view box of BrandMark is cut to the ring: the padding is the room between the ring and its frame. */
+.brand-mark { flex-shrink: 0; width: 34px; height: 34px; padding: 5px; border: var(--border-width) solid var(--lime); border-radius: var(--radius); color: var(--lime); }
+/* The company switch: a select with its label in sight, on one line while it fits. */
+.company-switch-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); min-width: 0; max-width: 100%; }
+.company-switch-label { font-weight: var(--font-weight-strong); }
+.company-switch { width: auto; min-width: 0; max-width: 100%; }
+/* What the top bar's controls have to say (the install help, the wait and the error of a company switch) opens under the bar,
+   across the page, in its flow; the area takes no room while it is empty. */
+.topbar-notices:not(:empty) { padding: 0 max(var(--gutter), env(safe-area-inset-right)) 0 max(var(--gutter), env(safe-area-inset-left)); }
+.topbar-notices .message { margin: var(--space-3) 0 0; }
+.install-help { min-width: 0; }
+@media (min-width: 1024px) {
+  .topbar { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "brand context out"; grid-template-rows: minmax(3.5rem, auto); column-gap: var(--space-5); }
+  .topbar-context { justify-content: flex-end; padding: var(--space-1) 0; color: var(--on-brand-muted); background: transparent; border-bottom: 0; }
+  .topbar-context .button-link { color: var(--on-brand); }
+  .topbar-context :focus-visible { outline-color: var(--lime); }
+}
+@media (max-width: 359px) {
+  /* «Fichaje» alone leaves room for «Cerrar sesión» on the dark row; the link keeps its whole name. */
+  .topbar .brand-light { display: none; }
+}
 .workspace { display: grid; grid-template-columns: 226px minmax(0, 1fr); max-width: 1600px; margin: 0 auto; min-height: calc(100vh - var(--topbar-height) - env(safe-area-inset-top)); }
-.sidebar { position: sticky; top: calc(var(--topbar-height) + env(safe-area-inset-top)); align-self: start; min-height: calc(100vh - var(--topbar-height) - env(safe-area-inset-top)); padding: 29px 15px 18px; border-right: 1px solid #e5ebe6; background: #f8faf8; display: flex; flex-direction: column; }
+/* The menu stays as it is until slice N4. Only its offset changes: the top bar above it no longer sticks, so the menu sticks to
+   the top of the screen, under the band of the phone's status bar, instead of leaving the bar's height empty above it. */
+.sidebar { position: sticky; top: env(safe-area-inset-top); align-self: start; min-height: calc(100vh - var(--topbar-height) - env(safe-area-inset-top)); padding: 29px 15px 18px; border-right: 1px solid #e5ebe6; background: #f8faf8; display: flex; flex-direction: column; }
 .sidebar-caption { padding: 0 12px; margin-bottom: 12px; color: var(--text-secondary); font-size: .75rem; letter-spacing: .12em; font-weight: 750; }
 .sidebar nav { display: flex; flex-direction: column; gap: 4px; }
 .nav-link { display: flex; align-items: center; gap: 11px; width: 100%; min-height: var(--tap-target); padding: 8px 12px; text-align: left; color: var(--text-secondary); border: 0; border-radius: var(--radius-control); background: transparent; font-size: .875rem; font-weight: 600; }
@@ -617,17 +657,6 @@ td .short-input { width: 74px; }
 .password-toggle { align-self: flex-start; }
 /* Beats .auth-card > .muted, which left the hint glued under "Ingresar". */
 .auth-card > .auth-hint { margin: 20px 0 0; }
-@media (max-width: 520px) {
-  /* The help opens under the header across the screen instead of overflowing it from the button. */
-  .employee-frame .install-help { position: fixed; top: calc(var(--topbar-height) + env(safe-area-inset-top) + 8px); right: 16px; left: 16px; width: auto; }
-}
-@media (max-width: 400px) {
-  /* One header row for the brand mark, the install button and "Cerrar sesión"; it wraps only with a company switcher. */
-  .employee-frame { --topbar-height: 60px; }
-  .employee-frame .topbar { height: auto; min-height: calc(var(--topbar-height) + env(safe-area-inset-top)); justify-content: space-between; padding-bottom: 0; }
-  .employee-frame .topbar-actions { width: auto; margin-left: auto; flex-wrap: wrap; }
-  .employee-frame .brand > span:last-child { display: none; }
-}
 
 /* The bar keeps the line height it was measured with (98 px tall with three lines): with the 1.5 of body it grows to 107.5 px and
    --alerts-bar-clearance (124 px) no longer covers it plus its 18 px offset. The bar and this line go away in slice N4. */
@@ -653,20 +682,15 @@ td .short-input { width: 74px; }
   :root { --topbar-height: 60px; --alerts-bar-clearance: 90px; }
   .push-title, .push-detail { display: none; }
   .push-status-short { display: block; line-height: 1.3; }
-  .topbar { padding-right: max(16px, env(safe-area-inset-right)); padding-left: max(16px, env(safe-area-inset-left)); }
-  .topbar-actions { gap: 7px; }
-  .user-label { display: none; }
-  .company-pill { max-width: 135px; overflow: hidden; text-overflow: ellipsis; }
-  .company-switch { max-width: 135px; }
   .workspace { display: block; min-height: calc(100vh - var(--topbar-height) - env(safe-area-inset-top)); }
-  .sidebar { position: sticky; top: calc(var(--topbar-height) + env(safe-area-inset-top)); z-index: 7; min-height: 0; padding: 8px 10px; border-right: 0; border-bottom: 1px solid #e3eae5; overflow-x: auto; }
+  .sidebar { position: sticky; top: env(safe-area-inset-top); z-index: 7; min-height: 0; padding: 8px 10px; border-right: 0; border-bottom: 1px solid #e3eae5; overflow-x: auto; }
   .sidebar-caption, .sidebar-footer { display: none; }
   .sidebar nav { flex-direction: row; gap: 5px; width: max-content; }
   .nav-link { width: auto; min-height: var(--tap-target); padding: 7px 10px; font-size: .875rem; }
   .nav-icon { width: auto; font-size: .96rem; }
   .main-content { padding: 26px 16px calc(var(--alerts-bar-clearance) + env(safe-area-inset-bottom)); }
-  /* The section bar is sticky under the top bar between 521 and 760 px. */
-  html:has(.sidebar) { scroll-padding-top: calc(var(--topbar-height) + env(safe-area-inset-top) + 84px); }
+  /* The section bar is sticky at the top of the screen between 521 and 760 px (the top bar scrolls away). */
+  html:has(.sidebar) { scroll-padding-top: calc(env(safe-area-inset-top) + 84px); }
   .employee-main { width: min(100% - 28px, 920px); padding-top: 27px; }
   .page-title-row { align-items: flex-start; }
   .page-title-row .field { min-width: 130px; }
@@ -683,17 +707,10 @@ td .short-input { width: 74px; }
   .auth-card h1 { font-size: 1.6rem; }
   .auth-card > .muted { margin-bottom: 18px; }
   .auth-card .form-stack { gap: 12px; }
-  .topbar { padding-right: max(11px, env(safe-area-inset-right)); padding-left: max(11px, env(safe-area-inset-left)); }
-  .brand { gap: 7px; font-size: .82rem; }
-  .brand .brand-mark { width: 30px; height: 30px; }
-  .topbar-actions { gap: 6px; }
-  .topbar-actions .button { padding: 0 9px; }
-  .company-switch { max-width: 108px; padding-left: 6px; padding-right: 20px; }
-  .company-pill { display: none; }
   /* Every ADMIN section stays in sight (no sideways scroll), and the menu scrolls away so fixed bars do not stack. */
   .sidebar { position: static; overflow-x: visible; }
   .sidebar nav { flex-wrap: wrap; width: auto; }
-  html:has(.sidebar) { scroll-padding-top: calc(var(--topbar-height) + env(safe-area-inset-top) + 8px); }
+  html:has(.sidebar) { scroll-padding-top: calc(env(safe-area-inset-top) + 8px); }
   .page-title-row { flex-wrap: wrap; }
   .form-grid { grid-template-columns: 1fr; }
   .field-wide { grid-column: auto; }
@@ -708,13 +725,6 @@ td .short-input { width: 74px; }
   .template-card { flex-wrap: wrap; }
   .template-card > div:first-child { flex: 1 1 100%; min-width: 0; }
   .block-fields { grid-template-columns: 1fr 1fr; }
-}
-@media (max-width: 400px) {
-  /* One header row (60 px, like the employee header) for the brand and "Cerrar sesión"; the actions wrap only when they do not fit.
-     2026-11-09: "Cerrar sesión" went to a second row and the top bar took 96 px. A company switcher keeps the two rows. */
-  .topbar { height: auto; min-height: calc(var(--topbar-height) + env(safe-area-inset-top)); flex-wrap: wrap; align-content: center; gap: 4px 8px; }
-  .topbar-actions { margin-left: auto; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
-  :root:has(.topbar .company-switch) { --topbar-height: 96px; }
 }
 
 /* ===== Reduced motion and forced colours ===== */
@@ -734,7 +744,18 @@ td .short-input { width: 74px; }
 /* ===== Later additions: small modifiers of the regions above (folds, quick choices, work days, first steps) ===== */
 /* The result of a mark takes focus by script: no ring after a tap or a click, the global ring when the keyboard is in use. */
 .mark-feedback:focus:not(:focus-visible) { outline: none; }
-.update-banner { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 50; display: flex; align-items: center; gap: 12px; width: max-content; max-width: calc(100% - 32px); padding: 10px 14px; border: 1px solid #d2e7d7; border-radius: 12px; color: var(--green); background: #fff; box-shadow: var(--shadow); font-size: .9rem; }
+/* A new version (ServiceWorkerUpdate): an info message across the top of the page, above the top bar and in its flow, so it is
+   first on screen and first for the keyboard. «Actualizar» goes under the words when they need the row. While it is empty the
+   .message:empty rule leaves it no room. */
+.update-banner {
+  flex-wrap: wrap; gap: var(--space-2) var(--space-3); margin: 0;
+  padding: calc(var(--space-3) + env(safe-area-inset-top)) max(var(--gutter), env(safe-area-inset-right)) var(--space-3) max(var(--gutter), env(safe-area-inset-left));
+}
+/* The button follows the words instead of being pushed to the far side of a wide screen, centred on the same line. */
+.update-banner > .message-body { flex: 0 1 auto; }
+.update-banner > * { align-self: center; margin-top: 0; }
+/* The banner already keeps the phone's status bar clear: the top bar under it does not do it a second time. */
+.update-banner:not(:empty) + .app-frame > .topbar { padding-top: 0; }
 /* A fold (details/summary) is a control: bordered, its summary as tall as a target, with an arrow at the right drawn by two
    borders, so there is no glyph to hide from screen readers. The summary text is the name of what it holds; a heading inside the
    summary is left to its screen slice (finding F-30). */

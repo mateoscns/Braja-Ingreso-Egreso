@@ -73,12 +73,33 @@ describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {
     expect(rule('.sidebar nav', phone)).toMatch(/flex-wrap:\s*wrap/)
   })
 
-  it('en un celular angosto la barra de arriba es una sola fila: "Cerrar sesión" entra al lado del logo', () => {
-    const narrow = media(400)
+  // Rewritten in slice C1: the bar is a grid of three named areas (the brand and «Cerrar sesión» on the dark row, the company
+  // and the person under it on phones, all three in one row from 1024 px). It has no fixed height, so a larger text or a long
+  // company name makes it taller instead of cutting it, and it scrolls away with the page: no rule makes it sticky or fixed.
+  it('la barra de arriba es una grilla de marca, contexto y salida, sin alto fijo y sin quedar pegada arriba', () => {
+    const areas = (declarations: string) => /grid-template-areas:\s*([^;]+)/.exec(declarations)?.[1] ?? ''
+    const phone = rule('.topbar')
+    const wide = rule('.topbar', media(1024, 'min'))
+    const positioned = rulesNaming('topbar').filter(({ declarations }) => /(?<![\w-])position\s*:\s*(?:sticky|fixed)/.test(declarations))
 
-    expect(narrow).not.toMatch(/:root\s*\{[^}]*--topbar-height:\s*96px/)
-    expect(narrow).not.toMatch(/\.topbar-actions\s*\{[^}]*width:\s*100%/)
-    expect(rule('.topbar-actions', narrow)).toMatch(/margin-left:\s*auto/)
+    expect(phone).toMatch(/display:\s*grid/)
+    expect(areas(phone).replace(/\s+/g, ' ')).toBe('"brand out" "context context"')
+    expect(areas(wide).replace(/\s+/g, ' ')).toBe('"brand context out"')
+    for (const area of ['brand', 'context', 'out']) {
+      expect(allRules().some(({ declarations }) => new RegExp(`grid-area:\\s*${area}\\s*(?:;|$)`).test(declarations)), area).toBe(true)
+    }
+    for (const declarations of [phone, wide]) expect(declarations).not.toMatch(/(?<![\w-])height\s*:/)
+    expect(selectorsOf(positioned)).toEqual([])
+    // The hold of slice B2 (14 px text and 11 px of padding on the top bar buttons) is gone with the row it was measured on.
+    expect(allSelectors().filter((selector) => selector.includes('.topbar-actions'))).toEqual([])
+  })
+
+  // Nothing floats (design system, principle 10): the update notice and the install help open in the flow of the page.
+  it('el aviso de versión nueva y la ayuda para instalar van en el flujo de la página, sin flotar sobre ella', () => {
+    const floating = rulesNaming('update-banner', 'install-help').filter(({ declarations }) => /(?<![\w-])position\s*:\s*(?:fixed|absolute)/.test(declarations))
+
+    expect(rulesNaming('update-banner', 'install-help').length).toBeGreaterThan(0)
+    expect(selectorsOf(floating)).toEqual([])
   })
 
   // 2026-11-09: ".auth-card > .muted" (margin 0 0 26px) beat ".auth-hint" and the hint sat glued under "Ingresar".
@@ -115,9 +136,10 @@ describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {
     // tall, 9 px above it, at 520 px or less). The clearance covers the bar plus that offset.
     expect(clearance(rule(':root'))).toBeGreaterThanOrEqual(98 + 18)
     expect(clearance(rule(':root', media(760)))).toBeGreaterThanOrEqual(68 + 18)
-    // No narrower breakpoint brings back a smaller clearance.
+    // No narrower breakpoint brings back a smaller clearance. Changed in slice C1: the 400 px block held only the old top bar and
+    // is gone, so the narrowest block is now the one of 359 px.
     expect(media(520)).not.toMatch(/--alerts-bar-clearance/)
-    expect(media(400)).not.toMatch(/--alerts-bar-clearance/)
+    expect(media(359)).not.toMatch(/--alerts-bar-clearance/)
   })
 
   it('en el celular y la tablet la barra de avisos muestra solo un estado corto al lado del botón', () => {
@@ -220,10 +242,10 @@ const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui',
 // Ceilings that only go down. Each one counts what the rules under the token block still write by hand, measured with the
 // pattern of its own test when the token block came in (2026-11-11). A slice that moves rules to tokens lowers the number in
 // the same commit; nobody raises one. Slice H1 turns the four into equalities with zero.
-const COLOR_LITERAL_CEILING = 74
-const UNTOKENED_FONT_SIZE_CEILING = 57
-const BOX_SHADOW_CEILING = 12
-const LEGACY_TOKEN_USE_CEILING = 86
+const COLOR_LITERAL_CEILING = 57
+const UNTOKENED_FONT_SIZE_CEILING = 45
+const BOX_SHADOW_CEILING = 8
+const LEGACY_TOKEN_USE_CEILING = 65
 
 // The old names with the values they had before the token block. A name is deleted from the stylesheet once nothing uses it
 // and never gets a new value in the meantime: a half-migrated rule must look exactly as it did.
@@ -521,19 +543,6 @@ describe('botones: variantes y estados', () => {
   // the 48 px of --target it would be 72 px and use the whole room. The bar and this rule go away in slice N4.
   it('el botón de la barra de avisos fija conserva los 44 px con los que se midió el lugar de la barra (2.4.11)', () => {
     expect(rule('.push-control .button')).toMatch(/min-height:\s*var\(--tap-target\)/)
-  })
-
-  // Measured 2026-11-11 with headless Chrome: with the base size (16 px text, 16 px of padding) the ADMIN top bar with
-  // «Cómo instalar» wraps to a second row at 375 and 384 px, where it fitted one, and «Cerrar sesión» breaks in two lines
-  // up to 600 px. Slice C1 redraws the top bar and removes the rule.
-  it('los botones de la barra de arriba conservan el ancho con el que la barra entra en una sola fila', () => {
-    const topbarButton = rule('.topbar-actions .button')
-
-    expect(topbarButton).toMatch(/font-size:\s*\.875rem/)
-    expect(topbarButton).toMatch(/padding:\s*0 11px/)
-    // The rule of the phone comes later in the file, so it still tightens the padding at 520 px or less.
-    expect(rule('.topbar-actions .button', media(520))).toMatch(/padding:\s*0 9px/)
-    expect(css.indexOf('.topbar-actions .button')).toBeLessThan(css.lastIndexOf('.topbar-actions .button'))
   })
 })
 

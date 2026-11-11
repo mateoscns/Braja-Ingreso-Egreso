@@ -34,6 +34,34 @@ describe('InstallControl', () => {
     expect(screen.getByRole('status')).toHaveTextContent('En Chrome, tocá el menú ⋮ (tres puntos) y elegí Agregar a pantalla de inicio.')
   })
 
+  it('la ayuda se cierra con Escape y el foco vuelve al botón que la abrió', () => {
+    useAgent('Mozilla/5.0 (Linux; Android 13; SM-A135M) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36')
+    render(<InstallControl audience="employee" />)
+    const trigger = screen.getByRole('button', { name: 'Cómo instalar' })
+    trigger.focus()
+    fireEvent.click(trigger)
+    expect(trigger).toHaveAttribute('aria-expanded', 'true')
+
+    fireEvent.keyDown(trigger, { key: 'Escape' })
+
+    expect(screen.queryByText(/En Chrome, tocá el menú/)).not.toBeInTheDocument()
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    expect(trigger).toHaveFocus()
+  })
+
+  it('Escape en un campo de otra parte de la pantalla no cierra la ayuda ni le saca el foco al campo', () => {
+    useAgent('Mozilla/5.0 (Linux; Android 13; SM-A135M) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36')
+    render(<><InstallControl audience="employee" /><input aria-label="Motivo" /></>)
+    fireEvent.click(screen.getByRole('button', { name: 'Cómo instalar' }))
+    const field = screen.getByRole('textbox', { name: 'Motivo' })
+    field.focus()
+
+    fireEvent.keyDown(field, { key: 'Escape' })
+
+    expect(screen.getByText(/En Chrome, tocá el menú/)).toBeInTheDocument()
+    expect(field).toHaveFocus()
+  })
+
   it('en una computadora sin aviso de instalación no muestra nada', () => {
     useAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36')
     const { container } = render(<InstallControl audience="employee" />)
