@@ -2,6 +2,7 @@ import { useId, type FormEvent, type RefObject } from 'react'
 import { Empty, FormField, Loading, PageMessage, Panel } from '../../app/ui'
 import type { Deviation, Jornada, MarkAction, Site } from '../../shared/api/types'
 import { formatBlock, formatDateTime, formatLocalDate, jornadaStateLabel } from '../../shared/format'
+import { forEmployee } from '../../shared/labels'
 import {
   actionLabel, confirmationText, describeDeviation, deviationName, formatTime, locationOutcomeText, markInstant, markLocationLabel, markName,
   type LocationOutcome, type MarkOptions
@@ -16,15 +17,13 @@ export type MotiveValues = { category: MotiveCategory | ''; text: string }
 export type MotiveError = { field: 'category' | 'text' | 'form'; message: string }
 
 const CATEGORIES: { value: MotiveCategory; label: string; help: string }[] = [
-  { value: 'SALUD', label: 'Salud', help: 'estuviste enfermo o en el médico' },
-  { value: 'TRANSPORTE', label: 'Transporte', help: 'el colectivo, el tren o el tránsito te demoraron' },
-  { value: 'EMERGENCIA', label: 'Emergencia', help: 'pasó algo urgente en tu casa o con tu familia' },
-  { value: 'OTRA', label: 'Otra', help: 'cualquier otra razón' }
+  { value: 'SALUD', label: forEmployee.motiveCategory.SALUD, help: 'estuviste enfermo o en el médico' },
+  { value: 'TRANSPORTE', label: forEmployee.motiveCategory.TRANSPORTE, help: 'el colectivo, el tren o el tránsito te demoraron' },
+  { value: 'EMERGENCIA', label: forEmployee.motiveCategory.EMERGENCIA, help: 'pasó algo urgente en tu casa o con tu familia' },
+  { value: 'OTRA', label: forEmployee.motiveCategory.OTRA, help: 'cualquier otra razón' }
 ]
-const categoryLabel = (category: MotiveCategory) => CATEGORIES.find((item) => item.value === category)?.label ?? category
-const statusName: Record<Deviation['status'], string> = {
-  MOTIVO_PENDIENTE: 'Falta explicar', PENDIENTE_REVISION: 'A revisar', JUSTIFICADO: 'Justificado', NO_JUSTIFICADO: 'No justificado'
-}
+const categoryLabel = (category: MotiveCategory) => forEmployee.motiveCategory[category] ?? category
+const statusName = forEmployee.deviationStatus
 
 export function DayHeading({ name, sentence }: { name: string; sentence: string }) {
   return <div className="employee-heading"><h1>Hola, {name}</h1>{sentence && <p className="employee-day-state">{sentence}</p>}</div>

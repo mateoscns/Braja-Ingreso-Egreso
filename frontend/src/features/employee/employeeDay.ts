@@ -1,23 +1,10 @@
 import type { Deviation, Jornada, Mark, MarkAction, TemplateBlock } from '../../shared/api/types'
+import { confirmedMark, forEmployee, markButtonLabel, markWithArticle } from '../../shared/labels'
 
-/** Phase 1 glossary: what each button says. */
-export const actionLabel: Record<MarkAction, string> = {
-  INGRESO: 'Marcar entrada', SALIDA_DESAYUNO: 'Me voy a desayunar', VUELTA_DESAYUNO: 'Volví del desayuno',
-  SALIDA_ALMUERZO: 'Me voy a almorzar', VUELTA_ALMUERZO: 'Volví del almuerzo', EGRESO: 'Marcar salida'
-}
+// The words live in shared/labels.ts; these names stay for the files that import them from here.
+export const actionLabel = markButtonLabel
 /** What a recorded mark is called in the list of the day. */
-export const markName: Record<MarkAction, string> = {
-  INGRESO: 'Entrada', SALIDA_DESAYUNO: 'Salida a desayunar', VUELTA_DESAYUNO: 'Vuelta del desayuno',
-  SALIDA_ALMUERZO: 'Salida a almorzar', VUELTA_ALMUERZO: 'Vuelta del almuerzo', EGRESO: 'Salida'
-}
-const markWithArticle: Record<MarkAction, string> = {
-  INGRESO: 'la entrada', SALIDA_DESAYUNO: 'la salida a desayunar', VUELTA_DESAYUNO: 'la vuelta del desayuno',
-  SALIDA_ALMUERZO: 'la salida a almorzar', VUELTA_ALMUERZO: 'la vuelta del almuerzo', EGRESO: 'la salida'
-}
-const confirmedMark: Record<MarkAction, string> = {
-  INGRESO: 'tu entrada', SALIDA_DESAYUNO: 'tu salida a desayunar', VUELTA_DESAYUNO: 'tu vuelta del desayuno',
-  SALIDA_ALMUERZO: 'tu salida a almorzar', VUELTA_ALMUERZO: 'tu vuelta del almuerzo', EGRESO: 'tu salida'
-}
+export const markName = forEmployee.mark
 
 const MINUTE = 60_000
 /** From this long before the end of the shift the exit becomes the suggested mark. */
@@ -157,10 +144,7 @@ export const locationOutcomeText: Record<LocationOutcome, string> = {
   MISSING: 'No llegó tu ubicación: puede figurar como fuera del local. Revisá que el celular tenga la ubicación activada.'
 }
 
-export const deviationName: Record<Deviation['type'], string> = {
-  SIN_INGRESO: 'Faltó la entrada', LLEGADA_TARDE: 'Llegada tarde', EGRESO_TEMPRANO: 'Salida temprana', EGRESO_TARDIO: 'Salida tarde',
-  MARCA_FALTANTE: 'Faltó la salida', EXCESO_DESAYUNO: 'Desayuno largo', EXCESO_ALMUERZO: 'Almuerzo largo', FUERA_DE_SEDE: 'Fuera del local'
-}
+export const deviationName = forEmployee.deviation
 
 function minutesWord(minutes: number) { return minutes === 1 ? '1 minuto' : `${minutes} minutos` }
 
