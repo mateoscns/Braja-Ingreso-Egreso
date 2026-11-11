@@ -121,3 +121,177 @@ describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {
     expect(rule('.push-status-short')).toMatch(/display:\s*none/)
   })
 })
+
+// The token block is the top of the stylesheet, down to TOKENS_END. Its first part holds the design tokens; from LEGACY_START
+// to the end of that rule it keeps the names the old rules still use.
+const TOKENS_END = '/* end of tokens */'
+const LEGACY_START = '/* legacy tokens, removed in H1 */'
+function markerIndex(marker: string) {
+  const index = css.indexOf(marker)
+  if (index < 0) throw new Error(`No "${marker}" in the stylesheet`)
+  return index
+}
+// Comments name issues ("#102") and colours in prose; only declarations count.
+const withoutComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, '')
+/** Every rule under the token block: there a value has to come from a token. */
+const belowTokens = () => withoutComments(css.slice(markerIndex(TOKENS_END)))
+/** A colour of the design tokens. The legacy names and anything declared further down are left out on purpose. */
+function designToken(name: string) {
+  const block = css.slice(0, markerIndex(LEGACY_START))
+  const value = new Map([...block.matchAll(/--([\w-]+):\s*(#[0-9a-f]{6})\s*;/gi)].map((match) => [match[1], match[2]])).get(name)
+  if (!value) throw new Error(`No colour token --${name} in the token block`)
+  return value
+}
+
+// Ported from odd/ux-ui-refactor/contrast.mjs: the 55 pairings the design system uses. 'text' needs 4.5:1 (WCAG 1.4.3);
+// 'ui' needs 3:1 (1.4.11: edges of controls, state indicators, icons that carry meaning, focus). The six pairings that
+// script only reports (hairline, fills against each other, transient states) have no requirement and are not here.
+const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui', where: string][] = [
+  // Text on the neutral surfaces
+  ['text', 'surface', 'text', 'Body text, headings, labels, secondary button label'],
+  ['text', 'surface-tint', 'text', 'Rail items, context strip, info notice, disabled-reason text on a band'],
+  ['text', 'surface-tint-strong', 'text', 'Rail item under the pointer, pressed secondary button'],
+  ['text', 'surface-selected', 'text', 'Title of the selected option'],
+  ['text-muted', 'surface', 'text', 'Hints, secondary lines, placeholders, inactive tab label, empty states'],
+  ['text-muted', 'surface-tint', 'text', 'Context strip, rail captions, label of a disabled button'],
+  ['text-muted', 'surface-tint-strong', 'text', 'Secondary line of a rail item under the pointer'],
+  ['text-muted', 'surface-selected', 'text', 'Help line of the selected option'],
+  // Brand as text, and text on brand
+  ['brand', 'surface', 'text', 'Link buttons and links'],
+  ['brand', 'surface-tint', 'text', 'Link button inside an info notice or on the rail'],
+  ['brand', 'surface-selected', 'text', 'Label of the current tab'],
+  ['on-brand', 'brand', 'text', 'Primary button label, clocking button, top bar text and links'],
+  ['on-brand', 'brand-pressed', 'text', 'Primary button under the pointer or pressed'],
+  ['on-brand-muted', 'brand', 'text', 'Secondary text of the top bar (company and person from 1024 px)'],
+  // States: text on its own tinted surface and on white
+  ['text', 'ok-surface', 'text', 'Text of a success message and of the mark confirmation'],
+  ['ok', 'ok-surface', 'text', 'Tag «Justificado» / «Listo», «Ubicación enviada» inside the confirmation'],
+  ['ok', 'surface', 'text', 'ok-coloured text on white'],
+  ['text', 'warn-surface', 'text', 'Text of a warning message'],
+  ['warn', 'warn-surface', 'text', 'Tag «A revisar» / «Falta explicar» / «Falta»'],
+  ['warn', 'surface', 'text', 'Detail of a pending step'],
+  ['text', 'bad-surface', 'text', 'Text of an error message'],
+  ['bad', 'bad-surface', 'text', 'Tag «No justificado»'],
+  ['bad', 'surface', 'text', 'Field error text, label of a destructive button'],
+  ['bad', 'surface-tint', 'text', 'Destructive button on a band'],
+  ['text-muted', 'ok-surface', 'text', 'Secondary line inside a success message'],
+  ['text-muted', 'warn-surface', 'text', 'Secondary line inside a warning message'],
+  ['text-muted', 'bad-surface', 'text', 'Secondary line inside an error message'],
+  ['brand', 'ok-surface', 'text', 'Link button inside a success message'],
+  ['brand', 'warn-surface', 'text', 'Link button inside a warning message'],
+  ['brand', 'bad-surface', 'text', 'Link button inside an error message («Reintentar»)'],
+  // Boundaries of controls
+  ['border', 'surface', 'ui', 'Border of fields, secondary buttons, tags, folds; top edge of the bottom bar; dotted state bar «Falta motivo»'],
+  ['border', 'surface-tint', 'ui', 'Border of a disabled button; bar of an info notice; secondary button on the rail'],
+  ['border', 'ok-surface', 'ui', 'Border of a secondary button inside a success message'],
+  ['border', 'warn-surface', 'ui', 'Border of a secondary button inside a warning message'],
+  ['border', 'bad-surface', 'ui', 'Border of a secondary button inside an error message'],
+  ['brand', 'surface', 'ui', 'Primary button against the page; border of the selected option; bar of the current place; "now" block border'],
+  ['brand', 'surface-tint', 'ui', 'Bar of the current rail item; primary button on a band'],
+  ['brand', 'surface-selected', 'ui', 'Border of the selected option against its own fill; top bar of the current tab'],
+  ['text', 'surface', 'ui', 'Rule under a section title'],
+  // State indicators
+  ['warn', 'surface', 'ui', 'State bar «A revisar»; bar of a pending task; bar and icon of a warning'],
+  ['ok', 'surface', 'ui', 'State bar «Justificado»; border of the mark confirmation'],
+  ['bad', 'surface', 'ui', 'State bar «No justificado»; border and bar of an invalid field'],
+  ['warn', 'warn-surface', 'ui', 'Border and icon of the tag «A revisar»; icon of a warning message'],
+  ['ok', 'ok-surface', 'ui', 'Border and icon of the tag «Justificado»; icon of a success message'],
+  ['bad', 'bad-surface', 'ui', 'Border and icon of the tag «No justificado»; icon of an error message'],
+  ['on-brand', 'ok', 'ui', 'Check inside the round icon of the mark confirmation'],
+  ['warn', 'ok-surface', 'ui', 'Warning icon of the missing location inside the mark confirmation'],
+  ['text-muted', 'surface', 'ui', 'Icons that accompany secondary text (location, clock)'],
+  // Focus
+  ['focus-ring', 'surface', 'ui', 'Focus ring on white'],
+  ['focus-ring', 'surface-tint', 'ui', 'Focus ring on a band'],
+  ['focus-ring', 'surface-selected', 'ui', 'Focus ring around the selected option'],
+  ['focus-ring', 'ok-surface', 'ui', 'Focus ring inside a success message'],
+  ['focus-ring', 'warn-surface', 'ui', 'Focus ring inside a warning message'],
+  ['focus-ring', 'bad-surface', 'ui', 'Focus ring inside an error message'],
+  ['lime', 'brand', 'ui', 'Focus ring on the top bar; the brand mark']
+]
+
+// Ceilings that only go down. Each one counts what the rules under the token block still write by hand, measured with the
+// pattern of its own test when the token block came in (2026-11-11). A slice that moves rules to tokens lowers the number in
+// the same commit; nobody raises one. Slice H1 turns the four into equalities with zero.
+const COLOR_LITERAL_CEILING = 144
+const UNTOKENED_FONT_SIZE_CEILING = 82
+const BOX_SHADOW_CEILING = 16
+const LEGACY_TOKEN_USE_CEILING = 142
+
+// The old names with the values they had before the token block. A name is deleted from the stylesheet once nothing uses it
+// and never gets a new value in the meantime: a half-migrated rule must look exactly as it did.
+const LEGACY_TOKENS = new Map([
+  ['--text-primary', '#18241f'],
+  ['--text-secondary', '#53645a'],
+  ['--text-tertiary', '#5c6d62'],
+  ['--page', '#f4f7f5'],
+  ['--focus', '#1d513c'],
+  ['--topbar-height', '70px'],
+  ['--alerts-bar-clearance', '124px'],
+  ['--tap-target', '44px'],
+  ['--radius-control', '9px'],
+  ['--radius-panel', '14px'],
+  ['--green', '#12372a'],
+  ['--green-2', '#1d513c'],
+  ['--green-3', '#e7f1e9'],
+  ['--muted', 'var(--text-secondary)'],
+  ['--line', '#e4e9e5'],
+  ['--red', '#a33e35'],
+  ['--shadow', '0 18px 55px rgba(24, 45, 34, .06)']
+])
+
+describe('tokens de diseño: el bloque de arriba y lo que todavía queda fuera de él', () => {
+  it('cada par de texto, borde, estado y foco de los tokens cumple el contraste AA (1.4.3 y 1.4.11)', () => {
+    const failing = TOKEN_PAIRS
+      .map(([foreground, background, kind, where]) => ({
+        pair: `--${foreground} sobre --${background}`,
+        where,
+        need: kind === 'text' ? 4.5 : 3,
+        ratio: contrast(designToken(foreground), designToken(background))
+      }))
+      .filter(({ ratio, need }) => ratio < need)
+
+    expect(failing).toEqual([])
+  })
+
+  it('ningún color fuera del bloque de tokens: el techo de colores escritos a mano solo baja', () => {
+    // Hex, rgb()/rgba()/hsl() and the two keywords a rule would use for a surface or a text; transparent, currentColor and
+    // the system colours of forced-colors are not values a token replaces.
+    const literals = belowTokens().match(/#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})\b|\b(?:rgb|hsl)a?\(|(?<![\w-])(?:white|black)(?![\w-])/gi) ?? []
+
+    expect(literals.length).toBeLessThanOrEqual(COLOR_LITERAL_CEILING)
+  })
+
+  it('los tamaños de letra salen de los tokens: el techo de font-size sin token solo baja', () => {
+    const sizes = [...belowTokens().matchAll(/(?<![\w-])font-size\s*:\s*([^;}]+)/g)].map((match) => match[1].trim())
+    const untokened = sizes.filter((size) => !/^var\(--font-size-[\w-]+\)$/.test(size))
+
+    expect(untokened.length).toBeLessThanOrEqual(UNTOKENED_FONT_SIZE_CEILING)
+  })
+
+  it('no se agregan sombras: el techo de box-shadow solo baja', () => {
+    const shadows = belowTokens().match(/(?<![\w-])box-shadow\s*:/g) ?? []
+
+    expect(shadows.length).toBeLessThanOrEqual(BOX_SHADOW_CEILING)
+  })
+
+  it('los tokens viejos conservan su valor hasta que se borran y sus usos solo bajan', () => {
+    const start = markerIndex(LEGACY_START)
+    const block = withoutComments(css.slice(start, css.indexOf('}', start)))
+    const declared = new Map([...block.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map((match) => [match[1], match[2].trim()]))
+    const used = [...withoutComments(css).matchAll(/var\(\s*(--[\w-]+)/g)].map((match) => match[1]).filter((name) => LEGACY_TOKENS.has(name))
+
+    // Not restyled, and no new name sneaks into the block: the way forward is a design token.
+    for (const [name, value] of declared) expect(value, name).toBe(LEGACY_TOKENS.get(name))
+    // Not orphaned: a name some rule still uses is still declared.
+    expect([...new Set(used)].filter((name) => !declared.has(name))).toEqual([])
+    expect(used.length).toBeLessThanOrEqual(LEGACY_TOKEN_USE_CEILING)
+  })
+
+  it('el esquema claro se declara en el bloque de tokens y ninguna otra regla lo cambia', () => {
+    const declarations = [...withoutComments(css).matchAll(/(?<![\w-])color-scheme\s*:\s*([^;}]+)/g)].map((match) => match[1].trim())
+
+    expect(withoutComments(css.slice(0, markerIndex(LEGACY_START)))).toMatch(/(?<![\w-])color-scheme:\s*light\s*;/)
+    expect(declarations).toEqual(['light'])
+  })
+})
