@@ -90,7 +90,7 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
   })}</div>
 
   return <>
-    <PageHeading eyebrow="EQUIPO" title="Empleados" subtitle="Cada persona entra con su DNI. Acá la das de alta, elegís en qué locales trabaja y qué horario tiene." />
+    <PageHeading eyebrow="EQUIPO" title="Equipo" subtitle="Cada persona entra con su DNI. Acá la das de alta, elegís en qué locales trabaja y qué horario tiene." />
     {error && <PageMessage kind="error">{error}</PageMessage>}
     {notice && <PageMessage kind="success">{notice}</PageMessage>}
     {issuedPassword && issuedPassword.reason !== 'created' && <IssuedPasswordPanel issued={issuedPassword} onDismiss={onDismissIssuedPassword} />}
@@ -104,7 +104,7 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
         <FormField label="Contraseña provisoria" hint={generatedPassword ? 'Ya generamos una. Te la mostramos al crear el empleado para que se la des.' : `Solo hace falta si el DNI todavía no tiene cuenta. ${PASSWORD_LENGTH_HINT}`}><input type="password" autoComplete="new-password" minLength={12} maxLength={PASSWORD_MAX_CHARACTERS} value={temporaryPassword} onChange={(event) => onTemporaryPasswordChange(event.target.value)} /></FormField>
         <div><button type="button" className="button button-small button-outline" disabled={busy} onClick={onGeneratePassword}>Generar contraseña</button></div>
       </div>
-      <fieldset className="field field-wide"><legend className="field-label">Locales donde trabaja</legend><div className="check-grid site-selection-checks">{sites.map((site) => <label key={site.id}><input type="checkbox" checked={siteIds.includes(site.id)} onChange={() => onToggleSite(site.id)} />{site.name}</label>)}</div>{sites.length === 0 && <span className="field-hint">{loadError ? 'Reintentá la carga antes de dar de alta un empleado.' : loading ? 'Cargando locales…' : 'Primero creá un local en Sedes.'}</span>}</fieldset>
+      <fieldset className="field field-wide"><legend className="field-label">Locales donde trabaja</legend><div className="check-grid site-selection-checks">{sites.map((site) => <label key={site.id}><input type="checkbox" checked={siteIds.includes(site.id)} onChange={() => onToggleSite(site.id)} />{site.name}</label>)}</div>{sites.length === 0 && <span className="field-hint">{loadError ? 'Reintentá la carga antes de dar de alta un empleado.' : loading ? 'Cargando locales…' : 'Primero creá un local en Locales.'}</span>}</fieldset>
       <div className="field-wide button-row"><button className="button button-primary" aria-describedby={sites.length > 0 && siteIds.length === 0 ? 'create-employee-needs-site' : undefined} disabled={busy || loading || Boolean(loadError) || siteIds.length === 0}>{busy ? 'Guardando…' : 'Crear empleado'}</button>
         {sites.length > 0 && siteIds.length === 0 && <span className="field-hint" id="create-employee-needs-site">Marcá al menos un local para crear el empleado.</span>}</div>
     </form></Panel>

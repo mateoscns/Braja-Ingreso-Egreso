@@ -60,10 +60,10 @@ const CONFLICT_MESSAGES: Record<string, string> = {
   MARK_VOIDED: 'Esa marca ya fue anulada y no se puede modificar.',
   ASSIGNMENT_EXISTS: 'Esa persona ya tiene un horario en ese local desde ese día. Elegí otro día.',
   TEMPLATE_IN_USE: 'Ese horario ya se usa, así que no puede pasar a otro local. Creá un horario nuevo para ese local.',
-  EMPLOYEE_NOT_IN_SITE: 'Esa persona no trabaja en ese local. Agregale el local desde Empleados y volvé a intentar.'
+  EMPLOYEE_NOT_IN_SITE: 'Esa persona no trabaja en ese local. Agregale el local desde Equipo y volvé a intentar.'
 }
 const VALIDATION_MESSAGES: Record<string, string> = {
-  TEMPLATE_REQUIRED: 'Esa persona no tiene un horario en ese local para ese día. Elegí un horario o asignale uno desde Empleados.',
+  TEMPLATE_REQUIRED: 'Esa persona no tiene un horario en ese local para ese día. Elegí un horario o asignale uno desde Equipo.',
   TEMPLATE_INVALID: 'Ese horario está desactivado y no se puede usar. Elegí otro o revisalo en Horarios.',
   PASSWORD_TOO_LONG: PASSWORD_TOO_LONG_MESSAGE
 }

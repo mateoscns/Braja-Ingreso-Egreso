@@ -59,7 +59,7 @@ export function WorkDaysFormRender({ sites, employees, templates, values, previe
       {employees.length ? <>
         <div className="check-grid"><label><input type="checkbox" checked={allSelected} onChange={onToggleAll} /><strong>Seleccionar todos</strong></label></div>
         <div className="check-grid">{employees.map((person) => <label key={person.id}><input type="checkbox" checked={values.selectedIds.includes(person.id)} onChange={() => onToggleEmployee(person.id)} />{person.displayName}</label>)}</div>
-      </> : <span className="field-hint">No hay personas activas en este local. Dalas de alta en Empleados.</span>}
+      </> : <span className="field-hint">No hay personas activas en este local. Dalas de alta en Equipo.</span>}
     </fieldset>
     <details className="fold">
       <summary>Usar otro horario para todos</summary>

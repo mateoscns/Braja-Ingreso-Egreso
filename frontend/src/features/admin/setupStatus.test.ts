@@ -64,7 +64,7 @@ describe('primeros pasos', () => {
 
   it('más allá del tope de consultas no afirma nada y manda a revisar Empleados', () => {
     const steps = setupSteps(data({ checkedAll: false }))
-    expect(steps[3]).toMatchObject({ done: 'unknown', detail: 'Revisá Empleados: son muchas personas para revisarlas desde acá.' })
+    expect(steps[3]).toMatchObject({ done: 'unknown', detail: 'Revisá Equipo: son muchas personas para revisarlas desde acá.' })
     expect(setupComplete(steps)).toBe(true)
   })
 

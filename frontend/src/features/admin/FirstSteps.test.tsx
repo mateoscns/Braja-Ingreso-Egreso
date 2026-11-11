@@ -63,15 +63,15 @@ describe('Primeros pasos', () => {
     render(<AdminApp />)
     expect(await screen.findByRole('heading', { name: 'Primeros pasos' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Primeros pasos/ })).toHaveAttribute('aria-current', 'page')
-    expect(menu()).toEqual(['✓Primeros pasos', '◷Bandeja', '▦Jornadas', '☰Historial', '⌖Sedes', '▤Horarios', '♙Empleados'])
+    expect(menu()).toEqual(['✓Primeros pasos', '◷Para revisar', '▦Días de trabajo', '☰Historial', '⌖Locales', '▤Horarios', '♙Equipo'])
     expect(screen.getByText('CONFIGURACIÓN')).toBeInTheDocument()
     const steps = within(screen.getByRole('list', { name: 'Pasos para empezar' })).getAllByRole('listitem')
     expect(steps.map((step) => step.querySelector('strong')?.textContent)).toEqual(['1. Tu local', '2. Tus horarios', '3. Tu equipo', '4. Cada uno con su horario', '5. Días de trabajo cargados'])
     expect(steps.every((step) => step.textContent?.includes('Falta'))).toBe(true)
     expect(screen.getByRole('heading', { name: '0 de 5 pasos listos' })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Ir a Sedes: Tu local' }))
-    expect(await screen.findByRole('heading', { name: 'Sedes' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Ir a Locales: Tu local' }))
+    expect(await screen.findByRole('heading', { name: 'Locales' })).toBeInTheDocument()
   })
 
   it('marca lo hecho y nombra lo que falta: personas sin horario asignado', async () => {
@@ -81,14 +81,14 @@ describe('Primeros pasos', () => {
     expect(steps[0]).toHaveTextContent('Listo')
     expect(steps[3]).toHaveTextContent('Falta para: Lucía Pérez.')
     // The next step to do is the obvious one.
-    expect(within(steps[3]).getByRole('button', { name: /^Ir a Empleados/ })).toHaveClass('button-primary')
-    expect(within(steps[4]).getByRole('button', { name: /^Ir a Jornadas/ })).not.toHaveClass('button-primary')
+    expect(within(steps[3]).getByRole('button', { name: /^Ir a Equipo/ })).toHaveClass('button-primary')
+    expect(within(steps[4]).getByRole('button', { name: /^Ir a Días de trabajo/ })).not.toHaveClass('button-primary')
   })
 
   it('con todo configurado empieza en Bandeja, deja la guía al final del menú y la guía dice cuántos pueden marcar mañana', async () => {
     render(<AdminApp />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /Bandeja/ })).toHaveAttribute('aria-current', 'page'))
-    expect(menu()).toEqual(['◷Bandeja', '▦Jornadas', '☰Historial', '⌖Sedes', '▤Horarios', '♙Empleados', '✓Primeros pasos'])
+    await waitFor(() => expect(screen.getByRole('button', { name: /Para revisar/ })).toHaveAttribute('aria-current', 'page'))
+    expect(menu()).toEqual(['◷Para revisar', '▦Días de trabajo', '☰Historial', '⌖Locales', '▤Horarios', '♙Equipo', '✓Primeros pasos'])
     expect(await screen.findByText('Hay días cargados hasta el martes 10 de noviembre.')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Primeros pasos/ }))
@@ -101,10 +101,10 @@ describe('Primeros pasos', () => {
     const previous = apiMocks.get.getMockImplementation()!
     apiMocks.get.mockImplementation((path: string) => path === '/templates' ? new Promise((resolve) => { release = resolve }) : previous(path))
     render(<AdminApp />)
-    fireEvent.click(screen.getByRole('button', { name: /Empleados/ }))
-    expect(await screen.findByRole('heading', { name: 'Empleados' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Equipo/ }))
+    expect(await screen.findByRole('heading', { name: 'Equipo' })).toBeInTheDocument()
     await act(async () => { release([]) })
-    expect(screen.getByRole('heading', { name: 'Empleados' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Equipo' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Primeros pasos' })).not.toBeInTheDocument()
   })
 })
@@ -117,7 +117,7 @@ describe('aviso de días cargados', () => {
     const notice = await screen.findByText('Mañana nadie tiene día cargado en Local Centro: cargalos para que puedan marcar.')
     expect(notice.closest('.message')).toHaveClass('message-error')
     fireEvent.click(within(notice.closest('.message') as HTMLElement).getByRole('button', { name: 'Cargar días' }))
-    expect(await screen.findByRole('heading', { name: 'Jornadas' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Días de trabajo' })).toBeInTheDocument()
     expect(await screen.findByText('Mañana nadie tiene día cargado en Local Centro: cargalos para que puedan marcar.')).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Cargar días de trabajo' })).toBeInTheDocument()
   })
@@ -128,7 +128,7 @@ describe('Ver jornada desde un desvío', () => {
     render(<AdminApp />)
     const card = (await screen.findByText('No marcó la salida')).closest('article') as HTMLElement
     expect(card).not.toHaveTextContent(/secuencia/)
-    fireEvent.click(within(card).getByRole('button', { name: 'Ver jornada de Lucía Pérez' }))
+    fireEvent.click(within(card).getByRole('button', { name: 'Ver el día de Lucía Pérez' }))
 
     expect(await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')).toBeInTheDocument()
     expect(screen.getByLabelText('Fecha')).toHaveValue('2026-10-16')

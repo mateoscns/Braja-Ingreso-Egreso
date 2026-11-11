@@ -92,13 +92,13 @@ export function SitesView() {
         setSiteLocation({ latitude: coordinates.latitude, longitude: coordinates.longitude })
         setCreateLatitude(String(coordinates.latitude)); setCreateLongitude(String(coordinates.longitude)); setCreateLocationSource('CAPTURED'); setCreatePointFromMap(false)
         setLocationAccuracyMeters(coordinates.accuracyMeters); setLocationConfirmed(false); setLocationStatus('selected')
-        setLocationMessage('Ubicación recibida. Revisá las coordenadas, la precisión y el mapa; confirmá que el punto corresponde a esta sede antes de guardarla.')
+        setLocationMessage('Ubicación recibida. Revisá las coordenadas, la precisión y el mapa; confirmá que el punto corresponde a este local antes de guardarlo.')
       } else {
         setLocationEdit((current) => current?.siteId === target.siteId ? {
           ...current, latitude: String(coordinates.latitude), longitude: String(coordinates.longitude),
           locationSource: 'CAPTURED', locationFromMap: false, locationAccuracyMeters: coordinates.accuracyMeters, locationConfirmed: false,
           locationStatus: 'selected', locationErrorKind: null,
-          locationMessage: 'Ubicación recibida. Revisá las coordenadas, la precisión y el mapa; confirmá que el nuevo punto corresponde a esta sede antes de guardarlo.'
+          locationMessage: 'Ubicación recibida. Revisá las coordenadas, la precisión y el mapa; confirmá que el nuevo punto corresponde a este local antes de guardarlo.'
         } : current)
       }
     } catch (reason) {
@@ -140,7 +140,7 @@ export function SitesView() {
       setLocationStatus(hasPoint ? 'selected' : 'idle'); setLocationErrorKind(null)
       setLocationMessage(hasPoint
         ? 'Se canceló la búsqueda; se conserva el punto elegido. Revisalo y confirmalo de nuevo antes de guardar.'
-        : 'Búsqueda cancelada. Podés crear la sede sin centro.')
+        : 'Búsqueda cancelada. Podés crear el local sin centro.')
     }
   }
   function clearLocation() {
@@ -159,7 +159,7 @@ export function SitesView() {
     const hasPoint = Boolean(nextLatitude.trim() || nextLongitude.trim())
     setCreateLocationSource(hasPoint ? 'MANUAL' : null); setCreatePointFromMap(false)
     setLocationStatus(hasPoint ? 'selected' : 'idle'); setLocationErrorKind(null)
-    setLocationMessage(hasPoint ? 'Carga manual. Revisá el punto en el mapa y confirmá que corresponde a esta sede antes de guardarla.' : '')
+    setLocationMessage(hasPoint ? 'Carga manual. Revisá el punto en el mapa y confirmá que corresponde a este local antes de guardarlo.' : '')
   }
   function beginLocationEdit(site: Site) {
     cancelLocationCapture()
@@ -204,7 +204,7 @@ export function SitesView() {
           locationConfirmed: false,
           locationStatus: hasPoint ? 'selected' : 'idle',
           locationErrorKind: null,
-          locationMessage: hasPoint ? 'Carga manual. Revisá el punto en el mapa y confirmá que corresponde a esta sede antes de guardarlo.' : ''
+          locationMessage: hasPoint ? 'Carga manual. Revisá el punto en el mapa y confirmá que corresponde a este local antes de guardarlo.' : ''
         }
       }
       return updated
@@ -283,7 +283,7 @@ export function SitesView() {
       // checkbox was a second confirmation for the same thing. The checkbox stays for captured and hand-typed points.
       setSiteLocation(null); setLocationAccuracyMeters(null); setLocationConfirmed(true)
       setLocationStatus('selected'); setLocationErrorKind(null)
-      setLocationMessage('Punto elegido en el mapa. Ya podés guardar la sede.')
+      setLocationMessage('Punto elegido en el mapa. Ya podés guardar el local.')
     } else {
       setLocationEdit((current) => current?.siteId === target.siteId ? {
         ...current, latitude: String(latitude), longitude: String(longitude), locationSource: 'MANUAL', locationFromMap: true,
@@ -336,7 +336,7 @@ export function SitesView() {
       }
       coordinates = { latitude, longitude }
       if (locationEdit.locationSource !== null && !locationEdit.locationConfirmed) {
-        setError('Confirmá que el nuevo punto corresponde a esta sede antes de guardarlo.')
+        setError('Confirmá que el nuevo punto corresponde a este local antes de guardarlo.')
         return
       }
     }
@@ -351,7 +351,7 @@ export function SitesView() {
       setSites((current) => current.map((site) => site.id === updated.id ? updated : site))
       if (siteMap?.target.kind === 'edit') closeSiteMap()
       setLocationEdit(null)
-      setNotice('Ubicación de la sede actualizada.')
+      setNotice('Ubicación del local actualizada.')
       closeSiteLocationAudit()
     } catch (reason) { setError(errText(reason)) } finally { setBusy(false) }
   }
@@ -363,7 +363,7 @@ export function SitesView() {
     const hasLatitude = Boolean(createLatitude.trim())
     const hasLongitude = Boolean(createLongitude.trim())
     if (hasLatitude !== hasLongitude) {
-      setError('Ingresá latitud y longitud juntas, o dejá ambas vacías para crear la sede sin centro.')
+      setError('Ingresá latitud y longitud juntas, o dejá ambas vacías para crear el local sin centro.')
       return
     }
     let coordinates: SiteCoordinates | null = null
@@ -376,7 +376,7 @@ export function SitesView() {
       }
       coordinates = { latitude, longitude }
       if (!locationConfirmed) {
-        setError('Revisá el punto en el mapa y confirmá que corresponde a esta sede antes de guardarla.')
+        setError('Revisá el punto en el mapa y confirmá que corresponde a este local antes de guardarlo.')
         return
       }
     }
@@ -390,7 +390,7 @@ export function SitesView() {
         locationSource: coordinates ? createLocationSource : null,
         geofenceRadiusMeters
       })
-      setSites((current) => [...current, created]); setLoadError(''); setName(''); setCreateRadiusMeters('100'); clearLocation(); setNotice('Sede creada.')
+      setSites((current) => [...current, created]); setLoadError(''); setName(''); setCreateRadiusMeters('100'); clearLocation(); setNotice('Local creado.')
     }
     catch (reason) { setError(errText(reason)) } finally { setBusy(false) }
   }

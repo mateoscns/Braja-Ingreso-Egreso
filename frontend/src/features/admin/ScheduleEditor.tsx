@@ -5,7 +5,7 @@ import { LoadFailure, PageHeading } from './AdminViewsRender'
 import { checkScheduleDraft, type ScheduleDraft } from './scheduleDraft'
 import { joinNames, MAX_TRAMOS, SCHEDULE_TYPES, scheduleChips, tramoHints, type DayOffsets, type ScheduleTypeId, type Tramo } from './scheduleTramos'
 
-const PAUSE_HINT = 'Si la pausa dura más, te avisamos en la Bandeja. Con 0, te avisamos de cualquier pausa.'
+const PAUSE_HINT = 'Si la pausa dura más, te avisamos en Para revisar. Con 0, te avisamos de cualquier pausa.'
 export const EDIT_WARNING = 'Los días que ya cargaste mantienen el horario anterior.'
 
 /** A field hint that turns into the field's error; FormField links it to the control with aria-describedby. */
@@ -114,7 +114,7 @@ export function ScheduleAssignStep({ templateName, employees, employeesLoading, 
     {result?.existing.length ? <PageMessage>{`${joinNames(result.existing)} ${result.existing.length === 1 ? 'ya tenía' : 'ya tenían'} un horario desde ese día. Para cambiarlo, elegí otro día.`}</PageMessage> : null}
     {result?.failed.map((failure) => <PageMessage kind="error" key={failure.name}>{`No se pudo asignar a ${failure.name}: ${failure.message}`}</PageMessage>)}
     {employeesLoading ? <Loading label="Cargando empleados…" /> : employeesError ? <LoadFailure message={employeesError} onRetry={onRetryEmployees} /> : employees.length === 0
-      ? <><Empty>Este local todavía no tiene empleados activos. Los podés agregar en Empleados.</Empty><div className="button-row"><button type="button" className="button button-quiet" onClick={onClose}>Listo</button></div></>
+      ? <><Empty>Este local todavía no tiene empleados activos. Los podés agregar en Equipo.</Empty><div className="button-row"><button type="button" className="button button-quiet" onClick={onClose}>Listo</button></div></>
       : <form className="form-stack" noValidate onSubmit={onSubmit}>
         <fieldset className="field fieldset-plain"><legend className="field-label">Empleados de este local</legend>
           <div className="check-grid">{employees.map((person) => <label key={person.id}><input type="checkbox" checked={checked.includes(person.id)} disabled={busy} onChange={() => onToggle(person.id)} />{person.displayName}</label>)}</div>
@@ -145,7 +145,7 @@ export function SchedulesViewRender({ sites, siteId, siteTemplates, loading, loa
     <div className="content-grid">
       <Panel title="Horarios de este local">
         {sites.length > 1 && siteName && <p className="muted small-copy">{siteName}</p>}
-        {loading ? <Loading /> : loadError ? <LoadFailure message={loadError} onRetry={onReload} /> : !sites.length ? <Empty>Primero creá un local en Sedes.</Empty> : siteTemplates.length ? <div className="template-list">{siteTemplates.map((template) => {
+        {loading ? <Loading /> : loadError ? <LoadFailure message={loadError} onRetry={onReload} /> : !sites.length ? <Empty>Primero creá un local en Locales.</Empty> : siteTemplates.length ? <div className="template-list">{siteTemplates.map((template) => {
           const open = openCardId === template.id
           return <article className={`template-card ${open ? 'template-card-open' : ''}`} key={template.id} aria-labelledby={`schedule-${template.id}-name`}>
             <div>

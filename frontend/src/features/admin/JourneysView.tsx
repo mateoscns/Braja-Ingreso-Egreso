@@ -29,7 +29,7 @@ const dateInBrowserZone = () => {
 // The server reuses the employee mark-order codes on ADMIN forms; there they mean the typed time or action breaks the jornada order.
 const MARK_ORDER_CODES = new Set(['INVALID_MARK_ORDER', 'INVALID_MARK_HISTORY', 'INVALID_MARK_TRANSITION'])
 const markFormErrText = (error: unknown) => MARK_ORDER_CODES.has((error as { code?: string } | null)?.code ?? '')
-  ? 'La hora o la acción no encajan con las demás marcas de la jornada. Revisá el orden.'
+  ? 'La hora o la acción no encajan con las demás marcas del día. Revisá el orden.'
   : errText(error)
 function dateTimeParts(value: string, timeZone: string) {
   const entries = new Intl.DateTimeFormat('en-CA', {
@@ -209,7 +209,7 @@ export function JourneysView({ openJornada, coverage, onNavigate, onDaysLoaded }
     if (!detail || !detailTimeZone) return
     const occurredAt = instantForSiteTime(forgotOccurredAt, detailTimeZone)
     setMessageAt('forgotten')
-    if (!occurredAt) { setError('Esa hora no existe en la zona horaria de la sede. Revisá la fecha y la hora.'); return }
+    if (!occurredAt) { setError('Esa hora no existe en la zona horaria del local. Revisá la fecha y la hora.'); return }
     if (!forgotReason.trim()) { setError('Escribí por qué agregás la marca.'); return }
     setMarkBusy('forgotten'); setError(''); setNotice('')
     try {
@@ -228,7 +228,7 @@ export function JourneysView({ openJornada, coverage, onNavigate, onDaysLoaded }
     if (!detail || !detailTimeZone) return
     const correctedAt = instantForSiteTime(correctedOccurredAt, detailTimeZone)
     setMessageAt(markMessageKey('correct', mark.id))
-    if (!correctedAt) { setError('Esa hora no existe en la zona horaria de la sede. Revisá la fecha y la hora.'); return }
+    if (!correctedAt) { setError('Esa hora no existe en la zona horaria del local. Revisá la fecha y la hora.'); return }
     if (!correctionReason.trim()) { setError('Escribí el motivo de corrección.'); return }
     setMarkBusy(mark.id); setError(''); setNotice('')
     try {
@@ -258,7 +258,7 @@ export function JourneysView({ openJornada, coverage, onNavigate, onDaysLoaded }
       }
       // The server reuses INVALID_MARK_HISTORY; for a void it means the marks left would not form a valid jornada.
       setError((reason as { code?: string } | null)?.code === 'INVALID_MARK_HISTORY'
-        ? 'No se puede anular esa marca: las marcas que quedan no forman una jornada válida (por ejemplo, un ingreso con marcas posteriores). Anulá o corregí antes las posteriores.'
+        ? 'No se puede anular esa marca: las marcas que quedan no forman un día válido (por ejemplo, una entrada con marcas posteriores). Anulá o corregí antes las posteriores.'
         : errText(reason))
     } finally { setMarkBusy('') }
   }
@@ -273,12 +273,12 @@ export function JourneysView({ openJornada, coverage, onNavigate, onDaysLoaded }
     const back: Reveal = { kind: 'trigger', id: CANCEL_BUTTON_ID }
     try {
       await api.post(`/admin/jornadas/${encodeURIComponent(jornadaId)}/cancellation`, { reason: cancelReason.trim() })
-      setCancelOpen(false); setCancelReason(''); setNotice('Jornada cancelada.'); setReveal(back)
+      setCancelOpen(false); setCancelReason(''); setNotice('Día cancelado.'); setReveal(back)
       await loadJourneys(date, true); await showDetail(jornadaId, true)
     } catch (reason) {
       // A retry whose first attempt committed answers JORNADA_CANCELLED: the cancellation is done, show it as done.
       if ((reason as { code?: string } | null)?.code === 'JORNADA_CANCELLED') {
-        setCancelOpen(false); setCancelReason(''); setNotice('La jornada ya estaba cancelada.'); setReveal(back)
+        setCancelOpen(false); setCancelReason(''); setNotice('El día ya estaba cancelado.'); setReveal(back)
         await loadJourneys(date, true); await showDetail(jornadaId, true)
       } else setError(errText(reason))
     } finally { setMarkBusy('') }

@@ -98,7 +98,7 @@ export function setupSteps(data: SetupData): SetupStep[] {
       title: 'Tu local', explanation: 'Cargá el local donde trabaja tu equipo y dónde queda, para saber si marcan desde ahí.',
       done: data.sites.length > 0 && sitesWithoutLocation.length === 0,
       detail: sitesWithoutLocation.length > 0 ? `Falta dónde queda: ${joinNames(sitesWithoutLocation.map((site) => site.name))}.` : undefined,
-      section: 'sedes', sectionLabel: 'Sedes'
+      section: 'sedes', sectionLabel: 'Locales'
     },
     {
       title: 'Tus horarios', explanation: 'Armá los horarios de cada local: a qué hora se entra, se sale y cuánto duran las pausas.',
@@ -108,20 +108,20 @@ export function setupSteps(data: SetupData): SetupStep[] {
     },
     {
       title: 'Tu equipo', explanation: 'Dá de alta a las personas que van a marcar, con su DNI y su local.',
-      done: active.length > 0, section: 'empleados', sectionLabel: 'Empleados'
+      done: active.length > 0, section: 'empleados', sectionLabel: 'Equipo'
     },
     {
-      title: 'Cada uno con su horario', explanation: 'Elegí qué horario tiene cada persona, desde Empleados.',
+      title: 'Cada uno con su horario', explanation: 'Elegí qué horario tiene cada persona, desde Equipo.',
       done: scheduleDone,
       detail: withoutSchedule.length > 0 ? `Falta para: ${joinNames(withoutSchedule.map((person) => person.displayName))}.`
-        : scheduleDone === 'unknown' ? 'Revisá Empleados: son muchas personas para revisarlas desde acá.' : undefined,
-      section: 'empleados', sectionLabel: 'Empleados'
+        : scheduleDone === 'unknown' ? 'Revisá Equipo: son muchas personas para revisarlas desde acá.' : undefined,
+      section: 'empleados', sectionLabel: 'Equipo'
     },
     {
       title: 'Días de trabajo cargados', explanation: 'Cargá los días que trabaja cada persona. Se hace una vez por mes.',
       done: staffed.length > 0 && sitesWithoutDays.length === 0,
       detail: sitesWithoutDays.length > 0 ? `Falta en: ${joinNames(sitesWithoutDays.map((site) => site.name))}.` : undefined,
-      section: 'jornadas', sectionLabel: 'Jornadas'
+      section: 'jornadas', sectionLabel: 'Días de trabajo'
     }
   ]
 }

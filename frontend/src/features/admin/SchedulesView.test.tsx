@@ -122,8 +122,8 @@ describe('Horarios: a schedule a shop owner understands', () => {
   it('explains the pause minutes, including what 0 means', async () => {
     render(<TemplatesView />)
     await screen.findByText('Mañana')
-    expect(form().getByLabelText('Minutos para desayunar')).toHaveAccessibleDescription('Si la pausa dura más, te avisamos en la Bandeja. Con 0, te avisamos de cualquier pausa.')
-    expect(form().getByLabelText('Minutos para almorzar')).toHaveAccessibleDescription('Si la pausa dura más, te avisamos en la Bandeja. Con 0, te avisamos de cualquier pausa.')
+    expect(form().getByLabelText('Minutos para desayunar')).toHaveAccessibleDescription('Si la pausa dura más, te avisamos en Para revisar. Con 0, te avisamos de cualquier pausa.')
+    expect(form().getByLabelText('Minutos para almorzar')).toHaveAccessibleDescription('Si la pausa dura más, te avisamos en Para revisar. Con 0, te avisamos de cualquier pausa.')
     fireEvent.change(form().getByLabelText('Minutos para desayunar'), { target: { value: '300' } })
     fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
     expect(form().getByLabelText('Minutos para desayunar')).toHaveAccessibleDescription('Poné un número de 0 a 240.')

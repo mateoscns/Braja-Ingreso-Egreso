@@ -71,7 +71,7 @@ describe('Historial del ADMIN', () => {
   it('muestra las marcas y los desvíos de cada jornada con la hora del hecho', async () => {
     render(<AdminHistory />)
     await screen.findByRole('option', { name: 'Lucía Pérez' })
-    pick('Empleado', 'e-1'); pick('Sede', 's-1')
+    pick('Empleado', 'e-1'); pick('Local', 's-1')
     fireEvent.click(screen.getByRole('button', { name: 'Buscar' }))
     const card = (await screen.findByRole('article', { name: /Lucía Pérez/ }))
     expect(historyCalls()[0]).toBe('/jornadas?from=2026-10-17&to=2026-10-23&employeeId=e-1&siteId=s-1&includeDetail=true')
@@ -83,7 +83,7 @@ describe('Historial del ADMIN', () => {
     expect(marks).toHaveTextContent('Ubicación recibida')
     expect(marks).toHaveTextContent(/Salida a almorzar.*(13:00|1:00)/)
     expect(marks).toHaveTextContent('Sin ubicación')
-    const deviations = within(card).getByRole('list', { name: 'Desvíos' })
+    const deviations = within(card).getByRole('list', { name: 'Casos' })
     expect(deviations).toHaveTextContent('Llegada tarde')
     expect(deviations).toHaveTextContent(/0?9:20/)
     expect(deviations).not.toHaveTextContent(/0?9:25/)
@@ -94,7 +94,7 @@ describe('Historial del ADMIN', () => {
     render(<AdminHistory />)
     await screen.findByRole('option', { name: 'Lucía Pérez' })
     fireEvent.click(screen.getByRole('button', { name: 'Buscar' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('Elegí un empleado o una sede.')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Elegí un empleado o un local.')
     expect(historyCalls()).toEqual([])
   })
 
@@ -119,7 +119,7 @@ describe('Historial del ADMIN', () => {
     await screen.findByRole('option', { name: 'Lucía Pérez' })
     pick('Empleado', 'e-1')
     fireEvent.click(screen.getByRole('button', { name: 'Buscar' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('Son demasiados datos para una sola consulta: acotá el rango de fechas o elegí un empleado o una sede (hasta 366 días y 500 jornadas).')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Son demasiados datos para una sola consulta: acotá el rango de fechas o elegí un empleado o un local (hasta 366 días y 500 días de trabajo).')
   })
 
   it('muestra un estado vacío y un error de carga con reintento', async () => {
@@ -128,7 +128,7 @@ describe('Historial del ADMIN', () => {
     pick('Empleado', 'e-1')
     apiMocks.get.mockImplementation(() => Promise.resolve([]))
     fireEvent.click(screen.getByRole('button', { name: 'Buscar' }))
-    expect(await screen.findByText('No hay jornadas para esos filtros en el rango elegido.')).toBeInTheDocument()
+    expect(await screen.findByText('No hay días de trabajo para esos filtros en el rango elegido.')).toBeInTheDocument()
 
     apiMocks.get.mockImplementation(() => Promise.reject(new Error('Sin conexión.')))
     fireEvent.click(screen.getByRole('button', { name: 'Buscar' }))

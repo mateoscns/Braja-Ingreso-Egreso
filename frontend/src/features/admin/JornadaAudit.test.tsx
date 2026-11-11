@@ -80,17 +80,17 @@ describe('historial de cambios de una jornada (issue #60)', () => {
 
     fireEvent.click(toggle)
 
-    const list = await screen.findByRole('list', { name: 'Cambios de la jornada' })
+    const list = await screen.findByRole('list', { name: 'Cambios del día' })
     expect(auditCalls()).toBe(1)
     expect(screen.getByRole('button', { name: 'Ocultar historial' })).toHaveAttribute('aria-expanded', 'true')
     const items = within(list).getAllByRole('listitem')
     expect(items).toHaveLength(8)
-    expect(items[0]).toHaveTextContent('Desvío detectado: No marcó la entrada')
+    expect(items[0]).toHaveTextContent('Caso detectado: No marcó la entrada')
     expect(items[0]).toHaveTextContent('Automático del sistema')
     expect(items[1]).toHaveTextContent(/Marca olvidada incorporada: Entrada de .*0?9:12/)
     expect(items[1]).toHaveTextContent('Por Ana Admin')
     expect(items[1]).toHaveTextContent('Motivo: Se olvidó de marcar')
-    expect(items[2]).toHaveTextContent('Desvío actualizado: No marcó la entrada → Llegada tarde')
+    expect(items[2]).toHaveTextContent('Caso actualizado: No marcó la entrada → Llegada tarde')
     expect(items[2]).not.toHaveTextContent('Corrected event reconciliation')
     expect(items[3]).toHaveTextContent('Llegada tarde: motivo corregido, categoría Salud → Transporte')
     expect(items[3]).toHaveTextContent('Por Lucía Pérez')
@@ -104,17 +104,17 @@ describe('historial de cambios de una jornada (issue #60)', () => {
     expect(items[5]).toHaveTextContent('Motivo: <b>Hora real</b>')
     expect(items[5].querySelector('b')).toBeNull()
     expect(items[6]).toHaveTextContent(/Marca anulada: Salida a desayunar de/)
-    expect(items[7]).toHaveTextContent('Jornada cancelada')
+    expect(items[7]).toHaveTextContent('Día cancelado')
     expect(items[7]).toHaveTextContent('Motivo: Feriado nacional')
 
     fireEvent.click(screen.getByRole('button', { name: 'Ocultar historial' }))
-    expect(screen.queryByRole('list', { name: 'Cambios de la jornada' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: 'Cambios del día' })).not.toBeInTheDocument()
   })
 
   // D-20261111-02: the history belongs to the day, so it opens in the day's own row, not under the whole list.
   it('se abre dentro del día, en la fila de abajo de la jornada', async () => {
     fireEvent.click(await openDetail())
-    const list = await screen.findByRole('list', { name: 'Cambios de la jornada' })
+    const list = await screen.findByRole('list', { name: 'Cambios del día' })
     const dayRow = screen.getByRole('button', { name: /^Ver marcas/ }).closest('tr')!
     expect(dayRow.nextElementSibling).not.toBeNull()
     expect(dayRow.nextElementSibling).toContainElement(list)
@@ -129,7 +129,7 @@ describe('historial de cambios de una jornada (issue #60)', () => {
     fail = false
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
 
-    expect(await screen.findByText('Esta jornada no tiene cambios registrados.')).toBeInTheDocument()
+    expect(await screen.findByText('Este día no tiene cambios registrados.')).toBeInTheDocument()
     expect(auditCalls()).toBe(2)
   })
 
@@ -137,12 +137,12 @@ describe('historial de cambios de una jornada (issue #60)', () => {
     auditResult = () => Promise.resolve({ ...audit, truncated: true })
     fireEvent.click(await openDetail())
 
-    expect(await screen.findByText('Se muestran los primeros 8 cambios de esta jornada.')).toBeInTheDocument()
+    expect(await screen.findByText('Se muestran los primeros 8 cambios de este día.')).toBeInTheDocument()
   })
 
   it('recarga el historial abierto después de anular una marca y lo pliega al abrir otra vez la jornada', async () => {
     fireEvent.click(await openDetail())
-    await screen.findByRole('list', { name: 'Cambios de la jornada' })
+    await screen.findByRole('list', { name: 'Cambios del día' })
     const markRow = await screen.findByRole('row', { name: /Entrada/ })
     fireEvent.click(within(markRow).getByRole('button', { name: /^Anular marca Entrada de/ }))
     fireEvent.change(screen.getByLabelText('Motivo de anulación'), { target: { value: 'Tocó por error.' } })
@@ -150,7 +150,7 @@ describe('historial de cambios de una jornada (issue #60)', () => {
 
     expect(await screen.findByText('Marca anulada.')).toBeInTheDocument()
     await waitFor(() => expect(auditCalls()).toBe(2))
-    expect(await screen.findByRole('list', { name: 'Cambios de la jornada' })).toBeInTheDocument()
+    expect(await screen.findByRole('list', { name: 'Cambios del día' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /^Ver marcas/ }))
     expect(await screen.findByRole('button', { name: 'Ver historial' })).toHaveAttribute('aria-expanded', 'false')
