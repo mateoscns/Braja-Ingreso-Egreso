@@ -1,5 +1,5 @@
 import { type FormEvent, type ReactNode } from 'react'
-import { Empty, FormField, Loading, PageMessage, Panel } from '../../app/ui'
+import { Empty, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel } from '../../app/ui'
 import type { Deviation, Employee, Jornada, JornadaAudit, JornadaAuditEntry, JornadaSummary, Mark, MarkAction, Site, SiteCoordinates, Template } from '../../shared/api/types'
 import { formatDateTime, formatLocalDate, jornadaStateLabel } from '../../shared/format'
 import { adminCategoryName as categoryName, adminDeviationName as deviationName, adminDeviationStatusName as statusName, adminMarkLocationName as locationName, adminMarkName as actionName } from '../../shared/labels'
@@ -460,14 +460,8 @@ export function AdminHistoryRender({ employees, sites, loadingOptions, optionsEr
   </>
 }
 
-export function LoadFailure({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return <div className="form-stack"><PageMessage kind="error">{message}</PageMessage><button type="button" className="button button-quiet" onClick={onRetry}>Reintentar</button></div>
-}
-
-
-export function PageHeading({ eyebrow, title, subtitle }: { eyebrow: string; title: string; subtitle: string }) {
-  return <div className="page-title-row"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p className="muted">{subtitle}</p></div></div>
-}
+// Moved to app/ui.tsx in slice B4; re-exported so that no importer changes until this file is split.
+export { LoadFailure, PageHeading }
 
 const dateTime = formatDateTime
 const MARK_ACTIONS: MarkAction[] = ['INGRESO', 'EGRESO', 'SALIDA_DESAYUNO', 'VUELTA_DESAYUNO', 'SALIDA_ALMUERZO', 'VUELTA_ALMUERZO']

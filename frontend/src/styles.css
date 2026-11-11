@@ -111,7 +111,6 @@
   --alerts-bar-clearance: 124px;
   --tap-target: 44px;
   --radius-control: 9px;
-  --radius-panel: 14px;
   --green: #12372a;
   --green-2: #1d513c;
   --green-3: #e7f1e9;
@@ -168,8 +167,10 @@ h3 { font-size: var(--font-size-body-lg); line-height: var(--line-height-heading
 
 /* ===== Loading ===== */
 .boot-screen { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; }
-.loading { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--text-secondary); padding: 24px; font-size: .9rem; }
-.spinner { width: 17px; height: 17px; border: 2px solid #d7e1d9; border-top-color: var(--green-2); border-radius: 50%; animation: spin .8s linear infinite; }
+/* A wait is a spinner and the words of what is being waited for, at the start of the line where the content will be; the boot
+   screen centres it. The words stay when reduced motion stops the spinner. */
+.loading { display: flex; align-items: center; justify-content: flex-start; gap: var(--space-2); padding: var(--space-2) 0; color: var(--text-muted); font-size: var(--font-size-body); }
+.spinner { flex-shrink: 0; width: 20px; height: 20px; border: 3px solid var(--rule); border-top-color: var(--brand); border-radius: 50%; animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ===== Auth screens, form layout, fields; the location and the map of a site ===== */
@@ -192,6 +193,10 @@ h3 { font-size: var(--font-size-body-lg); line-height: var(--line-height-heading
 .field-error, .field-hint-error, .employee-field-error, .site-location-message-error { color: var(--bad); font-weight: var(--font-weight-strong); }
 /* The employee's motive form writes its errors as paragraphs. */
 .employee-field-error { margin: 0; }
+/* FormField puts a triangle before its error, so it is not told by its colour alone; the triangle sits on the first line of
+   the text: (1.5 line height - 1.25em icon) / 2. */
+.field-error { display: flex; align-items: flex-start; gap: var(--space-1); }
+.field-error > .icon { margin-top: .125em; }
 /* A field with an error has a bar on its left edge, besides the edge of its control and the text: never the colour alone. */
 .field-invalid { padding-left: var(--space-3); border-left: var(--bar-width) solid var(--bad); }
 /* The schedule editor still passes its errors as the hint of the field, and its summary says «debajo de cada campo»: they stay
@@ -350,12 +355,26 @@ fieldset.field { gap: var(--space-2); }
 .choice:disabled, .choice:has(input:disabled), .journey-option:disabled, .company-choice:disabled { color: var(--text-muted); background: var(--surface-tint); border-color: var(--border); }
 
 /* ===== Messages ===== */
-.message { border-radius: 10px; padding: 12px 14px; margin: 14px 0; font-size: 1rem; line-height: 1.5; }
+/* What happened, whether it was saved and what to do (PageMessage in app/ui.tsx). The kind is told by a bar on the left, a tinted
+   fill and an icon, never by colour alone; the words stay in the text colour, the most contrast for what most needs reading.
+   It stays until the next action: nothing here disappears on a timer. */
+.message { margin: var(--space-4) 0; padding: var(--space-3) var(--space-4); border-left: var(--bar-width) solid var(--border); color: var(--text); background: var(--surface-tint); font-size: var(--font-size-body); line-height: var(--line-height-body); }
+/* PageMessage: the icon, then the text in the rest of the line. A message written by hand without an icon keeps its own layout. */
+.message:has(> .icon) { display: flex; align-items: flex-start; gap: var(--space-2); }
+/* On the first line of the text: (1.5 line height - 1.25em icon) / 2. */
+.message > .icon { margin-top: .125em; }
+.message-body { flex: 1 1 0; min-width: 0; max-width: var(--measure); overflow-wrap: anywhere; }
 /* PageMessage mounts its live region empty for one render: it stays in the accessibility tree but takes no room. */
 .message:empty { margin: 0; padding: 0; border-width: 0; }
-.message-info { border: 1px solid #dde8e0; color: #496252; background: #f3f8f4; }
-.message-error { border: 1px solid #f0d3cf; color: #8e3931; background: #fff7f5; }
-.message-success { border: 1px solid #d2e7d7; color: #2a6740; background: #f0f8f1; }
+.message-info { border-left-color: var(--border); background: var(--surface-tint); }
+.message-info > .icon { color: var(--border); }
+.message-success { border-left-color: var(--ok); background: var(--ok-surface); }
+.message-success > .icon { color: var(--ok); }
+/* Something to look at that did not stop the work (a mark saved without its location). */
+.message-warning { border-left-color: var(--warn); background: var(--warn-surface); }
+.message-warning > .icon { color: var(--warn); }
+.message-error { border-left-color: var(--bad); background: var(--bad-surface); }
+.message-error > .icon { color: var(--bad); }
 
 /* ===== Company chooser ===== */
 /* Each company is an option tile (.company-choice, with the tiles above); here is only what is inside it. */
@@ -393,13 +412,19 @@ fieldset.field { gap: var(--space-2); }
 /* The bottom padding keeps the last control above the fixed alerts bar (.push-control). */
 .main-content { min-width: 0; padding: 38px clamp(22px, 4vw, 64px) calc(var(--alerts-bar-clearance) + env(safe-area-inset-bottom)); }
 .page-title-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 27px; }
-.page-title-row .muted { max-width: 690px; font-size: .9rem; }
+/* The lead under the page title (PageHeading in app/ui.tsx): muted, at the base size, no longer than a readable line. */
+.page-title-row .muted { max-width: var(--measure); font-size: var(--font-size-body); }
 .page-title-row > .field { min-width: 170px; }
-.panel { min-width: 0; margin: 0 0 19px; border: 1px solid #e5ebe6; border-radius: var(--radius-panel); background: var(--surface); box-shadow: 0 5px 22px rgba(21, 43, 30, .025); padding: 21px 23px; }
-.panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 23px; margin-bottom: 18px; }
-.panel-heading:has(> :only-child) { margin-bottom: 16px; }
-.empty-state { border: 1px dashed #dfe8e1; border-radius: 10px; background: #fbfdfb; color: var(--text-secondary); text-align: center; padding: 24px 14px; font-size: .875rem; }
-.content-grid { display: grid; grid-template-columns: minmax(0, .9fr) minmax(360px, 1.1fr); gap: 19px; align-items: start; }
+/* A section (Panel in app/ui.tsx) is flat: content on white, named by its title, which carries a rule of ink under it. No box,
+   fill or shadow (principle 1); the space above it separates it from what comes before. An optional tag or button sits at the
+   right of the title and wraps under it when there is no room. */
+.panel { min-width: 0; margin: var(--space-6) 0 0; }
+.panel-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-4); padding-bottom: var(--space-2); border-bottom: var(--border-width-strong) solid var(--text); }
+/* Nothing to show: one or two sentences in the muted colour, at the start of the line, without a box; a button may follow. */
+.empty-state { max-width: var(--measure); padding: var(--space-2) 0; color: var(--text-muted); text-align: left; font-size: var(--font-size-body); }
+/* Two sections side by side: the space above goes to the grid (it collapses with the heading's), not to each section. */
+.content-grid { display: grid; grid-template-columns: minmax(0, .9fr) minmax(360px, 1.1fr); gap: 19px; align-items: start; margin-top: var(--space-6); }
+.content-grid > .panel { margin-top: 0; }
 .toolbar { display: flex; justify-content: flex-end; margin: -8px 0 17px; }
 .toolbar .field { width: min(290px, 100%); }
 .filter-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; align-items: end; margin-bottom: 18px; padding: 14px; border: 1px solid #e9eeea; border-radius: 12px; background: #fff; }
@@ -465,16 +490,28 @@ td .short-input { width: 74px; }
   .block-fields.block-fields-tramo { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .block-fields-tramo .remove-block { grid-column: 1 / -1; justify-self: start; }
 }
-.status-chip { display: inline-flex; align-items: center; min-height: 28px; border-radius: 99px; padding: 4px 9px; color: var(--text-secondary); background: #f0f3f0; font-size: .8125rem; font-weight: 700; white-space: nowrap; }
-.status-motivo_pendiente { color: #835520; background: #fff4df; }
-.status-pendiente_revision { color: #795d21; background: #fff6d9; }
-.status-justificado { color: #2c7044; background: #e8f5e9; }
-.status-no_justificado { color: #9b4438; background: #fff0ec; }
-.status-no_ingreso { color: #94612d; background: #fff4e2; }
-.status-en_curso { color: #326b47; background: #e8f4e9; }
-.status-pausa_abierta { color: #786323; background: #fff8dc; }
-.status-egresada, .status-cancelada { color: var(--text-secondary); background: #eff2ef; }
-.status-inactivo { color: var(--text-secondary); background: #eff2ef; }
+/* A status tag (StatusTag in app/ui.tsx): the state of a thing in a word, after its icon. Shape and word first, colour last. A
+   border and 4 px corners, no pointer and no hover: it is never taken for a button (8 px corners). Plain text in the tab order. */
+.status-chip {
+  display: inline-flex; align-items: center; gap: var(--space-1); padding: 2px var(--space-2);
+  border: var(--border-width) solid var(--border); border-radius: var(--radius-tag); color: var(--text); background: var(--surface);
+  font-size: var(--font-size-meta); font-weight: var(--font-weight-heavy); line-height: var(--line-height-tight); white-space: nowrap;
+}
+.status-chip .icon { width: 1.15em; height: 1.15em; }
+/* Five tones; the class says the tone, not the API value. The old classes built from API values take their tone from these
+   lists until each screen moves its tags to StatusTag (slice H1 removes them). Whose turn it is decides the tone: for the ADMIN a
+   missing motive waits for the employee and a case to review waits for him; for the employee it is the other way round, and a
+   missing setup step waits for the ADMIN. Each tone names its edge style, so a tone that depends on the screen wins whole. */
+/* The state of a day, of a mark, of a person: neutral, it asks nothing of anybody. */
+.status-neutral, .status-no_ingreso, .status-en_curso, .status-pausa_abierta, .status-egresada, .status-cancelada { color: var(--text); background: var(--surface); border-color: var(--border); border-style: solid; }
+/* It waits for someone else: a dashed edge and muted words. */
+.status-wait, .status-motivo_pendiente, .status-inactivo, .employee-frame .status-pendiente_revision { color: var(--text-muted); background: var(--surface); border-color: var(--border); border-style: dashed; }
+/* It waits for the person looking at the screen. */
+.status-todo, .status-pendiente_revision, .employee-frame .status-motivo_pendiente, .first-step .status-motivo_pendiente { color: var(--warn); background: var(--warn-surface); border-color: var(--warn); border-style: solid; }
+/* Confirmed, done or decided in favour. */
+.status-ok, .status-justificado { color: var(--ok); background: var(--ok-surface); border-color: var(--ok); border-style: solid; }
+/* An error or decided against. */
+.status-bad, .status-no_justificado { color: var(--bad); background: var(--bad-surface); border-color: var(--bad); border-style: solid; }
 
 /* ===== Deviation cards of the inbox and inline forms ===== */
 .deviation-card { display: flex; align-items: flex-start; gap: 12px; padding: 14px; border: 1px solid #e9eeea; border-radius: 11px; background: #fff; transition: border-color .2s, background .2s; }
@@ -555,7 +592,7 @@ td .short-input { width: 74px; }
 /* The bar keeps the line height it was measured with (98 px tall with three lines): with the 1.5 of body it grows to 107.5 px and
    --alerts-bar-clearance (124 px) no longer covers it plus its 18 px offset. The bar and this line go away in slice N4. */
 .push-control { position: fixed; z-index: 8; right: max(22px, env(safe-area-inset-right)); bottom: calc(18px + env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 15px; width: min(530px, calc(100vw - 32px)); padding: 11px 13px; border: 1px solid #dfe8e0; border-radius: 13px; background: rgba(255,255,255,.96); box-shadow: 0 12px 38px rgba(18,55,42,.12); backdrop-filter: blur(12px); line-height: normal; }
-.push-control .message { position: absolute; bottom: 100%; right: 0; width: min(380px, 100%); margin-bottom: 8px; box-shadow: var(--shadow); }
+.push-control .message { position: absolute; bottom: 100%; right: 0; width: min(380px, 100%); margin-bottom: 8px; }
 .push-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; margin-right: auto; }
 .push-copy strong { font-size: .875rem; color: #304838; }
 .push-copy span { color: var(--text-secondary); font-size: .8125rem; }
@@ -593,7 +630,6 @@ td .short-input { width: 74px; }
   .employee-main { width: min(100% - 28px, 920px); padding-top: 27px; }
   .page-title-row { align-items: flex-start; }
   .page-title-row .field { min-width: 130px; }
-  .panel { padding: 17px 15px; }
   .mark-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mark-action { min-height: 105px; padding: 12px; }
   .deviation-card { flex-wrap: wrap; }
@@ -653,20 +689,25 @@ td .short-input { width: 74px; }
 
 @media (forced-colors: active) {
   :focus-visible { outline-color: Highlight !important; }
-  .status-chip { border: 1px solid CanvasText; }
   .spinner { border-color: CanvasText; border-top-color: Highlight; }
 }
 /* ===== Later additions: small modifiers of the regions above (folds, quick choices, work days, first steps) ===== */
 /* The result of a mark takes focus by script: no ring after a tap or a click, the global ring when the keyboard is in use. */
 .mark-feedback:focus:not(:focus-visible) { outline: none; }
 .update-banner { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 50; display: flex; align-items: center; gap: 12px; width: max-content; max-width: calc(100% - 32px); padding: 10px 14px; border: 1px solid #d2e7d7; border-radius: 12px; color: var(--green); background: #fff; box-shadow: var(--shadow); font-size: .9rem; }
-/* U3 (issue #104), small modifiers from existing tokens. A folded section (details/summary) like .site-location-manual, also
-   for a whole panel; the setup guide rows; the notice of days loaded with its button. */
-.fold > summary { display: flex; align-items: center; min-height: var(--tap-target); color: var(--green-2); font-size: .875rem; font-weight: 650; cursor: pointer; }
-.fold > summary h2 { color: var(--text-primary); }
-.fold > summary::before { content: "▸"; content: "▸" / ""; margin-right: 8px; color: var(--green-2); }
-.fold[open] > summary::before { content: "▾"; content: "▾" / ""; }
-.fold[open] > summary { margin-bottom: 12px; }
+/* A fold (details/summary) is a control: bordered, its summary as tall as a target, with an arrow at the right drawn by two
+   borders, so there is no glyph to hide from screen readers. The summary text is the name of what it holds; a heading inside the
+   summary is left to its screen slice (finding F-30). */
+.fold { border: var(--border-width) solid var(--border); border-radius: var(--radius); padding: 0 var(--space-3); }
+.fold[open] { padding-bottom: var(--space-3); }
+.fold > summary { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: var(--target); color: var(--text); font-weight: var(--font-weight-strong); list-style: none; cursor: pointer; }
+.fold > summary::-webkit-details-marker { display: none; }
+/* Points down while closed and up while open. */
+.fold > summary::after { content: ""; flex-shrink: 0; width: .5em; height: .5em; margin: 0 var(--space-1) .25em; border-right: var(--border-width-strong) solid currentColor; border-bottom: var(--border-width-strong) solid currentColor; transform: rotate(45deg); }
+.fold[open] > summary::after { margin: .25em var(--space-1) 0; transform: rotate(-135deg); }
+.fold[open] > summary { margin-bottom: var(--space-2); }
+.fold > summary h2 { color: var(--text); }
+/* U3 (issue #104), small modifiers from existing tokens: the setup guide rows; the notice of days loaded with its button. */
 .work-days-preview { padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #f8faf8; }
 .work-days-preview p { margin: 0; line-height: 1.5; }
 .work-days-preview p + p { margin-top: 6px; }
@@ -680,7 +721,8 @@ td .short-input { width: 74px; }
 .mark-coordinates { display: block; color: var(--text-secondary); font-size: .8125rem; }
 /* 2026-11-09 integrated check of PR #107, small modifiers from existing tokens: the folded inbox filters on phones, the reasons
    of a work-days load inside its result box, and the temporary password large enough to read aloud or copy by hand. */
-.filter-fold { margin-bottom: 18px; }
-.filter-fold .filter-bar { margin-bottom: 0; }
+.filter-fold { margin-bottom: var(--space-4); }
+/* Inside the fold the filters need no box of their own: the fold is the box. */
+.filter-fold .filter-bar { margin-bottom: 0; padding: 0; border: 0; background: transparent; }
 .message .work-days-skips { margin-top: 8px; }
 .issued-password-code { display: inline-block; color: var(--text-primary); font-size: 1.25rem; font-weight: 700; letter-spacing: .08em; overflow-wrap: anywhere; }

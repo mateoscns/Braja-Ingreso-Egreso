@@ -220,10 +220,10 @@ const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui',
 // Ceilings that only go down. Each one counts what the rules under the token block still write by hand, measured with the
 // pattern of its own test when the token block came in (2026-11-11). A slice that moves rules to tokens lowers the number in
 // the same commit; nobody raises one. Slice H1 turns the four into equalities with zero.
-const COLOR_LITERAL_CEILING = 117
-const UNTOKENED_FONT_SIZE_CEILING = 69
-const BOX_SHADOW_CEILING = 14
-const LEGACY_TOKEN_USE_CEILING = 103
+const COLOR_LITERAL_CEILING = 86
+const UNTOKENED_FONT_SIZE_CEILING = 63
+const BOX_SHADOW_CEILING = 12
+const LEGACY_TOKEN_USE_CEILING = 91
 
 // The old names with the values they had before the token block. A name is deleted from the stylesheet once nothing uses it
 // and never gets a new value in the meantime: a half-migrated rule must look exactly as it did.
@@ -675,5 +675,129 @@ describe('campos, casillas y opciones: una sola forma', () => {
     expect(rule(list, media(600, 'min'))).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
     // The one column is the base now: no narrow breakpoint has to bring it back.
     expect(media(520)).not.toMatch(/\.employee-category-list/)
+  })
+})
+
+/** The body of an `@media (<condition>) {` block that is not a width (forced colours, reduced motion). */
+function mediaBlock(condition: string) {
+  const opening = `@media (${condition}) {`
+  const start = css.indexOf(opening)
+  if (start < 0) throw new Error(`No media query for ${condition}`)
+  return css.slice(start + opening.length, css.indexOf('\n}', start))
+}
+/** The rules whose selector list names one of the classes as a whole word (`.message`, and not `.message-body`). */
+function rulesNaming(...classes: string[]) {
+  const pattern = new RegExp(`\\.(?:${classes.join('|')})(?![\\w-])`)
+  return allRules().filter(({ selectors }) => selectors.some((selector) => pattern.test(selector)))
+}
+const selectorsOf = (rules: { selectors: string[] }[]) => rules.map(({ selectors }) => selectors.join(', '))
+
+describe('mensajes, etiquetas de estado, secciones, plegables, vacío y carga', () => {
+  it('un mensaje es una barra a la izquierda sobre su fondo, con el texto en el color de siempre y sin sombra (1.4.1)', () => {
+    const message = rule('.message')
+
+    expect(message).toMatch(/border-left:\s*var\(--bar-width\) solid/)
+    expect(message).toMatch(/(?<![\w-])color:\s*var\(--text\)/)
+    expect(message).toMatch(/font-size:\s*var\(--font-size-body\)/)
+    expect(message).not.toMatch(/border-radius/)
+    expect(selectorsOf(rulesNaming('message').filter(({ declarations }) => /box-shadow/.test(declarations)))).toEqual([])
+  })
+
+  it('cada tipo de mensaje tiene su barra, su fondo y el ícono del color de su barra', () => {
+    const kinds = [['info', 'border', 'surface-tint'], ['success', 'ok', 'ok-surface'], ['warning', 'warn', 'warn-surface'], ['error', 'bad', 'bad-surface']]
+
+    for (const [kind, bar, fill] of kinds) {
+      const declarations = rule(`.message-${kind}`)
+      expect(declarations, kind).toMatch(new RegExp(`border-left-color:\\s*var\\(--${bar}\\)`))
+      expect(declarations, kind).toMatch(new RegExp(`background:\\s*var\\(--${fill}\\)`))
+      // The words keep the colour of the text: the most contrast for the sentence the person most needs to read.
+      expect(declarations, kind).not.toMatch(/(?<![\w-])color:/)
+      expect(rule(`.message-${kind} > .icon`), kind).toMatch(new RegExp(`(?<![\\w-])color:\\s*var\\(--${bar}\\)`))
+    }
+  })
+
+  it('una etiqueta de estado tiene borde y esquinas de 4 px, letra de 14 px en negrita y nunca parece un botón', () => {
+    const tag = rule('.status-chip')
+
+    expect(tag).toMatch(/display:\s*inline-flex/)
+    expect(tag).toMatch(/border:\s*var\(--border-width\) solid var\(--border\)/)
+    expect(tag).toMatch(/border-radius:\s*var\(--radius-tag\)/)
+    expect(tag).toMatch(/font-size:\s*var\(--font-size-meta\)/)
+    expect(tag).toMatch(/font-weight:\s*var\(--font-weight-heavy\)/)
+    expect(tag).toMatch(/white-space:\s*nowrap/)
+    expect(rule('.status-chip .icon')).toMatch(/width:\s*1\.15em/)
+    expect(selectorsOf(rulesNaming('status-chip').filter(({ declarations }) => /cursor:\s*pointer|box-shadow/.test(declarations)))).toEqual([])
+    // A forced solid border would turn the dashed edge of «waiting for someone else» solid; forced colours keep borders anyway.
+    expect(mediaBlock('forced-colors: active')).not.toMatch(/\.status-chip/)
+  })
+
+  it('las clases viejas de estado toman las cinco tonalidades por reglas compartidas: ámbar te espera a vos, gris punteado espera a otro', () => {
+    const tone = (name: string) => ruleListing(`.status-${name}`)
+
+    expect(tone('neutral').selectors).toEqual(['.status-neutral', '.status-no_ingreso', '.status-en_curso', '.status-pausa_abierta', '.status-egresada', '.status-cancelada'])
+    expect(tone('wait').selectors).toEqual(['.status-wait', '.status-motivo_pendiente', '.status-inactivo', '.employee-frame .status-pendiente_revision'])
+    expect(tone('todo').selectors).toEqual(['.status-todo', '.status-pendiente_revision', '.employee-frame .status-motivo_pendiente', '.first-step .status-motivo_pendiente'])
+    expect(tone('ok').selectors).toEqual(['.status-ok', '.status-justificado'])
+    expect(tone('bad').selectors).toEqual(['.status-bad', '.status-no_justificado'])
+    const colours = { neutral: ['text', 'surface', 'border'], wait: ['text-muted', 'surface', 'border'], todo: ['warn', 'warn-surface', 'warn'], ok: ['ok', 'ok-surface', 'ok'], bad: ['bad', 'bad-surface', 'bad'] }
+    for (const [name, [text, fill, edge]] of Object.entries(colours)) {
+      const declarations = tone(name).declarations
+      expect(declarations, name).toMatch(new RegExp(`(?<![\\w-])color:\\s*var\\(--${text}\\)`))
+      expect(declarations, name).toMatch(new RegExp(`background:\\s*var\\(--${fill}\\)`))
+      expect(declarations, name).toMatch(new RegExp(`border-color:\\s*var\\(--${edge}\\)`))
+      // Every tone names its edge style, so a tone that depends on the screen (the employee's) wins over the shared one whole.
+      expect(declarations, name).toMatch(name === 'wait' ? /border-style:\s*dashed/ : /border-style:\s*solid/)
+    }
+    // No old state class keeps a rule of its own with colours written by hand.
+    const shared = new Set(['neutral', 'wait', 'todo', 'ok', 'bad'].flatMap((name) => tone(name).selectors))
+    expect(allSelectors().filter((selector) => /\.status-(?!chip)[\w-]+/.test(selector) && !shared.has(selector))).toEqual([])
+  })
+
+  it('una sección es plana: su título lleva una raya de tinta debajo y no hay recuadro, fondo ni sombra', () => {
+    const panel = rule('.panel')
+    const heading = rule('.panel-heading')
+
+    expect(panel).toMatch(/margin:\s*var\(--space-6\) 0 0/)
+    expect(panel).not.toMatch(/(?<![\w-])(?:border|background|box-shadow|padding|border-radius)\s*:/)
+    expect(heading).toMatch(/border-bottom:\s*var\(--border-width-strong\) solid var\(--text\)/)
+    expect(heading).toMatch(/padding-bottom:\s*var\(--space-2\)/)
+    // No narrower screen gives it a padding or a box back.
+    expect(selectorsOf(allRules().filter(({ selectors, declarations }) => selectors.includes('.panel') && /padding|border|box-shadow|background/.test(declarations)))).toEqual([])
+  })
+
+  it('un plegable es un control: tiene borde, el alto de toque y una flecha dibujada sin caracteres', () => {
+    const fold = rule('.fold')
+    const summary = rule('.fold > summary')
+
+    expect(fold).toMatch(/border:\s*var\(--border-width\) solid var\(--border\)/)
+    expect(fold).toMatch(/border-radius:\s*var\(--radius\)/)
+    expect(summary).toMatch(/min-height:\s*var\(--target\)/)
+    expect(summary).toMatch(/font-weight:\s*var\(--font-weight-strong\)/)
+    expect(summary).toMatch(/list-style:\s*none/)
+    expect(rule('.fold > summary::-webkit-details-marker')).toMatch(/display:\s*none/)
+    expect(rule('.fold > summary::after')).toMatch(/border-right:\s*var\(--border-width-strong\) solid currentColor/)
+    // The arrow was a glyph with alternative text; no rule draws a triangle character any more.
+    expect(withoutComments(css)).not.toMatch(/content:\s*"[▸▾]/)
+  })
+
+  it('vacío y cargando son texto alineado a la izquierda, sin recuadro; el círculo de carga es del verde de la marca', () => {
+    const empty = rule('.empty-state')
+    const loading = rule('.loading')
+    const spinner = rule('.spinner')
+
+    expect(empty).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
+    expect(empty).toMatch(/text-align:\s*left/)
+    expect(empty).not.toMatch(/(?<![\w-])(?:border|background)\s*:/)
+    expect(loading).toMatch(/justify-content:\s*flex-start/)
+    expect(loading).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
+    expect(spinner).toMatch(/border:\s*3px solid var\(--rule\)/)
+    expect(spinner).toMatch(/border-top-color:\s*var\(--brand\)/)
+    expect(spinner).toMatch(/animation:\s*spin \.9s linear infinite/)
+  })
+
+  it('el error de un campo pone su triángulo en la primera línea del texto', () => {
+    expect(rule('.field-error')).toMatch(/display:\s*flex/)
+    expect(rule('.field-error')).toMatch(/align-items:\s*flex-start/)
+    expect(rule('.field-error > .icon')).toMatch(/margin-top:\s*\.125em/)
   })
 })
