@@ -172,15 +172,29 @@ describe('EmployeeApp', () => {
       render(<EmployeeApp />)
 
       const primary = await breakfastButton()
-      expect(primary).toHaveClass('button-primary', 'button-wide')
+      expect(primary).toHaveClass('button-primary', 'button-clock')
       const panel = screen.getByRole('region', { name: 'Marcar' })
       const buttons = within(panel).getAllByRole('button')
       expect(buttons).toHaveLength(3)
       expect(buttons[0]).toHaveAccessibleName('Me voy a desayunar')
       expect(buttons[1]).toHaveAccessibleName('Me voy a almorzar')
       expect(buttons[2]).toHaveAccessibleName('Marcar salida')
-      expect(buttons[2].closest('.employee-exit')).not.toBeNull()
+      expect(buttons[2].closest('.now-apart')).not.toBeNull()
       expect(panel).not.toHaveTextContent(/Enviar marca|servidor|secuencia|comprobante|día local/)
+    })
+
+    // Slice D1: the state of the day, the next mark and the schedule are one block, so the person reads how the day is and
+    // what to do next without looking for the schedule further down.
+    it('junta en el bloque Marcar el estado del día, la próxima marca y el horario', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+
+      const block = (await breakfastButton()).closest('.now')!
+      expect(block).toBe(screen.getByRole('region', { name: 'Marcar' }))
+      expect(block).toContainElement(screen.getByText('Estás trabajando desde las 09:00.'))
+      expect(block).toContainElement(screen.getByText('09:00 a 17:00'))
+      expect(block).toHaveTextContent('Local Centro · Tenés 5 minutos de tolerancia para entrar.')
+      expect(screen.getByRole('region', { name: 'Tus marcas de hoy' })).not.toHaveTextContent('Tu horario')
     })
 
     it('no deja texto técnico en la pantalla', async () => {
@@ -321,6 +335,41 @@ describe('EmployeeApp', () => {
       const onLocation = mocks.submitMark.mock.calls[0][3] as (result: 'SENT' | 'MISSING') => void
       act(() => onLocation('MISSING'))
       expect(await screen.findByText('No llegó tu ubicación: puede figurar como fuera del local. Revisá que el celular tenga la ubicación activada.')).toBeInTheDocument()
+    })
+
+    // S8: the mark was saved, so the confirmation stays; only the line about the location is a warning, never a success.
+    it('la ubicación que no llegó es una advertencia dentro de la confirmación, no una línea de éxito', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      fireEvent.click(await breakfastButton())
+      const receipt = (await screen.findByText('Listo: tu salida a desayunar quedó registrada a las 10:05.')).closest('[role="status"]')!
+      const onLocation = mocks.submitMark.mock.calls[0][3] as (result: 'SENT' | 'MISSING') => void
+      act(() => onLocation('MISSING'))
+
+      const line = await screen.findByText('No llegó tu ubicación: puede figurar como fuera del local. Revisá que el celular tenga la ubicación activada.')
+      expect(receipt).toContainElement(line)
+      expect(line.closest('.message-success')).toBeNull()
+      expect(line.closest('.receipt-location')).toHaveClass('receipt-location-missing')
+    })
+
+    // S8, verbatim: «nunca indicar que una marca fue registrada si el servidor todavía no confirmó su aceptación».
+    it('mientras la marca está en camino nada dice que quedó registrada: el lugar de la confirmación dice que se está enviando', async () => {
+      let resolveMark!: (value: { id: string; acceptedAt: string }) => void
+      mocks.submitMark.mockReturnValueOnce(new Promise((resolve) => { resolveMark = resolve }))
+      configureSingle(jornadas[0])
+      const { container } = render(<EmployeeApp />)
+      fireEvent.click(await breakfastButton())
+
+      const sending = await screen.findByText('Enviando tu marca… esperá un momento.')
+      expect(sending.closest('.mark-feedback')).not.toBeNull()
+      expect(sending.closest('.message-info')).not.toBeNull()
+      expect(container).not.toHaveTextContent(/registrada/)
+      expect(container.querySelector('.receipt, .message-success')).toBeNull()
+      within(screen.getByRole('region', { name: 'Marcar' })).getAllByRole('button').forEach((button) => expect(button).toBeDisabled())
+
+      await act(async () => { resolveMark({ id: 'mark-new', acceptedAt: '2026-10-20T13:05:00Z' }) })
+      expect(await screen.findByText('Listo: tu salida a desayunar quedó registrada a las 10:05.')).toBeInTheDocument()
+      expect(screen.queryByText('Enviando tu marca… esperá un momento.')).not.toBeInTheDocument()
     })
   })
 

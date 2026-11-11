@@ -312,9 +312,6 @@ fieldset.field { gap: var(--space-2); }
 }
 /* Disabled: still text to read (7:1 on the band), never faded. The line next to it says why (.field-hint, aria-describedby). */
 .button:disabled { color: var(--text-muted); background: var(--surface-tint); border-color: var(--border); }
-/* The other marks of the employee are not a .button yet (slice D1): while a mark is being sent they are disabled next to
-   buttons, so they look the same. */
-.mark-action:disabled { color: var(--text-muted); background: var(--surface-tint); border-color: var(--border); }
 /* The chosen one keeps its edge while its form is busy; so does the chosen option tile. */
 .button[aria-pressed="true"]:disabled, .choice[aria-pressed="true"]:disabled, .choice:has(input:checked:disabled),
 .journey-option[aria-pressed="true"]:disabled { border-color: var(--brand); }
@@ -378,6 +375,9 @@ fieldset.field { gap: var(--space-2); }
 .message-warning > .icon { color: var(--warn); }
 .message-error { border-left-color: var(--bad); background: var(--bad-surface); }
 .message-error > .icon { color: var(--bad); }
+/* A wait told in a message (a mark being sent): the spinner takes the place of the icon, on the first line of the text. */
+.message:has(> .spinner) { display: flex; align-items: flex-start; gap: var(--space-2); }
+.message > .spinner { margin-top: .125em; }
 
 /* ===== Company chooser ===== */
 /* Each company is an option tile (.company-choice, with the tiles above); here is only what is inside it. */
@@ -435,6 +435,8 @@ fieldset.field { gap: var(--space-2); }
 @media (max-width: 359px) {
   /* «Fichaje» alone leaves room for «Cerrar sesión» on the dark row; the link keeps its whole name. */
   .topbar .brand-light { display: none; }
+  /* «Me voy a desayunar» stays on one line next to its icon in a column of 260 px. */
+  .button-clock { font-size: var(--font-size-title); }
 }
 .workspace { display: grid; grid-template-columns: 226px minmax(0, 1fr); max-width: 1600px; margin: 0 auto; min-height: calc(100vh - var(--topbar-height) - env(safe-area-inset-top)); }
 /* The menu stays as it is until slice N4. Only its offset changes: the top bar above it no longer sticks, so the menu sticks to
@@ -608,49 +610,51 @@ td .short-input { width: 74px; }
 .inline-form, .correction-form { display: grid; gap: var(--space-4); flex-basis: 100%; width: 100%; margin-top: var(--space-4); padding-left: var(--space-4); border-left: var(--bar-width) solid var(--border); }
 
 /* ===== Employee screen ===== */
-.employee-main { width: min(100% - 36px, 920px); margin: 0 auto; padding: 37px 0 60px; }
+/* One column of 40 rem at most: the marks, the schedule and the day are read top to bottom, also on a tablet. */
+.employee-main { width: min(100% - 2 * var(--gutter), 40rem); margin: 0 auto; padding: var(--space-4) 0 var(--space-7); }
 .employee-title { align-items: flex-end; }
 .employee-title .field { width: 165px; }
-.schedule-summary { display: flex; align-items: flex-start; gap: 14px; padding: 2px 1px 20px; }
-.schedule-icon { width: 43px; height: 43px; flex: 0 0 43px; display: grid; place-items: center; color: var(--green); background: #edf5ed; border-radius: 13px; font-size: 1.3rem; }
-.schedule-summary strong { font-size: .98rem; color: #263c2d; }
-.schedule-summary p { display: flex; flex-wrap: wrap; gap: 7px; margin: 7px 0; }
+/* The chips of a schedule in the ADMIN's «Horarios» still use this name (slice E5). */
 .schedule-block { display: inline-flex; border: 1px solid #e3ebe4; border-radius: 6px; padding: 4px 7px; color: #516259; background: #fbfdfb; font-size: 1rem; }
-.schedule-summary small { color: var(--text-secondary); font-size: .875rem; }
 .mark-timeline { border-top: 1px solid #edf1ee; padding: 17px 2px 0; }
 .timeline-title { color: var(--text-secondary); margin-bottom: 12px; font-size: .8125rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
 .mark-row { position: relative; display: grid; grid-template-columns: 13px minmax(130px, 1fr) auto; align-items: center; gap: 9px; padding: 8px 0; color: #44564b; font-size: 1rem; }
 .timeline-point { width: 8px; height: 8px; border: 2px solid #74a181; border-radius: 50%; background: #fff; }
 .mark-row time { color: var(--text-secondary); font-size: .875rem; }
-.mark-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.mark-action { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-height: 114px; border: 1px solid var(--text-tertiary); border-radius: 11px; padding: 14px; color: #34483a; background: #fbfdfb; text-align: left; }
-.mark-action:not(:disabled):hover { border-color: var(--green-2); background: #f5faf5; }
-.mark-action > span { display: grid; place-items: center; width: 27px; height: 27px; border-radius: 8px; color: #496e50; background: #eaf3eb; font-size: 1.05rem; font-weight: 700; }
-.mark-action strong { font-size: 1rem; }
-.mark-action small { margin-top: auto; color: var(--text-secondary); font-size: .875rem; }
-/* Entrada and salida look like .button-primary: white on the brand green. */
-.mark-action-primary { border-color: var(--green); color: #ffffff; background: var(--green); box-shadow: 0 5px 14px rgba(18,55,42,.12); }
-.mark-action-primary:not(:disabled):hover { border-color: #1b4935; background: #1b4935; }
-.mark-action-primary > span { color: var(--green); background: var(--green-3); }
-.mark-action-primary small { color: var(--green-3); }
-.mark-action-primary:focus-visible { box-shadow: 0 0 0 3px var(--surface); }
 .motive-card { display: flex; flex-direction: column; gap: 14px; padding: 14px; border: 1px solid #e9eeea; border-radius: 11px; }
 .motive-card > div:first-child { display: flex; align-items: center; gap: 9px; }
-/* UX phase 1, issue #102: employee screen. Modifiers of the classes above, with the same tokens. */
-.employee-heading { margin-bottom: 18px; }
-.employee-heading h1 { margin-bottom: 6px; }
-.employee-day-state { margin: 0; color: var(--green); font-size: 1.15rem; font-weight: 650; line-height: 1.4; }
-.employee-next-action { min-height: 56px; font-size: 1.05rem; }
-.employee-more-actions { margin-top: 12px; }
-/* One extra action takes the whole row; two or three share it (2026-11-09: one action took half the row). */
-.mark-actions.employee-more-actions { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
-.employee-more-actions .mark-action { min-height: var(--tap-target); flex-direction: row; align-items: center; gap: 10px; padding: 10px 12px; }
-.employee-exit { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
-.employee-exit .button { font-size: 1rem; }
-.employee-sending { margin: 12px 0 0; font-size: .9rem; }
-.employee-step-text { margin: 0 0 12px; color: var(--text-primary); font-size: 1rem; line-height: 1.45; }
-.employee-confirmation { display: block; font-size: 1.05rem; font-weight: 650; line-height: 1.4; }
-.employee-location-note { display: block; margin-top: 6px; }
+/* The greeting stays the h1 of the page but is drawn small and muted: the state of the day under it is the largest text. */
+.employee-heading { margin-bottom: var(--space-3); }
+.employee-heading h1 { margin: 0; color: var(--text-muted); font-size: var(--font-size-body-lg); font-weight: var(--font-weight-regular); line-height: var(--line-height-body); }
+/* The "now" block (design system 4.13): how the day is, the next mark and the schedule in one box, one of the two boxed blocks
+   of the product. In order: the sentence of the day, the marks (one column at every width, so each keeps the whole row), the
+   exit apart after a hairline, and the schedule. While a question is open (early exit, location notice) it takes the place of
+   the marks. */
+/* The margin keeps it off what comes above it when that has none of its own (the shift tiles, «Actualizar»). */
+.now { display: grid; gap: var(--space-3); min-width: 0; margin-top: var(--space-4); padding: var(--space-4) var(--space-3); border: var(--border-width-strong) solid var(--brand); border-radius: var(--radius-block); }
+.now-state { margin: 0; font-size: var(--font-size-display); font-weight: var(--font-weight-heavy); line-height: var(--line-height-tight); overflow-wrap: anywhere; }
+.now-actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+.now-apart { display: grid; padding-top: var(--space-3); border-top: var(--border-width) solid var(--rule); }
+.now-step { display: grid; gap: var(--space-3); }
+.now-step-text { margin: 0; font-size: var(--font-size-body-lg); line-height: var(--line-height-body); }
+/* The schedule: the clock, the blocks in 18 px bold, then the local and the tolerance in the muted colour. */
+.now-context { display: flex; align-items: flex-start; gap: var(--space-2); color: var(--text-muted); }
+.now-context > .icon { margin-top: .1875em; }
+.now-schedule { display: flex; flex-wrap: wrap; gap: 0 var(--space-2); margin: 0; color: var(--text); font-size: var(--font-size-body-lg); font-weight: var(--font-weight-heavy); line-height: var(--line-height-heading); }
+.now-schedule > strong { font-weight: var(--font-weight-strong); }
+.now-place { margin: var(--space-1) 0 0; font-size: var(--font-size-body); }
+/* The confirmation of a mark (design system 4.9): shown only once the server accepted the mark, with the time it returned. A
+   green box with a round check; the line of the location under the sentence. A location that did not arrive does not undo the
+   mark: the box stays green and only that line warns, after a hairline, with the amber triangle and the text colour. */
+.receipt { display: flex; align-items: flex-start; gap: var(--space-3); margin: var(--space-4) 0; padding: var(--space-4); border: var(--border-width-strong) solid var(--ok); border-radius: var(--radius-block); color: var(--text); background: var(--ok-surface); }
+.receipt-icon { flex-shrink: 0; display: grid; place-items: center; width: 2.25rem; height: 2.25rem; border-radius: 50%; color: var(--on-brand); background: var(--ok); }
+.receipt-body { display: grid; gap: var(--space-2); flex: 1 1 0; min-width: 0; }
+.receipt-title { margin: 0; font-size: var(--font-size-title); font-weight: var(--font-weight-heavy); line-height: var(--line-height-heading); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.receipt-location { display: flex; align-items: flex-start; gap: var(--space-2); margin: 0; }
+.receipt-location > .icon, .receipt-location > .spinner { margin-top: .125em; }
+.receipt-location-sent { color: var(--ok); font-weight: var(--font-weight-strong); }
+.receipt-location-missing { padding-top: var(--space-3); border-top: var(--border-width) solid var(--ok); color: var(--text); }
+.receipt-location-missing > .icon { color: var(--warn); }
 .mark-row-location { grid-column: 2 / -1; margin-top: -6px; color: var(--text-secondary); font-size: .8125rem; }
 .employee-motive-question { margin: 0; color: var(--text-primary); font-size: .95rem; line-height: 1.45; }
 .employee-today-button { margin-top: 12px; }
@@ -691,11 +695,8 @@ td .short-input { width: 74px; }
   .main-content { padding: 26px 16px calc(var(--alerts-bar-clearance) + env(safe-area-inset-bottom)); }
   /* The section bar is sticky at the top of the screen between 521 and 760 px (the top bar scrolls away). */
   html:has(.sidebar) { scroll-padding-top: calc(env(safe-area-inset-top) + 84px); }
-  .employee-main { width: min(100% - 28px, 920px); padding-top: 27px; }
   .page-title-row { align-items: flex-start; }
   .page-title-row .field { min-width: 130px; }
-  .mark-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .mark-action { min-height: 105px; padding: 12px; }
   .deviation-card { flex-wrap: wrap; }
   .deviation-actions { width: 100%; padding-left: 44px; }
 }
@@ -716,8 +717,6 @@ td .short-input { width: 74px; }
   .field-wide { grid-column: auto; }
   .employee-title { flex-direction: column; }
   .employee-title .field { width: 100%; }
-  .mark-actions { grid-template-columns: 1fr 1fr; gap: 8px; }
-  .mark-action { min-height: 111px; }
   .mark-row { grid-template-columns: 13px minmax(110px, 1fr); }
   .mark-row time { grid-column: 2; margin-top: -5px; }
   .push-control { right: max(9px, env(safe-area-inset-right)); bottom: calc(9px + env(safe-area-inset-bottom)); left: max(9px, env(safe-area-inset-left)); width: auto; gap: 8px; padding: 9px; }
@@ -742,8 +741,9 @@ td .short-input { width: 74px; }
   .spinner { border-color: CanvasText; border-top-color: Highlight; }
 }
 /* ===== Later additions: small modifiers of the regions above (folds, quick choices, work days, first steps) ===== */
-/* The result of a mark takes focus by script: no ring after a tap or a click, the global ring when the keyboard is in use. */
-.mark-feedback:focus:not(:focus-visible) { outline: none; }
+/* The result of a mark and the question before one take focus by script: no ring after a tap or a click, the global ring when
+   the keyboard is in use. */
+.mark-feedback:focus:not(:focus-visible), .now-step:focus:not(:focus-visible) { outline: none; }
 /* A new version (ServiceWorkerUpdate): an info message across the top of the page, above the top bar and in its flow, so it is
    first on screen and first for the keyboard. «Actualizar» goes under the words when they need the row. While it is empty the
    .message:empty rule leaves it no room. */

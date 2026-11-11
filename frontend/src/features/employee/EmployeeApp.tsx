@@ -12,7 +12,7 @@ import { loadFailureMessage, markFailureMessage, motiveFailureMessage } from './
 import { LOCATION_NOTICE, locationNoticeSeen, rememberLocationNotice, skipNoticeIfLocationGranted } from './locationNotice'
 import { noteMarkInterrupted } from '../auth/interruptedMark'
 import {
-  DayHeading, DayMarksPanel, DeviationsPanel, JourneyPicker, MarkFeedback, MarkPanel, MotivePanel, OtherDayPanel,
+  DayHeading, DayMarksPanel, DeviationsPanel, JourneyPicker, MarkFeedback, MotivePanel, NowBlock, OtherDayPanel,
   type MarkConfirmation, type MarkStep, type MotiveError, type MotiveValues
 } from './EmployeeViews'
 
@@ -276,15 +276,16 @@ export function EmployeeApp() {
       <CompanySwitcher memberships={session.memberships} activeCompanyId={active.companyId} onSelect={activateCompany} disabled={busy} />
     </AppHeader>
     <main className="employee-main">
-      <DayHeading name={name} sentence={sentence} />
+      <DayHeading name={name} />
       {!loading && !loadFailed && jornadas.length > 1 && <JourneyPicker jornadas={jornadas} sites={sites} selectedId={selectedId} disabled={busy}
         onSelect={(id) => { setSelectedId(id); setPendingAttempt(null); setConfirmation(null); setStep(null) }} />}
-      <MarkFeedback feedbackRef={feedbackRef} error={markError} showRefresh={markFailed && !loading} onRefresh={() => void refreshAfterUnknown()} confirmation={confirmation} timeZone={zone} />
+      <MarkFeedback feedbackRef={feedbackRef} sending={busy} error={markError} showRefresh={markFailed && !loading} onRefresh={() => void refreshAfterUnknown()} confirmation={confirmation} timeZone={zone} />
       {loading ? <Loading label="Cargando tu día…" />
         : loadFailed ? <Panel title="No pudimos cargar tu día"><PageMessage kind="error">{loadError}</PageMessage><button type="button" className="button button-primary" onClick={() => void load()}>Reintentar</button></Panel>
-        : selected && <>
-          {options && (options.primary || step) && <MarkPanel options={options} busy={busy} step={step} stepRef={stepRef} onMark={(action) => startMark(action)} onConfirmStep={confirmStep} onCancelStep={() => setStep(null)} />}
-          <DayMarksPanel title={date ? `Tus marcas del ${formatLocalDate(date)}` : 'Tus marcas de hoy'} jornada={selected} site={selectedSite} />
+        : <>
+          <NowBlock sentence={sentence} jornada={selected} site={selectedSite} options={options} busy={busy} step={step} stepRef={stepRef}
+            onMark={(action) => startMark(action)} onConfirmStep={confirmStep} onCancelStep={() => setStep(null)} />
+          {selected && <DayMarksPanel title={date ? `Tus marcas del ${formatLocalDate(date)}` : 'Tus marcas de hoy'} jornada={selected} site={selectedSite} />}
         </>}
       <MotivePanel loading={loading} loadFailed={loadFailed} pendingError={pendingError} retrying={pendingRetrying} truncated={pendingTruncated} limit={PENDING_MOTIVES_LIMIT}
         items={motiveForms} notice={motiveNotice} jornadas={jornadas} sites={sites} values={motiveValues} errors={motiveErrors} savingId={savingMotive} editingIds={editingMotives}

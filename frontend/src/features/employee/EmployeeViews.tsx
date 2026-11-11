@@ -1,4 +1,5 @@
 import { useId, type FormEvent, type RefObject } from 'react'
+import { Icon, type IconName } from '../../app/icons'
 import { Empty, FormField, Loading, PageMessage, Panel } from '../../app/ui'
 import type { Deviation, Jornada, MarkAction, Site } from '../../shared/api/types'
 import { formatBlock, formatDateTime, formatLocalDate, jornadaStateLabel } from '../../shared/format'
@@ -25,8 +26,14 @@ const CATEGORIES: { value: MotiveCategory; label: string; help: string }[] = [
 const categoryLabel = (category: MotiveCategory) => forEmployee.motiveCategory[category] ?? category
 const statusName = forEmployee.deviationStatus
 
-export function DayHeading({ name, sentence }: { name: string; sentence: string }) {
-  return <div className="employee-heading"><h1>Hola, {name}</h1>{sentence && <p className="employee-day-state">{sentence}</p>}</div>
+/** The icon that goes with each mark on its button: the pair of a break shares one. */
+const MARK_ICONS: Record<MarkAction, IconName> = {
+  INGRESO: 'enter', EGRESO: 'exit', SALIDA_DESAYUNO: 'coffee', VUELTA_DESAYUNO: 'coffee', SALIDA_ALMUERZO: 'lunch', VUELTA_ALMUERZO: 'lunch'
+}
+
+/** The greeting is the h1 of the page; the state of the day is said in the "now" block under it. */
+export function DayHeading({ name }: { name: string }) {
+  return <div className="employee-heading"><h1>Hola, {name}</h1></div>
 }
 
 export function JourneyPicker({ jornadas, sites, selectedId, disabled, onSelect }: {
@@ -39,47 +46,79 @@ export function JourneyPicker({ jornadas, sites, selectedId, disabled, onSelect 
     </button>)}</div></Panel>
 }
 
-export function MarkFeedback({ feedbackRef, error, showRefresh, onRefresh, confirmation, timeZone }: {
-  feedbackRef: RefObject<HTMLDivElement | null>; error: string; showRefresh: boolean; onRefresh: () => void
+/**
+ * The slot above the "now" block that takes focus after a mark (design system 4.9). Its three states never look alike: sending
+ * is an info message with a spinner and never says the mark was saved; not saved or unknown is an error; saved is the receipt,
+ * which exists only once the server accepted the mark and shows the time it returned.
+ */
+export function MarkFeedback({ feedbackRef, sending, error, showRefresh, onRefresh, confirmation, timeZone }: {
+  feedbackRef: RefObject<HTMLDivElement | null>; sending: boolean; error: string; showRefresh: boolean; onRefresh: () => void
   confirmation: MarkConfirmation | null; timeZone?: string
 }) {
   return <div className="mark-feedback" ref={feedbackRef} tabIndex={-1}>
+    {sending && <div className="message message-info" role="status" aria-live="polite" aria-atomic="true">
+      <span className="spinner" aria-hidden="true" /><div className="message-body">Enviando tu marca… esperá un momento.</div>
+    </div>}
     {error && <PageMessage kind="error">{error}</PageMessage>}
-    {showRefresh && <button type="button" className="button button-quiet button-small" onClick={onRefresh}>Actualizar</button>}
-    {confirmation && <PageMessage kind="success">
-      <span className="employee-confirmation">{confirmationText(confirmation.action, confirmation.acceptedAt, timeZone)}</span>
-      {confirmation.location && <span className="employee-location-note">{locationOutcomeText[confirmation.location]}{confirmation.location === 'SENT' && <span aria-hidden="true"> ✔</span>}</span>}
-    </PageMessage>}
+    {showRefresh && <button type="button" className="button button-secondary" onClick={onRefresh}>Actualizar</button>}
+    {confirmation && <MarkReceipt confirmation={confirmation} timeZone={timeZone} />}
   </div>
 }
 
-export function MarkPanel({ options, busy, step, stepRef, onMark, onConfirmStep, onCancelStep }: {
-  options: MarkOptions; busy: boolean; step: MarkStep | null; stepRef: RefObject<HTMLDivElement | null>
-  onMark: (action: MarkAction) => void; onConfirmStep: () => void; onCancelStep: () => void
+/** A saved mark. The location line is its own state: a missing location is a warning inside the receipt, never a success. */
+function MarkReceipt({ confirmation, timeZone }: { confirmation: MarkConfirmation; timeZone?: string }) {
+  const { location } = confirmation
+  return <div className="receipt" role="status" aria-atomic="true">
+    <span className="receipt-icon" aria-hidden="true"><Icon name="check" /></span>
+    <div className="receipt-body">
+      <p className="receipt-title">{confirmationText(confirmation.action, confirmation.acceptedAt, timeZone)}</p>
+      {location && <p className={`receipt-location receipt-location-${location.toLowerCase()}`}>
+        {location === 'PENDING' ? <span className="spinner" aria-hidden="true" /> : <Icon name={location === 'SENT' ? 'pin' : 'alert'} />}
+        <span>{locationOutcomeText[location]}{location === 'SENT' && <span aria-hidden="true"> ✔</span>}</span>
+      </p>}
+    </div>
+  </div>
+}
+
+/** The next mark is the one filled button, 80 px tall; every other mark is a secondary button of 56 px. All full width. */
+function MarkButton({ action, next = false, busy, onMark }: { action: MarkAction; next?: boolean; busy: boolean; onMark: (action: MarkAction) => void }) {
+  return <button type="button" className={next ? 'button button-primary button-block button-clock' : 'button button-secondary button-block button-large'}
+    disabled={busy} onClick={() => onMark(action)}><Icon name={MARK_ICONS[action]} />{actionLabel[action]}</button>
+}
+
+/**
+ * The "now" block (design system 4.13): the state of the day, the next mark and the schedule in one place. It is the section
+ * «Marcar» only while there is something to mark; a finished, cancelled or missing day keeps the sentence and the schedule.
+ */
+export function NowBlock({ sentence, jornada, site, options, busy, step, stepRef, onMark, onConfirmStep, onCancelStep }: {
+  sentence: string; jornada?: Jornada; site?: Site; options: MarkOptions | null; busy: boolean; step: MarkStep | null
+  stepRef: RefObject<HTMLDivElement | null>; onMark: (action: MarkAction) => void; onConfirmStep: () => void; onCancelStep: () => void
 }) {
-  return <Panel title="Marcar">
-    {step ? <div className="message message-info mark-feedback" ref={stepRef} tabIndex={-1}>
-      <p className="employee-step-text">{step.text}</p>
+  const headingId = useId()
+  const marking = Boolean(options && (options.primary || step))
+  return <section className="now" aria-labelledby={marking ? headingId : undefined} aria-busy={marking ? busy : undefined}>
+    {marking && <h2 id={headingId} className="visually-hidden">Marcar</h2>}
+    {sentence && <p className="now-state">{sentence}</p>}
+    {marking && options && (step ? <div className="now-step" ref={stepRef} tabIndex={-1}>
+      <p className="now-step-text">{step.text}</p>
       <div className="button-row">
-        <button type="button" className="button button-primary" onClick={onConfirmStep}>{step.kind === 'exit' ? 'Sí, marcar salida' : 'Continuar'}</button>
-        <button type="button" className="button button-quiet" onClick={onCancelStep}>{step.kind === 'exit' ? 'No, seguir trabajando' : 'Volver'}</button>
+        <button type="button" className="button button-primary button-large" onClick={onConfirmStep}>{step.kind === 'exit' ? 'Sí, marcar salida' : 'Continuar'}</button>
+        <button type="button" className="button button-link" onClick={onCancelStep}>{step.kind === 'exit' ? 'No, seguir trabajando' : 'Volver'}</button>
       </div>
-    </div> : <div aria-busy={busy}>
-      {options.primary && <button type="button" className="button button-primary button-wide employee-next-action" disabled={busy} onClick={() => onMark(options.primary!)}>{actionLabel[options.primary]}</button>}
-      {options.others.length > 0 && <div className="mark-actions employee-more-actions">{options.others.map((action) =>
-        <button key={action} type="button" className="mark-action" disabled={busy} onClick={() => onMark(action)}><span aria-hidden="true">◷</span><strong>{actionLabel[action]}</strong></button>)}
-      </div>}
-      {options.exit && <div className="employee-exit"><button type="button" className="button button-outline button-wide" disabled={busy} onClick={() => onMark(options.exit!)}>{actionLabel[options.exit]}</button></div>}
-      {busy && <p className="muted employee-sending" role="status" aria-live="polite" aria-atomic="true">Enviando tu marca… esperá un momento.</p>}
-    </div>}
-  </Panel>
+    </div> : <div className="now-actions">
+      {options.primary && <MarkButton action={options.primary} next busy={busy} onMark={onMark} />}
+      {options.others.map((action) => <MarkButton key={action} action={action} busy={busy} onMark={onMark} />)}
+      {options.exit && <div className="now-apart"><MarkButton action={options.exit} busy={busy} onMark={onMark} /></div>}
+    </div>)}
+    {jornada && <div className="now-context"><Icon name="clock" /><div>
+      <p className="now-schedule"><strong>Tu horario</strong>{' '}{jornada.scheduleSnapshot.blocks.map((block, index) => <span key={`${block.start}-${index}`}>{formatBlock(block)}</span>)}</p>
+      <p className="now-place">{site ? `${site.name} · ` : ''}Tenés {jornada.toleranceMinutes} minutos de tolerancia para entrar.</p>
+    </div></div>}
+  </section>
 }
 
 export function DayMarksPanel({ title, jornada, site }: { title: string; jornada: Jornada; site?: Site }) {
   return <Panel title={title} action={<span className={`status-chip status-${jornada.state.toLowerCase()}`}>{jornadaStateLabel(jornada.state)}</span>}>
-    <div className="schedule-summary"><div className="schedule-icon" aria-hidden="true">◷</div><div><strong>Tu horario</strong>
-      <p>{jornada.scheduleSnapshot.blocks.map((block, index) => <span className="schedule-block" key={`${block.start}-${index}`}>{formatBlock(block)}</span>)}</p>
-      <small>{site ? `${site.name} · ` : ''}Tenés {jornada.toleranceMinutes} minutos de tolerancia para entrar.</small></div></div>
     <div className="mark-timeline">{jornada.marks.length ? jornada.marks.map((mark) => {
       const location = mark.voided ? '' : markLocationLabel(mark.locationStatus)
       return <div className={`mark-row ${mark.voided ? 'mark-row-voided' : ''}`} key={mark.id}><span className="timeline-point" aria-hidden="true" />
