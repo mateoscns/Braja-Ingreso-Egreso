@@ -5,7 +5,8 @@ type MotiveCategory = NonNullable<Deviation['category']>
 /**
  * The visible name of every mark, case (deviation), state and category. Screens read them from here so a word changes in
  * one place. D-20261111-01 gives the ADMIN and the employee one set of words; the two vocabularies below keep the same
- * shape and share everything except the one name that still depends on who reads it.
+ * shape and share everything except the names that depend on who reads them: the ADMIN reads about another person, the
+ * employee about themselves (D-20261111-03).
  */
 export type Vocabulary = {
   mark: Record<MarkAction, string>
@@ -23,10 +24,8 @@ const mark: Record<MarkAction, string> = {
   INGRESO: 'Entrada', SALIDA_DESAYUNO: 'Salida a desayunar', VUELTA_DESAYUNO: 'Vuelta del desayuno',
   SALIDA_ALMUERZO: 'Salida a almorzar', VUELTA_ALMUERZO: 'Vuelta del almuerzo', EGRESO: 'Salida'
 }
-const deviation: Record<Deviation['type'], string> = {
-  SIN_INGRESO: 'No marcó la entrada', LLEGADA_TARDE: 'Llegada tarde', EGRESO_TEMPRANO: 'Salió antes', EGRESO_TARDIO: 'Salió después de hora',
-  MARCA_FALTANTE: 'No marcó la salida', EXCESO_DESAYUNO: 'Desayuno largo', EXCESO_ALMUERZO: 'Almuerzo largo', FUERA_DE_SEDE: 'Fuera del local'
-}
+// A case has the same name for both roles unless the name carries a verb: then each role reads it in its own person.
+const sharedCase = { LLEGADA_TARDE: 'Llegada tarde', EXCESO_DESAYUNO: 'Desayuno largo', EXCESO_ALMUERZO: 'Almuerzo largo', FUERA_DE_SEDE: 'Fuera del local' }
 const reviewedStatus: Record<Exclude<Deviation['status'], 'MOTIVO_PENDIENTE'>, string> = {
   PENDIENTE_REVISION: 'A revisar', JUSTIFICADO: 'Justificado', NO_JUSTIFICADO: 'No justificado'
 }
@@ -42,7 +41,7 @@ const motiveCategory: Record<MotiveCategory, string> = { SALUD: 'Salud', TRANSPO
 
 export const forAdmin: Vocabulary = {
   mark,
-  deviation,
+  deviation: { ...sharedCase, SIN_INGRESO: 'No marcó la entrada', EGRESO_TEMPRANO: 'Salió antes', EGRESO_TARDIO: 'Salió después de hora', MARCA_FALTANTE: 'No marcó la salida' },
   // The ADMIN reads about another person, so the tag says what that person has not done yet (the word of the decision).
   deviationStatus: { MOTIVO_PENDIENTE: 'Todavía no explicó', ...reviewedStatus },
   motiveCategory,
@@ -51,7 +50,9 @@ export const forAdmin: Vocabulary = {
 
 export const forEmployee: Vocabulary = {
   mark,
-  deviation,
+  // The title sits right above a sentence in the second person («No marcaste tu entrada. ¿Qué pasó?»): the same words, said
+  // to the person who reads them (D-20261111-03).
+  deviation: { ...sharedCase, SIN_INGRESO: 'No marcaste la entrada', EGRESO_TEMPRANO: 'Saliste antes', EGRESO_TARDIO: 'Saliste después de hora', MARCA_FALTANTE: 'No marcaste la salida' },
   // The employee reads about themselves: the same state, said as what is left for them to do. Kept as an assumption, since
   // the decision names only the ADMIN's word.
   deviationStatus: { MOTIVO_PENDIENTE: 'Falta explicar', ...reviewedStatus },

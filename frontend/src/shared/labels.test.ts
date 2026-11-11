@@ -21,12 +21,24 @@ const MARKS: [MarkAction, string][] = [
   ['VUELTA_ALMUERZO', 'Vuelta del almuerzo']
 ]
 
-const CASES: [DeviationType, string][] = [
+const CASES_OF_THE_ADMIN: [DeviationType, string][] = [
   ['SIN_INGRESO', 'No marcó la entrada'],
   ['LLEGADA_TARDE', 'Llegada tarde'],
   ['EGRESO_TEMPRANO', 'Salió antes'],
   ['EGRESO_TARDIO', 'Salió después de hora'],
   ['MARCA_FALTANTE', 'No marcó la salida'],
+  ['EXCESO_DESAYUNO', 'Desayuno largo'],
+  ['EXCESO_ALMUERZO', 'Almuerzo largo'],
+  ['FUERA_DE_SEDE', 'Fuera del local']
+]
+// D-20261111-03: the same words, said to the person who reads them. The employee's title sits right above a sentence in
+// the second person («No marcaste tu entrada. ¿Qué pasó?»), and a title about "someone" read as if it were about another.
+const CASES_OF_THE_EMPLOYEE: [DeviationType, string][] = [
+  ['SIN_INGRESO', 'No marcaste la entrada'],
+  ['LLEGADA_TARDE', 'Llegada tarde'],
+  ['EGRESO_TEMPRANO', 'Saliste antes'],
+  ['EGRESO_TARDIO', 'Saliste después de hora'],
+  ['MARCA_FALTANTE', 'No marcaste la salida'],
   ['EXCESO_DESAYUNO', 'Desayuno largo'],
   ['EXCESO_ALMUERZO', 'Almuerzo largo'],
   ['FUERA_DE_SEDE', 'Fuera del local']
@@ -69,7 +81,7 @@ describe('forAdmin', () => {
     expect(forAdmin.mark[action]).toBe(word)
   })
 
-  it.each(CASES)('names the case %s «%s»', (type, word) => {
+  it.each(CASES_OF_THE_ADMIN)('names the case %s «%s»', (type, word) => {
     expect(forAdmin.deviation[type]).toBe(word)
   })
 
@@ -87,7 +99,7 @@ describe('forAdmin', () => {
 
   it('names nothing else', () => {
     expect(Object.keys(forAdmin.mark).sort()).toEqual(codes(MARKS))
-    expect(Object.keys(forAdmin.deviation).sort()).toEqual(codes(CASES))
+    expect(Object.keys(forAdmin.deviation).sort()).toEqual(codes(CASES_OF_THE_ADMIN))
     expect(Object.keys(forAdmin.deviationStatus).sort()).toEqual(codes(CASE_STATES_OF_THE_ADMIN))
     expect(Object.keys(forAdmin.motiveCategory).sort()).toEqual(codes(MOTIVE_CATEGORIES))
     expect(Object.keys(forAdmin.jornadaState).sort()).toEqual(codes(JORNADA_STATES))
@@ -99,7 +111,7 @@ describe('forEmployee', () => {
     expect(forEmployee.mark[action]).toBe(word)
   })
 
-  it.each(CASES)('names the case %s «%s»', (type, word) => {
+  it.each(CASES_OF_THE_EMPLOYEE)('names the case %s «%s»', (type, word) => {
     expect(forEmployee.deviation[type]).toBe(word)
   })
 
@@ -117,7 +129,7 @@ describe('forEmployee', () => {
 
   it('names nothing else', () => {
     expect(Object.keys(forEmployee.mark).sort()).toEqual(codes(MARKS))
-    expect(Object.keys(forEmployee.deviation).sort()).toEqual(codes(CASES))
+    expect(Object.keys(forEmployee.deviation).sort()).toEqual(codes(CASES_OF_THE_EMPLOYEE))
     expect(Object.keys(forEmployee.deviationStatus).sort()).toEqual(codes(CASE_STATES_OF_THE_EMPLOYEE))
     expect(Object.keys(forEmployee.motiveCategory).sort()).toEqual(codes(MOTIVE_CATEGORIES))
     expect(Object.keys(forEmployee.jornadaState).sort()).toEqual(codes(JORNADA_STATES))
@@ -160,7 +172,7 @@ describe('jornadaStateLabel', () => {
 describe('the lookups of the ADMIN screens', () => {
   it('read the ADMIN words', () => {
     for (const [action, word] of MARKS) expect(adminMarkName(action)).toBe(word)
-    for (const [type, word] of CASES) expect(adminDeviationName(type)).toBe(word)
+    for (const [type, word] of CASES_OF_THE_ADMIN) expect(adminDeviationName(type)).toBe(word)
     for (const [status, word] of CASE_STATES_OF_THE_ADMIN) expect(adminDeviationStatusName(status)).toBe(word)
     for (const [category, word] of MOTIVE_CATEGORIES) expect(adminCategoryName(category)).toBe(word)
   })
