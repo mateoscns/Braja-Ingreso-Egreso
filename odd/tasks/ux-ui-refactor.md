@@ -36,10 +36,10 @@ Assumption A1: changing the words the user sees for "jornada" and "desvío" was 
 
 | ID | Task | Specs | Route | Status | Evidence |
 |---|---|---|---|---|---|
-| T1 | UX research with verifiable sources | S5 | delegated (read-only, parallel wave 1) | in progress | |
-| T2 | Screen inventory, per-screen diagnosis and information architecture | S4, S6 | delegated (read-only, parallel wave 1) | in progress | |
+| T1 | UX research with verifiable sources | S5 | delegated (read-only, parallel wave 1) | done | 105 sources opened, 17 listed but not used as evidence; 15 principles classed STANDARD / EVIDENCE / PREFERENCE; report in scratchpad `ux/research/research.md`. Quotes came through a fetch tool: spot-check before copying into the guidelines |
+| T2 | Screen inventory, per-screen diagnosis and information architecture | S4, S6 | delegated (read-only, parallel wave 1) | done (from code; rendering claims to confirm on T3 shots) | 4 entry screens, 1 employee screen with 8 sections, 7 ADMIN sections with 32 panels; no router; 12 items need an owner decision (O-1 to O-12); report in scratchpad `ux/audit/audit.md` |
 | T3 | Baseline screenshots of every screen at 320, 390, 768 and 1366 px on a disposable local stack | S4, S11 | delegated (scratch only, parallel wave 1) | in progress | |
-| T4 | Accessibility and cognitive baseline of the current frontend | S9, S11 | delegated (read-only, parallel wave 1) | in progress | |
+| T4 | Accessibility and cognitive baseline of the current frontend | S9, S11 | delegated (read-only, parallel wave 1) | done (static reading only, no rendered check) | 39 findings: 0 critical, 7 high, 16 medium, 16 low; 9 of 106 contrast pairs fail, all state indicators or default placeholders; report in scratchpad `ux/a11y/baseline.md` |
 | T5 | Three visual directions as static prototypes, compared | S7 | delegated (scratch only, parallel wave 1) | in progress | |
 | T6 | Non-technical advocate walks the baseline screenshots through concrete tasks | S11 | delegated (read-only, after T3) | pending | |
 | T7 | Synthesis: target information architecture, chosen direction, vocabulary proposal (A1), slice plan and chain strategy | S6, S7, S10 | inline + Mateo | pending | |
