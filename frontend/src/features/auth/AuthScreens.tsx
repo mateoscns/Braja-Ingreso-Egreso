@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { PageMessage, FormField } from '../../app/ui'
+import { Brand, PageMessage, FormField } from '../../app/ui'
 import type { Session } from '../../shared/api/types'
 import {
   OWN_PASSWORD_RULE, OWN_PASSWORD_TOO_LONG_MESSAGE, OWN_PASSWORD_TOO_SHORT_MESSAGE, PASSWORD_MAX_CHARACTERS, PASSWORD_MIN_CHARACTERS, passwordTooLong
@@ -25,7 +25,7 @@ export function LoginScreen({ onSignIn, error }: { onSignIn: (dni: string, passw
     finally { setBusy(false) }
   }
   const shownError = formError || (markInterrupted ? INTERRUPTED_MARK_MESSAGE : error)
-  return <main className="auth-page"><div className="auth-brand"><span className="brand-mark">B</span><span>Fichaje<span className="brand-light">Braja</span></span></div>
+  return <main className="auth-page"><div className="auth-brand"><Brand /></div>
     <section className="auth-card"><p className="eyebrow">INGRESO AL SISTEMA</p><h1>Bienvenido</h1><p className="muted">Ingresá con tu DNI y contraseña.</p>
       {shownError && <PageMessage kind="error">{shownError}</PageMessage>}
       {busy && <p role="status" aria-live="polite" aria-atomic="true">Entrando, esperá un momento…</p>}
@@ -47,7 +47,7 @@ export function CompanyScreen({ session, onSelect, onSignOut }: { session: Sessi
     try { await onSelect(id) } catch (reason) { setError(reason instanceof Error ? reason.message : 'No se pudo seleccionar la empresa.') }
     finally { setBusyId('') }
   }
-  return <main className="auth-page"><div className="auth-brand"><span className="brand-mark">B</span><span>Fichaje<span className="brand-light">Braja</span></span></div>
+  return <main className="auth-page"><div className="auth-brand"><Brand /></div>
     <section className="auth-card"><p className="eyebrow">CUENTA COMPARTIDA</p><h1>Elegí una empresa</h1><p className="muted">Solo aparecen las empresas donde tenés acceso.</p>
       {error && <PageMessage kind="error">{error}</PageMessage>}
       {busyId && <p role="status" aria-live="polite" aria-atomic="true">Esperando la activación de {session.memberships.find((membership) => membership.companyId === busyId)?.companyName ?? 'la empresa'}…</p>}
@@ -81,7 +81,7 @@ export function PasswordChangeScreen({ onChange, onSignOut }: { onChange: (curre
     finally { setBusy(false) }
   }
   const type = shown ? 'text' : 'password'
-  return <main className="auth-page"><div className="auth-brand"><span className="brand-mark">B</span><span>Fichaje<span className="brand-light">Braja</span></span></div>
+  return <main className="auth-page"><div className="auth-brand"><Brand /></div>
     <section className="auth-card"><p className="eyebrow">PRIMER INGRESO</p><h1>Cambiá tu contraseña</h1><p className="muted">Cambiá la contraseña que te dieron por una tuya. <strong>{OWN_PASSWORD_RULE}</strong></p>
       {error && <PageMessage kind="error">{error}</PageMessage>}
       {busy && <p role="status" aria-live="polite" aria-atomic="true">Guardando tu contraseña…</p>}

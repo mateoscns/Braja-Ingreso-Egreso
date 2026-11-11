@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Icon, type IconName } from './icons'
-import { AppHeader, CompanySwitcher, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel, StatusTag } from './ui'
+import { AppHeader, Brand, CompanySwitcher, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel, StatusTag } from './ui'
 
 afterEach(cleanup)
 
@@ -29,6 +29,49 @@ describe('componentes compartidos de interfaz', () => {
 
     expect(onSignOut).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('button', { name: 'Salir' })).not.toBeInTheDocument()
+  })
+
+  // Finding F-28: the brand was a link to '#inicio', which led nowhere, and «FichajeBraja» was read as one word.
+  it('la marca dice "Fichaje Braja" con un espacio y es un enlace solo donde lleva a algún lado (el ADMIN)', () => {
+    const { rerender } = render(<AppHeader companyName="Braja" name="Lucía" onSignOut={vi.fn()} />)
+    const banner = screen.getByRole('banner')
+
+    expect(banner.querySelector('.brand')?.textContent).toBe('Fichaje Braja')
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+
+    rerender(<AppHeader companyName="Braja" name="Lucía" home="#/para-revisar" onSignOut={vi.fn()} />)
+    const link = screen.getByRole('link', { name: 'Fichaje Braja, inicio' })
+    expect(link).toHaveAttribute('href', '#/para-revisar')
+    expect(link.textContent).toBe('Fichaje Braja')
+  })
+
+  it('la marca sola, como en las pantallas de ingreso, es texto con el mismo espacio entre las palabras', () => {
+    const { container } = render(<Brand />)
+
+    expect(container.textContent).toBe('Fichaje Braja')
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    expect(container.querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
+  })
+
+  it('el encabezado muestra la empresa y la persona, y los avisos de sus controles van debajo de la barra, no adentro', async () => {
+    const request = deferred<void>()
+    const { rerender } = render(<AppHeader companyName="Panadería Los Hermanos" name="Lucía Pérez" onSignOut={vi.fn()} />)
+    const banner = screen.getByRole('banner')
+
+    expect(banner).toHaveTextContent('Panadería Los Hermanos · Lucía Pérez')
+    rerender(<AppHeader companyName="Braja" name="Lucía Pérez" onSignOut={vi.fn()}>
+      <CompanySwitcher memberships={memberships} activeCompanyId="company-1" onSelect={() => request.promise} />
+    </AppHeader>)
+    // The select keeps its name and now shows it as a visible label.
+    expect(screen.getByText('Empresa activa').tagName).toBe('LABEL')
+    fireEvent.change(screen.getByRole('combobox', { name: 'Empresa activa' }), { target: { value: 'company-2' } })
+
+    const status = await screen.findByRole('status')
+    expect(status).toHaveTextContent('Esperando la activación de Otra empresa')
+    expect(banner).not.toContainElement(status)
+    expect(banner.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    request.resolve()
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Empresa activa' })).toBeEnabled())
   })
 
   it('asocia la ayuda de un campo con su control', () => {

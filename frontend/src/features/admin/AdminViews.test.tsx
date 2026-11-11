@@ -1412,6 +1412,11 @@ describe('dirección de cada sección del ADMIN', () => {
     expect(window.location.hash).toBe('#/historial')
   })
 
+  it('la marca de la barra lleva a «Para revisar»', async () => {
+    render(<AdminApp />)
+    await startsOnFirstSteps()
+    expect(screen.getByRole('link', { name: 'Fichaje Braja, inicio' })).toHaveAttribute('href', '#/para-revisar')
+  })
 
   it('volver atrás muestra la sección anterior', async () => {
     render(<AdminApp />)

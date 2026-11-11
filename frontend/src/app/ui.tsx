@@ -1,6 +1,7 @@
-import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { cloneElement, createContext, isValidElement, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import type { Membership } from '../shared/api/types'
-import { Icon, type IconName } from './icons'
+import { BrandMark, Icon, type IconName } from './icons'
 
 export type MessageKind = 'info' | 'success' | 'warning' | 'error'
 
@@ -55,14 +56,48 @@ export function Empty({ children }: { children: ReactNode }) {
   return <div className="empty-state">{children}</div>
 }
 
-export function AppHeader({ companyName, name, onSignOut, children }: {
-  companyName: string; name: string; onSignOut: () => void; children?: ReactNode
+/**
+ * The name of the product with its mark: the one lockup of the app (top bar and sign-in screens). A real space between the two
+ * words, so they are read as two. It is a link only where it leads somewhere (`home`: the ADMIN's «Para revisar»); the employee
+ * has one screen, so there it is text.
+ */
+export function Brand({ home }: { home?: string }) {
+  const lockup = <><BrandMark /><span>{'Fichaje '}<span className="brand-light">Braja</span></span></>
+  return home ? <a className="brand" href={home} aria-label="Fichaje Braja, inicio">{lockup}</a> : <span className="brand">{lockup}</span>
+}
+
+/** The area under the top bar where its controls put their messages; null outside a top bar. */
+const TopbarNotices = createContext<HTMLElement | null>(null)
+
+/**
+ * A message of a top bar control (the install help, the company switch): it opens under the bar, in the flow of the page and at
+ * its full width, never floating over it (design system 4.17, 4.18). Outside a top bar it stays where it is.
+ */
+export function TopbarNotice({ children }: { children: ReactNode }) {
+  const area = useContext(TopbarNotices)
+  return area ? createPortal(children, area) : <>{children}</>
+}
+
+/**
+ * The top bar: the brand and «Cerrar sesión» on the dark row; the company, the person and this device's controls (`children`:
+ * the install help, the company switch) in the context area, a strip under the row on phones. It is not sticky and has no fixed
+ * height. `home` is where the brand leads; without it the brand is text.
+ */
+export function AppHeader({ companyName, name, onSignOut, home, children }: {
+  companyName: string; name: string; onSignOut: () => void; home?: string; children?: ReactNode
 }) {
-  return <header className="topbar">
-    <a className="brand" href="#inicio" aria-label="Fichaje Braja, inicio"><span className="brand-mark">B</span><span>Fichaje<span className="brand-light">Braja</span></span></a>
-    <div className="topbar-actions">{children}<span className="company-pill">{companyName}</span><span className="user-label">{name}</span>
-      <button className="button button-quiet button-small" onClick={onSignOut}>Cerrar sesión</button></div>
-  </header>
+  const [notices, setNotices] = useState<HTMLDivElement | null>(null)
+  return <>
+    <header className="topbar">
+      <Brand home={home} />
+      <div className="topbar-context">
+        <p className="topbar-who"><span className="topbar-company">{companyName}<span aria-hidden="true"> · </span></span><span>{name}</span></p>
+        <TopbarNotices.Provider value={notices}>{children}</TopbarNotices.Provider>
+      </div>
+      <button type="button" className="button button-link topbar-out" onClick={onSignOut}>Cerrar sesión</button>
+    </header>
+    <div className="topbar-notices" ref={setNotices} />
+  </>
 }
 
 export function CompanySwitcher({ memberships, activeCompanyId, onSelect, disabled = false }: {
@@ -72,6 +107,7 @@ export function CompanySwitcher({ memberships, activeCompanyId, onSelect, disabl
   const [busy, setBusy] = useState(false)
   const [pendingCompanyId, setPendingCompanyId] = useState('')
   const requestPending = useRef(false)
+  const selectId = useId()
   if (memberships.length < 2) return null
   async function change(companyId: string) {
     if (disabled || requestPending.current || companyId === activeCompanyId) return
@@ -88,13 +124,17 @@ export function CompanySwitcher({ memberships, activeCompanyId, onSelect, disabl
     }
   }
   const pendingCompanyName = memberships.find((membership) => membership.companyId === pendingCompanyId)?.companyName ?? 'la empresa'
-  return <div className="company-switch-wrap">
-    <select className="company-switch" aria-label="Empresa activa" aria-busy={busy} disabled={busy || disabled} value={activeCompanyId} onChange={(event) => void change(event.target.value)}>
-      {memberships.map((membership) => <option key={membership.companyId} value={membership.companyId}>{membership.companyName}</option>)}
-    </select>
-    {busy && <span className="company-switch-status" role="status" aria-atomic="true">Esperando la activación de {pendingCompanyName}…</span>}
-    {error && <span className="company-switch-error" role="alert">{error}</span>}
-  </div>
+  // The label that was only read by screen readers is now visible; the wait and the error are ordinary messages under the bar.
+  return <>
+    <div className="company-switch-wrap">
+      <label className="company-switch-label" htmlFor={selectId}>Empresa activa</label>
+      <select id={selectId} className="company-switch" aria-busy={busy} disabled={busy || disabled} value={activeCompanyId} onChange={(event) => void change(event.target.value)}>
+        {memberships.map((membership) => <option key={membership.companyId} value={membership.companyId}>{membership.companyName}</option>)}
+      </select>
+    </div>
+    {busy && <TopbarNotice><PageMessage>Esperando la activación de {pendingCompanyName}…</PageMessage></TopbarNotice>}
+    {error && <TopbarNotice><PageMessage kind="error">{error}</PageMessage></TopbarNotice>}
+  </>
 }
 
 /**

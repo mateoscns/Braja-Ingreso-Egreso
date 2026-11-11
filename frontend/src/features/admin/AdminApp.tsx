@@ -6,7 +6,7 @@ import type { Deviation } from '../../shared/api/types'
 import { AdminHistory, AdminInbox, EmployeesView, JourneysView, SitesView, TemplatesView, type OpenJornadaRequest } from './AdminViews'
 import { CoverageNoticeRender, FirstStepsRender } from './FirstSteps'
 import { coverageNotice, loadSetupData, readyTomorrow, setupComplete, setupSteps, type AdminSection, type SetupData } from './setupStatus'
-import { useAdminSection } from './useAdminSection'
+import { SECTION_ADDRESSES, useAdminSection } from './useAdminSection'
 import { AdminPushControl } from '../../device/push/AdminPushControl'
 import { InstallControl } from '../../device/pwa/InstallControl'
 
@@ -97,7 +97,7 @@ export function AdminApp() {
     </button>
   }
   return <div className="app-frame">
-    <AppHeader companyName={active.companyName} name={session.displayName?.trim() || (session.dni ? `DNI ${session.dni}` : 'Administración')} onSignOut={() => void signOut()}>
+    <AppHeader home={SECTION_ADDRESSES.inbox} companyName={active.companyName} name={session.displayName?.trim() || (session.dni ? `DNI ${session.dni}` : 'Administración')} onSignOut={() => void signOut()}>
       <InstallControl />
       <CompanySwitcher memberships={session.memberships} activeCompanyId={active.companyId} onSelect={activateCompany} />
     </AppHeader>
