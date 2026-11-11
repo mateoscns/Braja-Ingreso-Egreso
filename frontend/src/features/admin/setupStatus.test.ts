@@ -26,6 +26,10 @@ describe('primeros pasos', () => {
     expect(readyTomorrow(data())).toBe(2)
   })
 
+  it('el paso de los días cargados lleva a «Días de trabajo», donde se cargan (D-20261111-02)', () => {
+    expect(setupSteps(data())[4]).toMatchObject({ section: 'workdays', sectionLabel: 'Días de trabajo' })
+  })
+
   it('sin nada cargado, todos los pasos están pendientes', () => {
     const empty = data({ sites: [], templates: [], employees: [], assignments: new Map(), tomorrow: new Map(), jornadas: new Map() })
     expect(setupSteps(empty).map((step) => step.done)).toEqual([false, false, false, false, false])

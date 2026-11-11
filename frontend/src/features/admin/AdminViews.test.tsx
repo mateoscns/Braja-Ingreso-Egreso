@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AdminApp } from './AdminApp'
-import { AdminInbox, EmployeesView, JourneysView, SitesView, TemplatesView } from './AdminViews'
+import { AdminInbox, EmployeesView, JourneysView, SitesView, TemplatesView, WorkDaysView } from './AdminViews'
 import { formatDateTime, formatLocalDate, jornadaStateLabel as formatJornadaState } from '../../shared/format'
 
 const apiMocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn() }))
@@ -206,7 +206,7 @@ describe('administración de desvíos y marcas', () => {
     expect(await screen.findByRole('row', { name: /Lucía Pérez/ })).toBeInTheDocument()
   })
 
-  it('reintenta empleados, sedes, plantillas y jornadas después de un fallo inicial', async () => {
+  it('reintenta empleados, sedes y jornadas después de un fallo inicial', async () => {
     const previousGet = apiMocks.get.getMockImplementation()!
     let failFirstEmployeeRequest = true
     apiMocks.get.mockImplementation((path: string) => {
@@ -224,10 +224,35 @@ describe('administración de desvíos y marcas', () => {
     fireEvent.click(retry)
 
     expect(await screen.findByRole('row', { name: /Lucía Pérez/ })).toBeInTheDocument()
-    for (const path of ['/employees', '/sites', '/templates']) {
+    for (const path of ['/employees', '/sites']) {
       expect(apiMocks.get.mock.calls.filter(([requestedPath]) => requestedPath === path)).toHaveLength(2)
     }
     expect(apiMocks.get.mock.calls.filter(([path]) => String(path).startsWith('/jornadas?'))).toHaveLength(2)
+  })
+
+  it('la carga de días reintenta empleados, sedes y plantillas después de un fallo inicial', async () => {
+    const previousGet = apiMocks.get.getMockImplementation()!
+    let failFirstEmployeeRequest = true
+    apiMocks.get.mockImplementation((path: string) => {
+      if (path === '/employees' && failFirstEmployeeRequest) {
+        failFirstEmployeeRequest = false
+        return Promise.reject(new Error('Falló la carga inicial de empleados.'))
+      }
+      return previousGet(path)
+    })
+    render(<WorkDaysView />)
+
+    expect(await screen.findByText('Falló la carga inicial de empleados.')).toBeInTheDocument()
+    const retry = await screen.findByRole('button', { name: 'Reintentar datos del día' })
+    await waitFor(() => expect(retry).toBeEnabled())
+    fireEvent.click(retry)
+
+    expect(await screen.findByRole('checkbox', { name: 'Lucía Pérez' })).toBeInTheDocument()
+    expect(screen.queryByText('Falló la carga inicial de empleados.')).not.toBeInTheDocument()
+    for (const path of ['/employees', '/sites', '/templates']) {
+      expect(apiMocks.get.mock.calls.filter(([requestedPath]) => requestedPath === path)).toHaveLength(2)
+    }
+    expect(apiMocks.get.mock.calls.filter(([path]) => String(path).startsWith('/jornadas'))).toHaveLength(0)
   })
 
   it('muestra el estado vacío de jornadas solo cuando la consulta termina correctamente sin filas', async () => {
@@ -238,7 +263,7 @@ describe('administración de desvíos y marcas', () => {
   })
 
   it('asocia la etiqueta Empleado con el selector de la jornada', async () => {
-    render(<JourneysView />)
+    render(<WorkDaysView />)
     expect(await screen.findByLabelText('Empleado')).toHaveRole('combobox')
   })
 
@@ -248,7 +273,8 @@ describe('administración de desvíos y marcas', () => {
 
     fireEvent.change(screen.getByLabelText('Fecha'), { target: { value: '' } })
 
-    expect(screen.getAllByRole('heading', { name: 'Días de trabajo' })).toHaveLength(2)
+    expect(screen.getByRole('heading', { name: 'Hoy', level: 1 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Días de trabajo', level: 2 })).toBeInTheDocument()
   })
 
   it('muestra el estado vacío de la bandeja solo cuando la consulta termina correctamente sin filas', async () => {
@@ -981,11 +1007,12 @@ describe('administración de desvíos y marcas', () => {
       apiMocks.get.mockImplementation((path: string) => path === '/jornadas/j-1' ? Promise.resolve({ ...jornada, ...detail }) : previousGet(path))
     }
 
-    it('la lista del día va antes que la carga de días', async () => {
+    // N3a: the load left this screen for «Días de trabajo», so the list of the day is all there is.
+    it('la lista del día está en «Hoy» y la carga de días no', async () => {
       render(<JourneysView />)
-      const list = await screen.findByRole('region', { name: /^Días de trabajo del/ })
-      expect(list.compareDocumentPosition(screen.getByRole('region', { name: 'Cargar días de trabajo' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-      expect(list.compareDocumentPosition(screen.getByRole('region', { name: 'Cargar o cambiar un solo día' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(await screen.findByRole('region', { name: /^Días de trabajo del/ })).toBeInTheDocument()
+      expect(screen.queryByRole('region', { name: 'Cargar días de trabajo' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('region', { name: 'Cargar o cambiar un solo día' })).not.toBeInTheDocument()
     })
 
     it('«Ver marcas» abre el día en la fila de abajo de la suya y lleva el foco a su título', async () => {
@@ -1183,8 +1210,8 @@ describe('administración de desvíos y marcas', () => {
       [422, 'TEMPLATE_INVALID', 'El horario elegido, o el que la persona tiene asignado, está desactivado. Elegí otro horario.']
     ])('a single day answered %i %s shows its specific message next to its form', async (status, code, message) => {
       apiMocks.post.mockRejectedValueOnce(rejection(status, code))
-      render(<JourneysView />)
-      await screen.findByRole('row', { name: /Lucía Pérez/ })
+      render(<WorkDaysView />)
+      await screen.findByRole('option', { name: 'Lucía Pérez' })
       const single = within(screen.getByRole('region', { name: 'Cargar o cambiar un solo día' }))
       fireEvent.click(single.getByRole('button', { name: 'Cargar este día' }))
       expect(await single.findByText(message)).toBeInTheDocument()
@@ -1195,7 +1222,7 @@ describe('administración de desvíos y marcas', () => {
       [422, 'TEMPLATE_INVALID', 'No se cargó ningún día: el horario elegido está desactivado. Elegí otro o usá el que tiene asignado cada persona.']
     ])('loading days answered %i %s says no day was loaded', async (status, code, message) => {
       apiMocks.post.mockRejectedValueOnce(rejection(status, code))
-      render(<JourneysView />)
+      render(<WorkDaysView />)
       const panel = await workDays()
       await panel.findByRole('checkbox', { name: 'Lucía Pérez' })
       fireEvent.click(panel.getByRole('button', { name: 'Cargar días' }))
@@ -1204,7 +1231,7 @@ describe('administración de desvíos y marcas', () => {
 
     it('loading days failing with another error keeps the client message', async () => {
       apiMocks.post.mockRejectedValueOnce(rejection(409, 'RETRYABLE_TRANSACTION_CONFLICT'))
-      render(<JourneysView />)
+      render(<WorkDaysView />)
       const panel = await workDays()
       await panel.findByRole('checkbox', { name: 'Lucía Pérez' })
       fireEvent.click(panel.getByRole('button', { name: 'Cargar días' }))
@@ -1220,8 +1247,8 @@ describe('administración de desvíos y marcas', () => {
 
     it('un solo día usa por defecto el horario asignado y envía otro solo si se elige', async () => {
       apiMocks.post.mockResolvedValue(jornada)
-      render(<JourneysView />)
-      await screen.findByRole('row', { name: /Lucía Pérez/ })
+      render(<WorkDaysView />)
+      await screen.findByRole('option', { name: 'Lucía Pérez' })
       const single = within(screen.getByRole('region', { name: 'Cargar o cambiar un solo día' }))
       const fields = single.getAllByRole('combobox').map((field) => field.getAttribute('id'))
       expect(fields.indexOf(single.getByLabelText('Local').id)).toBeLessThan(fields.indexOf(single.getByLabelText('Empleado').id))
@@ -1241,7 +1268,7 @@ describe('administración de desvíos y marcas', () => {
 
     it('por defecto carga de lunes a sábado lo que queda del mes para todas las personas, con vista previa', async () => {
       apiMocks.post.mockResolvedValueOnce({ created: [], skipped: [] })
-      render(<JourneysView />)
+      render(<WorkDaysView />)
       const panel = await workDays()
       expect(await panel.findByRole('checkbox', { name: 'Lucía Pérez' })).toBeChecked()
       expect(panel.getByRole('button', { name: 'Lunes a sábado' })).toHaveAttribute('aria-pressed', 'true')
@@ -1256,7 +1283,7 @@ describe('administración de desvíos y marcas', () => {
 
     it('los botones rápidos cambian los días y el período, y "Elegir fechas" muestra el primer y el último día', async () => {
       apiMocks.post.mockResolvedValueOnce({ created: [], skipped: [] })
-      render(<JourneysView />)
+      render(<WorkDaysView />)
       const panel = await workDays()
       await panel.findByRole('checkbox', { name: 'Lucía Pérez' })
       fireEvent.click(panel.getByRole('button', { name: 'Lunes a viernes' }))
@@ -1277,7 +1304,7 @@ describe('administración de desvíos y marcas', () => {
     })
 
     it('valida antes de enviar, con mensajes simples', async () => {
-      render(<JourneysView />)
+      render(<WorkDaysView />)
       const panel = await workDays()
       fireEvent.click(await panel.findByRole('checkbox', { name: 'Seleccionar todos' }))
       expect(panel.getByRole('checkbox', { name: 'Lucía Pérez' })).not.toBeChecked()
@@ -1308,7 +1335,7 @@ describe('administración de desvíos y marcas', () => {
           { employeeId: 'e-1', localDate: '2026-11-13', reason: 'TEMPLATE_REQUIRED' }
         ]
       })
-      render(<JourneysView onNavigate={onNavigate} />)
+      render(<WorkDaysView onNavigate={onNavigate} />)
       const panel = await workDays()
       await panel.findByRole('checkbox', { name: 'Lucía Pérez' })
       fireEvent.click(panel.getByRole('button', { name: 'Cargar días' }))
@@ -1326,7 +1353,7 @@ describe('administración de desvíos y marcas', () => {
 
     it('envía otro horario para todos solo cuando se elige', async () => {
       apiMocks.post.mockResolvedValueOnce({ created: [], skipped: [] })
-      render(<JourneysView />)
+      render(<WorkDaysView />)
       const panel = await workDays()
       await panel.findByRole('checkbox', { name: 'Lucía Pérez' })
       fireEvent.change(panel.getByLabelText('Horario para todos'), { target: { value: 't-1' } })
@@ -1370,7 +1397,8 @@ describe('dirección de cada sección del ADMIN', () => {
 
   it.each([
     ['#/para-revisar', 'Para revisar', 'Para revisar'],
-    ['#/hoy', 'Días de trabajo', 'Días de trabajo'],
+    ['#/hoy', 'Hoy', 'Hoy'],
+    ['#/dias-de-trabajo', 'Días de trabajo', 'Días de trabajo'],
     ['#/historial', 'Historial', 'Historial'],
     ['#/configuracion/locales', 'Locales', 'Locales'],
     ['#/configuracion/horarios', 'Horarios', 'Horarios'],
@@ -1442,6 +1470,79 @@ describe('dirección de cada sección del ADMIN', () => {
     await hashSettles()
     expect(await screen.findByRole('heading', { name: 'Horarios', level: 1 })).toBeInTheDocument()
     expect(menuButton('Horarios')).toHaveAttribute('aria-current', 'page')
+  })
+
+  // D-20261111-02, step 2: the daily work and the monthly load are two places.
+  describe('«Hoy» y «Días de trabajo» son dos secciones', () => {
+    const dayList = () => screen.queryByRole('region', { name: /^Días de trabajo del/ })
+    const monthlyLoad = () => screen.queryByRole('region', { name: 'Cargar días de trabajo' })
+    const singleDay = () => screen.queryByRole('region', { name: 'Cargar o cambiar un solo día' })
+
+    it('cada dirección muestra su parte: «Hoy» la lista del día y «Días de trabajo» la carga', async () => {
+      openAt('#/hoy')
+      render(<AdminApp />)
+      expect(await screen.findByRole('row', { name: /Lucía Pérez/ })).toBeInTheDocument()
+      expect(dayList()).toBeInTheDocument()
+      expect(monthlyLoad()).not.toBeInTheDocument()
+      expect(singleDay()).not.toBeInTheDocument()
+
+      fireEvent.click(menuButton('Días de trabajo'))
+      expect(window.location.hash).toBe('#/dias-de-trabajo')
+      expect(await screen.findByRole('heading', { name: 'Días de trabajo', level: 1 })).toBeInTheDocument()
+      expect(menuButton('Días de trabajo')).toHaveAttribute('aria-current', 'page')
+      expect(monthlyLoad()).toBeInTheDocument()
+      expect(singleDay()).toBeInTheDocument()
+      expect(dayList()).not.toBeInTheDocument()
+      // The single day no longer has the list on its screen: its hint says where the list is.
+      expect(within(singleDay()!).getByText(/abrilo en «Hoy»/)).toBeInTheDocument()
+    })
+
+    it('«Cargar días» del aviso lleva a «Días de trabajo», con el aviso arriba de la carga', async () => {
+      openAt('#/para-revisar')
+      render(<AdminApp />)
+      // The default world has nobody loaded tomorrow.
+      const notice = await screen.findByText('Mañana nadie tiene día cargado en Local Centro: cargalos para que puedan marcar.')
+      fireEvent.click(within(notice.closest('.message') as HTMLElement).getByRole('button', { name: 'Cargar días' }))
+      expect(window.location.hash).toBe('#/dias-de-trabajo')
+      expect(await screen.findByRole('heading', { name: 'Días de trabajo', level: 1 })).toBeInTheDocument()
+      const again = await screen.findByText('Mañana nadie tiene día cargado en Local Centro: cargalos para que puedan marcar.')
+      expect(again.compareDocumentPosition(monthlyLoad()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+
+    it('el paso de los días en «Primeros pasos» lleva a «Días de trabajo»', async () => {
+      render(<AdminApp />)
+      await startsOnFirstSteps()
+      fireEvent.click(screen.getByRole('button', { name: 'Ir a Días de trabajo: Días de trabajo cargados' }))
+      expect(window.location.hash).toBe('#/dias-de-trabajo')
+      expect(await screen.findByRole('region', { name: 'Cargar días de trabajo' })).toBeInTheDocument()
+    })
+
+    it('un resultado de la carga sigue ofreciendo «Asignar horario» y «Revisar horarios», y llevan a su sección', async () => {
+      // The default period starts today: a fixed Monday keeps the days of the range known.
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-09T15:00:00Z') })
+      try {
+        apiMocks.post.mockResolvedValue({
+          created: [],
+          skipped: [{ employeeId: 'e-1', localDate: '2026-11-10', reason: 'TEMPLATE_REQUIRED' }, { employeeId: 'e-1', localDate: '2026-11-11', reason: 'TEMPLATE_INVALID' }]
+        })
+        const load = async () => {
+          const panel = within((await screen.findByRole('region', { name: 'Cargar días de trabajo' })))
+          await panel.findByRole('checkbox', { name: 'Lucía Pérez' })
+          fireEvent.click(panel.getByRole('button', { name: 'Cargar días' }))
+          return within(await panel.findByRole('list', { name: 'Días que no se cargaron' }))
+        }
+        openAt('#/dias-de-trabajo')
+        render(<AdminApp />)
+        fireEvent.click((await load()).getByRole('button', { name: 'Asignar horario' }))
+        expect(window.location.hash).toBe('#/configuracion/equipo')
+        expect(await screen.findByRole('heading', { name: 'Equipo', level: 1 })).toBeInTheDocument()
+
+        fireEvent.click(menuButton('Días de trabajo'))
+        fireEvent.click((await load()).getByRole('button', { name: 'Revisar horarios' }))
+        expect(window.location.hash).toBe('#/configuracion/horarios')
+        expect(await screen.findByRole('heading', { name: 'Horarios', level: 1 })).toBeInTheDocument()
+      } finally { vi.useRealTimers() }
+    })
   })
 
   it('ver una jornada desde la bandeja deja la dirección de Jornadas', async () => {

@@ -1,12 +1,9 @@
-// The days (Jornadas) container: the list of a date, the detail of a day with its mark changes and the single-day load, with
-// its time helpers, and where the focus goes when a part of the day opens or closes.
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+// The «Hoy» container (section 'jornadas'): the list of a date and the detail of a day with its mark changes, with its time
+// helpers, and where the focus goes when a part of the day opens or closes. Loading days is «Días de trabajo» (WorkDaysView).
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { api, queryString } from '../../shared/api/client'
-import type { Employee, Jornada, JornadaAudit, Mark, MarkAction, Site, Template } from '../../shared/api/types'
+import type { Employee, Jornada, JornadaAudit, Mark, MarkAction, Site } from '../../shared/api/types'
 import { useWideTable } from '../../app/useBreakpoint'
-import { declarationFailureMessage } from './bulkDeclaration'
-import type { AdminSection } from './setupStatus'
-import { WorkDaysPanel } from './WorkDaysPanel'
 import { CANCEL_BUTTON_ID, CANCEL_FORM_ID, DETAIL_HEADING_ID, DETAIL_ID, FORGOTTEN_FORM_ID, JourneysViewRender, markButtonId, markFormId, markMessageKey, type JourneyRow } from './JourneysViewRender'
 import { errText } from './adminShared'
 
@@ -70,18 +67,14 @@ function siteTimeInput(value: string, timeZone: string): string {
 /** A jornada to open on arrival (from a deviation in Bandeja); forgottenAction preselects the mark that is missing. */
 export type OpenJornadaRequest = { jornadaId: string; forgottenAction?: MarkAction }
 
-export function JourneysView({ openJornada, coverage, onNavigate, onDaysLoaded }: {
-  openJornada?: OpenJornadaRequest; coverage?: ReactNode; onNavigate?: (section: AdminSection) => void; onDaysLoaded?: () => void
-} = {}) {
-  const [employees, setEmployees] = useState<Employee[]>([]); const [sites, setSites] = useState<Site[]>([]); const [templates, setTemplates] = useState<Template[]>([])
-  const [jornadas, setJornadas] = useState<JourneyRow[]>([]); const [loading, setLoading] = useState(true); const [journeysLoading, setJourneysLoading] = useState(false); const [journeysDate, setJourneysDate] = useState(''); const [journeysError, setJourneysError] = useState(''); const [dependencyError, setDependencyError] = useState(''); const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [busy, setBusy] = useState(false)
+export function JourneysView({ openJornada }: { openJornada?: OpenJornadaRequest } = {}) {
+  const [employees, setEmployees] = useState<Employee[]>([]); const [sites, setSites] = useState<Site[]>([])
+  const [jornadas, setJornadas] = useState<JourneyRow[]>([]); const [loading, setLoading] = useState(true); const [journeysLoading, setJourneysLoading] = useState(false); const [journeysDate, setJourneysDate] = useState(''); const [journeysError, setJourneysError] = useState(''); const [dependencyError, setDependencyError] = useState(''); const [error, setError] = useState(''); const [notice, setNotice] = useState('')
   const [detail, setDetail] = useState<Jornada | null>(null); const [detailLoading, setDetailLoading] = useState(false); const [markBusy, setMarkBusy] = useState('')
   // detailFor: the day asked for, whose row holds the detail. messageAt: the form whose result or error is shown (see markMessageKey).
   const [detailFor, setDetailFor] = useState(''); const [messageAt, setMessageAt] = useState('')
   const [reveal, setReveal] = useState<Reveal | null>(null)
-  const [date, setDate] = useState(dateInBrowserZone); const [dateError, setDateError] = useState(''); const [employeeId, setEmployeeId] = useState(''); const [siteId, setSiteId] = useState(''); const [templateId, setTemplateId] = useState('')
-  // The single day has its own date, error and notice: it is folded at the bottom, far from the page messages.
-  const [singleDate, setSingleDate] = useState(dateInBrowserZone); const [singleError, setSingleError] = useState(''); const [singleNotice, setSingleNotice] = useState('')
+  const [date, setDate] = useState(dateInBrowserZone); const [dateError, setDateError] = useState('')
   const narrow = !useWideTable()
   const journeyRequest = useRef(0)
   const detailRequest = useRef(0)
@@ -125,11 +118,9 @@ export function JourneysView({ openJornada, coverage, onNavigate, onDaysLoaded }
   async function loadDependencies(requestedDate: string) {
     setLoading(true); setDependencyError(''); setError('')
     try {
-      const [people, availableSites, availableTemplates] = await Promise.all([
-        api.get<Employee[]>('/employees'), api.get<Site[]>('/sites'), api.get<Template[]>('/templates')
-      ])
-      setEmployees(people); setSites(availableSites); setTemplates(availableTemplates.filter((item) => item.active))
-      setEmployeeId(people[0]?.id ?? ''); setSiteId(availableSites[0]?.id ?? '')
+      // Schedules are not read here: only the loading of days («Días de trabajo») chooses one.
+      const [people, availableSites] = await Promise.all([api.get<Employee[]>('/employees'), api.get<Site[]>('/sites')])
+      setEmployees(people); setSites(availableSites)
     } catch (reason) { setDependencyError(errText(reason)) }
     finally { setLoading(false) }
     await loadJourneys(requestedDate)
@@ -167,21 +158,6 @@ export function JourneysView({ openJornada, coverage, onNavigate, onDaysLoaded }
     if (target instanceof HTMLButtonElement && !target.disabled) revealAndFocus(target, target)
     else heading?.focus({ preventScroll: true })
   }, [reveal, detail, detailLoading, markBusy])
-  // No template is preselected: "El que tiene asignado" (empty) sends none and the server uses the employee's assignment in force
-  // on that date (D-20261015-02), as the hint says. Choosing a site clears a template of another site.
-  const eligibleEmployees = useMemo(() => employees.filter((person) => person.active && person.siteIds.includes(siteId)), [employees, siteId])
-  useEffect(() => { setEmployeeId((current) => eligibleEmployees.some((person) => person.id === current) ? current : eligibleEmployees[0]?.id ?? '') }, [eligibleEmployees])
-  async function declare(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setSingleError(''); setSingleNotice(''); setBusy(true)
-    try {
-      await api.post('/jornadas', { employeeId, siteId, localDate: singleDate, ...(templateId ? { templateId } : {}) })
-      setSingleNotice('Día cargado.')
-      onDaysLoaded?.()
-      setDate(singleDate); setDateError('')
-      await loadJourneys(singleDate, true)
-    }
-    catch (reason) { setSingleError(declarationFailureMessage(reason, 'single') ?? errText(reason)) } finally { setBusy(false) }
-  }
   /** refreshAudit: after a change made from the detail, an open history is reloaded; opening a jornada starts it collapsed. */
   async function showDetail(jornadaId: string, refreshAudit = false) {
     const requestId = ++detailRequest.current
@@ -294,16 +270,11 @@ export function JourneysView({ openJornada, coverage, onNavigate, onDaysLoaded }
     void loadJourneys(value)
   }
   const peopleById = useMemo(() => new Map(employees.map((person) => [person.id, person.displayName])), [employees])
-  const siteTemplates = templates.filter((template) => template.siteId === siteId)
-  const workDaysPanel = <WorkDaysPanel sites={sites} employees={employees} templates={templates} disabled={loading}
-    onLoaded={() => { onDaysLoaded?.(); if (date) void loadJourneys(date, true) }}
-    onAssignSchedules={() => onNavigate?.('empleados')} onReviewSchedules={() => onNavigate?.('plantillas')} />
-  return <JourneysViewRender workDaysPanel={workDaysPanel} coverage={coverage} narrow={narrow} sites={sites} eligibleEmployees={eligibleEmployees} siteTemplates={siteTemplates} jornadas={jornadas} loading={loading} journeysLoading={journeysLoading} journeysDate={journeysDate} journeysError={journeysError} dependencyError={dependencyError} error={error} notice={notice} messageAt={messageAt} busy={busy} detail={detail} detailFor={detailFor} detailLoading={detailLoading} markBusy={markBusy} date={date} employeeId={employeeId} siteId={siteId} templateId={templateId} peopleById={peopleById} dateError={dateError} detailSite={detailSite} detailTimeZone={detailTimeZone} forgotAction={forgotAction} forgotOccurredAt={forgotOccurredAt} forgotReason={forgotReason} editingMarkId={editingMarkId} correctedAction={correctedAction} correctedOccurredAt={correctedOccurredAt} correctionReason={correctionReason}
-    singleDate={singleDate} singleError={singleError} singleNotice={singleNotice} onSingleDateChange={setSingleDate}
+  return <JourneysViewRender narrow={narrow} sites={sites} jornadas={jornadas} loading={loading} journeysLoading={journeysLoading} journeysDate={journeysDate} journeysError={journeysError} dependencyError={dependencyError} error={error} notice={notice} messageAt={messageAt} detail={detail} detailFor={detailFor} detailLoading={detailLoading} markBusy={markBusy} date={date} peopleById={peopleById} dateError={dateError} detailSite={detailSite} detailTimeZone={detailTimeZone} forgotAction={forgotAction} forgotOccurredAt={forgotOccurredAt} forgotReason={forgotReason} editingMarkId={editingMarkId} correctedAction={correctedAction} correctedOccurredAt={correctedOccurredAt} correctionReason={correctionReason}
     cancelOpen={cancelOpen} cancelReason={cancelReason} voidingMarkId={voidingMarkId} voidReason={voidReason}
     auditOpen={Boolean(detail) && auditFor === detail?.id} audit={audit} auditLoading={auditLoading} auditError={auditError} onToggleAudit={toggleAudit} onRetryAudit={() => { if (auditFor) void loadAudit(auditFor) }}
     onBeginCancel={() => { setCancelOpen(true); setCancelReason(''); setReveal({ kind: 'form', id: CANCEL_FORM_ID }) }} onCancelReasonChange={setCancelReason} onConfirmCancel={(event) => void cancelJornada(event)} onAbortCancel={() => { setCancelOpen(false); setCancelReason(''); setReveal({ kind: 'trigger', id: CANCEL_BUTTON_ID }) }}
     onBeginVoid={beginVoid} onVoidReasonChange={setVoidReason} onConfirmVoid={(event, mark) => void voidMark(event, mark)} onAbortVoid={abortVoid}
-    onDateChange={changeDate} onEmployeeChange={setEmployeeId} onSiteChange={(id) => { setSiteId(id); setTemplateId('') }} onTemplateChange={setTemplateId} onDeclare={declare} onRetryDependencies={() => void loadDependencies(date)} onReloadJourneys={() => void loadJourneys(date)} onShowDetail={(id) => void openDetail(id)}
+    onDateChange={changeDate} onRetryDependencies={() => void loadDependencies(date)} onReloadJourneys={() => void loadJourneys(date)} onShowDetail={(id) => void openDetail(id)}
     onForgotActionChange={setForgotAction} onForgotOccurredAtChange={setForgotOccurredAt} onForgotReasonChange={setForgotReason} onAddForgottenMark={(event) => void addForgottenMark(event)} onBeginMarkCorrection={beginMarkCorrection} onCorrectedActionChange={setCorrectedAction} onCorrectedOccurredAtChange={setCorrectedOccurredAt} onCorrectionReasonChange={setCorrectionReason} onCorrectMark={(event, mark) => void correctMark(event, mark)} onCancelMarkCorrection={cancelMarkCorrection} />
 }

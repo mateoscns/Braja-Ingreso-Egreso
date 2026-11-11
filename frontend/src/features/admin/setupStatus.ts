@@ -2,8 +2,11 @@ import type { Employee, Site, Template, TemplateAssignment } from '../../shared/
 import type { JourneyRow } from './AdminViewsRender'
 import { addDays, calendarToday, dayText } from './workDays'
 
-/** The ADMIN sections; AdminApp keeps the current one in local state and passes navigation callbacks down. */
-export type AdminSection = 'setup' | 'inbox' | 'jornadas' | 'historial' | 'sedes' | 'plantillas' | 'empleados'
+/**
+ * The ADMIN sections; the current one lives in the address (useAdminSection) and AdminApp passes navigation callbacks down.
+ * 'jornadas' is «Hoy» (the days of a date and their detail); 'workdays' is «Días de trabajo» (the monthly load and the single day).
+ */
+export type AdminSection = 'setup' | 'inbox' | 'jornadas' | 'workdays' | 'historial' | 'sedes' | 'plantillas' | 'empleados'
 
 /** One GET per employee is acceptable for a small team; beyond this many, step 4 sends the owner to Empleados instead. */
 export const ASSIGNMENT_CHECK_LIMIT = 30
@@ -121,7 +124,7 @@ export function setupSteps(data: SetupData): SetupStep[] {
       title: 'Días de trabajo cargados', explanation: 'Cargá los días que trabaja cada persona. Se hace una vez por mes.',
       done: staffed.length > 0 && sitesWithoutDays.length === 0,
       detail: sitesWithoutDays.length > 0 ? `Falta en: ${joinNames(sitesWithoutDays.map((site) => site.name))}.` : undefined,
-      section: 'jornadas', sectionLabel: 'Días de trabajo'
+      section: 'workdays', sectionLabel: 'Días de trabajo'
     }
   ]
 }

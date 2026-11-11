@@ -63,7 +63,7 @@ describe('Primeros pasos', () => {
     render(<AdminApp />)
     expect(await screen.findByRole('heading', { name: 'Primeros pasos' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Primeros pasos/ })).toHaveAttribute('aria-current', 'page')
-    expect(menu()).toEqual(['✓Primeros pasos', '◷Para revisar', '▦Días de trabajo', '☰Historial', '⌖Locales', '▤Horarios', '♙Equipo'])
+    expect(menu()).toEqual(['✓Primeros pasos', '◷Para revisar', '▦Hoy', '▥Días de trabajo', '☰Historial', '⌖Locales', '▤Horarios', '♙Equipo'])
     expect(screen.getByText('CONFIGURACIÓN')).toBeInTheDocument()
     const steps = within(screen.getByRole('list', { name: 'Pasos para empezar' })).getAllByRole('listitem')
     expect(steps.map((step) => step.querySelector('strong')?.textContent)).toEqual(['1. Tu local', '2. Tus horarios', '3. Tu equipo', '4. Cada uno con su horario', '5. Días de trabajo cargados'])
@@ -88,7 +88,7 @@ describe('Primeros pasos', () => {
   it('con todo configurado empieza en Bandeja, deja la guía al final del menú y la guía dice cuántos pueden marcar mañana', async () => {
     render(<AdminApp />)
     await waitFor(() => expect(screen.getByRole('button', { name: /Para revisar/ })).toHaveAttribute('aria-current', 'page'))
-    expect(menu()).toEqual(['◷Para revisar', '▦Días de trabajo', '☰Historial', '⌖Locales', '▤Horarios', '♙Equipo', '✓Primeros pasos'])
+    expect(menu()).toEqual(['◷Para revisar', '▦Hoy', '▥Días de trabajo', '☰Historial', '⌖Locales', '▤Horarios', '♙Equipo', '✓Primeros pasos'])
     expect(await screen.findByText('Hay días cargados hasta el martes 10 de noviembre.')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Primeros pasos/ }))

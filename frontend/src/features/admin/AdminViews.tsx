@@ -9,3 +9,4 @@ export { SchedulesView as TemplatesView } from './SchedulesView'
 
 export { JourneysView } from './JourneysView'
 export type { OpenJornadaRequest } from './JourneysView'
+export { WorkDaysView } from './WorkDaysView'
