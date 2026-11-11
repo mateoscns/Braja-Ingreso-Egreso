@@ -43,7 +43,31 @@ describe('componentes compartidos de interfaz', () => {
     expect(control).toHaveAttribute('aria-invalid', 'true')
     expect(control).toHaveAttribute('aria-describedby', `${hint.id} ${error.id}`)
     expect(control).toHaveAccessibleDescription('Usá solo números. El DNI tiene que tener de 7 a 12 números.')
-    expect(error).toHaveClass('field-hint', 'field-hint-error')
+    expect(error).toHaveClass('field-error')
+    // An error is not a hint in red: it has its own class and its own place.
+    expect(error).not.toHaveClass('field-hint')
+    expect(control.compareDocumentPosition(error) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('ordena el campo como etiqueta, ayuda, control y error: la ayuda se lee antes de escribir', () => {
+    const { container } = render(<FormField label="DNI" hint="Usá solo números." error="El DNI tiene que tener de 7 a 12 números."><input /></FormField>)
+
+    const field = container.firstElementChild!
+    expect([...field.children]).toEqual([
+      screen.getByText('DNI'),
+      screen.getByText('Usá solo números.'),
+      screen.getByLabelText('DNI'),
+      screen.getByText('El DNI tiene que tener de 7 a 12 números.')
+    ])
+  })
+
+  it('marca el campo entero como inválido solo cuando tiene un error', () => {
+    const { container, rerender } = render(<FormField label="DNI" error="El DNI tiene que tener de 7 a 12 números."><input /></FormField>)
+
+    expect(container.firstElementChild).toHaveClass('field', 'field-invalid')
+    rerender(<FormField label="DNI" hint="Usá solo números."><input /></FormField>)
+    expect(container.firstElementChild).toHaveClass('field')
+    expect(container.firstElementChild).not.toHaveClass('field-invalid')
   })
 
   it('sin error no marca el campo como inválido y conserva su descripción propia', () => {
