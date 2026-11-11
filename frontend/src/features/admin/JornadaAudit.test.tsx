@@ -111,6 +111,15 @@ describe('historial de cambios de una jornada (issue #60)', () => {
     expect(screen.queryByRole('list', { name: 'Cambios de la jornada' })).not.toBeInTheDocument()
   })
 
+  // D-20261111-02: the history belongs to the day, so it opens in the day's own row, not under the whole list.
+  it('se abre dentro del día, en la fila de abajo de la jornada', async () => {
+    fireEvent.click(await openDetail())
+    const list = await screen.findByRole('list', { name: 'Cambios de la jornada' })
+    const dayRow = screen.getByRole('button', { name: /^Ver marcas/ }).closest('tr')!
+    expect(dayRow.nextElementSibling).not.toBeNull()
+    expect(dayRow.nextElementSibling).toContainElement(list)
+  })
+
   it('distingue un fallo de carga del historial vacío y permite reintentar', async () => {
     let fail = true
     auditResult = () => fail ? Promise.reject(new Error('No se pudo conectar con el servidor.')) : Promise.resolve({ ...audit, entries: [] })

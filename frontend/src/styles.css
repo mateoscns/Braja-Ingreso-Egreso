@@ -446,14 +446,17 @@ fieldset.field { gap: var(--space-2); }
 .history-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .history-items li { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); padding: var(--space-3) 0; border-bottom: var(--border-width) solid var(--rule); overflow-wrap: anywhere; }
 .history-items small { color: var(--text-muted); font-size: var(--font-size-body); }
+/* The result of a form that closed on a mark sits under the mark, on a line of its own. */
+.history-items li > .message { flex-basis: 100%; }
 /* Inside a record the items are its detail lines (DNI, locals; the marks and cases of a day): muted, without lines of their
-   own, the name of a mark still in the text colour. Two lists of one record (marks, then cases) keep a step between them. */
-.history-card .history-items { gap: var(--space-1); color: var(--text-muted); }
+   own, the name of a mark still in the text colour. Two lists of one record (marks, then cases) keep a step between them.
+   Only the record's own lists: the marks and changes of a day opened inside its record (D-20261111-02) are lists on their own. */
+.history-card > .history-items { gap: var(--space-1); color: var(--text-muted); }
 /* «Sin marcas.» / «Sin desvíos.» is one more detail line of the record, not a paragraph with its own margins. */
 .history-card > .small-copy { margin: 0; }
-.history-card .history-items strong { color: var(--text); }
-.history-card .history-items li { padding: 0; border-bottom: 0; }
-.history-card .history-items + .history-items { margin-top: var(--space-2); }
+.history-card > .history-items strong { color: var(--text); }
+.history-card > .history-items li { padding: 0; border-bottom: 0; }
+.history-card > .history-items + .history-items { margin-top: var(--space-2); }
 
 /* ===== Lists, checks, tables, schedules, status chips ===== */
 /* The inbox cases and the employee's motives are their own pieces (slices E1, D3); they keep their spacing until then. */
@@ -559,8 +562,10 @@ td .short-input { width: 74px; }
 .deviation-main p { color: var(--text-secondary); margin: 6px 0 0; font-size: .875rem; line-height: 1.5; }
 .deviation-main .reason-line { padding: 8px 10px; border-left: 2px solid #d7e8cf; background: #f8faf7; color: #58675e; border-radius: 0 6px 6px 0; }
 .deviation-actions { display: flex; flex-wrap: wrap; gap: 6px; align-self: center; }
-.correction-form { flex-basis: 100%; width: 100%; padding-top: 12px; border-top: 1px solid #e8ede9; }
-.forgotten-mark-form { margin-top: 24px; padding-top: 20px; border-top: 1px solid #e8ede9; }
+/* An inline form opens in place, under the row or the button that opened it (design system 4.7): a bar on its left, no box.
+   Inside a wrapping row (a mark of the phone list, a case of the inbox) it takes a line of its own. `.correction-form` is
+   the inbox's old name for it, until slice E1 changes that markup. */
+.inline-form, .correction-form { display: grid; gap: var(--space-4); flex-basis: 100%; width: 100%; margin-top: var(--space-4); padding-left: var(--space-4); border-left: var(--bar-width) solid var(--border); }
 
 /* ===== Employee screen ===== */
 .employee-main { width: min(100% - 36px, 920px); margin: 0 auto; padding: 37px 0 60px; }

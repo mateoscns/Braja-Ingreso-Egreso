@@ -1,4 +1,5 @@
-// The days (Jornadas) container: the list of a date, the detail of a day with its mark changes and the single-day load, with its time helpers.
+// The days (Jornadas) container: the list of a date, the detail of a day with its mark changes and the single-day load, with
+// its time helpers, and where the focus goes when a part of the day opens or closes.
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { api, queryString } from '../../shared/api/client'
 import type { Employee, Jornada, JornadaAudit, Mark, MarkAction, Site, Template } from '../../shared/api/types'
@@ -6,8 +7,20 @@ import { useWideTable } from '../../app/useBreakpoint'
 import { declarationFailureMessage } from './bulkDeclaration'
 import type { AdminSection } from './setupStatus'
 import { WorkDaysPanel } from './WorkDaysPanel'
-import { JourneysViewRender, type JourneyRow } from './JourneysViewRender'
+import { CANCEL_BUTTON_ID, CANCEL_FORM_ID, DETAIL_HEADING_ID, DETAIL_ID, FORGOTTEN_FORM_ID, JourneysViewRender, markButtonId, markFormId, markMessageKey, type JourneyRow } from './JourneysViewRender'
 import { errText } from './adminShared'
+
+/** What takes the focus once the screen shows it: the day just opened (its title), a form just opened (its first field), or
+    the button that opened a form that closed. */
+type Reveal = { kind: 'detail' } | { kind: 'form'; id: string } | { kind: 'trigger'; id: string }
+
+/** Brings an opened part into view and moves the focus into it. Kept to this screen: slice F1 makes one for the whole app. */
+function revealAndFocus(part: HTMLElement, focusTarget: HTMLElement, block: ScrollLogicalPosition = 'nearest') {
+  const reduced = typeof window.matchMedia === 'function' && Boolean(window.matchMedia('(prefers-reduced-motion: reduce)')?.matches)
+  if (typeof part.scrollIntoView === 'function') part.scrollIntoView({ block, behavior: reduced ? 'auto' : 'smooth' })
+  // The scroll above already placed the part; letting focus scroll too would cut a smooth scroll short.
+  focusTarget.focus({ preventScroll: true })
+}
 
 const dateInBrowserZone = () => {
   const now = new Date()
@@ -63,13 +76,15 @@ export function JourneysView({ openJornada, coverage, onNavigate, onDaysLoaded }
   const [employees, setEmployees] = useState<Employee[]>([]); const [sites, setSites] = useState<Site[]>([]); const [templates, setTemplates] = useState<Template[]>([])
   const [jornadas, setJornadas] = useState<JourneyRow[]>([]); const [loading, setLoading] = useState(true); const [journeysLoading, setJourneysLoading] = useState(false); const [journeysDate, setJourneysDate] = useState(''); const [journeysError, setJourneysError] = useState(''); const [dependencyError, setDependencyError] = useState(''); const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [busy, setBusy] = useState(false)
   const [detail, setDetail] = useState<Jornada | null>(null); const [detailLoading, setDetailLoading] = useState(false); const [markBusy, setMarkBusy] = useState('')
+  // detailFor: the day asked for, whose row holds the detail. messageAt: the form whose result or error is shown (see markMessageKey).
+  const [detailFor, setDetailFor] = useState(''); const [messageAt, setMessageAt] = useState('')
+  const [reveal, setReveal] = useState<Reveal | null>(null)
   const [date, setDate] = useState(dateInBrowserZone); const [dateError, setDateError] = useState(''); const [employeeId, setEmployeeId] = useState(''); const [siteId, setSiteId] = useState(''); const [templateId, setTemplateId] = useState('')
   // The single day has its own date, error and notice: it is folded at the bottom, far from the page messages.
   const [singleDate, setSingleDate] = useState(dateInBrowserZone); const [singleError, setSingleError] = useState(''); const [singleNotice, setSingleNotice] = useState('')
   const narrow = !useWideTable()
   const journeyRequest = useRef(0)
   const detailRequest = useRef(0)
-  const [scrollToDetail, setScrollToDetail] = useState(false)
   const [forgotAction, setForgotAction] = useState<MarkAction>('INGRESO'); const [forgotOccurredAt, setForgotOccurredAt] = useState(''); const [forgotReason, setForgotReason] = useState('')
   const [editingMarkId, setEditingMarkId] = useState(''); const [correctedAction, setCorrectedAction] = useState<MarkAction>('INGRESO'); const [correctedOccurredAt, setCorrectedOccurredAt] = useState(''); const [correctionReason, setCorrectionReason] = useState('')
   // Cancelling a jornada (D-20261027-07) and voiding a mark (D-20261027-08) both ask for a reason in a second, confirming step.
@@ -97,7 +112,7 @@ export function JourneysView({ openJornada, coverage, onNavigate, onDaysLoaded }
   async function loadJourneys(requestedDate = date, preserveNotice = false) {
     const requestId = ++journeyRequest.current
     detailRequest.current += 1
-    setJourneysLoading(true); setJourneysError(''); setError(''); if (!preserveNotice) setNotice(''); setDetail(null); setDetailLoading(false)
+    setJourneysLoading(true); setJourneysError(''); setError(''); if (!preserveNotice) setNotice(''); setDetail(null); setDetailFor(''); setDetailLoading(false)
     try {
       const rows = await api.get<JourneyRow[]>(`/jornadas${queryString({ from: requestedDate, to: requestedDate })}`)
       if (requestId !== journeyRequest.current) return
@@ -128,17 +143,30 @@ export function JourneysView({ openJornada, coverage, onNavigate, onDaysLoaded }
     } catch { /* The list stays on today; showDetail below reports the failure. */ }
     await loadDependencies(target)
     if (request.forgottenAction) setForgotAction(request.forgottenAction)
-    setScrollToDetail(true)
-    await showDetail(request.jornadaId)
+    await openDetail(request.jornadaId)
   }
   useEffect(() => { if (openJornada) void openRequested(openJornada); else void loadDependencies(date) }, [])
+  // Runs once what was asked for is on screen: the day read, no request running (a busy button cannot take the focus).
   useEffect(() => {
-    if (!scrollToDetail || !detail) return
-    setScrollToDetail(false)
-    const target = document.getElementById('jornada-detail')
-    const reduced = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (target && typeof target.scrollIntoView === 'function') target.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' })
-  }, [scrollToDetail, detail])
+    if (!reveal || !detail || detailLoading || markBusy !== '') return
+    setReveal(null)
+    const heading = document.getElementById(DETAIL_HEADING_ID)
+    if (reveal.kind === 'detail') {
+      const section = document.getElementById(DETAIL_ID)
+      if (section && heading) revealAndFocus(section, heading, 'start')
+      return
+    }
+    const target = document.getElementById(reveal.id)
+    if (reveal.kind === 'form') {
+      const field = target?.querySelector<HTMLElement>('select, input, textarea')
+      if (target && field) revealAndFocus(target, field)
+      return
+    }
+    // A button can leave with what it changed (a voided mark, a cancelled day): the day's title takes the focus then, where
+    // it is, so the result next to the mark stays in view.
+    if (target instanceof HTMLButtonElement && !target.disabled) revealAndFocus(target, target)
+    else heading?.focus({ preventScroll: true })
+  }, [reveal, detail, detailLoading, markBusy])
   // No template is preselected: "El que tiene asignado" (empty) sends none and the server uses the employee's assignment in force
   // on that date (D-20261015-02), as the hint says. Choosing a site clears a template of another site.
   const eligibleEmployees = useMemo(() => employees.filter((person) => person.active && person.siteIds.includes(siteId)), [employees, siteId])
@@ -159,14 +187,19 @@ export function JourneysView({ openJornada, coverage, onNavigate, onDaysLoaded }
     const requestId = ++detailRequest.current
     if (refreshAudit && auditFor === jornadaId) void loadAudit(jornadaId)
     else closeAudit()
-    setDetail(null); setCancelOpen(false); setCancelReason(''); setVoidingMarkId(''); setVoidReason('')
+    setDetail(null); setDetailFor(jornadaId); setCancelOpen(false); setCancelReason(''); setVoidingMarkId(''); setVoidReason('')
     setDetailLoading(true); setError('')
     try {
       const jornada = await api.get<Jornada>(`/jornadas/${encodeURIComponent(jornadaId)}`)
       if (requestId === detailRequest.current) setDetail(jornada)
     } catch (reason) {
-      if (requestId === detailRequest.current) setError(errText(reason))
+      if (requestId === detailRequest.current) { setMessageAt('detail'); setError(errText(reason)) }
     } finally { if (requestId === detailRequest.current) setDetailLoading(false) }
+  }
+  /** «Ver marcas», or a day opened from Bandeja: the day opens in its row, comes into view and its title takes the focus. */
+  async function openDetail(jornadaId: string) {
+    setReveal({ kind: 'detail' })
+    await showDetail(jornadaId)
   }
   const detailSite = detail ? sites.find((site) => site.id === detail.siteId) : undefined
   // Without the site's zone a typed time cannot be converted safely; the device zone would silently shift it.
@@ -175,43 +208,52 @@ export function JourneysView({ openJornada, coverage, onNavigate, onDaysLoaded }
     event.preventDefault()
     if (!detail || !detailTimeZone) return
     const occurredAt = instantForSiteTime(forgotOccurredAt, detailTimeZone)
+    setMessageAt('forgotten')
     if (!occurredAt) { setError('Esa hora no existe en la zona horaria de la sede. Revisá la fecha y la hora.'); return }
     if (!forgotReason.trim()) { setError('Escribí por qué agregás la marca.'); return }
     setMarkBusy('forgotten'); setError(''); setNotice('')
     try {
       await api.post<Mark>(`/admin/jornadas/${encodeURIComponent(detail.id)}/forgotten-marks`, { action: forgotAction, occurredAt, auditReason: forgotReason.trim() })
-      setForgotOccurredAt(''); setForgotReason(''); setNotice('Marca agregada.'); await showDetail(detail.id, true)
+      // The day is read again and its button reads «Guardando…» meanwhile: the focus goes back into the form afterwards.
+      setForgotOccurredAt(''); setForgotReason(''); setNotice('Marca agregada.'); setReveal({ kind: 'form', id: FORGOTTEN_FORM_ID }); await showDetail(detail.id, true)
     } catch (reason) { setError(markFormErrText(reason)) } finally { setMarkBusy('') }
   }
   function beginMarkCorrection(mark: Mark) {
     if (!detailTimeZone) return
     setVoidingMarkId(''); setEditingMarkId(mark.id); setCorrectedAction(mark.action); setCorrectedOccurredAt(siteTimeInput(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)); setCorrectionReason('')
+    setReveal({ kind: 'form', id: markFormId('correct', mark.id) })
   }
   async function correctMark(event: FormEvent<HTMLFormElement>, mark: Mark) {
     event.preventDefault()
     if (!detail || !detailTimeZone) return
     const correctedAt = instantForSiteTime(correctedOccurredAt, detailTimeZone)
+    setMessageAt(markMessageKey('correct', mark.id))
     if (!correctedAt) { setError('Esa hora no existe en la zona horaria de la sede. Revisá la fecha y la hora.'); return }
     if (!correctionReason.trim()) { setError('Escribí el motivo de corrección.'); return }
     setMarkBusy(mark.id); setError(''); setNotice('')
     try {
       await api.post<Mark>(`/admin/marks/${encodeURIComponent(mark.id)}/correction`, { correctedAction, correctedOccurredAt: correctedAt, auditReason: correctionReason.trim() })
-      setEditingMarkId(''); setCorrectionReason(''); setNotice('Marca corregida.'); await showDetail(detail.id, true)
+      setEditingMarkId(''); setCorrectionReason(''); setNotice('Marca corregida.'); setReveal({ kind: 'trigger', id: markButtonId('correct', mark.id) }); await showDetail(detail.id, true)
     } catch (reason) { setError(markFormErrText(reason)) } finally { setMarkBusy('') }
   }
-  function beginVoid(mark: Mark) { setEditingMarkId(''); setVoidingMarkId(mark.id); setVoidReason('') }
+  function cancelMarkCorrection() { setReveal({ kind: 'trigger', id: markButtonId('correct', editingMarkId) }); setEditingMarkId('') }
+  function beginVoid(mark: Mark) { setEditingMarkId(''); setVoidingMarkId(mark.id); setVoidReason(''); setReveal({ kind: 'form', id: markFormId('void', mark.id) }) }
+  function abortVoid() { setReveal({ kind: 'trigger', id: markButtonId('void', voidingMarkId) }); setVoidingMarkId(''); setVoidReason('') }
   async function voidMark(event: FormEvent<HTMLFormElement>, mark: Mark) {
     event.preventDefault()
     if (!detail) return
+    setMessageAt(markMessageKey('void', mark.id))
     if (!voidReason.trim()) { setError('Escribí el motivo de anulación.'); return }
     setMarkBusy(mark.id); setError(''); setNotice('')
+    // On success the mark is voided and loses its buttons: the focus falls back to the day's title.
+    const back: Reveal = { kind: 'trigger', id: markButtonId('void', mark.id) }
     try {
       await api.post<Mark>(`/admin/marks/${encodeURIComponent(mark.id)}/void`, { reason: voidReason.trim() })
-      setVoidingMarkId(''); setVoidReason(''); setNotice('Marca anulada.'); await showDetail(detail.id, true)
+      setVoidingMarkId(''); setVoidReason(''); setNotice('Marca anulada.'); setReveal(back); await showDetail(detail.id, true)
     } catch (reason) {
       // A retry whose first attempt committed (response lost) answers MARK_VOIDED: the void is done, show it as done.
       if ((reason as { code?: string } | null)?.code === 'MARK_VOIDED') {
-        setVoidingMarkId(''); setVoidReason(''); setNotice('La marca ya estaba anulada.'); await showDetail(detail.id, true)
+        setVoidingMarkId(''); setVoidReason(''); setNotice('La marca ya estaba anulada.'); setReveal(back); await showDetail(detail.id, true)
         return
       }
       // The server reuses INVALID_MARK_HISTORY; for a void it means the marks left would not form a valid jornada.
@@ -223,17 +265,20 @@ export function JourneysView({ openJornada, coverage, onNavigate, onDaysLoaded }
   async function cancelJornada(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!detail) return
+    setMessageAt('cancel')
     if (!cancelReason.trim()) { setError('Escribí el motivo de cancelación.'); return }
     const jornadaId = detail.id
     setMarkBusy('cancel'); setError(''); setNotice('')
+    // A cancelled day has no «Cancelar jornada» button: the focus falls back to the day's title.
+    const back: Reveal = { kind: 'trigger', id: CANCEL_BUTTON_ID }
     try {
       await api.post(`/admin/jornadas/${encodeURIComponent(jornadaId)}/cancellation`, { reason: cancelReason.trim() })
-      setCancelOpen(false); setCancelReason(''); setNotice('Jornada cancelada.')
+      setCancelOpen(false); setCancelReason(''); setNotice('Jornada cancelada.'); setReveal(back)
       await loadJourneys(date, true); await showDetail(jornadaId, true)
     } catch (reason) {
       // A retry whose first attempt committed answers JORNADA_CANCELLED: the cancellation is done, show it as done.
       if ((reason as { code?: string } | null)?.code === 'JORNADA_CANCELLED') {
-        setCancelOpen(false); setCancelReason(''); setNotice('La jornada ya estaba cancelada.')
+        setCancelOpen(false); setCancelReason(''); setNotice('La jornada ya estaba cancelada.'); setReveal(back)
         await loadJourneys(date, true); await showDetail(jornadaId, true)
       } else setError(errText(reason))
     } finally { setMarkBusy('') }
@@ -242,7 +287,7 @@ export function JourneysView({ openJornada, coverage, onNavigate, onDaysLoaded }
     setDate(value)
     if (!value) {
       journeyRequest.current += 1; detailRequest.current += 1
-      setDateError('Elegí una fecha para ver los días cargados.'); setJornadas([]); setJourneysError(''); setJourneysLoading(false); setDetail(null); setDetailLoading(false)
+      setDateError('Elegí una fecha para ver los días cargados.'); setJornadas([]); setJourneysError(''); setJourneysLoading(false); setDetail(null); setDetailFor(''); setDetailLoading(false)
       return
     }
     setDateError('')
@@ -253,12 +298,12 @@ export function JourneysView({ openJornada, coverage, onNavigate, onDaysLoaded }
   const workDaysPanel = <WorkDaysPanel sites={sites} employees={employees} templates={templates} disabled={loading}
     onLoaded={() => { onDaysLoaded?.(); if (date) void loadJourneys(date, true) }}
     onAssignSchedules={() => onNavigate?.('empleados')} onReviewSchedules={() => onNavigate?.('plantillas')} />
-  return <JourneysViewRender workDaysPanel={workDaysPanel} coverage={coverage} narrow={narrow} sites={sites} eligibleEmployees={eligibleEmployees} siteTemplates={siteTemplates} jornadas={jornadas} loading={loading} journeysLoading={journeysLoading} journeysDate={journeysDate} journeysError={journeysError} dependencyError={dependencyError} error={error} notice={notice} busy={busy} detail={detail} detailLoading={detailLoading} markBusy={markBusy} date={date} employeeId={employeeId} siteId={siteId} templateId={templateId} peopleById={peopleById} dateError={dateError} detailSite={detailSite} detailTimeZone={detailTimeZone} forgotAction={forgotAction} forgotOccurredAt={forgotOccurredAt} forgotReason={forgotReason} editingMarkId={editingMarkId} correctedAction={correctedAction} correctedOccurredAt={correctedOccurredAt} correctionReason={correctionReason}
+  return <JourneysViewRender workDaysPanel={workDaysPanel} coverage={coverage} narrow={narrow} sites={sites} eligibleEmployees={eligibleEmployees} siteTemplates={siteTemplates} jornadas={jornadas} loading={loading} journeysLoading={journeysLoading} journeysDate={journeysDate} journeysError={journeysError} dependencyError={dependencyError} error={error} notice={notice} messageAt={messageAt} busy={busy} detail={detail} detailFor={detailFor} detailLoading={detailLoading} markBusy={markBusy} date={date} employeeId={employeeId} siteId={siteId} templateId={templateId} peopleById={peopleById} dateError={dateError} detailSite={detailSite} detailTimeZone={detailTimeZone} forgotAction={forgotAction} forgotOccurredAt={forgotOccurredAt} forgotReason={forgotReason} editingMarkId={editingMarkId} correctedAction={correctedAction} correctedOccurredAt={correctedOccurredAt} correctionReason={correctionReason}
     singleDate={singleDate} singleError={singleError} singleNotice={singleNotice} onSingleDateChange={setSingleDate}
     cancelOpen={cancelOpen} cancelReason={cancelReason} voidingMarkId={voidingMarkId} voidReason={voidReason}
     auditOpen={Boolean(detail) && auditFor === detail?.id} audit={audit} auditLoading={auditLoading} auditError={auditError} onToggleAudit={toggleAudit} onRetryAudit={() => { if (auditFor) void loadAudit(auditFor) }}
-    onBeginCancel={() => { setCancelOpen(true); setCancelReason('') }} onCancelReasonChange={setCancelReason} onConfirmCancel={(event) => void cancelJornada(event)} onAbortCancel={() => { setCancelOpen(false); setCancelReason('') }}
-    onBeginVoid={beginVoid} onVoidReasonChange={setVoidReason} onConfirmVoid={(event, mark) => void voidMark(event, mark)} onAbortVoid={() => { setVoidingMarkId(''); setVoidReason('') }}
-    onDateChange={changeDate} onEmployeeChange={setEmployeeId} onSiteChange={(id) => { setSiteId(id); setTemplateId('') }} onTemplateChange={setTemplateId} onDeclare={declare} onRetryDependencies={() => void loadDependencies(date)} onReloadJourneys={() => void loadJourneys(date)} onShowDetail={(id) => void showDetail(id)}
-    onForgotActionChange={setForgotAction} onForgotOccurredAtChange={setForgotOccurredAt} onForgotReasonChange={setForgotReason} onAddForgottenMark={(event) => void addForgottenMark(event)} onBeginMarkCorrection={beginMarkCorrection} onCorrectedActionChange={setCorrectedAction} onCorrectedOccurredAtChange={setCorrectedOccurredAt} onCorrectionReasonChange={setCorrectionReason} onCorrectMark={(event, mark) => void correctMark(event, mark)} onCancelMarkCorrection={() => setEditingMarkId('')} />
+    onBeginCancel={() => { setCancelOpen(true); setCancelReason(''); setReveal({ kind: 'form', id: CANCEL_FORM_ID }) }} onCancelReasonChange={setCancelReason} onConfirmCancel={(event) => void cancelJornada(event)} onAbortCancel={() => { setCancelOpen(false); setCancelReason(''); setReveal({ kind: 'trigger', id: CANCEL_BUTTON_ID }) }}
+    onBeginVoid={beginVoid} onVoidReasonChange={setVoidReason} onConfirmVoid={(event, mark) => void voidMark(event, mark)} onAbortVoid={abortVoid}
+    onDateChange={changeDate} onEmployeeChange={setEmployeeId} onSiteChange={(id) => { setSiteId(id); setTemplateId('') }} onTemplateChange={setTemplateId} onDeclare={declare} onRetryDependencies={() => void loadDependencies(date)} onReloadJourneys={() => void loadJourneys(date)} onShowDetail={(id) => void openDetail(id)}
+    onForgotActionChange={setForgotAction} onForgotOccurredAtChange={setForgotOccurredAt} onForgotReasonChange={setForgotReason} onAddForgottenMark={(event) => void addForgottenMark(event)} onBeginMarkCorrection={beginMarkCorrection} onCorrectedActionChange={setCorrectedAction} onCorrectedOccurredAtChange={setCorrectedOccurredAt} onCorrectionReasonChange={setCorrectionReason} onCorrectMark={(event, mark) => void correctMark(event, mark)} onCancelMarkCorrection={cancelMarkCorrection} />
 }

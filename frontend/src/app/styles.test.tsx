@@ -220,7 +220,7 @@ const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui',
 // Ceilings that only go down. Each one counts what the rules under the token block still write by hand, measured with the
 // pattern of its own test when the token block came in (2026-11-11). A slice that moves rules to tokens lowers the number in
 // the same commit; nobody raises one. Slice H1 turns the four into equalities with zero.
-const COLOR_LITERAL_CEILING = 76
+const COLOR_LITERAL_CEILING = 74
 const UNTOKENED_FONT_SIZE_CEILING = 57
 const BOX_SHADOW_CEILING = 12
 const LEGACY_TOKEN_USE_CEILING = 86
@@ -676,6 +676,20 @@ describe('campos, casillas y opciones: una sola forma', () => {
     // The one column is the base now: no narrow breakpoint has to bring it back.
     expect(media(520)).not.toMatch(/\.employee-category-list/)
   })
+
+  // Slice N2 (D-20261111-02): the forms of a day open under the mark or the day they change, as one piece.
+  it('un formulario que se abre en su lugar es una barra a la izquierda, plano, con el espacio de los tokens (4.7)', () => {
+    const form = rule('.inline-form, .correction-form')
+
+    expect(form).toMatch(/border-left:\s*var\(--bar-width\) solid var\(--border\)/)
+    expect(form).toMatch(/padding-left:\s*var\(--space-4\)/)
+    expect(form).toMatch(/(?<![\w-])gap:\s*var\(--space-4\)/)
+    // Inside a wrapping row (a mark of the phone list) it takes a line of its own.
+    expect(form).toMatch(/flex-basis:\s*100%/)
+    expect(form).not.toMatch(/(?<![\w-])(?:background|box-shadow|border-radius|border-top)\s*:/)
+    // The old name of the form of a missing mark is gone with its rule.
+    expect(css).not.toMatch(/\.forgotten-mark-form/)
+  })
 })
 
 /** The body of an `@media (<condition>) {` block that is not a width (forced colours, reduced motion). */
@@ -826,14 +840,15 @@ describe('listas de registros y tablas: filas separadas por una línea, nunca ta
 
   it('una lista de marcas o de cambios suelta separa sus filas con la línea; dentro de un registro sus renglones van sin línea', () => {
     const item = rule('.history-items li')
-    const inside = rule('.history-card .history-items li')
+    // Only the record's own lists: a day opened inside its record keeps its marks as a list on its own (slice N2).
+    const inside = rule('.history-card > .history-items li')
 
     expect(item).toMatch(HAIRLINE)
     expect(item).toMatch(/padding:\s*var\(--space-3\) 0/)
     expect(inside).toMatch(/border-bottom:\s*0/)
     // A detail line reads in the muted colour; the name of the mark stays in the text colour.
-    expect(rule('.history-card .history-items')).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
-    expect(rule('.history-card .history-items strong')).toMatch(/(?<![\w-])color:\s*var\(--text\)/)
+    expect(rule('.history-card > .history-items')).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
+    expect(rule('.history-card > .history-items strong')).toMatch(/(?<![\w-])color:\s*var\(--text\)/)
   })
 
   it('el nombre de un registro va en negrita y sus datos en 16 px del color secundario', () => {
