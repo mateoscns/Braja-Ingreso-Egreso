@@ -1,38 +1,27 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { api, queryString } from '../../shared/api/client'
-import type { Deviation, Employee, Jornada, JornadaAudit, JornadaSummary, Mark, MarkAction, PasswordReset, Site, SiteCoordinates, Template, TemplateAssignment } from '../../shared/api/types'
-import { deviceDate, validateDateRange, DATE_PAIR_MESSAGE } from '../../shared/dateRange'
+import type { Employee, Jornada, JornadaAudit, Mark, MarkAction, Site, SiteCoordinates, Template } from '../../shared/api/types'
+import { useWideTable } from '../../app/useBreakpoint'
 import { declarationFailureMessage } from './bulkDeclaration'
 import type { AdminSection } from './setupStatus'
-import { useWideTable } from '../../app/useBreakpoint'
 import { WorkDaysPanel } from './WorkDaysPanel'
+import { JourneysViewRender, type JourneyRow } from './JourneysViewRender'
 import { isRegionTimeZone, REGION_TIME_ZONE_MESSAGE } from './siteZone'
-import { PASSWORD_TOO_LONG_MESSAGE, passwordTooLong } from '../../shared/password'
 import { captureSiteCoordinates, parseGeofenceRadiusMeters, SiteLocationError, type SiteLocationErrorKind } from './siteLocation'
 import { approximateDevicePosition, normalizePickedPoint, SEARCH_RESULT_ZOOM, siteMapInitialView } from './siteMap'
 import { GeocodeError, searchAddress, type GeocodeResult } from '../../shared/api/geocode'
-import {
-  AdminHistoryRender,
-  AdminInboxRender,
-  EMPTY_INBOX_FILTERS,
-  JourneysViewRender,
-  SitesViewRender,
-  type SiteLocationAuditResponse,
-  type SiteLocationEditDraft,
-  type SiteMapState,
-  type DeviationClassification,
-  type HistoryFilterValues,
-  type InboxFilterValues,
-  type JourneyRow
-} from './AdminViewsRender'
-import { EmployeesViewRender, employeeDetailId, ISSUED_PASSWORD_ID, TemplateAssignmentsRender, type IssuedPassword } from './EmployeesViewRender'
-import { generateTemporaryPassword } from './temporaryPassword'
+import { SitesViewRender, type SiteLocationAuditResponse, type SiteLocationEditDraft, type SiteMapState } from './SitesViewRender'
+import { errText } from './adminShared'
+
+// The inbox, history and employees containers live in their own files since slice M2; re-exported so that no importer changes.
+export { AdminInbox } from './AdminInbox'
+export { AdminHistory } from './AdminHistory'
+export { EmployeesView } from './EmployeesView'
 
 const dateInBrowserZone = () => {
   const now = new Date()
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 }
-const errText = (error: unknown) => error instanceof Error ? error.message : 'No se pudo completar la operación.'
 // The server reuses the employee mark-order codes on ADMIN forms; there they mean the typed time or action breaks the jornada order.
 const MARK_ORDER_CODES = new Set(['INVALID_MARK_ORDER', 'INVALID_MARK_HISTORY', 'INVALID_MARK_TRANSITION'])
 const markFormErrText = (error: unknown) => MARK_ORDER_CODES.has((error as { code?: string } | null)?.code ?? '')
@@ -83,135 +72,6 @@ function validCoordinates(latitudeText: string, longitudeText: string): SiteCoor
   const longitude = Number(longitudeText)
   if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) return null
   return { latitude, longitude }
-}
-
-export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; onOpenJornada?: (item: Deviation) => void } = {}) {
-  const [items, setItems] = useState<Deviation[]>([])
-  const [timeZones, setTimeZones] = useState<Map<string, string>>(new Map())
-  const [sites, setSites] = useState<Site[]>([])
-  const [employees, setEmployees] = useState<Employee[]>([])
-  const [filters, setFilters] = useState<InboxFilterValues>(EMPTY_INBOX_FILTERS)
-  const [appliedFilters, setAppliedFilters] = useState<InboxFilterValues>(EMPTY_INBOX_FILTERS)
-  const [filterError, setFilterError] = useState('')
-  const generation = useRef(0)
-  const [nextCursor, setNextCursor] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [inboxLoadError, setInboxLoadError] = useState('')
-  const [timeZoneLoadError, setTimeZoneLoadError] = useState('')
-  const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
-  const [busy, setBusy] = useState('')
-  const [correction, setCorrection] = useState<{ deviationId: string; classification: DeviationClassification } | null>(null)
-  const [correctionReason, setCorrectionReason] = useState('')
-  const [targetDeviation] = useState(() => new URLSearchParams(window.location.search).get('deviation') ?? '')
-  const narrow = !useWideTable()
-  // A new filter set always starts from the first page: a cursor is only valid for the filters that produced it.
-  const reload = async (active: InboxFilterValues = appliedFilters) => {
-    const requestId = ++generation.current
-    setLoading(true); setInboxLoadError(''); setTimeZoneLoadError(''); setError(''); setNotice(''); setNextCursor(null)
-    try {
-      const [page, sitesResult] = await Promise.all([
-        api.get<{ items: Deviation[]; nextCursor?: string | null }>(`/inbox${queryString({ limit: 50, ...active })}`),
-        api.get<Site[]>('/sites').then(
-          (sites) => ({ sites, error: '' }),
-          (reason) => ({ sites: [] as Site[], error: errText(reason) })
-        )
-      ])
-      if (requestId !== generation.current) return
-      setItems(page.items); setNextCursor(page.nextCursor ?? null)
-      setSites(sitesResult.sites)
-      setTimeZones(new Map(sitesResult.sites.map((site) => [site.id, site.timeZone])))
-      setTimeZoneLoadError(sitesResult.error)
-    }
-    catch (reason) { if (requestId !== generation.current) return; setItems([]); setNextCursor(null); setInboxLoadError(errText(reason)) } finally { if (requestId === generation.current) setLoading(false) }
-  }
-  useEffect(() => { void reload(EMPTY_INBOX_FILTERS) }, [])
-  useEffect(() => { api.get<Employee[]>('/employees').then(setEmployees, () => setEmployees([])) }, [])
-  function applyFilters() {
-    const problem = validateDateRange(filters.from, filters.to)
-    if (problem) { setFilterError(problem); return }
-    setFilterError(''); setAppliedFilters(filters); void reload(filters)
-  }
-  function clearFilters() {
-    setFilters(EMPTY_INBOX_FILTERS); setAppliedFilters(EMPTY_INBOX_FILTERS); setFilterError(''); void reload(EMPTY_INBOX_FILTERS)
-  }
-  useEffect(() => {
-    if (!loading && targetDeviation) {
-      const target = document.getElementById(`deviation-${targetDeviation}`)
-      if (!target) return
-      const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-      target.scrollIntoView({ block: 'center', behavior: prefersReducedMotion ? 'auto' : 'smooth' })
-    }
-  }, [loading, items, targetDeviation])
-  async function classify(item: Deviation, classification: DeviationClassification, reason?: string) {
-    setBusy(item.id); setError(''); setNotice('')
-    try {
-      const updated = await api.put<Deviation>(`/admin/deviations/${encodeURIComponent(item.id)}/classification`, {
-        classification, ...(reason?.trim() ? { correctionReason: reason.trim() } : {})
-      })
-      setItems((current) => current.map((entry) => entry.id === updated.id ? updated : entry))
-      setCorrection(null); setCorrectionReason('')
-      setNotice('Clasificación guardada.')
-    } catch (reason) { setError(errText(reason)) } finally { setBusy('') }
-  }
-  function requestClassification(item: Deviation, classification: DeviationClassification) {
-    if (item.status === 'JUSTIFICADO' || item.status === 'NO_JUSTIFICADO') {
-      setCorrection({ deviationId: item.id, classification }); setCorrectionReason('')
-    } else void classify(item, classification)
-  }
-  async function loadMore() {
-    if (!nextCursor) return
-    const requestId = generation.current
-    setBusy('page'); setError('')
-    try {
-      const page = await api.get<{ items: Deviation[]; nextCursor?: string | null }>(`/inbox${queryString({ limit: 50, ...appliedFilters, cursor: nextCursor })}`)
-      if (requestId !== generation.current) return
-      setItems((current) => [...current, ...page.items]); setNextCursor(page.nextCursor ?? null)
-    } catch (reason) { if (requestId === generation.current) setError(errText(reason)) } finally { setBusy('') }
-  }
-  const filtered = Object.values(appliedFilters).some(Boolean)
-  return <AdminInboxRender narrow={narrow} appliedFilters={appliedFilters} coverage={coverage} onOpenJornada={onOpenJornada} items={items} employees={employees} sites={sites} filters={filters} filterError={filterError} filtered={filtered} onFiltersChange={(patch) => setFilters((current) => ({ ...current, ...patch }))} onApplyFilters={applyFilters} onClearFilters={clearFilters} timeZones={timeZones} nextCursor={nextCursor} loading={loading} inboxLoadError={inboxLoadError} timeZoneLoadError={timeZoneLoadError} error={error} notice={notice} busy={busy} correction={correction} correctionReason={correctionReason} targetDeviation={targetDeviation}
-    onReload={() => void reload()} onClassify={requestClassification} onRetry={() => void reload()} onLoadMore={() => void loadMore()} onCorrectionReasonChange={setCorrectionReason}
-    onSubmitCorrection={(item) => void classify(item, correction!.classification, correctionReason)} onCancelCorrection={() => { setCorrection(null); setCorrectionReason('') }} />
-}
-
-export function AdminHistory() {
-  const [employees, setEmployees] = useState<Employee[]>([])
-  const [sites, setSites] = useState<Site[]>([])
-  const [loadingOptions, setLoadingOptions] = useState(true)
-  const [optionsError, setOptionsError] = useState('')
-  const [filters, setFilters] = useState<HistoryFilterValues>(() => ({ employeeId: '', siteId: '', from: deviceDate(6), to: deviceDate() }))
-  const [filterError, setFilterError] = useState('')
-  const [rows, setRows] = useState<JornadaSummary[] | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const request = useRef(0)
-  async function loadOptions() {
-    setLoadingOptions(true); setOptionsError('')
-    try {
-      const [people, availableSites] = await Promise.all([api.get<Employee[]>('/employees'), api.get<Site[]>('/sites')])
-      setEmployees(people); setSites(availableSites)
-    } catch (reason) { setOptionsError(errText(reason)) } finally { setLoadingOptions(false) }
-  }
-  useEffect(() => { void loadOptions() }, [])
-  async function search() {
-    const problem = !filters.employeeId && !filters.siteId ? 'Elegí un empleado o una sede.' : !filters.from || !filters.to ? DATE_PAIR_MESSAGE : validateDateRange(filters.from, filters.to)
-    if (problem) { setFilterError(problem); return }
-    const requestId = ++request.current
-    setFilterError(''); setError(''); setLoading(true)
-    try {
-      const result = await api.get<JornadaSummary[]>(`/jornadas${queryString({ from: filters.from, to: filters.to, employeeId: filters.employeeId, siteId: filters.siteId, includeDetail: 'true' })}`)
-      if (requestId === request.current) setRows(result)
-    } catch (reason) {
-      if (requestId !== request.current) return
-      setRows(null)
-      setError((reason as { status?: number } | null)?.status === 422
-        ? 'Son demasiados datos para una sola consulta: acotá el rango de fechas o elegí un empleado o una sede (hasta 366 días y 500 jornadas).'
-        : errText(reason))
-    } finally { if (requestId === request.current) setLoading(false) }
-  }
-  return <AdminHistoryRender employees={employees} sites={sites} loadingOptions={loadingOptions} optionsError={optionsError} filters={filters} filterError={filterError} rows={rows} loading={loading} error={error}
-    onFiltersChange={(patch) => setFilters((current) => ({ ...current, ...patch }))} onSearch={() => void search()} onRetryOptions={() => void loadOptions()} />
 }
 
 export function SitesView() {
@@ -604,134 +464,6 @@ export function SitesView() {
     onToggleSiteLocationAudit={toggleSiteLocationAudit} onRetrySiteLocationAudit={() => { if (siteLocationAuditFor) void loadSiteLocationAudit(siteLocationAuditFor) }}
     onCaptureLocation={() => void captureLocation()} onClearLocation={clearLocation}
     onReload={() => void reload()} onSubmit={submit} onNameChange={setName} onTimeZoneChange={setTimeZone} />
-}
-
-export function EmployeesView() {
-  const [employees, setEmployees] = useState<Employee[]>([])
-  const [sites, setSites] = useState<Site[]>([])
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState('')
-  const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [dni, setDni] = useState(''); const [displayName, setDisplayName] = useState(''); const [siteIds, setSiteIds] = useState<string[]>([])
-  const [tolerance, setTolerance] = useState('5'); const [temporaryPassword, setTemporaryPassword] = useState('')
-  // A password made with «Generar contraseña»: the form says it is shown after creating the employee.
-  const [generatedPassword, setGeneratedPassword] = useState(false)
-  const cards = !useWideTable()
-  // Edits live in a draft copy; the list only changes with what the server returns.
-  const [draft, setDraft] = useState<Employee | null>(null)
-  // Template assignments of one employee (D-20261015-02), loaded when its panel opens.
-  const [assignmentsFor, setAssignmentsFor] = useState(''); const [assignments, setAssignments] = useState<TemplateAssignment[]>([]); const [assignmentTemplates, setAssignmentTemplates] = useState<Template[]>([])
-  const [assignmentsLoading, setAssignmentsLoading] = useState(false); const [assignmentsLoadError, setAssignmentsLoadError] = useState(''); const [assignmentError, setAssignmentError] = useState('')
-  const [assignmentTemplateId, setAssignmentTemplateId] = useState(''); const [assignmentValidFrom, setAssignmentValidFrom] = useState(''); const [assignmentBusy, setAssignmentBusy] = useState(false)
-  const assignmentRequest = useRef(0)
-  async function openAssignments(id: string) {
-    const requestId = ++assignmentRequest.current
-    setAssignmentsFor(id); setAssignments([]); setAssignmentsLoadError(''); setAssignmentError(''); setAssignmentTemplateId(''); setAssignmentValidFrom(deviceDate()); setAssignmentsLoading(true)
-    try {
-      const [history, available] = await Promise.all([api.get<TemplateAssignment[]>(`/employees/${encodeURIComponent(id)}/template-assignments`), api.get<Template[]>('/templates')])
-      if (requestId !== assignmentRequest.current) return
-      setAssignments(history); setAssignmentTemplates(available.filter((template) => template.active))
-    } catch (reason) { if (requestId === assignmentRequest.current) setAssignmentsLoadError(errText(reason)) }
-    finally { if (requestId === assignmentRequest.current) setAssignmentsLoading(false) }
-  }
-  function closeAssignments() { assignmentRequest.current += 1; setAssignmentsFor(''); setAssignmentsLoading(false) }
-  async function assignTemplate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const employeeId = assignmentsFor
-    if (!employeeId || !assignmentTemplateId || !assignmentValidFrom) return
-    setAssignmentBusy(true); setAssignmentError(''); setNotice('')
-    try {
-      const created = await api.post<TemplateAssignment>(`/employees/${encodeURIComponent(employeeId)}/template-assignments`, { templateId: assignmentTemplateId, validFrom: assignmentValidFrom })
-      setAssignments((current) => [created, ...current].sort((a, b) => b.validFrom.localeCompare(a.validFrom) || b.createdAt.localeCompare(a.createdAt)))
-      setAssignmentTemplateId(''); setAssignmentValidFrom(deviceDate()); setNotice('Horario asignado.')
-    } catch (reason) { setAssignmentError(errText(reason)) } finally { setAssignmentBusy(false) }
-  }
-  // The horarios open next to the employee; on a long list or a phone they may start off screen.
-  useEffect(() => {
-    if (!assignmentsFor) return
-    const prefersReducedMotion = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    document.getElementById(employeeDetailId(assignmentsFor))?.scrollIntoView?.({ block: 'nearest', behavior: prefersReducedMotion ? 'auto' : 'smooth' })
-  }, [assignmentsFor])
-  async function reload() {
-    closeAssignments()
-    setLoading(true); setLoadError(''); setError(''); setDraft(null)
-    try {
-      const [people, availableSites] = await Promise.all([api.get<Employee[]>('/employees'), api.get<Site[]>('/sites')])
-      setEmployees(people); setSites(availableSites)
-      setSiteIds((current) => current.length === 0 ? onlySite(availableSites) : current)
-    } catch (reason) { setEmployees([]); setSites([]); setLoadError(errText(reason)) } finally { setLoading(false) }
-  }
-  // 2026-11-10 (#110): with a single site its box came unticked and "Crear empleado" stayed blocked until the owner found it.
-  function onlySite(available: Site[]) { return available.length === 1 ? [available[0].id] : [] }
-  useEffect(() => { void reload() }, [])
-  function toggleSite(id: string) { setSiteIds((current) => current.includes(id) ? current.filter((siteId) => siteId !== id) : [...current, id]) }
-  async function create(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setError(''); setNotice('')
-    if (temporaryPassword && passwordTooLong(temporaryPassword)) { setError(PASSWORD_TOO_LONG_MESSAGE); return }
-    setBusy(true)
-    try {
-      const sentPassword = temporaryPassword
-      const created = await api.post<Employee>('/employees', { dni: dni.trim(), displayName: displayName.trim(), siteIds, toleranceMinutes: Number(tolerance), ...(sentPassword ? { temporaryPassword: sentPassword } : {}) })
-      setEmployees((current) => [...current, created]); setDni(''); setDisplayName(''); setSiteIds(onlySite(sites)); setTolerance('5'); setTemporaryPassword(''); setGeneratedPassword(false)
-      // An account that already existed keeps its password and the one sent is not used (OrganizationService.createEmployee).
-      if (sentPassword && created.mustChangePassword === false) setNotice('Empleado creado. Ese DNI ya tenía cuenta: sigue entrando con su contraseña de siempre.')
-      else {
-        setNotice('Empleado creado.')
-        if (sentPassword) setIssuedPassword({ displayName: created.displayName, temporaryPassword: sentPassword, reason: 'created' })
-      }
-    } catch (reason) { setError(errText(reason)) } finally { setBusy(false) }
-  }
-  function generatePassword() { setTemporaryPassword(generateTemporaryPassword()); setGeneratedPassword(true) }
-  function typePassword(value: string) { setTemporaryPassword(value); setGeneratedPassword(false) }
-  async function saveEmployee() {
-    if (!draft) return
-    setBusy(true); setError(''); setNotice('')
-    try {
-      const updated = await api.patch<Employee>(`/employees/${encodeURIComponent(draft.id)}`, { displayName: draft.displayName, siteIds: draft.siteIds, toleranceMinutes: draft.toleranceMinutes, active: draft.active })
-      setEmployees((current) => current.map((entry) => entry.id === updated.id ? updated : entry)); setDraft(null); setNotice('Cambios del empleado guardados.')
-    } catch (reason) { setError(errText(reason)) } finally { setBusy(false) }
-  }
-  function startEditing(id: string) {
-    const person = employees.find((entry) => entry.id === id)
-    setDraft(person ? { ...person, siteIds: [...person.siteIds] } : null); setError(''); setNotice('')
-  }
-  function updateDraft(patch: Partial<Employee>) { setDraft((current) => current ? { ...current, ...patch } : current) }
-  const assignmentsEmployee = employees.find((person) => person.id === assignmentsFor)
-  const assignmentsPanel = assignmentsEmployee ? <TemplateAssignmentsRender employee={assignmentsEmployee} sites={sites}
-    templates={assignmentTemplates.filter((template) => assignmentsEmployee.siteIds.includes(template.siteId))} assignments={assignments}
-    loading={assignmentsLoading} loadError={assignmentsLoadError} error={assignmentError} busy={assignmentBusy} templateId={assignmentTemplateId} validFrom={assignmentValidFrom}
-    onTemplateChange={setAssignmentTemplateId} onValidFromChange={setAssignmentValidFrom} onSubmit={(event) => void assignTemplate(event)}
-    onRetry={() => void openAssignments(assignmentsEmployee.id)} onClose={closeAssignments} /> : null
-  // D-20261027-09: the temporary password lives only in this state; it is never written to browser storage and is
-  // gone when the ADMIN dismisses the panel or leaves the view.
-  const [resetTarget, setResetTarget] = useState<string | null>(null)
-  const [issuedPassword, setIssuedPassword] = useState<IssuedPassword | null>(null)
-  // After creating an employee the password panel sits next to the form, below the list; bring it into view. The keyboard
-  // focus goes there too (also after a reset, whose confirm button disappears), so it can be read out right away.
-  useEffect(() => {
-    if (!issuedPassword) return
-    const panel = document.getElementById(ISSUED_PASSWORD_ID)
-    if (issuedPassword.reason === 'created') panel?.scrollIntoView?.({ block: 'nearest' })
-    panel?.focus({ preventScroll: issuedPassword.reason === 'created' })
-  }, [issuedPassword])
-  function askReset(id: string) { setResetTarget(id); setIssuedPassword(null); setError(''); setNotice('') }
-  async function confirmReset() {
-    const person = employees.find((entry) => entry.id === resetTarget)
-    if (!person) return
-    setBusy(true); setError(''); setNotice('')
-    try {
-      const { temporaryPassword: issued } = await api.post<PasswordReset>(`/employees/${encodeURIComponent(person.id)}/password-reset`)
-      setIssuedPassword({ displayName: person.displayName, temporaryPassword: issued })
-      setEmployees((current) => current.map((entry) => entry.id === person.id ? { ...entry, mustChangePassword: true } : entry))
-    } catch (reason) { setError(errText(reason)) } finally { setBusy(false); setResetTarget(null) }
-  }
-  return <EmployeesViewRender employees={employees} sites={sites} loading={loading} loadError={loadError} error={error} notice={notice} busy={busy} dni={dni} displayName={displayName} siteIds={siteIds} tolerance={tolerance} temporaryPassword={temporaryPassword} draft={draft}
-    generatedPassword={generatedPassword} cards={cards} assignmentsFor={assignmentsFor} assignmentsPanel={assignmentsPanel} onOpenAssignments={(id) => void openAssignments(id)}
-    onReload={() => void reload()} onCreate={create} onDniChange={setDni} onDisplayNameChange={setDisplayName} onToggleSite={toggleSite} onToleranceChange={setTolerance} onTemporaryPasswordChange={typePassword} onGeneratePassword={generatePassword}
-    onSave={() => void saveEmployee()} onDraftChange={updateDraft} onStartEditing={startEditing} onCancelEditing={() => { setDraft(null); setError('') }}
-    resetTarget={resetTarget} issuedPassword={issuedPassword} onAskReset={askReset} onConfirmReset={() => void confirmReset()} onCancelReset={() => setResetTarget(null)} onDismissIssuedPassword={() => setIssuedPassword(null)} />
 }
 
 /** Horarios (the UI name of schedule templates, issue #103) live in SchedulesView. */
