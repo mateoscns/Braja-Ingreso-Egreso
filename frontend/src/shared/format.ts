@@ -1,16 +1,7 @@
-import type { JornadaStatus, TemplateBlock } from './api/types'
+import type { TemplateBlock } from './api/types'
 
-const STATE_LABELS: Record<JornadaStatus, string> = {
-  NO_INGRESO: 'Sin ingreso',
-  EN_CURSO: 'En curso',
-  PAUSA_ABIERTA: 'En pausa',
-  EGRESADA: 'Finalizada',
-  CANCELADA: 'Cancelada'
-}
-
-export function jornadaStateLabel(state: JornadaStatus): string {
-  return STATE_LABELS[state] ?? state
-}
+// The names of the states live in labels.ts; this export stays for the files that import it from here.
+export { jornadaStateLabel } from './labels'
 
 /** The API may return HH:MM:SS; people are shown HH:MM. */
 export function formatClock(value: string): string {
