@@ -16,7 +16,7 @@ let narrow = false
 beforeEach(() => {
   vi.clearAllMocks()
   narrow = false
-  Object.defineProperty(window, 'matchMedia', { configurable: true, value: vi.fn((query: string) => ({ matches: narrow && query === '(max-width: 520px)', media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() })) })
+  Object.defineProperty(window, 'matchMedia', { configurable: true, value: vi.fn((query: string) => ({ matches: !narrow && query === '(min-width: 768px)', media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() })) })
   Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView })
   apiMocks.get.mockImplementation((path: string) => {
     if (path === '/sites') return Promise.resolve([site])

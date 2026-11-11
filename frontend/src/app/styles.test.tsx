@@ -220,10 +220,10 @@ const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui',
 // Ceilings that only go down. Each one counts what the rules under the token block still write by hand, measured with the
 // pattern of its own test when the token block came in (2026-11-11). A slice that moves rules to tokens lowers the number in
 // the same commit; nobody raises one. Slice H1 turns the four into equalities with zero.
-const COLOR_LITERAL_CEILING = 86
-const UNTOKENED_FONT_SIZE_CEILING = 63
+const COLOR_LITERAL_CEILING = 76
+const UNTOKENED_FONT_SIZE_CEILING = 57
 const BOX_SHADOW_CEILING = 12
-const LEGACY_TOKEN_USE_CEILING = 91
+const LEGACY_TOKEN_USE_CEILING = 86
 
 // The old names with the values they had before the token block. A name is deleted from the stylesheet once nothing uses it
 // and never gets a new value in the meantime: a half-migrated rule must look exactly as it did.
@@ -799,5 +799,71 @@ describe('mensajes, etiquetas de estado, secciones, plegables, vacío y carga', 
     expect(rule('.field-error')).toMatch(/display:\s*flex/)
     expect(rule('.field-error')).toMatch(/align-items:\s*flex-start/)
     expect(rule('.field-error > .icon')).toMatch(/margin-top:\s*\.125em/)
+  })
+})
+
+// The records of a list (days, marks, people, locals, schedules, results of a search) keep their old class names until each
+// screen slice renames them to record-*; what they look like is decided here.
+const HAIRLINE = /border-bottom:\s*var\(--border-width\) solid var\(--rule\)/
+const RECORD_CLASSES = ['history-list', 'history-card', 'history-head', 'history-items', 'simple-list', 'simple-row', 'template-list', 'template-card']
+
+describe('listas de registros y tablas: filas separadas por una línea, nunca tarjetas', () => {
+  it('cada registro es una fila con una línea fina debajo, sin recuadro, esquinas, fondo ni sombra (principio 3)', () => {
+    for (const record of ['.history-card', '.template-card', '.simple-row', '.simple-list > article']) {
+      expect(rule(record), record).toMatch(HAIRLINE)
+      expect(rule(record), record).toMatch(/padding:\s*var\(--space-3\) 0/)
+    }
+    // No rule of a record or of its list draws a box, at any width.
+    const boxed = rulesNaming(...RECORD_CLASSES).filter(({ declarations }) => /(?<![\w-])(?:border|border-top|border-left|border-right|background|box-shadow|border-radius)\s*:/.test(declarations))
+    expect(selectorsOf(boxed)).toEqual([])
+  })
+
+  it('las filas van una debajo de la otra sin hueco: las separa su línea, no el espacio entre tarjetas', () => {
+    for (const list of ['.history-list', '.simple-list', '.template-list']) expect(ruleListing(list).declarations, list).not.toMatch(/(?<![\w-])gap\s*:/)
+    // The inbox and the motives of the employee are their own slices (E1, D3): they keep their space for now.
+    expect(rule('.deviation-list, .motive-list')).toMatch(/gap:\s*10px/)
+  })
+
+  it('una lista de marcas o de cambios suelta separa sus filas con la línea; dentro de un registro sus renglones van sin línea', () => {
+    const item = rule('.history-items li')
+    const inside = rule('.history-card .history-items li')
+
+    expect(item).toMatch(HAIRLINE)
+    expect(item).toMatch(/padding:\s*var\(--space-3\) 0/)
+    expect(inside).toMatch(/border-bottom:\s*0/)
+    // A detail line reads in the muted colour; the name of the mark stays in the text colour.
+    expect(rule('.history-card .history-items')).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
+    expect(rule('.history-card .history-items strong')).toMatch(/(?<![\w-])color:\s*var\(--text\)/)
+  })
+
+  it('el nombre de un registro va en negrita y sus datos en 16 px del color secundario', () => {
+    expect(rule('.history-head > strong:first-child')).toMatch(/font-size:\s*var\(--font-size-body-lg\)/)
+    expect(rule('.history-head > strong:first-child')).toMatch(/font-weight:\s*var\(--font-weight-heavy\)/)
+    for (const detail of ['.history-items small', '.simple-row small', '.template-card small']) {
+      expect(rule(detail), detail).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
+      expect(rule(detail), detail).toMatch(/font-size:\s*var\(--font-size-body\)/)
+    }
+    expect(rule('.simple-row strong')).not.toMatch(/font-size/)
+    // A record has no avatar: the glyph of a local was decoration (aria-hidden) with a tinted box.
+    expect(rule('.simple-list > article .row-avatar')).toMatch(/display:\s*none/)
+  })
+
+  it('una tabla es una planilla: títulos de 14 px en negrita sin mayúsculas, raya de borde debajo y celdas con línea fina', () => {
+    const head = rule('th')
+    const cell = rule('td')
+
+    expect(rule('table')).toMatch(/font-size:\s*var\(--font-size-body\)/)
+    expect(head).toMatch(/font-size:\s*var\(--font-size-meta\)/)
+    expect(head).toMatch(/font-weight:\s*var\(--font-weight-heavy\)/)
+    expect(head).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
+    expect(head).toMatch(/border-bottom:\s*var\(--border-width\) solid var\(--border\)/)
+    expect(head).not.toMatch(/text-transform|letter-spacing/)
+    for (const declarations of [head, cell]) expect(declarations).toMatch(/padding:\s*var\(--space-2\) var\(--space-3\) var\(--space-2\) 0/)
+    expect(cell).toMatch(HAIRLINE)
+    expect(cell).toMatch(/(?<![\w-])color:\s*var\(--text\)/)
+    // The identifier of the row is the first column, in bold; a row that spans the table (an open panel) is not one.
+    expect(rule('td:first-child:not([colspan])')).toMatch(/font-weight:\s*var\(--font-weight-heavy\)/)
+    // A table that does not fit scrolls inside its own box, never the page.
+    expect(rule('.table-scroll')).toMatch(/overflow-x:\s*auto/)
   })
 })

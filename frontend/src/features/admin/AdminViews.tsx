@@ -4,7 +4,7 @@ import type { Deviation, Employee, Jornada, JornadaAudit, JornadaSummary, Mark, 
 import { deviceDate, validateDateRange, DATE_PAIR_MESSAGE } from '../../shared/dateRange'
 import { declarationFailureMessage } from './bulkDeclaration'
 import type { AdminSection } from './setupStatus'
-import { useNarrowScreen } from './useNarrowScreen'
+import { useWideTable } from '../../app/useBreakpoint'
 import { WorkDaysPanel } from './WorkDaysPanel'
 import { isRegionTimeZone, REGION_TIME_ZONE_MESSAGE } from './siteZone'
 import { PASSWORD_TOO_LONG_MESSAGE, passwordTooLong } from '../../shared/password'
@@ -27,7 +27,6 @@ import {
 } from './AdminViewsRender'
 import { EmployeesViewRender, employeeDetailId, ISSUED_PASSWORD_ID, TemplateAssignmentsRender, type IssuedPassword } from './EmployeesViewRender'
 import { generateTemporaryPassword } from './temporaryPassword'
-import { PHONE_QUERY, useMediaQuery } from './useMediaQuery'
 
 const dateInBrowserZone = () => {
   const now = new Date()
@@ -105,7 +104,7 @@ export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; 
   const [correction, setCorrection] = useState<{ deviationId: string; classification: DeviationClassification } | null>(null)
   const [correctionReason, setCorrectionReason] = useState('')
   const [targetDeviation] = useState(() => new URLSearchParams(window.location.search).get('deviation') ?? '')
-  const narrow = useNarrowScreen()
+  const narrow = !useWideTable()
   // A new filter set always starts from the first page: a cursor is only valid for the filters that produced it.
   const reload = async (active: InboxFilterValues = appliedFilters) => {
     const requestId = ++generation.current
@@ -619,7 +618,7 @@ export function EmployeesView() {
   const [tolerance, setTolerance] = useState('5'); const [temporaryPassword, setTemporaryPassword] = useState('')
   // A password made with «Generar contraseña»: the form says it is shown after creating the employee.
   const [generatedPassword, setGeneratedPassword] = useState(false)
-  const cards = useMediaQuery(PHONE_QUERY)
+  const cards = !useWideTable()
   // Edits live in a draft copy; the list only changes with what the server returns.
   const [draft, setDraft] = useState<Employee | null>(null)
   // Template assignments of one employee (D-20261015-02), loaded when its panel opens.
@@ -750,7 +749,7 @@ export function JourneysView({ openJornada, coverage, onNavigate, onDaysLoaded }
   const [date, setDate] = useState(dateInBrowserZone); const [dateError, setDateError] = useState(''); const [employeeId, setEmployeeId] = useState(''); const [siteId, setSiteId] = useState(''); const [templateId, setTemplateId] = useState('')
   // The single day has its own date, error and notice: it is folded at the bottom, far from the page messages.
   const [singleDate, setSingleDate] = useState(dateInBrowserZone); const [singleError, setSingleError] = useState(''); const [singleNotice, setSingleNotice] = useState('')
-  const narrow = useNarrowScreen()
+  const narrow = !useWideTable()
   const journeyRequest = useRef(0)
   const detailRequest = useRef(0)
   const [scrollToDetail, setScrollToDetail] = useState(false)

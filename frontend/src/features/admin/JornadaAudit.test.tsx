@@ -37,9 +37,14 @@ const audit = {
 }
 
 let auditResult: () => Promise<unknown> = () => Promise.resolve(audit)
+// A wide screen: the marks of a day are a table from 768 px (app/useBreakpoint.ts). The shared stub of src/test/setup.ts
+// answers no query, which is now a phone.
+let sharedMatchMedia: PropertyDescriptor | undefined
 
 beforeEach(() => {
   vi.clearAllMocks()
+  sharedMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia')
+  Object.defineProperty(window, 'matchMedia', { configurable: true, writable: true, value: (query: string) => ({ matches: query === '(min-width: 768px)', media: query, addEventListener: () => undefined, removeEventListener: () => undefined }) })
   auditResult = () => Promise.resolve(audit)
   apiMocks.get.mockImplementation((path: string) => {
     if (path === '/sites') return Promise.resolve([site])
@@ -53,7 +58,10 @@ beforeEach(() => {
   apiMocks.post.mockResolvedValue({ ...jornada.marks[0], voided: true, voidReason: 'Tocó por error.' })
 })
 
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+  if (sharedMatchMedia) Object.defineProperty(window, 'matchMedia', sharedMatchMedia)
+})
 
 const auditCalls = () => apiMocks.get.mock.calls.filter(([path]) => path === '/admin/jornadas/j-1/audit').length
 
