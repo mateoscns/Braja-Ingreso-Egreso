@@ -6,6 +6,7 @@ import type { Deviation } from '../../shared/api/types'
 import { AdminHistory, AdminInbox, EmployeesView, JourneysView, SitesView, TemplatesView, type OpenJornadaRequest } from './AdminViews'
 import { CoverageNoticeRender, FirstStepsRender } from './FirstSteps'
 import { coverageNotice, loadSetupData, readyTomorrow, setupComplete, setupSteps, type AdminSection, type SetupData } from './setupStatus'
+import { useAdminSection } from './useAdminSection'
 import { AdminPushControl } from '../../device/push/AdminPushControl'
 import { InstallControl } from '../../device/pwa/InstallControl'
 
@@ -23,14 +24,18 @@ const STATUS_SECTIONS = new Set<AdminSection>(['setup', 'inbox', 'jornadas'])
 
 export function AdminApp() {
   const { session, signOut, activateCompany } = useSession()
-  // null until the setup status says where to start: "Primeros pasos" while a step is missing, Bandeja otherwise.
-  const [section, setSection] = useState<AdminSection | null>(null)
+  // Where to open when the address names no section: null until the setup status says it, "Primeros pasos" while a
+  // step is missing, Bandeja otherwise.
+  const [start, setStart] = useState<AdminSection | null>(null)
+  // The section shown lives in the address, so reload and Back keep the place (D-20261111-02).
+  const { section, go } = useAdminSection(start)
   const [setup, setSetup] = useState<SetupData | null>(null)
   const [setupLoading, setSetupLoading] = useState(false)
   const [setupError, setSetupError] = useState('')
   const [openJornada, setOpenJornada] = useState<OpenJornadaRequest | undefined>()
   const [journeysKey, setJourneysKey] = useState(0)
-  // Set once the start section is decided or the ADMIN picks one; a late status never moves them away.
+  // Set once the start section is decided. A late status never moves the owner away: once a section is shown, its
+  // address is the place, and the start only counts again when an address names no section.
   const chosen = useRef(false)
   const setupRequest = useRef(0)
   const active = session?.memberships.find((membership) => membership.companyId === session.activeCompanyId)
@@ -42,23 +47,33 @@ export function AdminApp() {
       const data = await loadSetupData((path) => api.get(path))
       if (requestId !== setupRequest.current) return
       setSetup(data); setSetupError('')
-      if (!chosen.current) { chosen.current = true; setSection(setupComplete(setupSteps(data)) ? 'inbox' : 'setup') }
+      if (!chosen.current) { chosen.current = true; setStart(setupComplete(setupSteps(data)) ? 'inbox' : 'setup') }
     } catch (reason) {
       if (requestId !== setupRequest.current) return
       setSetupError(reason instanceof Error ? reason.message : 'No se pudo revisar la configuración.')
-      if (!chosen.current) { chosen.current = true; setSection('inbox') }
+      if (!chosen.current) { chosen.current = true; setStart('inbox') }
     } finally { if (requestId === setupRequest.current) setSetupLoading(false) }
   }
   useEffect(() => {
     if (!companyId) return
-    chosen.current = false; setSection(null); setSetup(null); setSetupError('')
+    chosen.current = false; setStart(null); setSetup(null); setSetupError('')
     void refreshSetup()
   }, [companyId])
+  // Back, Forward or a typed address change the section without navigate(): the status is read again as a menu
+  // choice does, so a guide reached with Back does not show a step just done as missing.
+  const shown = useRef<AdminSection | null>(null)
+  const navigated = useRef(false)
+  useEffect(() => {
+    const previous = shown.current
+    const followed = !navigated.current
+    shown.current = section; navigated.current = false
+    if (followed && previous !== null && section !== null && section !== previous && STATUS_SECTIONS.has(section)) void refreshSetup()
+  }, [section])
   if (!session || !active) return null
   function navigate(next: AdminSection) {
-    chosen.current = true
     setOpenJornada(undefined)
-    setSection(next)
+    if (next !== section) navigated.current = true
+    go(next)
     if (STATUS_SECTIONS.has(next)) void refreshSetup()
   }
   function openDeviationJornada(item: Deviation) {
