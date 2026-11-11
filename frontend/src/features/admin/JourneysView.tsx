@@ -1,11 +1,14 @@
 // The «Hoy» container (section 'jornadas'): the list of a date and the detail of a day with its mark changes, with its time
 // helpers, and where the focus goes when a part of the day opens or closes. Loading days is «Días de trabajo» (WorkDaysView).
+// The search of earlier days keeps its own state (AdminHistory); it gets the people and locals read here and opens a day
+// found through openDetail, so that day has the same actions as one of the list.
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { api, queryString } from '../../shared/api/client'
 import type { Employee, Jornada, JornadaAudit, Mark, MarkAction, Site } from '../../shared/api/types'
 import { useWideTable } from '../../app/useBreakpoint'
 import { CANCEL_BUTTON_ID, CANCEL_FORM_ID, DETAIL_HEADING_ID, DETAIL_ID, FORGOTTEN_FORM_ID, JourneysViewRender, markButtonId, markFormId, markMessageKey, type JourneyRow } from './JourneysViewRender'
 import { errText } from './adminShared'
+import { AdminHistory } from './AdminHistory'
 
 /** What takes the focus once the screen shows it: the day just opened (its title), a form just opened (its first field), or
     the button that opened a form that closed. */
@@ -67,7 +70,8 @@ function siteTimeInput(value: string, timeZone: string): string {
 /** A jornada to open on arrival (from a deviation in Bandeja); forgottenAction preselects the mark that is missing. */
 export type OpenJornadaRequest = { jornadaId: string; forgottenAction?: MarkAction }
 
-export function JourneysView({ openJornada }: { openJornada?: OpenJornadaRequest } = {}) {
+/** searchOpen: the old address of «Historial» was followed, so the search of earlier days opens. */
+export function JourneysView({ openJornada, searchOpen = false }: { openJornada?: OpenJornadaRequest; searchOpen?: boolean } = {}) {
   const [employees, setEmployees] = useState<Employee[]>([]); const [sites, setSites] = useState<Site[]>([])
   const [jornadas, setJornadas] = useState<JourneyRow[]>([]); const [loading, setLoading] = useState(true); const [journeysLoading, setJourneysLoading] = useState(false); const [journeysDate, setJourneysDate] = useState(''); const [journeysError, setJourneysError] = useState(''); const [dependencyError, setDependencyError] = useState(''); const [error, setError] = useState(''); const [notice, setNotice] = useState('')
   const [detail, setDetail] = useState<Jornada | null>(null); const [detailLoading, setDetailLoading] = useState(false); const [markBusy, setMarkBusy] = useState('')
@@ -270,7 +274,8 @@ export function JourneysView({ openJornada }: { openJornada?: OpenJornadaRequest
     void loadJourneys(value)
   }
   const peopleById = useMemo(() => new Map(employees.map((person) => [person.id, person.displayName])), [employees])
-  return <JourneysViewRender narrow={narrow} sites={sites} jornadas={jornadas} loading={loading} journeysLoading={journeysLoading} journeysDate={journeysDate} journeysError={journeysError} dependencyError={dependencyError} error={error} notice={notice} messageAt={messageAt} detail={detail} detailFor={detailFor} detailLoading={detailLoading} markBusy={markBusy} date={date} peopleById={peopleById} dateError={dateError} detailSite={detailSite} detailTimeZone={detailTimeZone} forgotAction={forgotAction} forgotOccurredAt={forgotOccurredAt} forgotReason={forgotReason} editingMarkId={editingMarkId} correctedAction={correctedAction} correctedOccurredAt={correctedOccurredAt} correctionReason={correctionReason}
+  const daySearch = <AdminHistory employees={employees} sites={sites} loadingOptions={loading} opening={detailLoading} openOnArrival={searchOpen} onOpenDay={(id) => void openDetail(id)} />
+  return <JourneysViewRender daySearch={daySearch} narrow={narrow} sites={sites} jornadas={jornadas} loading={loading} journeysLoading={journeysLoading} journeysDate={journeysDate} journeysError={journeysError} dependencyError={dependencyError} error={error} notice={notice} messageAt={messageAt} detail={detail} detailFor={detailFor} detailLoading={detailLoading} markBusy={markBusy} date={date} peopleById={peopleById} dateError={dateError} detailSite={detailSite} detailTimeZone={detailTimeZone} forgotAction={forgotAction} forgotOccurredAt={forgotOccurredAt} forgotReason={forgotReason} editingMarkId={editingMarkId} correctedAction={correctedAction} correctedOccurredAt={correctedOccurredAt} correctionReason={correctionReason}
     cancelOpen={cancelOpen} cancelReason={cancelReason} voidingMarkId={voidingMarkId} voidReason={voidReason}
     auditOpen={Boolean(detail) && auditFor === detail?.id} audit={audit} auditLoading={auditLoading} auditError={auditError} onToggleAudit={toggleAudit} onRetryAudit={() => { if (auditFor) void loadAudit(auditFor) }}
     onBeginCancel={() => { setCancelOpen(true); setCancelReason(''); setReveal({ kind: 'form', id: CANCEL_FORM_ID }) }} onCancelReasonChange={setCancelReason} onConfirmCancel={(event) => void cancelJornada(event)} onAbortCancel={() => { setCancelOpen(false); setCancelReason(''); setReveal({ kind: 'trigger', id: CANCEL_BUTTON_ID }) }}

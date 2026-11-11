@@ -4,9 +4,10 @@ import { addDays, calendarToday, dayText } from './workDays'
 
 /**
  * The ADMIN sections; the current one lives in the address (useAdminSection) and AdminApp passes navigation callbacks down.
- * 'jornadas' is «Hoy» (the days of a date and their detail); 'workdays' is «Días de trabajo» (the monthly load and the single day).
+ * 'jornadas' is «Hoy» (the days of a date and their detail, and the search of earlier days that was «Historial»); 'workdays'
+ * is «Días de trabajo» (the monthly load and the single day).
  */
-export type AdminSection = 'setup' | 'inbox' | 'jornadas' | 'workdays' | 'historial' | 'sedes' | 'plantillas' | 'empleados'
+export type AdminSection = 'setup' | 'inbox' | 'jornadas' | 'workdays' | 'sedes' | 'plantillas' | 'empleados'
 
 /** One GET per employee is acceptable for a small team; beyond this many, step 4 sends the owner to Empleados instead. */
 export const ASSIGNMENT_CHECK_LIMIT = 30

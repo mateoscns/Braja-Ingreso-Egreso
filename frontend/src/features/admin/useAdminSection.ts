@@ -4,12 +4,11 @@ import type { AdminSection } from './setupStatus'
 /**
  * The address of each ADMIN section (D-20261111-02, step 1): reload and Back keep the place.
  * These are already the names of the four-destination menu, so they change only once: step 2 adds
- * '#/dias-de-trabajo' (slice N3a) and '#/configuracion', and '#/historial' will show «Hoy».
+ * '#/dias-de-trabajo' (slice N3a) and '#/configuracion', and '#/historial' shows «Hoy» (slice N3b, RETIRED_ADDRESSES).
  *
  *   inbox      #/para-revisar                  (Bandeja)
- *   jornadas   #/hoy                           (Hoy: the days of a date and their detail)
+ *   jornadas   #/hoy                           (Hoy: the days of a date, their detail and the search of earlier days)
  *   workdays   #/dias-de-trabajo               (Días de trabajo: the monthly load and the single day)
- *   historial  #/historial
  *   sedes      #/configuracion/locales
  *   plantillas #/configuracion/horarios
  *   empleados  #/configuracion/equipo
@@ -21,18 +20,27 @@ export const SECTION_ADDRESSES: Readonly<Record<AdminSection, string>> = {
   inbox: '#/para-revisar',
   jornadas: '#/hoy',
   workdays: '#/dias-de-trabajo',
-  historial: '#/historial',
   sedes: '#/configuracion/locales',
   plantillas: '#/configuracion/horarios',
   empleados: '#/configuracion/equipo',
   setup: '#/configuracion/primeros-pasos'
 }
 
+/** The address of the «Historial» section, gone in step 2: its search is a fold of «Hoy», which this address opens. */
+export const HISTORY_ADDRESS = '#/historial'
+
+/**
+ * Addresses of sections that no longer exist, with the section that took their place. A bookmark, a reload or an old
+ * history entry keeps working: it shows that section, and the address is replaced by the section's own in the same
+ * history entry, so each section still has one address.
+ */
+const RETIRED_ADDRESSES: ReadonlyMap<string, AdminSection> = new Map<string, AdminSection>([[HISTORY_ADDRESS, 'jornadas']])
+
 const SECTIONS = Object.keys(SECTION_ADDRESSES) as AdminSection[]
 
 /** Exact match only: anything else, malformed or unknown, names no section and shows the start section. */
 export function sectionFromHash(hash: string): AdminSection | null {
-  return SECTIONS.find((section) => SECTION_ADDRESSES[section] === hash) ?? null
+  return SECTIONS.find((section) => SECTION_ADDRESSES[section] === hash) ?? RETIRED_ADDRESSES.get(hash) ?? null
 }
 
 /** Addresses start with '#/'; any other fragment (the brand's '#inicio', a skip link) is an anchor inside the page. */
@@ -48,6 +56,9 @@ export type AdminSectionState = {
   section: AdminSection | null
   /** Shows a section and writes its address as a new history entry, so Back returns to the previous one. */
   go: (next: AdminSection) => void
+  /** The retired address the shown section was reached by (HISTORY_ADDRESS opens the search of «Hoy»); null once the
+      owner moves on. */
+  retiredAddress: string | null
 }
 
 /**
@@ -58,6 +69,7 @@ export type AdminSectionState = {
  */
 export function useAdminSection(start: AdminSection | null): AdminSectionState {
   const [addressed, setAddressed] = useState<AdminSection | null>(null)
+  const [retiredAddress, setRetiredAddress] = useState<string | null>(null)
   // The address is read in the first effect, not during render: when the company changes, App.tsx mounts a new
   // AdminApp whose render runs before the old one's cleanup has cleared its address.
   const [ready, setReady] = useState(false)
@@ -65,15 +77,24 @@ export function useAdminSection(start: AdminSection | null): AdminSectionState {
   const section = ready ? addressed ?? start : null
 
   useEffect(() => {
+    // A retired address shows the section that took its place and gets that section's address at once, in the same
+    // history entry; the section effect below would leave it, since it names a section.
+    const take = (hash: string) => {
+      const named = sectionFromHash(hash)
+      const retired = named !== null && hash !== SECTION_ADDRESSES[named]
+      if (retired) replaceHash(SECTION_ADDRESSES[named])
+      setRetiredAddress(retired ? hash : null)
+      setAddressed(named)
+    }
     // In StrictMode the effect runs twice on mount; the second run must not read the address the first cleanup cleared.
     if (!read.current) {
       read.current = true
-      setAddressed(sectionFromHash(window.location.hash))
+      take(window.location.hash)
       setReady(true)
     }
     const follow = () => {
       const hash = window.location.hash
-      if (!isAnchor(hash)) setAddressed(sectionFromHash(hash))
+      if (!isAnchor(hash)) take(hash)
     }
     window.addEventListener('hashchange', follow)
     return () => {
@@ -94,10 +115,10 @@ export function useAdminSection(start: AdminSection | null): AdminSectionState {
   }, [section, addressed])
 
   const go = useCallback((next: AdminSection) => {
-    setAddressed(next)
+    setAddressed(next); setRetiredAddress(null)
     // Assigning the hash adds a history entry and fires hashchange, which lands on the same section.
     if (window.location.hash !== SECTION_ADDRESSES[next]) window.location.hash = SECTION_ADDRESSES[next]
   }, [])
 
-  return { section, go }
+  return { section, go, retiredAddress }
 }

@@ -274,7 +274,8 @@ describe('administración de desvíos y marcas', () => {
     fireEvent.change(screen.getByLabelText('Fecha'), { target: { value: '' } })
 
     expect(screen.getByRole('heading', { name: 'Hoy', level: 1 })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Días de trabajo', level: 2 })).toBeInTheDocument()
+    // Plain «Días»: «Días de trabajo» names another section since D-20261111-02, step 2.
+    expect(screen.getByRole('heading', { name: 'Días', level: 2 })).toBeInTheDocument()
   })
 
   it('muestra el estado vacío de la bandeja solo cuando la consulta termina correctamente sin filas', async () => {
@@ -1399,7 +1400,6 @@ describe('dirección de cada sección del ADMIN', () => {
     ['#/para-revisar', 'Para revisar', 'Para revisar'],
     ['#/hoy', 'Hoy', 'Hoy'],
     ['#/dias-de-trabajo', 'Días de trabajo', 'Días de trabajo'],
-    ['#/historial', 'Historial', 'Historial'],
     ['#/configuracion/locales', 'Locales', 'Locales'],
     ['#/configuracion/horarios', 'Horarios', 'Horarios'],
     ['#/configuracion/equipo', 'Equipo', 'Equipo'],
@@ -1436,8 +1436,8 @@ describe('dirección de cada sección del ADMIN', () => {
     await startsOnFirstSteps()
     fireEvent.click(menuButton('Equipo'))
     expect(window.location.hash).toBe('#/configuracion/equipo')
-    fireEvent.click(menuButton('Historial'))
-    expect(window.location.hash).toBe('#/historial')
+    fireEvent.click(menuButton('Hoy'))
+    expect(window.location.hash).toBe('#/hoy')
   })
 
   it('la marca de la barra lleva a «Para revisar»', async () => {
@@ -1542,6 +1542,45 @@ describe('dirección de cada sección del ADMIN', () => {
         expect(window.location.hash).toBe('#/configuracion/horarios')
         expect(await screen.findByRole('heading', { name: 'Horarios', level: 1 })).toBeInTheDocument()
       } finally { vi.useRealTimers() }
+    })
+  })
+
+  // D-20261111-02, step 2: «Historial» is no longer a section; its search is a fold of «Hoy».
+  describe('la búsqueda de días anteriores está dentro de «Hoy»', () => {
+    const daySearch = () => screen.getByRole('region', { name: 'Buscar días anteriores' })
+    const fold = () => daySearch().querySelector('details')!
+
+    it('el menú ya no tiene «Historial» y «Hoy» tiene la búsqueda, plegada', async () => {
+      openAt('#/hoy')
+      render(<AdminApp />)
+      expect(await screen.findByRole('heading', { name: 'Hoy', level: 1 })).toBeInTheDocument()
+      const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
+      expect(within(nav).queryByRole('button', { name: /Historial/ })).not.toBeInTheDocument()
+      expect(fold()).not.toHaveAttribute('open')
+      expect(within(daySearch()).getByRole('button', { name: 'Buscar' })).toBeInTheDocument()
+    })
+
+    it('la dirección vieja #/historial abre «Hoy» con la búsqueda abierta y queda #/hoy sin agregar un paso', async () => {
+      openAt('#/historial')
+      const before = window.history.length
+      render(<AdminApp />)
+      expect(await screen.findByRole('heading', { name: 'Hoy', level: 1 })).toBeInTheDocument()
+      expect(menuButton('Hoy')).toHaveAttribute('aria-current', 'page')
+      expect(fold()).toHaveAttribute('open')
+      await waitFor(() => expect(window.location.hash).toBe('#/hoy'))
+      expect(window.history.length).toBe(before)
+    })
+
+    it('llegar a #/historial desde otra sección también abre «Hoy» con la búsqueda abierta', async () => {
+      openAt('#/configuracion/equipo')
+      render(<AdminApp />)
+      expect(await screen.findByRole('heading', { name: 'Equipo', level: 1 })).toBeInTheDocument()
+      window.location.hash = '#/historial'
+      await hashSettles()
+      expect(await screen.findByRole('heading', { name: 'Hoy', level: 1 })).toBeInTheDocument()
+      expect(menuButton('Hoy')).toHaveAttribute('aria-current', 'page')
+      expect(fold()).toHaveAttribute('open')
+      await waitFor(() => expect(window.location.hash).toBe('#/hoy'))
     })
   })
 

@@ -31,7 +31,7 @@ describe('direcciones de las secciones', () => {
 
   it('usa los nombres finales del menú de cuatro destinos', () => {
     expect(SECTION_ADDRESSES).toEqual({
-      inbox: '#/para-revisar', jornadas: '#/hoy', workdays: '#/dias-de-trabajo', historial: '#/historial',
+      inbox: '#/para-revisar', jornadas: '#/hoy', workdays: '#/dias-de-trabajo',
       sedes: '#/configuracion/locales', plantillas: '#/configuracion/horarios', empleados: '#/configuracion/equipo',
       setup: '#/configuracion/primeros-pasos'
     })
@@ -39,6 +39,10 @@ describe('direcciones de las secciones', () => {
 
   it.each(['', '#', '#/', '#/no-existe', '#/HOY', '#/hoy/', '#inicio', '#/configuracion'])('%j no nombra ninguna sección', (hash) => {
     expect(sectionFromHash(hash)).toBeNull()
+  })
+
+  it('la dirección vieja de «Historial» nombra «Hoy», donde quedó su búsqueda', () => {
+    expect(sectionFromHash('#/historial')).toBe('jornadas')
   })
 })
 
@@ -126,12 +130,42 @@ describe('useAdminSection', () => {
     expect(window.location.hash).toBe('#/configuracion/horarios')
   })
 
-  it('un ancla dentro de la página no cambia la sección', async () => {
+  it('la dirección vieja #/historial muestra «Hoy», queda #/hoy sin agregar un paso y dice por dónde se llegó', async () => {
     at('#/historial')
+    const before = window.history.length
+    const { result } = renderHook(() => useAdminSection('inbox'))
+    expect(result.current.section).toBe('jornadas')
+    expect(window.location.hash).toBe('#/hoy')
+    expect(window.history.length).toBe(before)
+    expect(result.current.retiredAddress).toBe('#/historial')
+
+    act(() => result.current.go('sedes'))
+    expect(result.current.retiredAddress).toBeNull()
+    // The hashchange of go() lands here, not in the next test.
+    await hashSettles()
+    expect(result.current.section).toBe('sedes')
+  })
+
+  it('un cambio a #/historial muestra «Hoy» y deja #/hoy', async () => {
+    const { result } = renderHook(() => useAdminSection('inbox'))
+    expect(result.current.retiredAddress).toBeNull()
+    window.location.hash = '#/historial'
+    await hashSettles()
+    expect(result.current.section).toBe('jornadas')
+    expect(window.location.hash).toBe('#/hoy')
+    expect(result.current.retiredAddress).toBe('#/historial')
+
+    window.location.hash = '#/configuracion/locales'
+    await hashSettles()
+    expect(result.current.retiredAddress).toBeNull()
+  })
+
+  it('un ancla dentro de la página no cambia la sección', async () => {
+    at('#/hoy')
     const { result } = renderHook(() => useAdminSection('inbox'))
     window.location.hash = '#inicio'
     await hashSettles()
-    expect(result.current.section).toBe('historial')
+    expect(result.current.section).toBe('jornadas')
     expect(window.location.hash).toBe('#inicio')
   })
 
@@ -159,7 +193,7 @@ describe('useAdminSection', () => {
     at('#/hoy')
     const { result, unmount } = renderHook(() => useAdminSection('inbox'))
     unmount()
-    window.location.hash = '#/historial'
+    window.location.hash = '#/configuracion/equipo'
     await hashSettles()
     expect(result.current.section).toBe('jornadas')
   })

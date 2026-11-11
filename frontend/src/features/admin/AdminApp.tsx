@@ -3,19 +3,18 @@ import { AppHeader, CompanySwitcher, Loading } from '../../app/ui'
 import { useSession } from '../../app/session'
 import { api } from '../../shared/api/client'
 import type { Deviation } from '../../shared/api/types'
-import { AdminHistory, AdminInbox, EmployeesView, JourneysView, SitesView, TemplatesView, WorkDaysView, type OpenJornadaRequest } from './AdminViews'
+import { AdminInbox, EmployeesView, JourneysView, SitesView, TemplatesView, WorkDaysView, type OpenJornadaRequest } from './AdminViews'
 import { CoverageNoticeRender, FirstStepsRender } from './FirstSteps'
 import { coverageNotice, loadSetupData, readyTomorrow, setupComplete, setupSteps, type AdminSection, type SetupData } from './setupStatus'
-import { SECTION_ADDRESSES, useAdminSection } from './useAdminSection'
+import { HISTORY_ADDRESS, SECTION_ADDRESSES, useAdminSection } from './useAdminSection'
 import { AdminPushControl } from '../../device/push/AdminPushControl'
 import { InstallControl } from '../../device/pwa/InstallControl'
 
 type NavLink = { id: AdminSection; label: string; icon: string }
 const SETUP_LINK: NavLink = { id: 'setup', label: 'Primeros pasos', icon: '✓' }
-// Daily work first, then the configuration in the order it is done.
+// Daily work first, then the configuration in the order it is done. The search of earlier days is inside «Hoy».
 const DAILY_LINKS: NavLink[] = [
-  { id: 'inbox', label: 'Para revisar', icon: '◷' }, { id: 'jornadas', label: 'Hoy', icon: '▦' }, { id: 'workdays', label: 'Días de trabajo', icon: '▥' },
-  { id: 'historial', label: 'Historial', icon: '☰' }
+  { id: 'inbox', label: 'Para revisar', icon: '◷' }, { id: 'jornadas', label: 'Hoy', icon: '▦' }, { id: 'workdays', label: 'Días de trabajo', icon: '▥' }
 ]
 const CONFIGURATION_LINKS: NavLink[] = [
   { id: 'sedes', label: 'Locales', icon: '⌖' }, { id: 'plantillas', label: 'Horarios', icon: '▤' }, { id: 'empleados', label: 'Equipo', icon: '♙' }
@@ -29,7 +28,7 @@ export function AdminApp() {
   // step is missing, Bandeja otherwise.
   const [start, setStart] = useState<AdminSection | null>(null)
   // The section shown lives in the address, so reload and Back keep the place (D-20261111-02).
-  const { section, go } = useAdminSection(start)
+  const { section, go, retiredAddress } = useAdminSection(start)
   const [setup, setSetup] = useState<SetupData | null>(null)
   const [setupLoading, setSetupLoading] = useState(false)
   const [setupError, setSetupError] = useState('')
@@ -117,10 +116,10 @@ export function AdminApp() {
         {section === 'setup' && <FirstStepsRender steps={steps} loading={setupLoading} error={setupError} readyCount={setup ? readyTomorrow(setup) : 0} onGo={navigate} onRetry={() => void refreshSetup()} />}
         {section === 'inbox' && <AdminInbox onOpenJornada={openDeviationJornada}
           coverage={notice && <CoverageNoticeRender notice={notice} actionLabel="Cargar días" onAction={showWorkDaysForm} />} />}
-        {section === 'jornadas' && <JourneysView key={journeysKey} openJornada={openJornada} />}
+        {/* The old address of «Historial» lands here with its search open. */}
+        {section === 'jornadas' && <JourneysView key={journeysKey} openJornada={openJornada} searchOpen={retiredAddress === HISTORY_ADDRESS} />}
         {section === 'workdays' && <WorkDaysView onNavigate={navigate} onDaysLoaded={() => void refreshSetup()}
           coverage={notice && <CoverageNoticeRender notice={notice} actionLabel="Cargar días" onAction={showWorkDaysForm} />} />}
-        {section === 'historial' && <AdminHistory />}
         {section === 'empleados' && <EmployeesView />}
         {section === 'sedes' && <SitesView />}
         {section === 'plantillas' && <TemplatesView />}
