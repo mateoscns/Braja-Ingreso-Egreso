@@ -43,8 +43,15 @@ const jornada = {
 }
 const assignment = { id: 'a-1', employeeId: 'e-1', siteId: 's-1', templateId: 't-1', templateName: 'Mañana', validFrom: '2026-11-01', createdAt: '2026-10-27T12:00:00Z' }
 
+// A wide screen unless a test says otherwise: records are tables from 768 px (app/useBreakpoint.ts). The shared stub of
+// src/test/setup.ts answers no query, which is now a phone.
+const wideScreen = (query: string) => ({ matches: query === '(min-width: 768px)', media: query, addEventListener: () => undefined, removeEventListener: () => undefined })
+let sharedMatchMedia: PropertyDescriptor | undefined
+
 beforeEach(() => {
   vi.clearAllMocks()
+  sharedMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia')
+  Object.defineProperty(window, 'matchMedia', { configurable: true, writable: true, value: wideScreen })
   apiMocks.get.mockImplementation((path: string) => {
     if (path.startsWith('/inbox')) return Promise.resolve({ items: [deviation], nextCursor: null })
     if (path === '/sites') return Promise.resolve([site])
@@ -62,7 +69,10 @@ beforeEach(() => {
   apiMocks.put.mockResolvedValue({ ...deviation, status: 'NO_JUSTIFICADO' })
 })
 
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+  if (sharedMatchMedia) Object.defineProperty(window, 'matchMedia', sharedMatchMedia)
+})
 
 describe('administración de desvíos y marcas', () => {
   it('anuncia la sección seleccionada y no muestra un indicador de bandeja permanente', async () => {
@@ -479,7 +489,7 @@ describe('administración de desvíos y marcas', () => {
 
   it('en un teléfono muestra las marcas como tarjetas y los formularios fuera de la lista', async () => {
     const previousMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia')
-    Object.defineProperty(window, 'matchMedia', { configurable: true, value: vi.fn((query: string) => ({ matches: query === '(max-width: 520px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })) })
+    Object.defineProperty(window, 'matchMedia', { configurable: true, value: vi.fn((query: string) => ({ matches: query.startsWith('(max-width'), addEventListener: vi.fn(), removeEventListener: vi.fn() })) })
     try {
       render(<JourneysView />)
       fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
@@ -504,7 +514,7 @@ describe('administración de desvíos y marcas', () => {
     let previousMatchMedia: PropertyDescriptor | undefined
     beforeEach(() => {
       previousMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia')
-      Object.defineProperty(window, 'matchMedia', { configurable: true, value: vi.fn((query: string) => ({ matches: query === '(max-width: 520px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })) })
+      Object.defineProperty(window, 'matchMedia', { configurable: true, value: vi.fn((query: string) => ({ matches: query.startsWith('(max-width'), addEventListener: vi.fn(), removeEventListener: vi.fn() })) })
     })
     afterEach(() => {
       if (previousMatchMedia) Object.defineProperty(window, 'matchMedia', previousMatchMedia)
@@ -537,7 +547,7 @@ describe('administración de desvíos y marcas', () => {
     })
 
     it('en la pantalla ancha los filtros siguen abiertos, sin pliegue', async () => {
-      Object.defineProperty(window, 'matchMedia', { configurable: true, value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })) })
+      Object.defineProperty(window, 'matchMedia', { configurable: true, value: vi.fn((query: string) => ({ matches: query === '(min-width: 768px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })) })
       render(<AdminInbox />)
       await screen.findByText(/Lucía Pérez ·/)
       expect(screen.getByRole('form', { name: 'Filtros de la bandeja' }).closest('details')).toBeNull()
@@ -1200,18 +1210,19 @@ describe('dirección de cada sección del ADMIN', () => {
     expect(window.location.hash).toBe(hash)
   })
 
+  // The start section writes its address in an effect after it renders, so the address is waited for (2026-11-11: read at once, it failed now and then under the load of the whole suite).
   it.each(['#/no-existe', '#/HOY', '#inicio'])('una dirección desconocida (%s) abre la sección de inicio', async (hash) => {
     openAt(hash)
     render(<AdminApp />)
     await startsOnFirstSteps()
-    expect(window.location.hash).toBe('#/configuracion/primeros-pasos')
+    await waitFor(() => expect(window.location.hash).toBe('#/configuracion/primeros-pasos'))
   })
 
   it('sin dirección y con un paso pendiente sigue abriendo en «Primeros pasos», y la escribe', async () => {
     render(<AdminApp />)
     expect(screen.getByText('Preparando tu panel…')).toBeInTheDocument()
     await startsOnFirstSteps()
-    expect(window.location.hash).toBe('#/configuracion/primeros-pasos')
+    await waitFor(() => expect(window.location.hash).toBe('#/configuracion/primeros-pasos'))
   })
 
   it('elegir una sección del menú escribe su dirección', async () => {
@@ -1235,7 +1246,7 @@ describe('dirección de cada sección del ADMIN', () => {
     await back()
     await startsOnFirstSteps()
     expect(menuButton('Sedes')).not.toHaveAttribute('aria-current')
-    expect(window.location.hash).toBe('#/configuracion/primeros-pasos')
+    await waitFor(() => expect(window.location.hash).toBe('#/configuracion/primeros-pasos'))
     // The guide is read again, as when it is chosen from the menu.
     await waitFor(() => expect(sitesReads()).toBe(3))
   })
@@ -1266,7 +1277,7 @@ describe('dirección de cada sección del ADMIN', () => {
     // App.tsx keys AdminApp by company, so a switch mounts a new one.
     view.rerender(<AdminApp key="c-2" />)
     await startsOnFirstSteps()
-    expect(window.location.hash).toBe('#/configuracion/primeros-pasos')
+    await waitFor(() => expect(window.location.hash).toBe('#/configuracion/primeros-pasos'))
   })
 
   it('al cerrar sesión o pasar a la vista de empleado no queda la dirección para la próxima persona', async () => {
