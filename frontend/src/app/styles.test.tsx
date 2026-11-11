@@ -44,22 +44,21 @@ function media(width: number, edge: 'max' | 'min' = 'max') {
 
 describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {
   // Rewritten in slice B3 (the field half): the text box is one scoped rule and its edge is the border token on the surface
-  // token, not a colour written by hand.
-  it('los bordes de los campos y de los botones de marca contrastan al menos 3:1 con el blanco (1.4.11)', () => {
+  // token, not a colour written by hand. Slice D1 removed the half of the mark buttons: they are secondary buttons now, whose
+  // edge is the same token (and the pairing --border on --surface of the token test).
+  it('los bordes de los campos contrastan al menos 3:1 con el blanco (1.4.11)', () => {
     const textBox = ruleListing(TEXT_BOX).declarations
-    const markBorder = colorOf(rule('.mark-action'), 'border')
 
     expect(textBox).toMatch(/border:\s*var\(--border-width\) solid var\(--border\)/)
     expect(textBox).toMatch(/background:\s*var\(--surface\)/)
     expect(contrast(designToken('border'), designToken('surface'))).toBeGreaterThanOrEqual(3)
-    expect(contrast(markBorder, '#ffffff')).toBeGreaterThanOrEqual(3)
   })
 
-  it('el botón de marca principal usa el verde de los botones principales con texto blanco', () => {
-    const primary = rule('.mark-action-primary')
-
-    expect(colorOf(primary, 'background')).toBe(tokens.get('--green'))
-    expect(colorOf(primary, 'color')).toBe('#ffffff')
+  // Replaced in slice D1: the mark buttons of their own (.mark-action, and .mark-action-primary, which nothing used) are gone.
+  // The next mark is a primary button of 80 px; the others are buttons of the system and take its colours.
+  it('la próxima marca es un botón principal de 80 px y las marcas ya no tienen botones propios', () => {
+    expect(rule('.button-clock')).toMatch(/min-height:\s*var\(--target-clock\)/)
+    expect(allSelectors().filter((selector) => /\.mark-action/.test(selector))).toEqual([])
   })
 
   it('declara esquema de color claro para que los controles nativos no se oscurezcan', () => {
@@ -121,8 +120,15 @@ describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {
     expect(allRules().flatMap(({ selectors }) => selectors).filter((selector) => selector.includes('.button-small'))).toEqual([])
   })
 
-  it('una sola acción extra del empleado ocupa toda la fila y la tarjeta de horario baja su botón en el celular', () => {
-    expect(rule('.mark-actions.employee-more-actions')).toMatch(/grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(140px,\s*1fr\)\)/)
+  // The first half changed in slice D1: the marks of the employee go one under the other in a single column at every width, so
+  // each one keeps the whole row (2026-11-09: one extra action took half the row).
+  it('las marcas del empleado van en una sola columna y la tarjeta de horario baja su botón en el celular', () => {
+    expect(rule('.now-actions')).toMatch(/display:\s*grid/)
+    expect(rule('.now-actions')).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/)
+    // No breakpoint splits them into columns again.
+    const columns = allRules().filter(({ selectors }) => selectors.some((selector) => selector.includes('.now-actions')))
+      .flatMap(({ declarations }) => [...declarations.matchAll(/grid-template-columns:\s*([^;]+)/g)].map((match) => match[1].trim()))
+    expect(columns).toEqual(['minmax(0, 1fr)'])
     expect(rule('.template-card', media(520))).toMatch(/flex-wrap:\s*wrap/)
   })
 
@@ -242,10 +248,10 @@ const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui',
 // Ceilings that only go down. Each one counts what the rules under the token block still write by hand, measured with the
 // pattern of its own test when the token block came in (2026-11-11). A slice that moves rules to tokens lowers the number in
 // the same commit; nobody raises one. Slice H1 turns the four into equalities with zero.
-const COLOR_LITERAL_CEILING = 57
-const UNTOKENED_FONT_SIZE_CEILING = 45
-const BOX_SHADOW_CEILING = 8
-const LEGACY_TOKEN_USE_CEILING = 65
+const COLOR_LITERAL_CEILING = 46
+const UNTOKENED_FONT_SIZE_CEILING = 33
+const BOX_SHADOW_CEILING = 6
+const LEGACY_TOKEN_USE_CEILING = 51
 
 // The old names with the values they had before the token block. A name is deleted from the stylesheet once nothing uses it
 // and never gets a new value in the meantime: a half-migrated rule must look exactly as it did.
@@ -515,18 +521,6 @@ describe('botones: variantes y estados', () => {
     expect(disabled).toMatch(/background:\s*var\(--surface-tint\)/)
     expect(disabled).toMatch(/border-color:\s*var\(--border\)/)
     expect(rule('button:disabled')).toMatch(/cursor:\s*not-allowed/)
-  })
-
-  // The other marks of the employee are not a .button yet (slice D1 makes them one). While a mark is being sent they sit next
-  // to disabled buttons, so they are disabled the same way.
-  it('los otros botones de marca del empleado se deshabilitan igual que un botón, sin opacidad', () => {
-    const disabled = rule('.mark-action:disabled')
-    const faded = allRules().filter(({ selectors, declarations }) => selectors.some((selector) => selector.includes('.mark-action')) && /(?<![\w-])opacity\s*:/.test(declarations))
-
-    expect(disabled).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
-    expect(disabled).toMatch(/background:\s*var\(--surface-tint\)/)
-    expect(disabled).toMatch(/border-color:\s*var\(--border\)/)
-    expect(faded.map(({ selectors }) => selectors.join(', '))).toEqual([])
   })
 
   it('ningún botón se mueve al apretarlo y el cambio al pasar el puntero solo existe donde hay puntero', () => {
@@ -889,5 +883,56 @@ describe('listas de registros y tablas: filas separadas por una línea, nunca ta
     expect(rule('td:first-child:not([colspan])')).toMatch(/font-weight:\s*var\(--font-weight-heavy\)/)
     // A table that does not fit scrolls inside its own box, never the page.
     expect(rule('.table-scroll')).toMatch(/overflow-x:\s*auto/)
+  })
+})
+
+// Slice D1 (design system 4.9 and 4.13): the employee's "now" block and the confirmation of a mark are the only two boxed blocks
+// of content in the product (principle 3); a border there says "this is your day" and "this was saved".
+describe('pantalla del empleado: el bloque de ahora y la confirmación de una marca', () => {
+  it('el bloque de ahora tiene el borde de 2 px del verde de la marca y las esquinas de bloque, sin fondo ni sombra', () => {
+    const now = rule('.now')
+
+    expect(now).toMatch(/display:\s*grid/)
+    expect(now).toMatch(/border:\s*var\(--border-width-strong\) solid var\(--brand\)/)
+    expect(now).toMatch(/border-radius:\s*var\(--radius-block\)/)
+    expect(now).not.toMatch(/box-shadow|background/)
+  })
+
+  it('el estado del día es el texto más grande de la pantalla y el saludo queda chico', () => {
+    const state = rule('.now-state')
+    const greeting = rule('.employee-heading h1')
+
+    expect(state).toMatch(/font-size:\s*var\(--font-size-display\)/)
+    expect(state).toMatch(/font-weight:\s*var\(--font-weight-heavy\)/)
+    expect(greeting).toMatch(/font-size:\s*var\(--font-size-body-lg\)/)
+    expect(greeting).toMatch(/font-weight:\s*var\(--font-weight-regular\)/)
+    expect(greeting).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
+  })
+
+  it('las otras marcas miden 56 px y la salida va aparte, después de una línea fina', () => {
+    expect(rule('.button-large')).toMatch(/min-height:\s*var\(--target-large\)/)
+    expect(rule('.now-apart')).toMatch(/border-top:\s*var\(--border-width\) solid var\(--rule\)/)
+  })
+
+  it('la confirmación es un bloque verde de 2 px con su tilde, y la ubicación que no llegó es una advertencia dentro de él', () => {
+    const receipt = rule('.receipt')
+    const icon = rule('.receipt-icon')
+    const missing = rule('.receipt-location-missing')
+
+    expect(receipt).toMatch(/border:\s*var\(--border-width-strong\) solid var\(--ok\)/)
+    expect(receipt).toMatch(/background:\s*var\(--ok-surface\)/)
+    expect(receipt).toMatch(/border-radius:\s*var\(--radius-block\)/)
+    expect(contrast(colorOf(icon, 'color'), colorOf(icon, 'background'))).toBeGreaterThanOrEqual(3)
+    expect(rule('.receipt-location-sent')).toMatch(/(?<![\w-])color:\s*var\(--ok\)/)
+    // The block stays green because the mark was saved; only this line warns, in the text colour, with the amber triangle.
+    expect(missing).toMatch(/border-top:\s*var\(--border-width\) solid var\(--ok\)/)
+    expect(missing).toMatch(/(?<![\w-])color:\s*var\(--text\)/)
+    expect(rule('.receipt-location-missing > .icon')).toMatch(/(?<![\w-])color:\s*var\(--warn\)/)
+  })
+
+  it('las reglas del panel Marcar y del horario que había en las marcas del día se fueron con su marcado', () => {
+    const gone = /\.(?:schedule-summary|schedule-icon|employee-day-state|employee-next-action|employee-more-actions|employee-exit|employee-sending|employee-step-text|employee-confirmation|employee-location-note|mark-actions)(?![\w-])/
+
+    expect(allSelectors().filter((selector) => gone.test(selector))).toEqual([])
   })
 })
