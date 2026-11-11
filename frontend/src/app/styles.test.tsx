@@ -88,9 +88,12 @@ describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {
     expect(rule('.push-control .button')).toMatch(/flex-shrink:\s*0/)
   })
 
-  it('los botones chicos miden al menos 44 px de ancho y de alto (2.5.8)', () => {
-    expect(rule('.button-small')).toMatch(/min-height:\s*var\(--tap-target\)/)
-    expect(rule('.button-small')).toMatch(/min-width:\s*var\(--tap-target\)/)
+  // Rewritten in slice B2: ".button-small" is gone, every button has the size of the base rule (48 px on touch layouts, 44 px
+  // from 1024 px). A link button has almost no padding, so it also names its width.
+  it('todo botón mide al menos el alto de toque del sistema y el botón de enlace también el ancho (2.5.8)', () => {
+    expect(rule('.button')).toMatch(/min-height:\s*var\(--target\)/)
+    expect(rule('.button-link')).toMatch(/min-width:\s*var\(--target\)/)
+    expect(allRules().flatMap(({ selectors }) => selectors).filter((selector) => selector.includes('.button-small'))).toEqual([])
   })
 
   it('una sola acción extra del empleado ocupa toda la fila y la tarjeta de horario baja su botón en el celular', () => {
@@ -213,10 +216,10 @@ const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui',
 // Ceilings that only go down. Each one counts what the rules under the token block still write by hand, measured with the
 // pattern of its own test when the token block came in (2026-11-11). A slice that moves rules to tokens lowers the number in
 // the same commit; nobody raises one. Slice H1 turns the four into equalities with zero.
-const COLOR_LITERAL_CEILING = 144
+const COLOR_LITERAL_CEILING = 129
 const UNTOKENED_FONT_SIZE_CEILING = 79
 const BOX_SHADOW_CEILING = 14
-const LEGACY_TOKEN_USE_CEILING = 137
+const LEGACY_TOKEN_USE_CEILING = 129
 
 // The old names with the values they had before the token block. A name is deleted from the stylesheet once nothing uses it
 // and never gets a new value in the meantime: a half-migrated rule must look exactly as it did.
@@ -383,5 +386,122 @@ describe('base del documento: tipografía, enlaces, foco y placeholder', () => {
     expect(hidden).toMatch(/position:\s*absolute/)
     expect(hidden).toMatch(/clip-path:\s*inset\(50%\)/)
     expect(hidden).not.toMatch(/display:\s*none|visibility:\s*hidden/)
+  })
+})
+
+/** The stylesheet without its `@media (hover: hover)` blocks: what is left applies on a touch screen too. */
+function withoutHoverBlocks() {
+  const opening = '@media (hover: hover) {'
+  let rest = withoutComments(css)
+  for (let start = rest.indexOf(opening); start >= 0; start = rest.indexOf(opening)) {
+    rest = rest.slice(0, start) + rest.slice(rest.indexOf('\n}', start) + 2)
+  }
+  return rest
+}
+/** The rules that style a button of the system: a selector with a `.button…` class, or the bare element. */
+function buttonRules() {
+  return allRules().filter(({ selectors }) => selectors.some((selector) => /\.button(?![\w-]*-row)|^button\b/.test(selector)))
+}
+
+describe('botones: variantes y estados', () => {
+  it('el botón principal es el verde de la marca con su texto, sin sombra', () => {
+    const primary = rule('.button-primary')
+
+    expect(primary).toMatch(/background:\s*var\(--brand\)/)
+    expect(primary).toMatch(/border-color:\s*var\(--brand\)/)
+    expect(primary).toMatch(/(?<![\w-])color:\s*var\(--on-brand\)/)
+    expect(primary).not.toMatch(/box-shadow/)
+  })
+
+  it('las variantes nuevas existen y los nombres viejos comparten su regla hasta que el marcado los deja', () => {
+    const secondary = rule('.button-secondary, .button-outline, .button-quiet')
+    const danger = rule('.button-danger, .button-danger-outline')
+
+    expect(secondary).toMatch(/border-color:\s*var\(--border\)/)
+    expect(secondary).toMatch(/background:\s*var\(--surface\)/)
+    expect(secondary).toMatch(/(?<![\w-])color:\s*var\(--text\)/)
+    expect(danger).toMatch(/border-color:\s*var\(--bad\)/)
+    expect(danger).toMatch(/(?<![\w-])color:\s*var\(--bad\)/)
+    expect(rule('.button-link')).toMatch(/text-decoration:\s*underline/)
+    expect(rule('.button-link')).toMatch(/(?<![\w-])color:\s*var\(--brand\)/)
+    expect(rule('.button-block, .button-wide')).toMatch(/width:\s*100%/)
+    expect(rule('.button-large')).toMatch(/min-height:\s*var\(--target-large\)/)
+    expect(rule('.button-clock')).toMatch(/min-height:\s*var\(--target-clock\)/)
+    expect(rule('.button-clock')).toMatch(/font-size:\s*var\(--font-size-display\)/)
+    // Two decisions of the same weight: side by side when each has 160 px, one under the other when not.
+    expect(rule('.button-pair')).toMatch(/grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(min\(100%,\s*10rem\),\s*1fr\)\)/)
+  })
+
+  it('el texto de un botón usa el tamaño y los pesos de los tokens, y un enlace con forma de botón no va subrayado', () => {
+    const base = rule('.button')
+
+    expect(base).toMatch(/font-size:\s*var\(--font-size-body\)/)
+    expect(base).toMatch(/font-weight:\s*var\(--font-weight-strong\)/)
+    expect(base).toMatch(/line-height:\s*var\(--line-height-tight\)/)
+    expect(base).toMatch(/border-radius:\s*var\(--radius\)/)
+    expect(base).toMatch(/text-decoration:\s*none/)
+  })
+
+  it('un botón elegido (aria-pressed) se distingue por su borde de 2 px del verde de la marca, no solo por el fondo (1.4.1)', () => {
+    const pressed = rule('.button[aria-pressed="true"]')
+
+    expect(pressed).toMatch(/border-color:\s*var\(--brand\)/)
+    // The second pixel of the edge is drawn inside, so the button does not change size when it is chosen.
+    expect(pressed).toMatch(/box-shadow:\s*inset 0 0 0 var\(--border-width\) var\(--brand\)/)
+    expect(pressed).toMatch(/background:\s*var\(--surface-selected\)/)
+    // The old rule only reached the quick choices of «Cargar días» and told the chosen one by colour alone.
+    expect(allRules().flatMap(({ selectors }) => selectors)).not.toContain('.choice-row .button[aria-pressed="true"]')
+  })
+
+  it('un botón deshabilitado se sigue leyendo: ninguna regla de botón usa opacidad y su texto, fondo y borde salen de los tokens', () => {
+    const disabled = rule('.button:disabled')
+
+    expect(buttonRules().filter(({ declarations }) => /(?<![\w-])opacity\s*:/.test(declarations)).map(({ selectors }) => selectors.join(', '))).toEqual([])
+    // --text-muted on --surface-tint (7:1) and --border on --surface-tint (3:1) are two of the pairings checked above.
+    expect(disabled).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
+    expect(disabled).toMatch(/background:\s*var\(--surface-tint\)/)
+    expect(disabled).toMatch(/border-color:\s*var\(--border\)/)
+    expect(rule('button:disabled')).toMatch(/cursor:\s*not-allowed/)
+  })
+
+  // The other marks of the employee are not a .button yet (slice D1 makes them one). While a mark is being sent they sit next
+  // to disabled buttons, so they are disabled the same way.
+  it('los otros botones de marca del empleado se deshabilitan igual que un botón, sin opacidad', () => {
+    const disabled = rule('.mark-action:disabled')
+    const faded = allRules().filter(({ selectors, declarations }) => selectors.some((selector) => selector.includes('.mark-action')) && /(?<![\w-])opacity\s*:/.test(declarations))
+
+    expect(disabled).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
+    expect(disabled).toMatch(/background:\s*var\(--surface-tint\)/)
+    expect(disabled).toMatch(/border-color:\s*var\(--border\)/)
+    expect(faded.map(({ selectors }) => selectors.join(', '))).toEqual([])
+  })
+
+  it('ningún botón se mueve al apretarlo y el cambio al pasar el puntero solo existe donde hay puntero', () => {
+    const hoverOnTouch = [...withoutHoverBlocks().matchAll(/([^{}]+)\{[^{}]*\}/g)]
+      .flatMap((match) => match[1].split(',').map((selector) => selector.replace(/\s+/g, ' ').trim()))
+      .filter((selector) => /\.button[\w-]*[^ ]*:hover/.test(selector))
+
+    expect(buttonRules().filter(({ declarations }) => /(?<![\w-])transform\s*:/.test(declarations)).map(({ selectors }) => selectors.join(', '))).toEqual([])
+    expect(rule('.button')).not.toMatch(/transition:[^;]*transform/)
+    expect(hoverOnTouch).toEqual([])
+  })
+
+  // The bar was measured with a 44 px button: 68 px tall at 760 px or less, where its room is 90 px with an 18 px offset. With
+  // the 48 px of --target it would be 72 px and use the whole room. The bar and this rule go away in slice N4.
+  it('el botón de la barra de avisos fija conserva los 44 px con los que se midió el lugar de la barra (2.4.11)', () => {
+    expect(rule('.push-control .button')).toMatch(/min-height:\s*var\(--tap-target\)/)
+  })
+
+  // Measured 2026-11-11 with headless Chrome: with the base size (16 px text, 16 px of padding) the ADMIN top bar with
+  // «Cómo instalar» wraps to a second row at 375 and 384 px, where it fitted one, and «Cerrar sesión» breaks in two lines
+  // up to 600 px. Slice C1 redraws the top bar and removes the rule.
+  it('los botones de la barra de arriba conservan el ancho con el que la barra entra en una sola fila', () => {
+    const topbarButton = rule('.topbar-actions .button')
+
+    expect(topbarButton).toMatch(/font-size:\s*\.875rem/)
+    expect(topbarButton).toMatch(/padding:\s*0 11px/)
+    // The rule of the phone comes later in the file, so it still tightens the padding at 520 px or less.
+    expect(rule('.topbar-actions .button', media(520))).toMatch(/padding:\s*0 9px/)
+    expect(css.indexOf('.topbar-actions .button')).toBeLessThan(css.lastIndexOf('.topbar-actions .button'))
   })
 })
