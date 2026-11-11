@@ -1160,3 +1160,121 @@ describe('administración de desvíos y marcas', () => {
     expect(screen.getByText('DNI 30123456')).toBeInTheDocument()
   })
 })
+
+describe('dirección de cada sección del ADMIN', () => {
+  const openAt = (hash: string) => window.history.replaceState(null, '', `/admin${hash}`)
+  const menuButton = (name: string) => within(screen.getByRole('navigation', { name: 'Navegación principal' })).getByRole('button', { name })
+  // Back and Forward fire hashchange as a task, after the history step.
+  const hashSettles = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)))
+  // A history step is waited for by its own hashchange: one tick is not enough under the load of the whole suite.
+  const back = () => act(() => new Promise<void>((resolve) => {
+    window.addEventListener('hashchange', () => setTimeout(resolve, 0), { once: true })
+    window.history.back()
+  }))
+  // The default world misses step 5 (no days loaded from tomorrow on), so the start section is «Primeros pasos».
+  const startsOnFirstSteps = async () => {
+    expect(await screen.findByRole('heading', { name: 'Primeros pasos', level: 1 })).toBeInTheDocument()
+    expect(menuButton('Primeros pasos')).toHaveAttribute('aria-current', 'page')
+  }
+
+  beforeEach(() => openAt(''))
+  afterEach(() => { cleanup(); window.history.replaceState(null, '', '/') })
+
+  it.each([
+    ['#/para-revisar', 'Bandeja', 'Bandeja de desvíos'],
+    ['#/hoy', 'Jornadas', 'Jornadas'],
+    ['#/historial', 'Historial', 'Historial'],
+    ['#/configuracion/locales', 'Sedes', 'Sedes'],
+    ['#/configuracion/horarios', 'Horarios', 'Horarios'],
+    ['#/configuracion/equipo', 'Empleados', 'Empleados'],
+    ['#/configuracion/primeros-pasos', 'Primeros pasos', 'Primeros pasos']
+  ])('la dirección %s abre %s', async (hash, link, title) => {
+    openAt(hash)
+    render(<AdminApp />)
+    expect(await screen.findByRole('heading', { name: title, level: 1 })).toBeInTheDocument()
+    expect(menuButton(link)).toHaveAttribute('aria-current', 'page')
+    // A late setup status, which here says a step is missing, never moves the owner to «Primeros pasos».
+    await waitFor(() => expect(apiMocks.get).toHaveBeenCalledWith('/employees/e-1/template-assignments'))
+    await hashSettles()
+    expect(menuButton(link)).toHaveAttribute('aria-current', 'page')
+    expect(window.location.hash).toBe(hash)
+  })
+
+  it.each(['#/no-existe', '#/HOY', '#inicio'])('una dirección desconocida (%s) abre la sección de inicio', async (hash) => {
+    openAt(hash)
+    render(<AdminApp />)
+    await startsOnFirstSteps()
+    expect(window.location.hash).toBe('#/configuracion/primeros-pasos')
+  })
+
+  it('sin dirección y con un paso pendiente sigue abriendo en «Primeros pasos», y la escribe', async () => {
+    render(<AdminApp />)
+    expect(screen.getByText('Preparando tu panel…')).toBeInTheDocument()
+    await startsOnFirstSteps()
+    expect(window.location.hash).toBe('#/configuracion/primeros-pasos')
+  })
+
+  it('elegir una sección del menú escribe su dirección', async () => {
+    render(<AdminApp />)
+    await startsOnFirstSteps()
+    fireEvent.click(menuButton('Empleados'))
+    expect(window.location.hash).toBe('#/configuracion/equipo')
+    fireEvent.click(menuButton('Historial'))
+    expect(window.location.hash).toBe('#/historial')
+  })
+
+  it('volver atrás muestra la sección anterior', async () => {
+    render(<AdminApp />)
+    await startsOnFirstSteps()
+    fireEvent.click(menuButton('Sedes'))
+    expect(await screen.findByRole('heading', { name: 'Sedes', level: 1 })).toBeInTheDocument()
+    await hashSettles()
+    const sitesReads = () => apiMocks.get.mock.calls.filter(([path]) => path === '/sites').length
+    await waitFor(() => expect(sitesReads()).toBe(2))
+
+    await back()
+    await startsOnFirstSteps()
+    expect(menuButton('Sedes')).not.toHaveAttribute('aria-current')
+    expect(window.location.hash).toBe('#/configuracion/primeros-pasos')
+    // The guide is read again, as when it is chosen from the menu.
+    await waitFor(() => expect(sitesReads()).toBe(3))
+  })
+
+  it('un cambio de dirección muestra su sección', async () => {
+    render(<AdminApp />)
+    await startsOnFirstSteps()
+    window.location.hash = '#/configuracion/horarios'
+    await hashSettles()
+    expect(await screen.findByRole('heading', { name: 'Horarios', level: 1 })).toBeInTheDocument()
+    expect(menuButton('Horarios')).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('ver una jornada desde la bandeja deja la dirección de Jornadas', async () => {
+    openAt('#/para-revisar')
+    render(<AdminApp />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Ver jornada de Lucía Pérez' }))
+    expect(await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')).toBeInTheDocument()
+    expect(window.location.hash).toBe('#/hoy')
+  })
+
+  it('al cambiar de empresa la nueva empieza por su inicio y no por la sección que tenía la anterior', async () => {
+    const view = render(<AdminApp key="c-1" />)
+    await startsOnFirstSteps()
+    fireEvent.click(menuButton('Empleados'))
+    expect(window.location.hash).toBe('#/configuracion/equipo')
+
+    // App.tsx keys AdminApp by company, so a switch mounts a new one.
+    view.rerender(<AdminApp key="c-2" />)
+    await startsOnFirstSteps()
+    expect(window.location.hash).toBe('#/configuracion/primeros-pasos')
+  })
+
+  it('al cerrar sesión o pasar a la vista de empleado no queda la dirección para la próxima persona', async () => {
+    openAt('#/configuracion/equipo')
+    const view = render(<AdminApp />)
+    expect(await screen.findByRole('heading', { name: 'Empleados', level: 1 })).toBeInTheDocument()
+    view.unmount()
+    expect(window.location.hash).toBe('')
+    expect(window.location.pathname).toBe('/admin')
+  })
+})
