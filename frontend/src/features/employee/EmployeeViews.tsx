@@ -32,6 +32,7 @@ export function DayHeading({ name, sentence }: { name: string; sentence: string 
 export function JourneyPicker({ jornadas, sites, selectedId, disabled, onSelect }: {
   jornadas: Jornada[]; sites: Site[]; selectedId: string; disabled: boolean; onSelect: (id: string) => void
 }) {
+  // The one place «turno» stays: two days of work on the same date cannot be told apart by the word «día».
   return <Panel title="Elegí tu turno"><div className="journey-picker" role="group" aria-label="Turnos de este día">{jornadas.map((jornada) =>
     <button key={jornada.id} type="button" aria-pressed={selectedId === jornada.id} disabled={disabled} onClick={() => onSelect(jornada.id)} className={`journey-option ${selectedId === jornada.id ? 'journey-option-active' : ''}`}>
       <strong>{jornada.scheduleSnapshot.name}</strong><small>{formatLocalDate(jornada.localDate)} · {sites.find((site) => site.id === jornada.siteId)?.name ?? 'Local'} · {jornadaStateLabel(jornada.state)}</small>
@@ -152,7 +153,8 @@ export function DeviationsPanel({ loading, loadFailed, deviations, jornadas, sit
   loading: boolean; loadFailed: boolean; deviations: Deviation[]; jornadas: Jornada[]; sites: Site[]; editingIds: string[]; onEdit: (item: Deviation) => void
 }) {
   const canAddFirstMotive = (item: Deviation) => (item.status === 'JUSTIFICADO' || item.status === 'NO_JUSTIFICADO') && !item.category
-  return <Panel title="Desvíos del día">{loading ? <Loading label="Cargando…" /> : loadFailed ? <Empty>No pudimos cargar los desvíos.</Empty> : deviations.length ? <div className="deviation-list">{deviations.map((item) => {
+  // The employee is given no noun for a deviation (D-20261111-01). «Para explicar» is the panel above; slice D3 makes them one.
+  return <Panel title="Lo que pasó este día">{loading ? <Loading label="Cargando…" /> : loadFailed ? <Empty>No pudimos mostrar lo que pasó este día.</Empty> : deviations.length ? <div className="deviation-list">{deviations.map((item) => {
     const zone = siteZone(item, jornadas, sites)
     return <article className="deviation-card" key={item.id}><div className="deviation-symbol" aria-hidden="true">!</div><div className="deviation-main">
       <div className="deviation-title"><strong>{deviationName[item.type]}</strong><span className={`status-chip status-${item.status.toLowerCase()}`}>{statusName[item.status]}</span></div>
@@ -161,7 +163,7 @@ export function DeviationsPanel({ loading, loadFailed, deviations, jornadas, sit
       {!editingIds.includes(item.id) && item.status === 'PENDIENTE_REVISION' && <button type="button" className="button button-quiet button-small" onClick={() => onEdit(item)}>Corregir motivo</button>}
       {!editingIds.includes(item.id) && canAddFirstMotive(item) && <button type="button" className="button button-quiet button-small" onClick={() => onEdit(item)}>Agregar motivo</button>}
     </div></article>
-  })}</div> : <Empty>No hay desvíos este día.</Empty>}</Panel>
+  })}</div> : <Empty>Este día no hubo nada para explicar.</Empty>}</Panel>
 }
 
 export function OtherDayPanel({ date, disabled, onDate, onToday }: { date: string; disabled: boolean; onDate: (date: string) => void; onToday: () => void }) {

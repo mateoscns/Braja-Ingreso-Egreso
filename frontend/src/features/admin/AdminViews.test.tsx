@@ -383,9 +383,9 @@ describe('administración de desvíos y marcas', () => {
   })
 
   describe('marcas que no encajan con la jornada en los formularios de ADMIN', () => {
-    const staleEmployeeText = /El estado de la jornada cambió y esa marca ya no corresponde/
+    const staleEmployeeText = /El estado del día de trabajo cambió y esa marca ya no corresponde/
     const adminText = 'La hora o la acción no encajan con las demás marcas de la jornada. Revisá el orden.'
-    const rejection = (code: string) => Object.assign(new Error('El estado de la jornada cambió y esa marca ya no corresponde. Revisá el estado actualizado.'), { status: 409, code })
+    const rejection = (code: string) => Object.assign(new Error('El estado del día de trabajo cambió y esa marca ya no corresponde. Revisá el estado actualizado.'), { status: 409, code })
 
     it.each(['INVALID_MARK_ORDER', 'INVALID_MARK_HISTORY', 'INVALID_MARK_TRANSITION'])('una marca olvidada rechazada con %s explica el orden al ADMIN', async (code) => {
       apiMocks.post.mockRejectedValueOnce(rejection(code))

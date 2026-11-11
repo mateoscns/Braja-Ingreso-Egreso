@@ -26,7 +26,7 @@ export function InstallControl({ audience = 'admin' }: { audience?: 'admin' | 'e
   if (platform === 'other') return null
   return <div className="install-control"><button className="button button-small button-quiet" aria-expanded={helpOpen} onClick={() => setHelpOpen((open) => !open)}>Cómo instalar</button>
     {helpOpen && <div className="install-help" role="status">{platform === 'ios'
-      ? <>En Safari, tocá <strong>Compartir</strong> y elegí <strong>Agregar a pantalla de inicio</strong>.{audience === 'admin' && ' Los avisos push se activan desde la app instalada.'}</>
+      ? <>En Safari, tocá <strong>Compartir</strong> y elegí <strong>Agregar a pantalla de inicio</strong>.{audience === 'admin' && ' Los avisos se activan desde la app instalada.'}</>
       : <>En Chrome, tocá el menú <strong><span aria-hidden="true">⋮</span> (tres puntos)</strong> y elegí <strong>Agregar a pantalla de inicio</strong>.</>}</div>}
   </div>
 }

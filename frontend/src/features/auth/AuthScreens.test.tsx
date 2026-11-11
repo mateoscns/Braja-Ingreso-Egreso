@@ -109,7 +109,7 @@ describe('pantallas de acceso', () => {
     it('does not call the server with a 73-byte password that fits in 72 characters and explains the limit', async () => {
       const onChange = vi.fn().mockResolvedValue(undefined)
       submitNewPassword(onChange, `ñ${'a'.repeat(71)}`)
-      expect(await screen.findByRole('alert')).toHaveTextContent('La clave es demasiado larga. Usá una más corta: las letras con tilde y la ñ cuentan doble.')
+      expect(await screen.findByRole('alert')).toHaveTextContent('La contraseña es demasiado larga. Usá una más corta: las letras con tilde y la ñ cuentan doble.')
       expect(onChange).not.toHaveBeenCalled()
     })
 
@@ -123,7 +123,7 @@ describe('pantallas de acceso', () => {
       render(<PasswordChangeScreen onChange={vi.fn()} onSignOut={vi.fn()} />)
       expect(screen.getByLabelText('Nueva contraseña')).toHaveAttribute('maxlength', '72')
       expect(screen.getByLabelText('Repetí la nueva contraseña')).toHaveAttribute('maxlength', '72')
-      expect(screen.getByText('Elegí una clave de al menos 12 letras o números. Puede ser una frase.')).toBeInTheDocument()
+      expect(screen.getByText('Elegí una contraseña de al menos 12 letras o números. Puede ser una frase.')).toBeInTheDocument()
       expect(document.body.textContent).not.toMatch(/bytes|UTF-8|caracteres/)
     })
   })
@@ -146,7 +146,7 @@ describe('pantallas de acceso', () => {
       fireEvent.change(screen.getByLabelText('Nueva contraseña'), { target: { value: 'corta' } })
       fireEvent.change(screen.getByLabelText('Repetí la nueva contraseña'), { target: { value: 'corta' } })
       fireEvent.click(screen.getByRole('button', { name: 'Guardar contraseña' }))
-      expect(await screen.findByRole('alert')).toHaveTextContent('La clave nueva tiene que tener al menos 12 letras o números.')
+      expect(await screen.findByRole('alert')).toHaveTextContent('La contraseña nueva tiene que tener al menos 12 letras o números.')
       expect(onChange).not.toHaveBeenCalled()
     })
 
@@ -163,7 +163,7 @@ describe('pantallas de acceso', () => {
 
     it('el ingreso permite ver la clave y dice qué hacer si se la olvidó', () => {
       render(<LoginScreen onSignIn={vi.fn()} />)
-      expect(screen.getByText('¿Te olvidaste la clave? Pedile al encargado una nueva.')).toBeInTheDocument()
+      expect(screen.getByText('¿Te olvidaste la contraseña? Pedile al encargado una nueva.')).toBeInTheDocument()
       const toggle = screen.getByRole('button', { name: 'Mostrar contraseña' })
       fireEvent.click(toggle)
       expect(screen.getByLabelText('Contraseña')).toHaveAttribute('type', 'text')

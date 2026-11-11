@@ -35,7 +35,7 @@ export function LoginScreen({ onSignIn, error }: { onSignIn: (dni: string, passw
         <PasswordToggle shown={shown} label="Mostrar contraseña" onToggle={() => setShown((value) => !value)} />
         <button className="button button-primary button-wide" disabled={busy}>{busy ? 'Ingresando…' : 'Ingresar'}</button>
       </form>
-      <p className="muted small-copy auth-hint">¿Te olvidaste la clave? Pedile al encargado una nueva.</p>
+      <p className="muted small-copy auth-hint">¿Te olvidaste la contraseña? Pedile al encargado una nueva.</p>
     </section><p className="auth-footnote">Sistema interno de registro de Braja</p></main>
 }
 

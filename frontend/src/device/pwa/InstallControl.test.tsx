@@ -24,7 +24,7 @@ describe('InstallControl', () => {
     useAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1')
     render(<InstallControl />)
     fireEvent.click(screen.getByRole('button', { name: 'Cómo instalar' }))
-    expect(screen.getByRole('status')).toHaveTextContent('Los avisos push se activan desde la app instalada.')
+    expect(screen.getByRole('status')).toHaveTextContent('Los avisos se activan desde la app instalada.')
   })
 
   it('en Android sin aviso de instalación explica los pasos del menú de Chrome', () => {
