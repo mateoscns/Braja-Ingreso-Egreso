@@ -47,7 +47,7 @@ export function MarkFeedback({ feedbackRef, error, showRefresh, onRefresh, confi
     {error && <PageMessage kind="error">{error}</PageMessage>}
     {showRefresh && <button type="button" className="button button-quiet button-small" onClick={onRefresh}>Actualizar</button>}
     {confirmation && <PageMessage kind="success">
-      <span className="employee-confirmation"><span aria-hidden="true">✔ </span>{confirmationText(confirmation.action, confirmation.acceptedAt, timeZone)}</span>
+      <span className="employee-confirmation">{confirmationText(confirmation.action, confirmation.acceptedAt, timeZone)}</span>
       {confirmation.location && <span className="employee-location-note">{locationOutcomeText[confirmation.location]}{confirmation.location === 'SENT' && <span aria-hidden="true"> ✔</span>}</span>}
     </PageMessage>}
   </div>
@@ -107,7 +107,7 @@ export type MotivePanelProps = {
 export function MotivePanel(props: MotivePanelProps) {
   const { loading, loadFailed, pendingError, retrying, truncated, limit, items, notice } = props
   return <Panel title="Para explicar"><p className="muted small-copy">Contale a tu encargado qué pasó. Podés cambiarlo hasta que lo revise. Lo que escribas solo lo ven vos y tu encargado.</p>
-    {notice && <PageMessage kind="success"><span aria-hidden="true">✔ </span>{notice}</PageMessage>}
+    {notice && <PageMessage kind="success">{notice}</PageMessage>}
     {!loading && !loadFailed && pendingError && <><PageMessage kind="error">No pudimos cargar lo que tenés para explicar. {pendingError}</PageMessage>
       <button type="button" className="button button-quiet button-small" onClick={props.onRetry}>Reintentar</button></>}
     {!loading && !loadFailed && !retrying && truncated && <p className="muted small-copy">Te mostramos los {limit} más recientes. Cuando los completes vas a ver los anteriores.</p>}

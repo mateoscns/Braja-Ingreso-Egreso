@@ -1,7 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AppHeader, CompanySwitcher, FormField, Loading, PageMessage, Panel } from './ui'
+import { Icon, type IconName } from './icons'
+import { AppHeader, CompanySwitcher, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel, StatusTag } from './ui'
 
 afterEach(cleanup)
 
@@ -10,6 +11,9 @@ function deferred<T>() {
   const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise })
   return { promise, resolve }
 }
+
+/** The markup of one icon of the set, to tell which drawing a component put in. */
+const iconMarkup = (name: IconName) => renderToStaticMarkup(<Icon name={name} />)
 
 const memberships = [
   { companyId: 'company-1', companyName: 'Braja', role: 'ADMIN' as const },
@@ -97,9 +101,11 @@ describe('componentes compartidos de interfaz', () => {
       .toBe('<div class="message message-success" role="status" aria-atomic="true"></div>')
     expect(renderToStaticMarkup(<PageMessage>Cargando la configuración.</PageMessage>))
       .toBe('<div class="message message-info" role="status" aria-atomic="true"></div>')
-    // An alert is announced when it appears, so its text is there from the start.
+    expect(renderToStaticMarkup(<PageMessage kind="warning">Tu marca quedó sin ubicación.</PageMessage>))
+      .toBe('<div class="message message-warning" role="status" aria-atomic="true"></div>')
+    // An alert is announced when it appears, so its text is there from the start. Changed in slice B4: its icon comes first.
     expect(renderToStaticMarkup(<PageMessage kind="error">No se pudo guardar.</PageMessage>))
-      .toBe('<div class="message message-error" role="alert" aria-atomic="true">No se pudo guardar.</div>')
+      .toBe(`<div class="message message-error" role="alert" aria-atomic="true">${iconMarkup('error')}<div class="message-body">No se pudo guardar.</div></div>`)
 
     const { rerender } = render(<PageMessage kind="success">Guardado.</PageMessage>)
     const region = screen.getByRole('status')
@@ -107,6 +113,71 @@ describe('componentes compartidos de interfaz', () => {
     rerender(<PageMessage kind="success">Se guardó otra vez.</PageMessage>)
     expect(screen.getByRole('status')).toBe(region)
     expect(region).toHaveTextContent('Se guardó otra vez.')
+  })
+
+  it('cada tipo de mensaje tiene su rol y su ícono, oculto para los lectores: el tipo lo dicen las palabras y la barra', () => {
+    const kinds = [['info', 'info', 'status'], ['success', 'check', 'status'], ['warning', 'alert', 'status'], ['error', 'error', 'alert']] as const
+
+    for (const [kind, icon, role] of kinds) {
+      render(<PageMessage kind={kind}>Texto del aviso.</PageMessage>)
+      const region = screen.getByRole(role)
+      const drawing = region.querySelector('svg')
+
+      expect(region, kind).toHaveClass('message', `message-${kind}`)
+      expect(drawing, kind).toHaveAttribute('aria-hidden', 'true')
+      expect(drawing?.outerHTML, kind).toBe(iconMarkup(icon))
+      // The icon adds no words: what is read is the text alone.
+      expect(region.textContent, kind).toBe('Texto del aviso.')
+      cleanup()
+    }
+  })
+
+  it('una etiqueta de estado dice el estado con un ícono y una palabra, y no es un botón', () => {
+    render(<StatusTag tone="todo" icon="eye">A revisar</StatusTag>)
+
+    const tag = screen.getByText('A revisar')
+    expect(tag.tagName).toBe('SPAN')
+    expect(tag).toHaveClass('status-chip', 'status-todo')
+    expect(tag.querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
+    expect(tag.querySelector('svg')?.outerHTML).toBe(iconMarkup('eye'))
+    expect(tag.textContent).toBe('A revisar')
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it('las cinco tonalidades de una etiqueta son clases, no valores de la API', () => {
+    for (const tone of ['neutral', 'wait', 'todo', 'ok', 'bad'] as const) {
+      const { container } = render(<StatusTag tone={tone} icon="check">Palabra</StatusTag>)
+      expect(container.firstElementChild, tone).toHaveClass('status-chip', `status-${tone}`)
+      cleanup()
+    }
+  })
+
+  it('un error de campo lleva el triángulo, oculto para los lectores, y se sigue leyendo solo el texto', () => {
+    render(<FormField label="DNI" error="El DNI tiene que tener de 7 a 12 números."><input /></FormField>)
+
+    const error = screen.getByText('El DNI tiene que tener de 7 a 12 números.')
+    expect(error.querySelector('svg')?.outerHTML).toBe(iconMarkup('alert'))
+    expect(screen.getByLabelText('DNI')).toHaveAccessibleDescription('El DNI tiene que tener de 7 a 12 números.')
+  })
+
+  it('una carga fallida es un error con un botón para reintentar', () => {
+    const onRetry = vi.fn()
+    render(<LoadFailure message="No se pudieron cargar los empleados." onRetry={onRetry} />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('No se pudieron cargar los empleados.')
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
+    expect(onRetry).toHaveBeenCalledTimes(1)
+  })
+
+  it('el encabezado de página tiene el título como h1, su texto de arriba y su bajada, y una acción opcional', () => {
+    const { rerender } = render(<PageHeading eyebrow="EQUIPO" title="Empleados" subtitle="Cada persona entra con su DNI." />)
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Empleados' })).toBeInTheDocument()
+    expect(screen.getByText('EQUIPO')).toHaveClass('eyebrow')
+    expect(screen.getByText('Cada persona entra con su DNI.')).toBeInTheDocument()
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    rerender(<PageHeading eyebrow="EQUIPO" title="Empleados" subtitle="Cada persona entra con su DNI." action={<button type="button">Actualizar</button>} />)
+    expect(screen.getByRole('button', { name: 'Actualizar' }).closest('.page-title-row')).not.toBeNull()
   })
 
   it('bloquea cambios simultáneos y anuncia la activación pendiente', async () => {
