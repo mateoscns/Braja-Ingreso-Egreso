@@ -1,12 +1,105 @@
+/* ==========================================================================================================================
+   Fichaje Braja: design tokens ("Planilla" hybrid). This block is the top of frontend/src/styles.css.
+   Every colour, size, radius and duration used below it comes from here: no literal outside this block
+   (guarded by src/app/styles.test.tsx, "ningún color fuera del bloque de tokens").
+   Contrast of every pairing: WCAG 2.2 AA, computed by the same test from these values.
+   Breakpoints cannot be custom properties; the four in use are min-width 600 px, 768 px and 1024 px, and max-width 359 px.
+   ========================================================================================================================== */
 :root {
-  font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  color: var(--text-primary);
-  background: var(--page);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
   /* The app has one light theme: native controls (date pickers, selects, scrollbars) must not turn dark. */
   color-scheme: light;
+
+  /* Surfaces. White is the page and every control; tint is for bands (rail, context strip, notices, disabled);
+     selected is the fill of the chosen option and of the current place. A fill never carries a state alone. */
+  --surface: #ffffff;
+  --surface-tint: #f4f3ee;
+  --surface-tint-strong: #eae9e2;
+  --surface-selected: #e3efe5;
+
+  /* Text. Two colours only; emphasis comes from weight and size, never from a third grey. */
+  --text: #14201a;
+  --text-muted: #47524b;
+
+  /* Lines. --rule is decorative (a hairline between rows, 1.40:1); --border is the edge of anything that can be
+     operated or that states something (fields, buttons, tags, the tab bar), 4.46:1 on white. */
+  --rule: #d9dbd5;
+  --border: #6f7a73;
+
+  /* Brand. Filled brand green is the next action; dark as a surface exists only in the top bar. Lime is only the
+     brand mark and the focus ring on the top bar. */
+  --brand: #12372a;
+  --brand-pressed: #0b261c;
+  --on-brand: #ffffff;
+  --on-brand-muted: #c4d6cb;
+  --lime: #d8f078;
+
+  /* Focus ring: 3 px, 2 px away from the control, so it is read against the surface between them. */
+  --focus-ring: #14201a;
+
+  /* States. Each pair is a foreground (text, icon, border, state bar) and its tinted surface.
+     ok: confirmed by the server, justified, done. warn: waiting for the person who is looking at the screen.
+     bad: an error, not justified. "Waiting for someone else" and "info" have no colour: --border and --surface-tint. */
+  --ok: #1c6638;
+  --ok-surface: #e9f3ea;
+  --warn: #7d5200;
+  --warn-surface: #fbf0d5;
+  --bad: #a0261b;
+  --bad-surface: #fbe9e6;
+
+  /* Type. System fonts only (the production CSP allows no external font and no font file is bundled). */
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+  --font-size-meta: .875rem;     /* 14 px: tags, bottom-bar labels, table column heads, timestamps. Nothing else. */
+  --font-size-body: 1rem;        /* 16 px: text, labels, hints, buttons, fields. */
+  --font-size-body-lg: 1.125rem; /* 18 px: the employee screen, leads, the name in a row. */
+  --font-size-title: 1.25rem;    /* 20 px: section titles, times in the day sheet, the confirmation sentence. */
+  --font-size-display: 1.5rem;   /* 24 px (32 px from 1024 px): page title, the state of the day, the clocking button. */
+  --font-weight-regular: 400;
+  --font-weight-strong: 600;     /* labels and buttons; on a Roboto without a 600 face it draws as 700 */
+  --font-weight-heavy: 700;      /* headings, times, tags, the current place */
+  --line-height-body: 1.5;
+  --line-height-heading: 1.25;
+  --line-height-tight: 1.2;      /* one-line controls and the display size */
+  --measure: 65ch;               /* longest line of running text */
+
+  /* Space: 4 · 8 · 12 · 16 · 24 · 32 · 48. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --gutter: var(--space-4);      /* page side padding: 16 px, 24 px from 600 px, 32 px from 1024 px */
+
+  /* Shape. Three radii, two border widths, two bar widths; no shadow anywhere. */
+  --radius-tag: 4px;
+  --radius: 8px;                 /* every control */
+  --radius-block: 12px;          /* the employee's "now" block and the confirmation of a mark */
+  --border-width: 1px;
+  --border-width-strong: 2px;    /* selected option, section rule, "now" block, an invalid field */
+  --bar-width: 4px;              /* the bar of a message, of an open inline form and of the current place */
+  --state-bar-width: 6px;        /* the state bar on the edge of a case */
+
+  /* Targets, in rem so they grow with the user's text size. WCAG 2.5.8 (AA) asks for 24 px; 44 px is this
+     product's working minimum (48 px on touch layouts); the clocking button is its own size. */
+  --target-floor: 1.5rem;        /* 24 px: the box of a checkbox or radio, inside a label of --target */
+  --target: 3rem;                /* 48 px; 44 px from 1024 px */
+  --target-large: 3.5rem;        /* 56 px: the other marks of the employee */
+  --target-clock: 5rem;          /* 80 px: the next mark */
+
+  /* Layout. */
+  --bottom-nav-height: 4.5rem;   /* 72 px: icon plus a label of up to two lines */
+  --rail-width: 15rem;
+  --content-max: 68.75rem;       /* 1100 px */
+
+  /* Motion: colour changes only; the global prefers-reduced-motion rule turns it off. */
+  --motion-fast: 120ms;
+
+  /* legacy tokens, removed in H1 */
+  /* The names the rules below still use, with the values they had before the block above. They stay in this rule because
+     the tests read the clearance of the alerts bar from the first :root. A slice moves its rules to the tokens above; a
+     name is deleted here once nothing uses it, and never gets a new value (src/app/styles.test.tsx counts the uses). */
   --text-primary: #18241f;
   --text-secondary: #53645a;
   --text-tertiary: #5c6d62;
@@ -22,12 +115,27 @@
   --green: #12372a;
   --green-2: #1d513c;
   --green-3: #e7f1e9;
-  --lime: #d8f078;
   --muted: var(--text-secondary);
   --line: #e4e9e5;
-  --surface: #ffffff;
   --red: #a33e35;
   --shadow: 0 18px 55px rgba(24, 45, 34, .06);
+}
+@media (min-width: 600px) {
+  :root { --gutter: var(--space-5); }
+}
+@media (min-width: 1024px) {
+  :root { --gutter: var(--space-6); --target: 2.75rem; --font-size-display: 2rem; }
+}
+/* end of tokens */
+
+/* ===== Base: document defaults, headings, text helpers ===== */
+:root {
+  font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  color: var(--text-primary);
+  background: var(--page);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
 
 * { box-sizing: border-box; }
@@ -48,11 +156,13 @@ h2 { font-size: 1rem; letter-spacing: -.02em; margin: 0; }
 .small-copy { font-size: .88rem; margin: -4px 0 18px; }
 .eyebrow { color: var(--text-tertiary); font-size: .75rem; font-weight: 700; letter-spacing: .13em; margin: 0 0 10px; }
 
+/* ===== Loading ===== */
 .boot-screen { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; }
 .loading { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--text-secondary); padding: 24px; font-size: .9rem; }
 .spinner { width: 17px; height: 17px; border: 2px solid #d7e1d9; border-top-color: var(--green-2); border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ===== Auth screens, form layout, fields; the location and the map of a site ===== */
 .auth-page { min-height: 100vh; min-height: 100dvh; padding: max(56px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(32px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); display: flex; flex-direction: column; align-items: center; background: radial-gradient(ellipse at 50% 3%, #e8f1e8 0, var(--page) 48%); }
 .auth-brand { display: flex; align-items: center; gap: 11px; font-weight: 800; font-size: 1.05rem; margin-bottom: 32px; color: var(--green); }
 .brand-light { margin-left: 5px; color: var(--text-secondary); font-weight: 500; }
@@ -104,6 +214,7 @@ h2 { font-size: 1rem; letter-spacing: -.02em; margin: 0; }
 .field-wide { grid-column: 1 / -1; }
 fieldset.field { min-width: 0; margin: 0; border: 0; padding: 0; }
 
+/* ===== Focus ===== */
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .field input:focus-visible, .field select:focus-visible, .field textarea:focus-visible,
 td input:focus-visible, .company-switch:focus-visible,
@@ -118,6 +229,7 @@ td input:focus-visible, .company-switch:focus-visible {
 }
 .button-primary:focus-visible { outline-color: var(--focus); box-shadow: 0 0 0 3px var(--surface); }
 
+/* ===== Buttons ===== */
 .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: var(--tap-target); border: 1px solid transparent; border-radius: var(--radius-control); padding: 0 16px; font-weight: 650; font-size: .875rem; transition: transform .12s, background .16s, border-color .16s, box-shadow .16s; }
 .button:not(:disabled):active { transform: translateY(1px); }
 .button-primary { color: #fff; background: var(--green); box-shadow: 0 5px 14px rgba(18,55,42,.12); }
@@ -134,6 +246,7 @@ td input:focus-visible, .company-switch:focus-visible {
 /* Says why the button next to it is disabled. */
 .button-row > .field-hint { align-self: center; }
 
+/* ===== Messages ===== */
 .message { border-radius: 10px; padding: 12px 14px; margin: 14px 0; font-size: 1rem; line-height: 1.5; }
 /* PageMessage mounts its live region empty for one render: it stays in the accessibility tree but takes no room. */
 .message:empty { margin: 0; padding: 0; border-width: 0; }
@@ -141,6 +254,7 @@ td input:focus-visible, .company-switch:focus-visible {
 .message-error { border: 1px solid #f0d3cf; color: #8e3931; background: #fff7f5; }
 .message-success { border: 1px solid #d2e7d7; color: #2a6740; background: #f0f8f1; }
 
+/* ===== Company chooser ===== */
 .company-list { display: flex; flex-direction: column; gap: 9px; margin: 22px 0; }
 .company-choice { width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; border: 1px solid var(--line); border-radius: 12px; background: white; padding: 12px; color: #1c2d23; }
 .company-choice:hover { border-color: #a9c1ae; background: #fbfdfb; }
@@ -149,6 +263,7 @@ td input:focus-visible, .company-switch:focus-visible {
 .company-choice small { color: var(--muted); margin-top: 3px; font-size: .875rem; }
 .choice-arrow { margin-left: auto; color: var(--text-secondary); font-size: 1.2rem; }
 
+/* ===== Frame: top bar, ADMIN menu, page heading, panel, filters, change list ===== */
 .app-frame { min-height: 100vh; min-height: 100dvh; }
 .topbar { position: sticky; top: 0; z-index: 10; height: calc(var(--topbar-height) + env(safe-area-inset-top)); display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: env(safe-area-inset-top) max(34px, env(safe-area-inset-right)) 0 max(34px, env(safe-area-inset-left)); border-bottom: 1px solid #e7ece8; background: rgba(255,255,255,.95); backdrop-filter: blur(14px); }
 .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--green); font-weight: 800; font-size: .96rem; }
@@ -195,6 +310,7 @@ td input:focus-visible, .company-switch:focus-visible {
 .history-items li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 6px 0; border-top: 1px solid #eef1ef; overflow-wrap: anywhere; }
 .history-items small { color: var(--text-secondary); }
 
+/* ===== Lists, checks, tables, schedules, status chips ===== */
 .simple-list, .template-list, .deviation-list, .motive-list { display: flex; flex-direction: column; gap: 10px; }
 .simple-row { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #eef1ef; padding: 9px 2px 12px; }
 .simple-row:last-child { border-bottom: 0; }
@@ -253,6 +369,7 @@ td .short-input { width: 74px; }
 .status-egresada, .status-cancelada { color: var(--text-secondary); background: #eff2ef; }
 .status-inactivo { color: var(--text-secondary); background: #eff2ef; }
 
+/* ===== Deviation cards of the inbox and inline forms ===== */
 .deviation-card { display: flex; align-items: flex-start; gap: 12px; padding: 14px; border: 1px solid #e9eeea; border-radius: 11px; background: #fff; transition: border-color .2s, background .2s; }
 .deviation-target { border-color: #c5d990; background: #fbfff0; box-shadow: 0 0 0 3px rgba(216,240,120,.2); }
 .load-more { display: flex; justify-content: center; padding-top: 14px; }
@@ -266,6 +383,7 @@ td .short-input { width: 74px; }
 .correction-form { flex-basis: 100%; width: 100%; padding-top: 12px; border-top: 1px solid #e8ede9; }
 .forgotten-mark-form { margin-top: 24px; padding-top: 20px; border-top: 1px solid #e8ede9; }
 
+/* ===== Employee screen ===== */
 .employee-main { width: min(100% - 36px, 920px); margin: 0 auto; padding: 37px 0 60px; }
 .employee-title { align-items: flex-end; }
 .employee-title .field { width: 165px; }
@@ -424,6 +542,7 @@ td .short-input { width: 74px; }
   :root:has(.topbar .company-switch) { --topbar-height: 96px; }
 }
 
+/* ===== Reduced motion and forced colours ===== */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     scroll-behavior: auto !important;
@@ -439,6 +558,7 @@ td .short-input { width: 74px; }
   .status-chip { border: 1px solid CanvasText; }
   .spinner { border-color: CanvasText; border-top-color: Highlight; }
 }
+/* ===== Later additions: small modifiers of the regions above (folds, quick choices, work days, first steps) ===== */
 .mark-feedback:focus { outline: none; }
 .fieldset-plain { min-width: 0; margin: 0; border: 0; padding: 0; }
 .update-banner { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 50; display: flex; align-items: center; gap: 12px; width: max-content; max-width: calc(100% - 32px); padding: 10px 14px; border: 1px solid #d2e7d7; border-radius: 12px; color: var(--green); background: #fff; box-shadow: var(--shadow); font-size: .9rem; }
