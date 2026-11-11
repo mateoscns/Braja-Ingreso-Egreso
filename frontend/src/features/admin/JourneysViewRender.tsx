@@ -1,8 +1,9 @@
-// The days (Jornadas) render: the list of a date first, the detail of a day inside its own row with each mark form under the
-// mark it changes, then the monthly load and the single-day form (D-20261111-02, step 1), and the change history of a day.
-import { Fragment, type FormEvent, type ReactNode } from 'react'
+// The «Hoy» render (section 'jornadas'): the list of a date, the detail of a day inside its own row with each mark form under
+// the mark it changes, and the change history of a day. The monthly load and the single day are «Días de trabajo»
+// (WorkDaysViewRender, D-20261111-02 step 2).
+import { Fragment, type FormEvent } from 'react'
 import { Empty, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel } from '../../app/ui'
-import type { Deviation, Employee, Jornada, JornadaAudit, JornadaAuditEntry, Mark, MarkAction, Site, Template } from '../../shared/api/types'
+import type { Deviation, Jornada, JornadaAudit, JornadaAuditEntry, Mark, MarkAction, Site } from '../../shared/api/types'
 import { adminCategoryName as categoryName, adminDeviationName as deviationName, adminDeviationStatusName as statusName, adminMarkLocationName as locationName, adminMarkName as actionName } from '../../shared/labels'
 import { dateTime, stateLabel } from './adminRenderShared'
 
@@ -32,23 +33,19 @@ function journeysTitle(date: string) {
   return `Días de trabajo del ${formattedDate}`
 }
 
-export function JourneysViewRender({ workDaysPanel, coverage, narrow = false, sites, eligibleEmployees, siteTemplates, jornadas, loading, journeysLoading, journeysDate, journeysError, dependencyError, error, notice, messageAt, busy, detail, detailFor, detailLoading, markBusy, date, dateError, employeeId, siteId, templateId, singleDate, singleError = '', singleNotice = '', peopleById, detailSite, detailTimeZone, forgotAction, forgotOccurredAt, forgotReason, editingMarkId, correctedAction, correctedOccurredAt, correctionReason, cancelOpen, cancelReason, voidingMarkId, voidReason, auditOpen, audit, auditLoading, auditError, onToggleAudit, onRetryAudit, onDateChange, onSingleDateChange, onEmployeeChange, onSiteChange, onTemplateChange, onDeclare, onRetryDependencies, onReloadJourneys, onShowDetail, onForgotActionChange, onForgotOccurredAtChange, onForgotReasonChange, onAddForgottenMark, onBeginMarkCorrection, onCorrectedActionChange, onCorrectedOccurredAtChange, onCorrectionReasonChange, onCorrectMark, onCancelMarkCorrection, onBeginCancel, onCancelReasonChange, onConfirmCancel, onAbortCancel, onBeginVoid, onVoidReasonChange, onConfirmVoid, onAbortVoid }: {
-  /** "Cargar días de trabajo" (WorkDaysPanel), the main form of the page; coverage is the notice of days loaded. */
-  workDaysPanel?: ReactNode; coverage?: ReactNode
+export function JourneysViewRender({ narrow = false, sites, jornadas, loading, journeysLoading, journeysDate, journeysError, dependencyError, error, notice, messageAt, detail, detailFor, detailLoading, markBusy, date, dateError, peopleById, detailSite, detailTimeZone, forgotAction, forgotOccurredAt, forgotReason, editingMarkId, correctedAction, correctedOccurredAt, correctionReason, cancelOpen, cancelReason, voidingMarkId, voidReason, auditOpen, audit, auditLoading, auditError, onToggleAudit, onRetryAudit, onDateChange, onRetryDependencies, onReloadJourneys, onShowDetail, onForgotActionChange, onForgotOccurredAtChange, onForgotReasonChange, onAddForgottenMark, onBeginMarkCorrection, onCorrectedActionChange, onCorrectedOccurredAtChange, onCorrectionReasonChange, onCorrectMark, onCancelMarkCorrection, onBeginCancel, onCancelReasonChange, onConfirmCancel, onAbortCancel, onBeginVoid, onVoidReasonChange, onConfirmVoid, onAbortVoid }: {
   /** Under 768 px: the days and the marks of a day are lists instead of tables. */
   narrow?: boolean
-  sites: Site[]; eligibleEmployees: Employee[]; siteTemplates: Template[]; jornadas: JourneyRow[]
-  loading: boolean; journeysLoading: boolean; journeysDate: string; journeysError: string; dependencyError: string; error: string; notice: string; busy: boolean
+  sites: Site[]; jornadas: JourneyRow[]
+  loading: boolean; journeysLoading: boolean; journeysDate: string; journeysError: string; dependencyError: string; error: string; notice: string
   /** The place of error and notice: markMessageKey(...), 'forgotten', 'cancel' or 'detail'. */
   messageAt: string
   /** detailFor is the jornada asked for: its row holds the detail, its loading and a failure to read it. */
-  detail: Jornada | null; detailFor: string; detailLoading: boolean; markBusy: string; date: string; dateError: string; employeeId: string; siteId: string; templateId: string; peopleById: Map<string, string>
-  /** The single day ("Cargar o cambiar un solo día") has its own date and messages. */
-  singleDate: string; singleError?: string; singleNotice?: string; onSingleDateChange: (value: string) => void
+  detail: Jornada | null; detailFor: string; detailLoading: boolean; markBusy: string; date: string; dateError: string; peopleById: Map<string, string>
   detailSite?: Site; detailTimeZone?: string; forgotAction: MarkAction; forgotOccurredAt: string; forgotReason: string; editingMarkId: string
   correctedAction: MarkAction; correctedOccurredAt: string; correctionReason: string
-  onDateChange: (value: string) => void; onEmployeeChange: (value: string) => void; onSiteChange: (value: string) => void; onTemplateChange: (value: string) => void
-  onDeclare: (event: FormEvent<HTMLFormElement>) => void; onRetryDependencies: () => void; onReloadJourneys: () => void; onShowDetail: (id: string) => void
+  onDateChange: (value: string) => void
+  onRetryDependencies: () => void; onReloadJourneys: () => void; onShowDetail: (id: string) => void
   onForgotActionChange: (value: MarkAction) => void; onForgotOccurredAtChange: (value: string) => void; onForgotReasonChange: (value: string) => void; onAddForgottenMark: (event: FormEvent<HTMLFormElement>) => void
   onBeginMarkCorrection: (mark: Mark) => void; onCorrectedActionChange: (value: MarkAction) => void; onCorrectedOccurredAtChange: (value: string) => void; onCorrectionReasonChange: (value: string) => void
   onCorrectMark: (event: FormEvent<HTMLFormElement>, mark: Mark) => void; onCancelMarkCorrection: () => void
@@ -132,9 +129,8 @@ export function JourneysViewRender({ workDaysPanel, coverage, narrow = false, si
     </section>
   }
   return <>
-    <PageHeading eyebrow="DÍAS DE TRABAJO" title="Días de trabajo" subtitle="Cargá los días que trabaja cada persona y revisá sus marcas. Cada día sigue el calendario de su local." />
+    <PageHeading eyebrow="DÍA A DÍA" title="Hoy" subtitle="Revisá las marcas de cada día y corregí lo que haga falta. Cada día sigue el calendario de su local." />
     {dependencyError && <div className="form-stack"><PageMessage kind="error">{dependencyError}</PageMessage><button type="button" className="button button-quiet" disabled={loading || journeysLoading} onClick={onRetryDependencies}>Reintentar datos del día</button></div>}
-    {coverage}
     <Panel title={journeysTitle(date)} action={<button className="button button-small button-quiet" disabled={journeysLoading} onClick={onReloadJourneys}>{journeysLoading ? 'Actualizando…' : 'Actualizar'}</button>}>
       <div className="toolbar"><FormField label="Fecha" hint={dateError || undefined}><input type="date" required aria-invalid={Boolean(dateError)} disabled={loading} value={date} onChange={(event) => onDateChange(event.target.value)} /></FormField></div>
       {!date ? <Empty>{dateError}</Empty> : loading || journeysLoading || journeysDate !== date ? <Loading label={loading || !journeysDate ? 'Cargando días…' : 'Actualizando días…'} /> : journeysError ? <LoadFailure message={journeysError} onRetry={onReloadJourneys} /> : jornadas.length ? narrow ? <div className="history-list">{jornadas.map((jornada) => {
@@ -153,20 +149,6 @@ export function JourneysViewRender({ workDaysPanel, coverage, narrow = false, si
       })}</tbody></table></div> : <Empty>No hay días cargados para esta fecha.</Empty>}
     </Panel>
     {!detailInRow && detailBlock}
-    {workDaysPanel}
-    <section className="panel" aria-labelledby="single-day-title"><details className="fold">
-      <summary><h2 id="single-day-title">Cargar o cambiar un solo día</h2></summary>
-      <p className="muted">Para una excepción: un día suelto o un horario distinto. Para cambiar un día ya cargado, abrilo en la lista de arriba, cancelalo y cargalo de nuevo.</p>
-      <form className="form-grid" onSubmit={onDeclare}>
-        <FormField label="Local"><select required value={siteId} onChange={(event) => onSiteChange(event.target.value)}>{sites.map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}</select></FormField>
-        <FormField label="Empleado" hint={eligibleEmployees.length === 0 ? 'No hay personas activas en este local.' : undefined}><select required value={employeeId} onChange={(event) => onEmployeeChange(event.target.value)}>{eligibleEmployees.map((person) => <option value={person.id} key={person.id}>{person.displayName}</option>)}</select></FormField>
-        <FormField label="Día"><input type="date" required disabled={loading} value={singleDate} onChange={(event) => onSingleDateChange(event.target.value)} /></FormField>
-        <FormField label="Horario" hint="Si no elegís otro, se usa el horario que la persona tiene asignado para ese día."><select value={templateId} onChange={(event) => onTemplateChange(event.target.value)}><option value="">El que tiene asignado</option>{siteTemplates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>)}</select></FormField>
-        {singleError && <div className="field-wide"><PageMessage kind="error">{singleError}</PageMessage></div>}
-        {singleNotice && <div className="field-wide"><PageMessage kind="success">{singleNotice}</PageMessage></div>}
-        <div className="field-wide"><button className="button button-primary" disabled={busy || loading || journeysLoading || !singleDate || !employeeId}>{busy ? 'Guardando…' : 'Cargar este día'}</button></div>
-      </form>
-    </details></section>
   </>
 }
 

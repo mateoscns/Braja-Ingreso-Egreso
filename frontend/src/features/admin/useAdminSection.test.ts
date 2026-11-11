@@ -31,7 +31,7 @@ describe('direcciones de las secciones', () => {
 
   it('usa los nombres finales del menú de cuatro destinos', () => {
     expect(SECTION_ADDRESSES).toEqual({
-      inbox: '#/para-revisar', jornadas: '#/hoy', historial: '#/historial',
+      inbox: '#/para-revisar', jornadas: '#/hoy', workdays: '#/dias-de-trabajo', historial: '#/historial',
       sedes: '#/configuracion/locales', plantillas: '#/configuracion/horarios', empleados: '#/configuracion/equipo',
       setup: '#/configuracion/primeros-pasos'
     })

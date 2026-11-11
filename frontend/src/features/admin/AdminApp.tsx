@@ -3,7 +3,7 @@ import { AppHeader, CompanySwitcher, Loading } from '../../app/ui'
 import { useSession } from '../../app/session'
 import { api } from '../../shared/api/client'
 import type { Deviation } from '../../shared/api/types'
-import { AdminHistory, AdminInbox, EmployeesView, JourneysView, SitesView, TemplatesView, type OpenJornadaRequest } from './AdminViews'
+import { AdminHistory, AdminInbox, EmployeesView, JourneysView, SitesView, TemplatesView, WorkDaysView, type OpenJornadaRequest } from './AdminViews'
 import { CoverageNoticeRender, FirstStepsRender } from './FirstSteps'
 import { coverageNotice, loadSetupData, readyTomorrow, setupComplete, setupSteps, type AdminSection, type SetupData } from './setupStatus'
 import { SECTION_ADDRESSES, useAdminSection } from './useAdminSection'
@@ -14,13 +14,14 @@ type NavLink = { id: AdminSection; label: string; icon: string }
 const SETUP_LINK: NavLink = { id: 'setup', label: 'Primeros pasos', icon: '✓' }
 // Daily work first, then the configuration in the order it is done.
 const DAILY_LINKS: NavLink[] = [
-  { id: 'inbox', label: 'Para revisar', icon: '◷' }, { id: 'jornadas', label: 'Días de trabajo', icon: '▦' }, { id: 'historial', label: 'Historial', icon: '☰' }
+  { id: 'inbox', label: 'Para revisar', icon: '◷' }, { id: 'jornadas', label: 'Hoy', icon: '▦' }, { id: 'workdays', label: 'Días de trabajo', icon: '▥' },
+  { id: 'historial', label: 'Historial', icon: '☰' }
 ]
 const CONFIGURATION_LINKS: NavLink[] = [
   { id: 'sedes', label: 'Locales', icon: '⌖' }, { id: 'plantillas', label: 'Horarios', icon: '▤' }, { id: 'empleados', label: 'Equipo', icon: '♙' }
 ]
 /** Sections whose content depends on the setup status (the guide and the notice of days loaded). */
-const STATUS_SECTIONS = new Set<AdminSection>(['setup', 'inbox', 'jornadas'])
+const STATUS_SECTIONS = new Set<AdminSection>(['setup', 'inbox', 'jornadas', 'workdays'])
 
 export function AdminApp() {
   const { session, signOut, activateCompany } = useSession()
@@ -82,7 +83,9 @@ export function AdminApp() {
     setOpenJornada({ jornadaId: item.jornadaId, forgottenAction: item.type === 'MARCA_FALTANTE' ? 'EGRESO' : undefined })
     setJourneysKey((key) => key + 1)
   }
+  /** «Cargar días» of the notice: from another section it goes to «Días de trabajo»; there, the load form is just below. */
   function showWorkDaysForm() {
+    if (section !== 'workdays') { navigate('workdays'); return }
     const form = document.getElementById('work-days')
     if (form && typeof form.scrollIntoView === 'function') form.scrollIntoView({ block: 'start' })
     form?.querySelector<HTMLElement>('select, input, button')?.focus()
@@ -113,8 +116,9 @@ export function AdminApp() {
         {section === null && <Loading label="Preparando tu panel…" />}
         {section === 'setup' && <FirstStepsRender steps={steps} loading={setupLoading} error={setupError} readyCount={setup ? readyTomorrow(setup) : 0} onGo={navigate} onRetry={() => void refreshSetup()} />}
         {section === 'inbox' && <AdminInbox onOpenJornada={openDeviationJornada}
-          coverage={notice && <CoverageNoticeRender notice={notice} actionLabel="Cargar días" onAction={() => navigate('jornadas')} />} />}
-        {section === 'jornadas' && <JourneysView key={journeysKey} openJornada={openJornada} onNavigate={navigate} onDaysLoaded={() => void refreshSetup()}
+          coverage={notice && <CoverageNoticeRender notice={notice} actionLabel="Cargar días" onAction={showWorkDaysForm} />} />}
+        {section === 'jornadas' && <JourneysView key={journeysKey} openJornada={openJornada} />}
+        {section === 'workdays' && <WorkDaysView onNavigate={navigate} onDaysLoaded={() => void refreshSetup()}
           coverage={notice && <CoverageNoticeRender notice={notice} actionLabel="Cargar días" onAction={showWorkDaysForm} />} />}
         {section === 'historial' && <AdminHistory />}
         {section === 'empleados' && <EmployeesView />}

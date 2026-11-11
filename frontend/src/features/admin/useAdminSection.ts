@@ -4,10 +4,11 @@ import type { AdminSection } from './setupStatus'
 /**
  * The address of each ADMIN section (D-20261111-02, step 1): reload and Back keep the place.
  * These are already the names of the four-destination menu, so they change only once: step 2 adds
- * '#/dias-de-trabajo' and '#/configuracion', and '#/historial' will show «Hoy».
+ * '#/dias-de-trabajo' (slice N3a) and '#/configuracion', and '#/historial' will show «Hoy».
  *
  *   inbox      #/para-revisar                  (Bandeja)
- *   jornadas   #/hoy                           (Jornadas, whole until step 2)
+ *   jornadas   #/hoy                           (Hoy: the days of a date and their detail)
+ *   workdays   #/dias-de-trabajo               (Días de trabajo: the monthly load and the single day)
  *   historial  #/historial
  *   sedes      #/configuracion/locales
  *   plantillas #/configuracion/horarios
@@ -19,6 +20,7 @@ import type { AdminSection } from './setupStatus'
 export const SECTION_ADDRESSES: Readonly<Record<AdminSection, string>> = {
   inbox: '#/para-revisar',
   jornadas: '#/hoy',
+  workdays: '#/dias-de-trabajo',
   historial: '#/historial',
   sedes: '#/configuracion/locales',
   plantillas: '#/configuracion/horarios',
