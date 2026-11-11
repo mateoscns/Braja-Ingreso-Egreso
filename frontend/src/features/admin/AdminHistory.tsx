@@ -26,7 +26,7 @@ export function AdminHistory() {
   }
   useEffect(() => { void loadOptions() }, [])
   async function search() {
-    const problem = !filters.employeeId && !filters.siteId ? 'Elegí un empleado o una sede.' : !filters.from || !filters.to ? DATE_PAIR_MESSAGE : validateDateRange(filters.from, filters.to)
+    const problem = !filters.employeeId && !filters.siteId ? 'Elegí un empleado o un local.' : !filters.from || !filters.to ? DATE_PAIR_MESSAGE : validateDateRange(filters.from, filters.to)
     if (problem) { setFilterError(problem); return }
     const requestId = ++request.current
     setFilterError(''); setError(''); setLoading(true)
@@ -37,7 +37,7 @@ export function AdminHistory() {
       if (requestId !== request.current) return
       setRows(null)
       setError((reason as { status?: number } | null)?.status === 422
-        ? 'Son demasiados datos para una sola consulta: acotá el rango de fechas o elegí un empleado o una sede (hasta 366 días y 500 jornadas).'
+        ? 'Son demasiados datos para una sola consulta: acotá el rango de fechas o elegí un empleado o un local (hasta 366 días y 500 días de trabajo).'
         : errText(reason))
     } finally { if (requestId === request.current) setLoading(false) }
   }

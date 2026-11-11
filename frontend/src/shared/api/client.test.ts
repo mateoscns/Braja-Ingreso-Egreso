@@ -61,7 +61,7 @@ describe('ApiClient', () => {
 
     await expect(new ApiClient().get('/jornadas')).rejects.toMatchObject({
       status: 422, code: 'TEMPLATE_REQUIRED',
-      message: 'Esa persona no tiene un horario en ese local para ese día. Elegí un horario o asignale uno desde Empleados.'
+      message: 'Esa persona no tiene un horario en ese local para ese día. Elegí un horario o asignale uno desde Equipo.'
     })
   })
 
@@ -357,7 +357,7 @@ describe('ApiClient: codes of the production backend and proxy', () => {
     new Response(JSON.stringify({ status, code, detail: 'internal detail' }), { status, headers: { 'Content-Type': 'application/problem+json' } })
 
   it.each([
-    [409, 'EMPLOYEE_NOT_IN_SITE', 'Esa persona no trabaja en ese local. Agregale el local desde Empleados y volvé a intentar.'],
+    [409, 'EMPLOYEE_NOT_IN_SITE', 'Esa persona no trabaja en ese local. Agregale el local desde Equipo y volvé a intentar.'],
     [422, 'TEMPLATE_INVALID', 'Ese horario está desactivado y no se puede usar. Elegí otro o revisalo en Horarios.'],
     [409, 'TEMPLATE_IN_USE', 'Ese horario ya se usa, así que no puede pasar a otro local. Creá un horario nuevo para ese local.'],
     [422, 'PASSWORD_TOO_LONG', 'La contraseña es demasiado larga: puede tener hasta 72 caracteres, y las letras con tilde y la ñ cuentan como 2.'],

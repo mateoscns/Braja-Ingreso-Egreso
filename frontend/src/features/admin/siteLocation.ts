@@ -34,7 +34,7 @@ export function captureSiteCoordinates(
     if (signal?.aborted) { reject(new SiteLocationError('cancelled', 'Búsqueda cancelada.')); return }
     const secureContextError = insecureContextError()
     if (secureContextError) { reject(secureContextError); return }
-    if (!geolocation) { reject(new SiteLocationError('unsupported', 'Este navegador no ofrece geolocalización. Usá un navegador compatible en un contexto seguro o creá la sede sin centro.')); return }
+    if (!geolocation) { reject(new SiteLocationError('unsupported', 'Este navegador no ofrece geolocalización. Usá un navegador compatible en un contexto seguro o creá el local sin centro.')); return }
 
     let settled = false
     const deadline: { handle?: ReturnType<typeof setTimeout> } = {}
@@ -54,7 +54,7 @@ export function captureSiteCoordinates(
     signal?.addEventListener('abort', abort, { once: true })
     if (signal?.aborted) { abort(); return }
     deadline.handle = setTimeout(() => {
-      failWithError(new SiteLocationError('timeout', 'La búsqueda superó los 30 segundos, incluida la espera del permiso. Respondé el aviso de permiso si sigue abierto, activá la ubicación del dispositivo y volvé a intentar; también podés crear la sede sin centro.'))
+      failWithError(new SiteLocationError('timeout', 'La búsqueda superó los 30 segundos, incluida la espera del permiso. Respondé el aviso de permiso si sigue abierto, activá la ubicación del dispositivo y volvé a intentar; también podés crear el local sin centro.'))
     }, SITE_LOCATION_CAPTURE_DEADLINE_MS)
     const acceptPosition: PositionCallback = ({ coords }) => {
       if (settled) return
@@ -69,7 +69,7 @@ export function captureSiteCoordinates(
         return
       }
       if (accuracyMeters > SITE_LOCATION_ACCURACY_LIMIT_METERS) {
-        failWithError(new SiteLocationError('precision-insufficient', `El dispositivo informó una precisión de ${accuracyMeters.toFixed(1)} m; solo se aceptan hasta ${SITE_LOCATION_ACCURACY_LIMIT_METERS} m. El punto no se guardó. Elegí el punto en el mapa: buscá la dirección y tocá el lugar exacto. También podés activar la ubicación precisa y volver a intentar desde un lugar abierto, o crear la sede sin centro.`))
+        failWithError(new SiteLocationError('precision-insufficient', `El dispositivo informó una precisión de ${accuracyMeters.toFixed(1)} m; solo se aceptan hasta ${SITE_LOCATION_ACCURACY_LIMIT_METERS} m. El punto no se guardó. Elegí el punto en el mapa: buscá la dirección y tocá el lugar exacto. También podés activar la ubicación precisa y volver a intentar desde un lugar abierto, o crear el local sin centro.`))
         return
       }
       if (settled) return
@@ -84,7 +84,7 @@ export function captureSiteCoordinates(
     const onGeolocationError: PositionErrorCallback = (error) => {
       if (settled) return
       if (error.code === 1) {
-        failWithError(new SiteLocationError('permission-denied', 'El navegador o el dispositivo denegó el permiso. Habilitá la ubicación para este sitio en el navegador y en el sistema operativo, y volvé a intentar; también podés crear la sede sin centro.'))
+        failWithError(new SiteLocationError('permission-denied', 'El navegador o el dispositivo denegó el permiso. Habilitá la ubicación para este sitio en el navegador y en el sistema operativo, y volvé a intentar; también podés crear el local sin centro.'))
         return
       }
       failWithError(locationFailure(error))
@@ -102,15 +102,15 @@ function insecureContextError(): SiteLocationError | null {
     if (typeof window === 'undefined' || window.isSecureContext !== false) return null
     const hostname = window.location.hostname.replace(/^\[|\]$/g, '').toLowerCase()
     if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname.endsWith('.localhost')) return null
-    return new SiteLocationError('insecure-context', 'El navegador bloquea la ubicación en este origen HTTP. Abrí Braja por HTTPS (o localhost durante desarrollo) y volvé a intentar; también podés crear la sede sin centro.')
+    return new SiteLocationError('insecure-context', 'El navegador bloquea la ubicación en este origen HTTP. Abrí Braja por HTTPS (o localhost durante desarrollo) y volvé a intentar; también podés crear el local sin centro.')
   } catch { return null }
 }
 
 function locationFailure(error: GeolocationPositionError): SiteLocationError {
   if (error.code === 3) {
-    return new SiteLocationError('timeout', 'El navegador agotó el tiempo para obtener una posición. Activá la ubicación del dispositivo, respondé cualquier aviso de permiso y volvé a intentar; también podés crear la sede sin centro.')
+    return new SiteLocationError('timeout', 'El navegador agotó el tiempo para obtener una posición. Activá la ubicación del dispositivo, respondé cualquier aviso de permiso y volvé a intentar; también podés crear el local sin centro.')
   }
-  return new SiteLocationError('unavailable', 'El dispositivo no pudo determinar una posición. Verificá que la ubicación esté activada y que el navegador tenga permiso; probá al aire libre y volvé a intentar, o creá la sede sin centro.')
+  return new SiteLocationError('unavailable', 'El dispositivo no pudo determinar una posición. Verificá que la ubicación esté activada y que el navegador tenga permiso; probá al aire libre y volvé a intentar, o creá el local sin centro.')
 }
 
 export function parseGeofenceRadiusMeters(value: string): number {

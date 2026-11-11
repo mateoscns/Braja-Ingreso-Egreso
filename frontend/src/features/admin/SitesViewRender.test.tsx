@@ -42,12 +42,12 @@ describe('SitesViewRender location picker', () => {
   it('places the optional GPS action in the create-site form', () => {
     renderSitesView()
 
-    expect(screen.getByRole('heading', { name: 'Agregar sede' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Agregar local' })).toBeInTheDocument()
     expect(screen.getByText('¿Dónde queda el local?')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Capturar ubicación del dispositivo' })).toBeInTheDocument()
     expect(screen.getByRole('spinbutton', { name: 'Latitud' })).toBeInTheDocument()
     expect(screen.getByRole('spinbutton', { name: 'Longitud' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Crear sede' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Crear local' })).toBeInTheDocument()
   })
 
   it('shows selected coordinates and offers to update or remove them', () => {
@@ -64,7 +64,7 @@ describe('SitesViewRender location picker', () => {
     renderSitesView(null, true)
 
     expect(screen.getByRole('button', { name: 'Cancelar búsqueda' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Crear sede' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Crear local' })).toBeDisabled()
   })
 
   it('turns the capture control into cancellation while location is being acquired', () => {
@@ -106,7 +106,7 @@ describe('SitesViewRender location picker', () => {
     expect(within(screen.getByRole('form', { name: 'Cambiar ubicación de Local Centro' })).getByRole('spinbutton', { name: 'Distancia permitida para marcar (metros)' })).toHaveValue(175)
     expect(screen.getByRole('button', { name: 'Capturar otra ubicación' })).toBeInTheDocument()
     expect(screen.getByText('Precisión informada por el dispositivo: ±8.0 m (estimación; no garantiza exactitud).')).toBeInTheDocument()
-    expect(screen.getByRole('checkbox', { name: 'Confirmo que este punto corresponde a la sede.' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Confirmo que este punto corresponde al local.' })).not.toBeChecked()
     expect(screen.getByText('Configuración inicial de ubicación')).toBeInTheDocument()
     expect(screen.getByText('Por Mateo')).toBeInTheDocument()
     expect(screen.getByText('Origen del punto: carga manual')).toBeInTheDocument()
@@ -137,10 +137,10 @@ describe('SitesView location administration API', () => {
     const post = vi.spyOn(api, 'post').mockResolvedValue(created as never)
     render(<SitesView />)
 
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre de la sede' }), { target: { value: 'Local Centro' } })
-    fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre del local' }), { target: { value: 'Local Centro' } })
+    fireEvent.submit(screen.getByRole('button', { name: 'Crear local' }).closest('form')!)
 
-    await screen.findByText('Sede creada.')
+    await screen.findByText('Local creado.')
     expect(post).toHaveBeenCalledWith('/sites', expect.objectContaining({ latitude: null, longitude: null, geofenceRadiusMeters: 100 }))
   })
 
@@ -150,7 +150,7 @@ describe('SitesView location administration API', () => {
     vi.spyOn(api, 'get').mockResolvedValue([] as never)
     const post = vi.spyOn(api, 'post').mockResolvedValue(created as never)
     const { container } = render(<SitesView />)
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre de la sede' }), { target: { value: 'Local Centro' } })
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre del local' }), { target: { value: 'Local Centro' } })
     const zone = screen.getByRole('combobox', { name: 'Hora del local' })
 
     expect(zone).toHaveValue('America/Argentina/Buenos_Aires')
@@ -160,8 +160,8 @@ describe('SitesView location administration API', () => {
     expect(screen.queryByRole('textbox', { name: /otro país/ })).not.toBeInTheDocument()
 
     fireEvent.change(zone, { target: { value: 'America/Argentina/Cordoba' } })
-    fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
-    await screen.findByText('Sede creada.')
+    fireEvent.submit(screen.getByRole('button', { name: 'Crear local' }).closest('form')!)
+    await screen.findByText('Local creado.')
     expect(post).toHaveBeenCalledWith('/sites', expect.objectContaining({ timeZone: 'America/Argentina/Cordoba' }))
     expect(screen.getByText('Hora de Córdoba, Santa Fe, Entre Ríos, Corrientes, Misiones, Chaco, Formosa y Santiago del Estero')).toBeInTheDocument()
   })
@@ -171,21 +171,21 @@ describe('SitesView location administration API', () => {
     vi.spyOn(api, 'get').mockResolvedValue([] as never)
     const post = vi.spyOn(api, 'post').mockResolvedValue(created as never)
     render(<SitesView />)
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre de la sede' }), { target: { value: 'Local Santiago' } })
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre del local' }), { target: { value: 'Local Santiago' } })
     fireEvent.change(screen.getByRole('combobox', { name: 'Hora del local' }), { target: { value: 'other' } })
     const zone = screen.getByRole('textbox', { name: 'Zona horaria de otro país' })
     expect(zone).toHaveValue('')
 
     for (const invalid of ['EST', '-03:00']) {
       fireEvent.change(zone, { target: { value: invalid } })
-      fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
+      fireEvent.submit(screen.getByRole('button', { name: 'Crear local' }).closest('form')!)
       expect(await screen.findByText('Esa zona horaria no sirve. Elegí una provincia de la lista o escribí la zona de una ciudad, por ejemplo America/Santiago.')).toBeInTheDocument()
     }
     expect(post).not.toHaveBeenCalled()
 
     fireEvent.change(zone, { target: { value: 'America/Santiago' } })
-    fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
-    await screen.findByText('Sede creada.')
+    fireEvent.submit(screen.getByRole('button', { name: 'Crear local' }).closest('form')!)
+    await screen.findByText('Local creado.')
     expect(post).toHaveBeenCalledWith('/sites', expect.objectContaining({ timeZone: 'America/Santiago' }))
   })
 
@@ -195,15 +195,15 @@ describe('SitesView location administration API', () => {
     const post = vi.spyOn(api, 'post').mockResolvedValue(created as never)
     render(<SitesView />)
 
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre de la sede' }), { target: { value: 'Local Centro' } })
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre del local' }), { target: { value: 'Local Centro' } })
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Latitud' }), { target: { value: '-34.603722' } })
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Longitud' }), { target: { value: '-58.381592' } })
     const mapLink = screen.getByRole('link', { name: 'Revisar este punto en el mapa' })
     expect(mapLink).toHaveAttribute('href', expect.stringContaining('mlon=-58.381592'))
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Confirmo que este punto corresponde a la sede.' }))
-    fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Confirmo que este punto corresponde al local.' }))
+    fireEvent.submit(screen.getByRole('button', { name: 'Crear local' }).closest('form')!)
 
-    await screen.findByText('Sede creada.')
+    await screen.findByText('Local creado.')
     expect(post).toHaveBeenCalledWith('/sites', expect.objectContaining({
       latitude: -34.603722, longitude: -58.381592, locationSource: 'MANUAL'
     }))
@@ -214,14 +214,14 @@ describe('SitesView location administration API', () => {
     const post = vi.spyOn(api, 'post').mockResolvedValue({} as never)
     render(<SitesView />)
 
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre de la sede' }), { target: { value: 'Local Centro' } })
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre del local' }), { target: { value: 'Local Centro' } })
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Latitud' }), { target: { value: '91' } })
-    fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
+    fireEvent.submit(screen.getByRole('button', { name: 'Crear local' }).closest('form')!)
     expect(await screen.findByRole('alert')).toHaveTextContent('Ingresá latitud y longitud juntas')
     expect(post).not.toHaveBeenCalled()
 
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Longitud' }), { target: { value: '181' } })
-    fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
+    fireEvent.submit(screen.getByRole('button', { name: 'Crear local' }).closest('form')!)
     expect(await screen.findByRole('alert')).toHaveTextContent('latitud entre -90 y 90')
     expect(post).not.toHaveBeenCalled()
   })
@@ -234,12 +234,12 @@ describe('SitesView location administration API', () => {
     vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } })
     render(<SitesView />)
 
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre de la sede' }), { target: { value: 'Local Centro' } })
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre del local' }), { target: { value: 'Local Centro' } })
     fireEvent.click(screen.getByRole('button', { name: 'Capturar ubicación del dispositivo' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Permiso de ubicación')
-    fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
+    fireEvent.submit(screen.getByRole('button', { name: 'Crear local' }).closest('form')!)
 
-    await screen.findByText('Sede creada.')
+    await screen.findByText('Local creado.')
     expect(post).toHaveBeenCalledWith('/sites', expect.objectContaining({ latitude: null, longitude: null }))
   })
 
@@ -280,15 +280,15 @@ describe('SitesView location administration API', () => {
     })
     render(<SitesView />)
 
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre de la sede' }), { target: { value: 'Local Centro' } })
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre del local' }), { target: { value: 'Local Centro' } })
     fireEvent.click(screen.getByRole('button', { name: 'Capturar ubicación del dispositivo' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Precisión insuficiente')
     expect(screen.getByRole('alert')).toHaveTextContent('25.1 m')
     expect(screen.getByRole('alert')).toHaveTextContent('Elegí el punto en el mapa')
     expect(screen.queryByText('Latitud -34.6037220 · Longitud -58.3815920')).not.toBeInTheDocument()
-    fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
+    fireEvent.submit(screen.getByRole('button', { name: 'Crear local' }).closest('form')!)
 
-    await screen.findByText('Sede creada.')
+    await screen.findByText('Local creado.')
     expect(post).toHaveBeenCalledWith('/sites', expect.objectContaining({ latitude: null, longitude: null }))
   })
 
@@ -306,9 +306,9 @@ describe('SitesView location administration API', () => {
     vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } })
     render(<SitesView />)
 
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre de la sede' }), { target: { value: 'Local Centro' } })
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre del local' }), { target: { value: 'Local Centro' } })
     fireEvent.click(screen.getByRole('button', { name: 'Capturar ubicación del dispositivo' }))
-    const confirmation = await screen.findByRole('checkbox', { name: 'Confirmo que este punto corresponde a la sede.' })
+    const confirmation = await screen.findByRole('checkbox', { name: 'Confirmo que este punto corresponde al local.' })
     fireEvent.click(confirmation)
     expect(confirmation).toBeChecked()
 
@@ -317,13 +317,13 @@ describe('SitesView location administration API', () => {
     expect(screen.getByText('Latitud -34.6037220 · Longitud -58.3815920')).toBeInTheDocument()
     expect(screen.getByText(/revisalo y confirmalo de nuevo antes de guardar/i)).toBeInTheDocument()
     expect(confirmation).not.toBeChecked()
-    fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
-    expect(await screen.findByText(/Revisá el punto en el mapa y confirmá que corresponde a esta sede/i)).toBeInTheDocument()
+    fireEvent.submit(screen.getByRole('button', { name: 'Crear local' }).closest('form')!)
+    expect(await screen.findByText(/Revisá el punto en el mapa y confirmá que corresponde a este local/i)).toBeInTheDocument()
     expect(post).not.toHaveBeenCalled()
 
     fireEvent.click(confirmation)
-    fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
-    await screen.findByText('Sede creada.')
+    fireEvent.submit(screen.getByRole('button', { name: 'Crear local' }).closest('form')!)
+    await screen.findByText('Local creado.')
     expect(post).toHaveBeenCalledWith('/sites', expect.objectContaining({ latitude: -34.603722, longitude: -58.381592 }))
     expect(getCurrentPosition).toHaveBeenCalledTimes(2)
   })
@@ -336,17 +336,17 @@ describe('SitesView location administration API', () => {
     vi.stubGlobal('navigator', { geolocation: { getCurrentPosition: (success: PositionCallback) => { lateSuccess = success } } })
     render(<SitesView />)
 
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre de la sede' }), { target: { value: 'Local Centro' } })
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre del local' }), { target: { value: 'Local Centro' } })
     fireEvent.click(screen.getByRole('button', { name: 'Capturar ubicación del dispositivo' }))
     const captureControl = await screen.findByRole('button', { name: 'Cancelar búsqueda' })
     fireEvent.click(captureControl)
-    await screen.findByText('Búsqueda cancelada. Podés crear la sede sin centro.')
+    await screen.findByText('Búsqueda cancelada. Podés crear el local sin centro.')
     await act(async () => {
       lateSuccess?.({ coords: { latitude: -34.603722, longitude: -58.381592, accuracy: 8 } } as GeolocationPosition)
     })
-    fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
+    fireEvent.submit(screen.getByRole('button', { name: 'Crear local' }).closest('form')!)
 
-    await screen.findByText('Sede creada.')
+    await screen.findByText('Local creado.')
     expect(post).toHaveBeenCalledWith('/sites', expect.objectContaining({ latitude: null, longitude: null }))
     expect(screen.queryByText('Latitud -34.6037220 · Longitud -58.3815920')).not.toBeInTheDocument()
   })
@@ -364,7 +364,7 @@ describe('SitesView location administration API', () => {
     fireEvent.change(within(form).getByRole('spinbutton', { name: 'Distancia permitida para marcar (metros)' }), { target: { value: '250' } })
     fireEvent.submit(form)
 
-    await screen.findByText('Ubicación de la sede actualizada.')
+    await screen.findByText('Ubicación del local actualizada.')
     expect(put).toHaveBeenCalledWith('/sites/site-1/location', { latitude: null, longitude: null, locationSource: null, geofenceRadiusMeters: 250 })
   })
 
@@ -380,10 +380,10 @@ describe('SitesView location administration API', () => {
     fireEvent.change(within(form).getByRole('spinbutton', { name: 'Latitud' }), { target: { value: '-34.6' } })
     fireEvent.change(within(form).getByRole('spinbutton', { name: 'Longitud' }), { target: { value: '-58.38' } })
     expect(within(form).getByRole('link', { name: 'Revisar este punto en el mapa' })).toHaveAttribute('href', expect.stringContaining('mlat=-34.6'))
-    fireEvent.click(within(form).getByRole('checkbox', { name: 'Confirmo que este punto corresponde a la sede.' }))
+    fireEvent.click(within(form).getByRole('checkbox', { name: 'Confirmo que este punto corresponde al local.' }))
     fireEvent.submit(form)
 
-    await screen.findByText('Ubicación de la sede actualizada.')
+    await screen.findByText('Ubicación del local actualizada.')
     expect(put).toHaveBeenCalledWith('/sites/site-1/location', {
       latitude: -34.6, longitude: -58.38, locationSource: 'MANUAL', geofenceRadiusMeters: 100
     })
@@ -407,11 +407,11 @@ describe('SitesView location administration API', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Cambiar ubicación de Local Centro' }))
     fireEvent.click(screen.getByRole('button', { name: 'Capturar otra ubicación' }))
     const form = screen.getByRole('form', { name: 'Cambiar ubicación de Local Centro' })
-    const confirmation = await within(form).findByRole('checkbox', { name: 'Confirmo que este punto corresponde a la sede.' })
+    const confirmation = await within(form).findByRole('checkbox', { name: 'Confirmo que este punto corresponde al local.' })
     expect(within(form).getByText('Precisión informada por el dispositivo: ±12.0 m (estimación; no garantiza exactitud).')).toBeInTheDocument()
 
     fireEvent.submit(form)
-    expect(await screen.findByRole('alert')).toHaveTextContent('Confirmá que el nuevo punto corresponde a esta sede')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Confirmá que el nuevo punto corresponde a este local')
     expect(put).not.toHaveBeenCalled()
 
     fireEvent.click(confirmation)
@@ -422,12 +422,12 @@ describe('SitesView location administration API', () => {
     expect(within(form).getByText('Latitud -34.6037220 · Longitud -58.3815920')).toBeInTheDocument()
 
     fireEvent.submit(form)
-    expect(await screen.findByText('Confirmá que el nuevo punto corresponde a esta sede antes de guardarlo.')).toBeInTheDocument()
+    expect(await screen.findByText('Confirmá que el nuevo punto corresponde a este local antes de guardarlo.')).toBeInTheDocument()
     expect(put).not.toHaveBeenCalled()
 
     fireEvent.click(confirmation)
     fireEvent.submit(form)
-    await screen.findByText('Ubicación de la sede actualizada.')
+    await screen.findByText('Ubicación del local actualizada.')
     expect(put).toHaveBeenCalledWith('/sites/site-1/location', { latitude: -34.603722, longitude: -58.381592, locationSource: 'CAPTURED', geofenceRadiusMeters: 100 })
     expect(getCurrentPosition).toHaveBeenCalledTimes(2)
   })
@@ -446,7 +446,7 @@ describe('SitesView location administration API', () => {
     expect(within(form).getByRole('spinbutton', { name: 'Latitud' })).toBeInTheDocument()
     expect(within(form).getByRole('spinbutton', { name: 'Longitud' })).toBeInTheDocument()
     fireEvent.submit(form)
-    await screen.findByText('Ubicación de la sede actualizada.')
+    await screen.findByText('Ubicación del local actualizada.')
     expect(put).toHaveBeenCalledWith('/sites/site-1/location', { latitude: null, longitude: null, locationSource: null, geofenceRadiusMeters: 100 })
   })
 
@@ -468,7 +468,7 @@ describe('SitesView location administration API', () => {
     expect(within(form).getByText('Latitud -34.6000000 · Longitud -58.3800000')).toBeInTheDocument()
     fireEvent.submit(form)
 
-    await screen.findByText('Ubicación de la sede actualizada.')
+    await screen.findByText('Ubicación del local actualizada.')
     expect(put).toHaveBeenCalledWith('/sites/site-1/location', { latitude: -34.6, longitude: -58.38, locationSource: null, geofenceRadiusMeters: 100 })
   })
 
@@ -480,7 +480,7 @@ describe('SitesView location administration API', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Ver historial de ubicación' }))
 
-    expect(await screen.findByText('Esta sede todavía no tiene cambios de ubicación auditados.')).toBeInTheDocument()
+    expect(await screen.findByText('Este local todavía no tiene cambios de ubicación auditados.')).toBeInTheDocument()
     expect(get).toHaveBeenCalledWith('/sites/site-1/location-audit')
   })
 
@@ -512,7 +512,7 @@ describe('SitesView map picker', () => {
     vi.spyOn(api, 'get').mockResolvedValue([] as never)
     render(<SitesView />)
 
-    const createForm = (await screen.findByRole('button', { name: 'Crear sede' })).closest('form')!
+    const createForm = (await screen.findByRole('button', { name: 'Crear local' })).closest('form')!
     const actions = within(createForm).getAllByRole('button')
     expect(actions[0]).toHaveTextContent('Elegir en el mapa')
     expect(within(createForm).getByRole('button', { name: 'Capturar ubicación del dispositivo' })).toBeInTheDocument()
@@ -530,7 +530,7 @@ describe('SitesView map picker', () => {
     const post = vi.spyOn(api, 'post').mockResolvedValue(created as never)
     render(<SitesView />)
 
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre de la sede' }), { target: { value: 'Local Centro' } })
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre del local' }), { target: { value: 'Local Centro' } })
     fireEvent.click(screen.getByRole('button', { name: 'Elegir en el mapa' }))
     const map = await screen.findByTestId('site-map')
     expect(map).toHaveAttribute('data-view', '-34.6,-58.4,12')
@@ -547,9 +547,9 @@ describe('SitesView map picker', () => {
     expect(screen.getByText('Latitud -34.6037224 · Longitud -58.3815926')).toBeInTheDocument()
     expect(screen.getByText('Punto elegido en el mapa.')).toBeInTheDocument()
     // Confirming on the map is the confirmation: the checkbox comes already ticked and the site saves at once.
-    expect(screen.getByRole('checkbox', { name: 'Confirmo que este punto corresponde a la sede.' })).toBeChecked()
-    fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
-    await screen.findByText('Sede creada.')
+    expect(screen.getByRole('checkbox', { name: 'Confirmo que este punto corresponde al local.' })).toBeChecked()
+    fireEvent.submit(screen.getByRole('button', { name: 'Crear local' }).closest('form')!)
+    await screen.findByText('Local creado.')
     expect(post).toHaveBeenCalledWith('/sites', expect.objectContaining({
       latitude: -34.6037224, longitude: -58.3815926, locationSource: 'MANUAL', geofenceRadiusMeters: 250
     }))
@@ -562,7 +562,7 @@ describe('SitesView map picker', () => {
     vi.stubGlobal('navigator', { geolocation: { getCurrentPosition: (success: PositionCallback) => success({ coords: { latitude: -32.95, longitude: -60.65, accuracy: 124 } } as GeolocationPosition) } })
     render(<SitesView />)
 
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre de la sede' }), { target: { value: 'Local Centro' } })
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre del local' }), { target: { value: 'Local Centro' } })
     fireEvent.click(screen.getByRole('button', { name: 'Elegir en el mapa' }))
     const map = await screen.findByTestId('site-map')
     await vi.waitFor(() => expect(map).toHaveAttribute('data-view', '-32.95,-60.65,16'))
@@ -571,8 +571,8 @@ describe('SitesView map picker', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Cerrar mapa' }))
     expect(screen.queryByTestId('site-map')).not.toBeInTheDocument()
-    fireEvent.submit(screen.getByRole('button', { name: 'Crear sede' }).closest('form')!)
-    await screen.findByText('Sede creada.')
+    fireEvent.submit(screen.getByRole('button', { name: 'Crear local' }).closest('form')!)
+    await screen.findByText('Local creado.')
     expect(post).toHaveBeenCalledWith('/sites', expect.objectContaining({ latitude: null, longitude: null, locationSource: null }))
   })
 
@@ -617,9 +617,9 @@ describe('SitesView map picker', () => {
     expect(map).toHaveAttribute('data-point', '-34.6037224,-58.3815926')
 
     fireEvent.click(within(form).getByRole('button', { name: 'Confirmar ubicación' }))
-    expect(within(form).getByRole('checkbox', { name: 'Confirmo que este punto corresponde a la sede.' })).toBeChecked()
+    expect(within(form).getByRole('checkbox', { name: 'Confirmo que este punto corresponde al local.' })).toBeChecked()
     fireEvent.submit(form)
-    await screen.findByText('Ubicación de la sede actualizada.')
+    await screen.findByText('Ubicación del local actualizada.')
     expect(put).toHaveBeenCalledWith('/sites/site-1/location', { latitude: -34.6037224, longitude: -58.3815926, locationSource: 'MANUAL', geofenceRadiusMeters: 150 })
   })
 

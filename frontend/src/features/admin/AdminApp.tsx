@@ -14,10 +14,10 @@ type NavLink = { id: AdminSection; label: string; icon: string }
 const SETUP_LINK: NavLink = { id: 'setup', label: 'Primeros pasos', icon: '✓' }
 // Daily work first, then the configuration in the order it is done.
 const DAILY_LINKS: NavLink[] = [
-  { id: 'inbox', label: 'Bandeja', icon: '◷' }, { id: 'jornadas', label: 'Jornadas', icon: '▦' }, { id: 'historial', label: 'Historial', icon: '☰' }
+  { id: 'inbox', label: 'Para revisar', icon: '◷' }, { id: 'jornadas', label: 'Días de trabajo', icon: '▦' }, { id: 'historial', label: 'Historial', icon: '☰' }
 ]
 const CONFIGURATION_LINKS: NavLink[] = [
-  { id: 'sedes', label: 'Sedes', icon: '⌖' }, { id: 'plantillas', label: 'Horarios', icon: '▤' }, { id: 'empleados', label: 'Empleados', icon: '♙' }
+  { id: 'sedes', label: 'Locales', icon: '⌖' }, { id: 'plantillas', label: 'Horarios', icon: '▤' }, { id: 'empleados', label: 'Equipo', icon: '♙' }
 ]
 /** Sections whose content depends on the setup status (the guide and the notice of days loaded). */
 const STATUS_SECTIONS = new Set<AdminSection>(['setup', 'inbox', 'jornadas'])

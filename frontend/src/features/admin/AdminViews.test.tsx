@@ -82,15 +82,15 @@ describe('administración de desvíos y marcas', () => {
       ? Promise.resolve([{ id: 'j-9', employeeId: 'e-1', siteId: 's-1', localDate: new URLSearchParams(path.split('?')[1]).get('from'), state: 'NO_INGRESO' }])
       : previousGet(path))
     const { container } = render(<AdminApp />)
-    const inbox = screen.getByRole('button', { name: 'Bandeja' })
+    const inbox = screen.getByRole('button', { name: 'Para revisar' })
     await waitFor(() => expect(inbox).toHaveAttribute('aria-current', 'page'))
     expect(container.querySelector('.nav-dot')).not.toBeInTheDocument()
 
-    const employees = screen.getByRole('button', { name: 'Empleados' })
+    const employees = screen.getByRole('button', { name: 'Equipo' })
     fireEvent.click(employees)
     expect(employees).toHaveAttribute('aria-current', 'page')
     expect(inbox).not.toHaveAttribute('aria-current')
-    expect(await screen.findByRole('heading', { name: 'Empleados' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Equipo' })).toBeInTheDocument()
   })
 
   it('muestra el nombre entregado por el servidor en la bandeja', async () => {
@@ -111,7 +111,7 @@ describe('administración de desvíos y marcas', () => {
     render(<AdminInbox />)
 
     expect(await screen.findByText('Falló la carga de la bandeja.')).toBeInTheDocument()
-    expect(screen.queryByText('No hay desvíos para mostrar.')).not.toBeInTheDocument()
+    expect(screen.queryByText('No hay casos para mostrar.')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
     expect(await screen.findByText(/Lucía Pérez ·/)).toBeInTheDocument()
   })
@@ -126,7 +126,7 @@ describe('administración de desvíos y marcas', () => {
     expect(await screen.findByText(/Falló la consulta de sedes\./)).toBeInTheDocument()
     expect(screen.getByText(/Las horas se muestran en la zona horaria de este dispositivo\./)).toBeInTheDocument()
     expect(screen.getByText(/Lucía Pérez ·/)).toBeInTheDocument()
-    expect(screen.queryByText('No hay desvíos para mostrar.')).not.toBeInTheDocument()
+    expect(screen.queryByText('No hay casos para mostrar.')).not.toBeInTheDocument()
   })
 
   it('distingue un fallo de carga de la lista vacía de sedes y permite reintentar', async () => {
@@ -134,7 +134,7 @@ describe('administración de desvíos y marcas', () => {
     render(<SitesView />)
 
     expect(await screen.findByText('Falló la carga de sedes.')).toBeInTheDocument()
-    expect(screen.queryByText('Todavía no hay sedes.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Todavía no hay locales.')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
     expect(await screen.findByText('Local Centro')).toBeInTheDocument()
   })
@@ -143,7 +143,7 @@ describe('administración de desvíos y marcas', () => {
     const previousGet = apiMocks.get.getMockImplementation()!
     apiMocks.get.mockImplementation((path: string) => path === '/sites' ? Promise.resolve([]) : previousGet(path))
     render(<SitesView />)
-    expect(await screen.findByText('Todavía no hay sedes.')).toBeInTheDocument()
+    expect(await screen.findByText('Todavía no hay locales.')).toBeInTheDocument()
   })
 
   it('distingue un fallo de carga de la lista vacía de empleados y permite reintentar', async () => {
@@ -219,7 +219,7 @@ describe('administración de desvíos y marcas', () => {
     render(<JourneysView />)
 
     expect(await screen.findByText('Falló la carga inicial de empleados.')).toBeInTheDocument()
-    const retry = await screen.findByRole('button', { name: 'Reintentar datos de la jornada' })
+    const retry = await screen.findByRole('button', { name: 'Reintentar datos del día' })
     await waitFor(() => expect(retry).toBeEnabled())
     fireEvent.click(retry)
 
@@ -248,7 +248,7 @@ describe('administración de desvíos y marcas', () => {
 
     fireEvent.change(screen.getByLabelText('Fecha'), { target: { value: '' } })
 
-    expect(screen.getAllByRole('heading', { name: 'Jornadas' })).toHaveLength(2)
+    expect(screen.getAllByRole('heading', { name: 'Días de trabajo' })).toHaveLength(2)
   })
 
   it('muestra el estado vacío de la bandeja solo cuando la consulta termina correctamente sin filas', async () => {
@@ -257,7 +257,7 @@ describe('administración de desvíos y marcas', () => {
       ? Promise.resolve({ items: [], nextCursor: null })
       : previousGet(path))
     render(<AdminInbox />)
-    expect(await screen.findByText('No hay desvíos para mostrar.')).toBeInTheDocument()
+    expect(await screen.findByText('No hay casos para mostrar.')).toBeInTheDocument()
   })
 
   it('evita el desplazamiento suave cuando el sistema reduce el movimiento', async () => {
@@ -327,7 +327,7 @@ describe('administración de desvíos y marcas', () => {
     expect(await screen.findByRole('row', { name: /Lucía Pérez/ })).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Fecha'), { target: { value: '2026-10-17' } })
 
-    expect(await screen.findByText('Actualizando jornadas…')).toBeInTheDocument()
+    expect(await screen.findByText('Actualizando días…')).toBeInTheDocument()
     expect(screen.queryByRole('row', { name: /Lucía Pérez/ })).not.toBeInTheDocument()
     await waitFor(() => expect(apiMocks.get).toHaveBeenCalledWith('/jornadas?from=2026-10-17&to=2026-10-17'))
 
@@ -394,7 +394,7 @@ describe('administración de desvíos y marcas', () => {
 
   describe('marcas que no encajan con la jornada en los formularios de ADMIN', () => {
     const staleEmployeeText = /El estado del día de trabajo cambió y esa marca ya no corresponde/
-    const adminText = 'La hora o la acción no encajan con las demás marcas de la jornada. Revisá el orden.'
+    const adminText = 'La hora o la acción no encajan con las demás marcas del día. Revisá el orden.'
     const rejection = (code: string) => Object.assign(new Error('El estado del día de trabajo cambió y esa marca ya no corresponde. Revisá el estado actualizado.'), { status: 409, code })
 
     it.each(['INVALID_MARK_ORDER', 'INVALID_MARK_HISTORY', 'INVALID_MARK_TRANSITION'])('una marca olvidada rechazada con %s explica el orden al ADMIN', async (code) => {
@@ -446,7 +446,7 @@ describe('administración de desvíos y marcas', () => {
     fireEvent.change(screen.getByLabelText('Hora (Local Centro)'), { target: { value: localTime } })
     fireEvent.change(screen.getByLabelText('¿Por qué la agregás?'), { target: { value: 'Marca olvidada.' } })
     fireEvent.click(screen.getByRole('button', { name: 'Agregar marca' }))
-    expect(await screen.findByText(/Esa hora no existe en la zona horaria de la sede/)).toBeInTheDocument()
+    expect(await screen.findByText(/Esa hora no existe en la zona horaria del local/)).toBeInTheDocument()
     expect(apiMocks.post).not.toHaveBeenCalled()
   })
 
@@ -493,7 +493,7 @@ describe('administración de desvíos y marcas', () => {
     try {
       render(<JourneysView />)
       fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
-      const marks = await screen.findByRole('list', { name: 'Marcas de la jornada' })
+      const marks = await screen.findByRole('list', { name: 'Marcas del día' })
       expect(screen.queryByRole('columnheader', { name: 'Ubicación' })).not.toBeInTheDocument()
       const [card] = within(marks).getAllByRole('listitem')
       expect(card).toHaveTextContent('Entrada')
@@ -537,12 +537,12 @@ describe('administración de desvíos y marcas', () => {
       await screen.findByText(/Lucía Pérez ·/)
       const fold = screen.getByText('Filtros: todos').closest('details')!
       expect(fold).not.toHaveAttribute('open')
-      const form = screen.getByRole('form', { name: 'Filtros de la bandeja', hidden: true })
+      const form = screen.getByRole('form', { name: 'Filtros de los casos', hidden: true })
       expect(fold).toContainElement(form)
 
       await waitFor(() => expect(within(form).getAllByRole('option', { name: 'Lucía Pérez', hidden: true })).toHaveLength(1))
       fireEvent.change(within(form).getByLabelText('Empleado'), { target: { value: 'e-1' } })
-      fireEvent.change(within(form).getByLabelText('Sede'), { target: { value: 's-1' } })
+      fireEvent.change(within(form).getByLabelText('Local'), { target: { value: 's-1' } })
       fireEvent.click(within(form).getByRole('button', { name: 'Aplicar', hidden: true }))
       expect(await screen.findByText('Filtros: Lucía Pérez · Local Centro')).toBeInTheDocument()
     })
@@ -551,7 +551,7 @@ describe('administración de desvíos y marcas', () => {
       Object.defineProperty(window, 'matchMedia', { configurable: true, value: vi.fn((query: string) => ({ matches: query === '(min-width: 768px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })) })
       render(<AdminInbox />)
       await screen.findByText(/Lucía Pérez ·/)
-      expect(screen.getByRole('form', { name: 'Filtros de la bandeja' }).closest('details')).toBeNull()
+      expect(screen.getByRole('form', { name: 'Filtros de los casos' }).closest('details')).toBeNull()
       expect(screen.queryByText(/^Filtros:/)).not.toBeInTheDocument()
     })
   })
@@ -749,7 +749,7 @@ describe('administración de desvíos y marcas', () => {
     fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
     await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
 
-    expect(screen.getByText('No se pudo cargar la zona horaria de la sede. Reintentá los datos de la jornada antes de incorporar o corregir marcas.')).toBeInTheDocument()
+    expect(screen.getByText('No se pudo cargar la zona horaria del local. Reintentá los datos del día antes de incorporar o corregir marcas.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Agregar marca' })).toBeDisabled()
     expect(screen.getByLabelText(/^Hora \(/)).toBeDisabled()
     expect(screen.getByRole('button', { name: /^Corregir marca/ })).toBeDisabled()
@@ -772,7 +772,7 @@ describe('administración de desvíos y marcas', () => {
       await screen.findByText(/Lucía Pérez ·/)
       expect(inboxCalls()).toEqual(['/inbox?limit=50'])
 
-      pick('Empleado', 'e-1'); pick('Sede', 's-1'); pick('Desde', '2026-10-01'); pick('Hasta', '2026-10-10')
+      pick('Empleado', 'e-1'); pick('Local', 's-1'); pick('Desde', '2026-10-01'); pick('Hasta', '2026-10-10')
       fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
       await waitFor(() => expect(inboxCalls()).toContain('/inbox?limit=50&employeeId=e-1&siteId=s-1&from=2026-10-01&to=2026-10-10'))
 
@@ -819,9 +819,9 @@ describe('administración de desvíos y marcas', () => {
       render(<AdminInbox />)
       await screen.findByText(/Lucía Pérez ·/)
       apiMocks.get.mockImplementation((path: string) => path.startsWith('/inbox') ? Promise.resolve({ items: [], nextCursor: null }) : Promise.resolve([]))
-      pick('Sede', 's-1')
+      pick('Local', 's-1')
       fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
-      expect(await screen.findByText('Ningún desvío coincide con los filtros aplicados.')).toBeInTheDocument()
+      expect(await screen.findByText('Ningún caso coincide con los filtros aplicados.')).toBeInTheDocument()
     })
 
     it('mantiene las acciones de clasificación sobre los resultados filtrados', async () => {
@@ -862,7 +862,7 @@ describe('administración de desvíos y marcas', () => {
       apiMocks.post.mockResolvedValue({ jornadaId: 'j-1', state: 'CANCELADA', cancelledAt: '2026-10-16T13:00:00Z', cancelReason: 'Feriado nacional' })
       render(<JourneysView />)
       fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
-      fireEvent.click(await screen.findByRole('button', { name: 'Cancelar jornada' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancelar el día' }))
 
       const confirm = screen.getByRole('button', { name: 'Confirmar cancelación' })
       expect(confirm).toBeDisabled()
@@ -870,7 +870,7 @@ describe('administración de desvíos y marcas', () => {
       fireEvent.click(confirm)
 
       await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/admin/jornadas/j-1/cancellation', { reason: 'Feriado nacional' }))
-      expect(await screen.findByText('Jornada cancelada.')).toBeInTheDocument()
+      expect(await screen.findByText('Día cancelado.')).toBeInTheDocument()
     })
 
     it('los motivos de cancelación y de anulación piden no escribir datos de salud (L30)', async () => {
@@ -878,7 +878,7 @@ describe('administración de desvíos y marcas', () => {
       withDetail({ state: 'NO_INGRESO', marks: [] })
       render(<JourneysView />)
       fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
-      fireEvent.click(await screen.findByRole('button', { name: 'Cancelar jornada' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancelar el día' }))
       expect(screen.getByRole('textbox', { name: 'Motivo de cancelación' })).toHaveAccessibleDescription(expect.stringContaining(healthHint))
       cleanup()
 
@@ -894,7 +894,7 @@ describe('administración de desvíos y marcas', () => {
       render(<JourneysView />)
       fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
       await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
-      expect(screen.queryByRole('button', { name: 'Cancelar jornada' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Cancelar el día' })).not.toBeInTheDocument()
     })
 
     it('muestra la jornada cancelada con su motivo y sin incorporar marcas', async () => {
@@ -902,9 +902,9 @@ describe('administración de desvíos y marcas', () => {
       render(<JourneysView />)
       expect(await screen.findByText('Cancelada')).toBeInTheDocument()
       fireEvent.click(screen.getByRole('button', { name: /^Ver marcas/ }))
-      expect(await screen.findByText(/Jornada cancelada el .* Motivo: Feriado nacional/)).toBeInTheDocument()
+      expect(await screen.findByText(/Día cancelado el .* Motivo: Feriado nacional/)).toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Agregar marca' })).not.toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: 'Cancelar jornada' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Cancelar el día' })).not.toBeInTheDocument()
     })
 
     it('anula una marca solo con motivo y confirmación', async () => {
@@ -942,11 +942,11 @@ describe('administración de desvíos y marcas', () => {
       apiMocks.post.mockRejectedValue(Object.assign(new Error('conflict'), { status: 409, code: 'JORNADA_CANCELLED' }))
       render(<JourneysView />)
       fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
-      fireEvent.click(await screen.findByRole('button', { name: 'Cancelar jornada' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancelar el día' }))
       fireEvent.change(screen.getByLabelText('Motivo de cancelación'), { target: { value: 'Feriado' } })
       fireEvent.click(screen.getByRole('button', { name: 'Confirmar cancelación' }))
 
-      expect(await screen.findByText('La jornada ya estaba cancelada.')).toBeInTheDocument()
+      expect(await screen.findByText('El día ya estaba cancelado.')).toBeInTheDocument()
     })
 
     it('muestra una marca anulada como Anulada, con su motivo y sin acciones', async () => {
@@ -967,6 +967,9 @@ describe('administración de desvíos y marcas', () => {
       const button = await screen.findByRole('button', { name: 'Ver marcas de Lucía Pérez' })
       fireEvent.click(button)
       await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
+      // The day is open once focus reached its heading, as a person sees it. Clicking on before that let the pending focus
+      // of the day land after the next form's (2026-11-11: failed now and then under the load of the whole suite).
+      await waitFor(() => expect(screen.getByRole('heading', { name: /^Marcas de / })).toHaveFocus())
       return button
     }
     // The row of the mark itself: a form opened under it starts with its own name, not with the name of the mark.
@@ -980,7 +983,7 @@ describe('administración de desvíos y marcas', () => {
 
     it('la lista del día va antes que la carga de días', async () => {
       render(<JourneysView />)
-      const list = await screen.findByRole('region', { name: /^Jornadas del/ })
+      const list = await screen.findByRole('region', { name: /^Días de trabajo del/ })
       expect(list.compareDocumentPosition(screen.getByRole('region', { name: 'Cargar días de trabajo' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
       expect(list.compareDocumentPosition(screen.getByRole('region', { name: 'Cargar o cambiar un solo día' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     })
@@ -1072,7 +1075,7 @@ describe('administración de desvíos y marcas', () => {
       fireEvent.change(within(form()).getByLabelText('¿Por qué la agregás?'), { target: { value: 'Olvidó marcar.' } })
       apiMocks.post.mockRejectedValueOnce(Object.assign(new Error('rechazada'), { status: 409, code: 'INVALID_MARK_ORDER' }))
       fireEvent.click(within(form()).getByRole('button', { name: 'Agregar marca' }))
-      expect(await within(form()).findByRole('alert')).toHaveTextContent('La hora o la acción no encajan con las demás marcas de la jornada. Revisá el orden.')
+      expect(await within(form()).findByRole('alert')).toHaveTextContent('La hora o la acción no encajan con las demás marcas del día. Revisá el orden.')
 
       fireEvent.click(within(form()).getByRole('button', { name: 'Agregar marca' }))
       expect(await screen.findByText('Marca agregada.')).toBeInTheDocument()
@@ -1083,7 +1086,7 @@ describe('administración de desvíos y marcas', () => {
       withDayDetail({ state: 'NO_INGRESO', marks: [] })
       render(<JourneysView />)
       await openDay()
-      fireEvent.click(screen.getByRole('button', { name: 'Cancelar jornada' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Cancelar el día' }))
       const reason = screen.getByLabelText('Motivo de cancelación')
       expect(screen.getByRole('region', { name: 'Marcas de Lucía Pérez' })).toContainElement(reason)
       await waitFor(() => expect(reason).toHaveFocus())
@@ -1094,7 +1097,7 @@ describe('administración de desvíos y marcas', () => {
       expect(await within(reason.closest('form')!).findByRole('alert')).toHaveTextContent('No se pudo conectar con el servidor.')
 
       fireEvent.click(screen.getByRole('button', { name: 'Volver' }))
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Cancelar jornada' })).toHaveFocus())
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Cancelar el día' })).toHaveFocus())
     })
 
     describe('en un teléfono', () => {
@@ -1112,7 +1115,7 @@ describe('administración de desvíos y marcas', () => {
         render(<JourneysView />)
         const card = await screen.findByRole('article', { name: 'Lucía Pérez' })
         fireEvent.click(within(card).getByRole('button', { name: 'Ver marcas de Lucía Pérez' }))
-        const marks = await within(card).findByRole('list', { name: 'Marcas de la jornada' })
+        const marks = await within(card).findByRole('list', { name: 'Marcas del día' })
         await waitFor(() => expect(screen.getByRole('heading', { name: 'Marcas de Lucía Pérez' })).toHaveFocus())
 
         const [item] = within(marks).getAllByRole('listitem')
@@ -1128,7 +1131,7 @@ describe('administración de desvíos y marcas', () => {
         withDayDetail({ marks: [{ ...jornada.marks[0], occurredAt: '2026-10-16T12:00:00Z', recordedAt: '2026-10-16T14:30:00Z' }] })
         render(<JourneysView />)
         await openDay()
-        const [item] = within(screen.getByRole('list', { name: 'Marcas de la jornada' })).getAllByRole('listitem')
+        const [item] = within(screen.getByRole('list', { name: 'Marcas del día' })).getAllByRole('listitem')
         expect(item).toHaveTextContent(`Registrada: ${formatDateTime('2026-10-16T14:30:00Z', site.timeZone)}`)
       })
     })
@@ -1176,7 +1179,7 @@ describe('administración de desvíos y marcas', () => {
     const workDays = async () => within(await screen.findByRole('region', { name: 'Cargar días de trabajo' }))
 
     it.each([
-      [409, 'EMPLOYEE_NOT_IN_SITE', 'Esa persona no trabaja en este local. Agregale el local desde Empleados y volvé a cargar el día.'],
+      [409, 'EMPLOYEE_NOT_IN_SITE', 'Esa persona no trabaja en este local. Agregale el local desde Equipo y volvé a cargar el día.'],
       [422, 'TEMPLATE_INVALID', 'El horario elegido, o el que la persona tiene asignado, está desactivado. Elegí otro horario.']
     ])('a single day answered %i %s shows its specific message next to its form', async (status, code, message) => {
       apiMocks.post.mockRejectedValueOnce(rejection(status, code))
@@ -1188,7 +1191,7 @@ describe('administración de desvíos y marcas', () => {
     })
 
     it.each([
-      [409, 'EMPLOYEE_NOT_IN_SITE', 'No se cargó ningún día: al menos una de las personas elegidas no trabaja en este local. Revisá sus locales en Empleados y volvé a intentar.'],
+      [409, 'EMPLOYEE_NOT_IN_SITE', 'No se cargó ningún día: al menos una de las personas elegidas no trabaja en este local. Revisá sus locales en Equipo y volvé a intentar.'],
       [422, 'TEMPLATE_INVALID', 'No se cargó ningún día: el horario elegido está desactivado. Elegí otro o usá el que tiene asignado cada persona.']
     ])('loading days answered %i %s says no day was loaded', async (status, code, message) => {
       apiMocks.post.mockRejectedValueOnce(rejection(status, code))
@@ -1366,12 +1369,12 @@ describe('dirección de cada sección del ADMIN', () => {
   afterEach(() => { cleanup(); window.history.replaceState(null, '', '/') })
 
   it.each([
-    ['#/para-revisar', 'Bandeja', 'Bandeja de desvíos'],
-    ['#/hoy', 'Jornadas', 'Jornadas'],
+    ['#/para-revisar', 'Para revisar', 'Para revisar'],
+    ['#/hoy', 'Días de trabajo', 'Días de trabajo'],
     ['#/historial', 'Historial', 'Historial'],
-    ['#/configuracion/locales', 'Sedes', 'Sedes'],
+    ['#/configuracion/locales', 'Locales', 'Locales'],
     ['#/configuracion/horarios', 'Horarios', 'Horarios'],
-    ['#/configuracion/equipo', 'Empleados', 'Empleados'],
+    ['#/configuracion/equipo', 'Equipo', 'Equipo'],
     ['#/configuracion/primeros-pasos', 'Primeros pasos', 'Primeros pasos']
   ])('la dirección %s abre %s', async (hash, link, title) => {
     openAt(hash)
@@ -1403,24 +1406,25 @@ describe('dirección de cada sección del ADMIN', () => {
   it('elegir una sección del menú escribe su dirección', async () => {
     render(<AdminApp />)
     await startsOnFirstSteps()
-    fireEvent.click(menuButton('Empleados'))
+    fireEvent.click(menuButton('Equipo'))
     expect(window.location.hash).toBe('#/configuracion/equipo')
     fireEvent.click(menuButton('Historial'))
     expect(window.location.hash).toBe('#/historial')
   })
 
+
   it('volver atrás muestra la sección anterior', async () => {
     render(<AdminApp />)
     await startsOnFirstSteps()
-    fireEvent.click(menuButton('Sedes'))
-    expect(await screen.findByRole('heading', { name: 'Sedes', level: 1 })).toBeInTheDocument()
+    fireEvent.click(menuButton('Locales'))
+    expect(await screen.findByRole('heading', { name: 'Locales', level: 1 })).toBeInTheDocument()
     await hashSettles()
     const sitesReads = () => apiMocks.get.mock.calls.filter(([path]) => path === '/sites').length
     await waitFor(() => expect(sitesReads()).toBe(2))
 
     await back()
     await startsOnFirstSteps()
-    expect(menuButton('Sedes')).not.toHaveAttribute('aria-current')
+    expect(menuButton('Locales')).not.toHaveAttribute('aria-current')
     await waitFor(() => expect(window.location.hash).toBe('#/configuracion/primeros-pasos'))
     // The guide is read again, as when it is chosen from the menu.
     await waitFor(() => expect(sitesReads()).toBe(3))
@@ -1438,7 +1442,7 @@ describe('dirección de cada sección del ADMIN', () => {
   it('ver una jornada desde la bandeja deja la dirección de Jornadas', async () => {
     openAt('#/para-revisar')
     render(<AdminApp />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Ver jornada de Lucía Pérez' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Ver el día de Lucía Pérez' }))
     expect(await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')).toBeInTheDocument()
     expect(window.location.hash).toBe('#/hoy')
   })
@@ -1450,7 +1454,7 @@ describe('dirección de cada sección del ADMIN', () => {
     try {
       openAt('#/para-revisar')
       render(<AdminApp />)
-      fireEvent.click(await screen.findByRole('button', { name: 'Ver jornada de Lucía Pérez' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Ver el día de Lucía Pérez' }))
       const heading = await screen.findByRole('heading', { name: 'Marcas de Lucía Pérez' })
       const detail = screen.getByRole('region', { name: 'Marcas de Lucía Pérez' })
       expect(screen.getByRole('button', { name: 'Ver marcas de Lucía Pérez' }).closest('tr')!.nextElementSibling).toContainElement(detail)
@@ -1465,7 +1469,7 @@ describe('dirección de cada sección del ADMIN', () => {
   it('al cambiar de empresa la nueva empieza por su inicio y no por la sección que tenía la anterior', async () => {
     const view = render(<AdminApp key="c-1" />)
     await startsOnFirstSteps()
-    fireEvent.click(menuButton('Empleados'))
+    fireEvent.click(menuButton('Equipo'))
     expect(window.location.hash).toBe('#/configuracion/equipo')
 
     // App.tsx keys AdminApp by company, so a switch mounts a new one.
@@ -1477,7 +1481,7 @@ describe('dirección de cada sección del ADMIN', () => {
   it('al cerrar sesión o pasar a la vista de empleado no queda la dirección para la próxima persona', async () => {
     openAt('#/configuracion/equipo')
     const view = render(<AdminApp />)
-    expect(await screen.findByRole('heading', { name: 'Empleados', level: 1 })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Equipo', level: 1 })).toBeInTheDocument()
     view.unmount()
     expect(window.location.hash).toBe('')
     expect(window.location.pathname).toBe('/admin')

@@ -26,8 +26,8 @@ export function declarationFailureMessage(reason: unknown, kind: 'single' | 'bul
   const code = reason && typeof reason === 'object' && 'code' in reason ? (reason as { code?: unknown }).code : undefined
   if (code === 'EMPLOYEE_NOT_IN_SITE') {
     return kind === 'bulk'
-      ? 'No se cargó ningún día: al menos una de las personas elegidas no trabaja en este local. Revisá sus locales en Empleados y volvé a intentar.'
-      : 'Esa persona no trabaja en este local. Agregale el local desde Empleados y volvé a cargar el día.'
+      ? 'No se cargó ningún día: al menos una de las personas elegidas no trabaja en este local. Revisá sus locales en Equipo y volvé a intentar.'
+      : 'Esa persona no trabaja en este local. Agregale el local desde Equipo y volvé a cargar el día.'
   }
   if (code === 'TEMPLATE_INVALID') {
     return kind === 'bulk'

@@ -101,15 +101,15 @@ describe('AdminPushControl', () => {
     vi.mocked(api.post).mockResolvedValue({ subscribed: false })
     const { container } = render(<AdminPushControl companyName="Braja Norte" />)
 
-    await screen.findByText(/Desactivadas para Braja Norte/)
+    await screen.findByText(/Desactivados para Braja Norte/)
     expect(container.querySelector('.push-status-short')).toHaveTextContent(/^Avisos: desactivados$/)
-    expect(container.querySelector('.push-title')).toHaveTextContent('Alertas en este dispositivo')
-    expect(container.querySelector('.push-detail')).toHaveTextContent(/Desactivadas para Braja Norte/)
+    expect(container.querySelector('.push-title')).toHaveTextContent('Avisos en este dispositivo')
+    expect(container.querySelector('.push-detail')).toHaveTextContent(/Desactivados para Braja Norte/)
 
     cleanup()
     vi.mocked(api.post).mockResolvedValue({ subscribed: true, id: 'sub-1' })
     const enabled = render(<AdminPushControl companyName="Braja Centro" />)
-    await screen.findByText(/Activadas para Braja Centro/)
+    await screen.findByText(/Activados para Braja Centro/)
     expect(enabled.container.querySelector('.push-status-short')).toHaveTextContent(/^Avisos: activados$/)
   })
 
@@ -130,7 +130,7 @@ describe('AdminPushControl', () => {
 
     render(<AdminPushControl companyName="Braja Norte" />)
 
-    expect(await screen.findByText(/Desactivadas para Braja Norte/)).toBeInTheDocument()
+    expect(await screen.findByText(/Desactivados para Braja Norte/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Activar avisos' })).toBeEnabled()
     expect(api.post).toHaveBeenCalledWith('/push/subscriptions/current', { endpoint: 'https://fcm.googleapis.com/fcm/send/device-1' })
     expect(api.put).not.toHaveBeenCalled()
@@ -145,7 +145,7 @@ describe('AdminPushControl', () => {
 
     render(<AdminPushControl companyName="Braja Centro" />)
 
-    expect(await screen.findByText(/Activadas para Braja Centro/)).toBeInTheDocument()
+    expect(await screen.findByText(/Activados para Braja Centro/)).toBeInTheDocument()
     expect(api.put).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Desactivar' }))
 
@@ -206,7 +206,7 @@ describe('AdminPushControl: subscription renewed by the browser (pushsubscriptio
     vi.mocked(api.post).mockResolvedValue({ subscribed: true, id: 'sub-1' })
     vi.mocked(api.put).mockResolvedValue({ id: 'sub-9' })
     render(<AdminPushControl companyName="Braja Centro" />)
-    expect(await screen.findByText(/Activadas para Braja Centro/)).toBeInTheDocument()
+    expect(await screen.findByText(/Activados para Braja Centro/)).toBeInTheDocument()
     expect(worker.container.startMessages).toHaveBeenCalled()
 
     worker.renewTo(RENEWED)
@@ -235,7 +235,7 @@ describe('AdminPushControl: subscription renewed by the browser (pushsubscriptio
     const worker = useMessagingServiceWorker(browserSubscription(OLD))
     vi.mocked(api.post).mockResolvedValue({ subscribed: false })
     render(<AdminPushControl companyName="Braja Norte" />)
-    expect(await screen.findByText(/Desactivadas para Braja Norte/)).toBeInTheDocument()
+    expect(await screen.findByText(/Desactivados para Braja Norte/)).toBeInTheDocument()
 
     worker.renewTo(RENEWED)
     worker.notify(OLD)
@@ -243,7 +243,7 @@ describe('AdminPushControl: subscription renewed by the browser (pushsubscriptio
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/push/subscriptions/current', { endpoint: OLD }))
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2))
     expect(api.put).not.toHaveBeenCalled()
-    expect(screen.getByText(/Desactivadas para Braja Norte/)).toBeInTheDocument()
+    expect(screen.getByText(/Desactivados para Braja Norte/)).toBeInTheDocument()
   })
 
   it('when the app comes back to the foreground, re-registers if the browser endpoint differs from the one the server confirmed', async () => {
@@ -251,7 +251,7 @@ describe('AdminPushControl: subscription renewed by the browser (pushsubscriptio
     vi.mocked(api.post).mockResolvedValue({ subscribed: true, id: 'sub-1' })
     vi.mocked(api.put).mockResolvedValue({ id: 'sub-9' })
     render(<AdminPushControl companyName="Braja Centro" />)
-    expect(await screen.findByText(/Activadas para Braja Centro/)).toBeInTheDocument()
+    expect(await screen.findByText(/Activados para Braja Centro/)).toBeInTheDocument()
 
     document.dispatchEvent(new Event('visibilitychange'))
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1))
@@ -267,7 +267,7 @@ describe('AdminPushControl: subscription renewed by the browser (pushsubscriptio
     const worker = useMessagingServiceWorker(browserSubscription(OLD))
     vi.mocked(api.post).mockResolvedValue({ subscribed: true, id: 'sub-1' })
     render(<AdminPushControl companyName="Braja Centro" />)
-    expect(await screen.findByText(/Activadas para Braja Centro/)).toBeInTheDocument()
+    expect(await screen.findByText(/Activados para Braja Centro/)).toBeInTheDocument()
 
     worker.renewTo(RENEWED)
     worker.container.dispatchEvent(new MessageEvent('message', { data: { type: 'SKIP_WAITING' } }))
@@ -303,7 +303,7 @@ describe('AdminPushControlRender: lo que se lee y el botón que se ofrece en cad
   it('si el navegador no admite avisos lo explica y no ofrece ningún botón', () => {
     const { container } = show({ availability: 'unsupported' })
 
-    expect(container.querySelector('.push-title')).toHaveTextContent('Alertas en este dispositivo')
+    expect(container.querySelector('.push-title')).toHaveTextContent('Avisos en este dispositivo')
     expect(container.querySelector('.push-detail')).toHaveTextContent(
       'Este navegador no admite avisos. En iPhone, instalá la app desde Safari (Compartir, Agregar a pantalla de inicio) y abrila desde el ícono.')
     expect(container.querySelector('.push-status-short')).toHaveTextContent(/^Avisos: no disponibles en este navegador$/)
@@ -339,9 +339,9 @@ describe('AdminPushControlRender: lo que se lee y el botón que se ofrece en cad
   it('con los avisos desactivados nombra la empresa y ofrece «Activar avisos»', () => {
     const { container, control, onActivate, onDeactivate, onRetryConfig } = show({ companyName: 'Braja Norte' })
 
-    expect(container.querySelector('.push-title')).toHaveTextContent('Alertas en este dispositivo')
+    expect(container.querySelector('.push-title')).toHaveTextContent('Avisos en este dispositivo')
     expect(container.querySelector('.push-detail')).toHaveTextContent(
-      'Desactivadas para Braja Norte; cada empresa se activa por separado. Solo avisan sobre ingresos pendientes o llegadas tarde.')
+      'Desactivados para Braja Norte; cada empresa se activa por separado. Solo avisan cuando alguien no marca la entrada o llega tarde.')
     expect(container.querySelector('.push-status-short')).toHaveTextContent(/^Avisos: desactivados$/)
     expect(control).toHaveAttribute('aria-busy', 'false')
     expect(screen.getAllByRole('button')).toHaveLength(1)
@@ -356,7 +356,7 @@ describe('AdminPushControlRender: lo que se lee y el botón que se ofrece en cad
   it('con los avisos activados nombra la empresa y ofrece «Desactivar»', () => {
     const { container, onActivate, onDeactivate, onRetryConfig } = show({ enabled: true })
 
-    expect(container.querySelector('.push-detail')).toHaveTextContent(/^Activadas para Braja Centro\. Solo avisan sobre ingresos pendientes o llegadas tarde\.$/)
+    expect(container.querySelector('.push-detail')).toHaveTextContent(/^Activados para Braja Centro\. Solo avisan cuando alguien no marca la entrada o llega tarde\.$/)
     expect(container.querySelector('.push-status-short')).toHaveTextContent(/^Avisos: activados$/)
     expect(screen.getAllByRole('button')).toHaveLength(1)
     expect(screen.getByRole('button', { name: 'Desactivar' })).toBeEnabled()

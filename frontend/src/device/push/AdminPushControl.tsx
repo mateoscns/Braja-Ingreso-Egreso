@@ -20,14 +20,14 @@ export function AdminPushControlRender({
         ? ['No podemos avisarte porque bloqueaste los avisos en este navegador. Habilitalos desde los permisos del sitio.', 'Avisos: bloqueados en este navegador']
         : ['', '']
   // On phones and small tablets (styles.css, 760 px or less) only the short status shows, so the fixed bar stays one or two lines tall.
-  const copy = (detail: string, short: string) => <div className="push-copy"><strong className="push-title">Alertas en este dispositivo</strong>
+  const copy = (detail: string, short: string) => <div className="push-copy"><strong className="push-title">Avisos en este dispositivo</strong>
     <strong className="push-status-short">{short}</strong><span className="push-detail">{detail}</span></div>
   if (unavailable) return <aside className="push-control" aria-label="Avisos de la aplicación">{copy(unavailable, unavailableShort)}</aside>
   return <aside className="push-control" aria-label="Avisos de la aplicación" aria-busy={configLoading}>
     {configLoading && <PageMessage>Consultando la configuración de avisos…</PageMessage>}
     {configError && <PageMessage kind="error">{configError}</PageMessage>}
     {error && <PageMessage kind="error">{error}</PageMessage>}{message && <PageMessage kind="success">{message}</PageMessage>}
-    {copy(`${enabled ? `Activadas para ${companyName}.` : `Desactivadas para ${companyName}; cada empresa se activa por separado.`} Solo avisan sobre ingresos pendientes o llegadas tarde.`,
+    {copy(`${enabled ? `Activados para ${companyName}.` : `Desactivados para ${companyName}; cada empresa se activa por separado.`} Solo avisan cuando alguien no marca la entrada o llega tarde.`,
       enabled ? 'Avisos: activados' : 'Avisos: desactivados')}
     {enabled ? <button className="button button-small button-quiet" onClick={onDeactivate} disabled={busy}>{busy ? 'Actualizando…' : 'Desactivar'}</button>
       : configError

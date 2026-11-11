@@ -20,7 +20,7 @@ export function SiteMapPanel({ state, radiusMeters, disabled, onPick, onQueryCha
   onChooseResult: (result: GeocodeResult) => void; onConfirm: () => void; onClose: () => void
 }) {
   const searching = state.searchStatus === 'loading'
-  return <section className="site-map-panel" aria-label="Mapa para elegir la ubicación de la sede">
+  return <section className="site-map-panel" aria-label="Mapa para elegir la ubicación del local">
     <div className="site-map-search">
       {/* Not a nested form: Enter searches here instead of submitting the site form around it. */}
       <FormField label="Buscá la dirección del local">
