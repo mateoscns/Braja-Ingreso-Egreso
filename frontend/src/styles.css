@@ -117,7 +117,6 @@
   --green-3: #e7f1e9;
   --muted: var(--text-secondary);
   --line: #e4e9e5;
-  --red: #a33e35;
   --shadow: 0 18px 55px rgba(24, 45, 34, .06);
 }
 @media (min-width: 600px) {
@@ -146,9 +145,6 @@ body { margin: 0; min-width: 320px; min-height: 100vh; min-height: 100dvh; backg
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
-/* The option tiles (a shift, a company) keep the dimming every button had: their disabled look has to keep the chosen one
-   apart, which is slice B3 (options); it deletes this line. */
-.journey-option:disabled, .company-choice:disabled { opacity: .68; }
 input, select, textarea { color: var(--text); }
 /* An example inside a field is text to read: one colour in every browser (each has its own grey, and Firefox adds opacity). */
 ::placeholder { color: var(--text-muted); opacity: 1; }
@@ -185,21 +181,37 @@ h3 { font-size: var(--font-size-body-lg); line-height: var(--line-height-heading
 .auth-card h1 { font-size: 1.9rem; }
 .auth-card > .muted { font-size: .93rem; margin: 0 0 26px; }
 .auth-footnote { margin: 22px 0 0; color: var(--text-secondary); font-size: .875rem; }
-.form-stack { display: flex; flex-direction: column; gap: 16px; }
-.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
-.field-label { color: #495950; font-size: .875rem; font-weight: 650; }
-.field-hint { color: var(--text-secondary); font-size: .875rem; line-height: 1.45; }
-.field-hint-error { color: var(--red); font-weight: 650; }
+.form-stack { display: flex; flex-direction: column; gap: var(--space-4); }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+/* One field (FormField in app/ui.tsx): label, hint, control, error, in that order. The hint is read before typing and the
+   keyboard of a phone does not cover it; the error sits under the control it is about. */
+.field { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.field-label { color: var(--text); font-size: var(--font-size-body); font-weight: var(--font-weight-strong); }
+.field-hint { color: var(--text-muted); font-size: var(--font-size-body); }
+/* The text of an error. The three old names are this text until the markup leaves them; slice H1 removes them. */
+.field-error, .field-hint-error, .employee-field-error, .site-location-message-error { color: var(--bad); font-weight: var(--font-weight-strong); }
+/* The employee's motive form writes its errors as paragraphs. */
+.employee-field-error { margin: 0; }
+/* A field with an error has a bar on its left edge, besides the edge of its control and the text: never the colour alone. */
+.field-invalid { padding-left: var(--space-3); border-left: var(--bar-width) solid var(--bad); }
+/* The schedule editor still passes its errors as the hint of the field, and its summary says «debajo de cada campo»: they stay
+   under the control. Slice F2b gives them to the error of the field and deletes this rule. */
+.field-hint:has(> .field-hint-error) { order: 1; }
+/* Fields that belong together: a fieldset without the box of the browser, named by its legend. The old ways to write it share
+   the rule until slice H1. */
+.field-group, fieldset.field, .fieldset-plain { min-width: 0; margin: 0; border: 0; padding: 0; }
+/* The gap of a fieldset does not reach its legend: it gets the space a label has over its control. */
+.field-group > legend, fieldset.field > legend, .fieldset-plain > legend { margin-bottom: var(--space-1); padding: 0; }
+.field-group > legend { font-weight: var(--font-weight-heavy); }
+/* A group written as a field holds whole controls (a row of quick choices, a list of checks, two dates), not the parts of one:
+   they sit a step further apart than a label and its control. */
+fieldset.field { gap: var(--space-2); }
 .site-location-field { display: flex; flex-direction: column; gap: 8px; }
 .site-location-coordinate-inputs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .site-location-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .site-location-message, .site-location-coordinates { font-size: .875rem; line-height: 1.45; }
-.site-location-message-error { color: var(--red); }
 .site-location-coordinates { color: #3d5f47; font-variant-numeric: tabular-nums; }
 .site-location-selection { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #f8faf8; }
-.site-location-confirmation { display: flex; align-items: flex-start; gap: 10px; color: var(--text-primary); font-size: .9rem; line-height: 1.45; cursor: pointer; }
-.site-location-confirmation input { flex: 0 0 auto; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--green-2); }
 @media (max-width: 640px) { .site-location-coordinate-inputs { grid-template-columns: 1fr; } }
 /* D-20261109-01 site map picker: the same tokens and box as .site-location-selection; the map height leaves the search field and
    the confirm button on screen under the sticky top bar (and the sticky section bar on phones). */
@@ -218,25 +230,35 @@ h3 { font-size: var(--font-size-body-lg); line-height: var(--line-height-heading
   /* Leaves room for the sticky section bar, the search, the hint, the confirm button and the fixed alerts bar. */
   .site-map-canvas { height: clamp(160px, calc(100vh - var(--topbar-height) - 380px), 360px); height: clamp(160px, calc(100dvh - var(--topbar-height) - 380px), 360px); }
 }
-.field input, .field select, .field textarea, td input, .company-switch {
-  width: 100%; min-height: var(--tap-target); border: 1px solid var(--text-tertiary); border-radius: var(--radius-control); background: #fff; padding: 9px 12px; font-size: 1rem; outline: 0;
-  transition: border-color .16s, box-shadow .16s;
+/* The text box: what is typed in, a select and a textarea, all with one edge, one radius and 16 px text (under 16 px iOS zooms
+   the page when a field takes focus). A checkbox or a radio inside a field is not a text box: the selector leaves them out, so
+   nothing has to undo this rule for them. Two text boxes are not in a field yet and share the box until they are: the cells of
+   the employees table while a row is edited (slice E6) and the company switcher of the top bar (slice C1). :where() keeps the
+   weight of `td input`, so `td .short-input` still sets its width. The box sets no outline: its focus ring is the common one,
+   below. */
+.field :is(input:not([type=checkbox], [type=radio]), select, textarea), td input:where(:not([type=checkbox], [type=radio])), .company-switch {
+  width: 100%; border: var(--border-width) solid var(--border); border-radius: var(--radius); padding: var(--space-2) var(--space-3);
+  color: var(--text); background: var(--surface); font-size: var(--font-size-body);
+  transition: border-color var(--motion-fast);
 }
-.field textarea { resize: vertical; min-height: 84px; }
-.field input:focus, .field select:focus, .field textarea:focus, td input:focus, .company-switch:focus { border-color: var(--focus); box-shadow: none; }
-.auth-card .field input { min-height: 48px; }
+/* One line of text is as tall as a button, so a field next to one lines up with it. min-height, never height: larger text or
+   wider text spacing is not cut. */
+.field :is(input:not([type=checkbox], [type=radio]), select), td input:where(:not([type=checkbox], [type=radio])), .company-switch { min-height: var(--target); }
+/* A textarea starts with room for about three lines and can only be stretched downwards. */
+.field textarea { min-height: 5.5rem; resize: vertical; }
+/* Invalid: an edge of 2 px in the error colour, besides the text under the field. The second pixel is drawn inside, as on a
+   chosen option, so the field keeps its size. */
+.field :is(input:not([type=checkbox], [type=radio]), select, textarea)[aria-invalid="true"] { border-color: var(--bad); box-shadow: inset 0 0 0 var(--border-width) var(--bad); }
+/* Disabled: still text to read on the band, never faded. Browsers fade a disabled field by themselves: Chrome draws a select at
+   70 % (measured 2026-11-11), and Safari on iOS is known to fade every field (not checked on a device). */
+.field :is(input:not([type=checkbox], [type=radio]), select, textarea):disabled, td input:where(:not([type=checkbox], [type=radio])):disabled, .company-switch:disabled {
+  color: var(--text-muted); background: var(--surface-tint); opacity: 1;
+}
 .field-wide { grid-column: 1 / -1; }
-fieldset.field { min-width: 0; margin: 0; border: 0; padding: 0; }
 
 /* ===== Focus ===== */
 /* One ring for everything that takes focus: 3 px, 2 px away from the control, so it is read against the surface in the gap. */
 :focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
-/* The field rule above removes the outline with a more specific selector, so the fields name the same ring again. */
-.field input:focus-visible, .field select:focus-visible, .field textarea:focus-visible,
-td input:focus-visible, .company-switch:focus-visible {
-  outline: 3px solid var(--focus-ring);
-  outline-offset: 2px;
-}
 
 /* ===== Buttons ===== */
 /* One size for every button: the target of the layout (48 px on touch layouts, 44 px from 1024 px) and 16 px text that may wrap.
@@ -270,15 +292,20 @@ td input:focus-visible, .company-switch:focus-visible {
 .button-secondary:active, .button-outline:active, .button-quiet:active { background: var(--surface-tint-strong); }
 .button-danger:active, .button-danger-outline:active { background: var(--bad-surface); }
 /* Chosen (a toggle or one of several quick choices): told apart by an edge of 2 px, not by the fill alone. The second pixel is
-   drawn inside so the button keeps its size. */
-.button[aria-pressed="true"] { color: var(--text); background: var(--surface-selected); border-color: var(--brand); box-shadow: inset 0 0 0 var(--border-width) var(--brand); }
+   drawn inside so the button keeps its size. An option tile (further down) is chosen the same way, whether it is a toggle button
+   or a label around a checked radio: one rule, so the two cannot drift apart. */
+.button[aria-pressed="true"], .choice[aria-pressed="true"], .choice:has(input:checked),
+.journey-option[aria-pressed="true"], .employee-category-option:has(input:checked) {
+  color: var(--text); background: var(--surface-selected); border-color: var(--brand); box-shadow: inset 0 0 0 var(--border-width) var(--brand);
+}
 /* Disabled: still text to read (7:1 on the band), never faded. The line next to it says why (.field-hint, aria-describedby). */
 .button:disabled { color: var(--text-muted); background: var(--surface-tint); border-color: var(--border); }
 /* The other marks of the employee are not a .button yet (slice D1): while a mark is being sent they are disabled next to
    buttons, so they look the same. */
 .mark-action:disabled { color: var(--text-muted); background: var(--surface-tint); border-color: var(--border); }
-/* The chosen one keeps its edge while its form is busy. */
-.button[aria-pressed="true"]:disabled { border-color: var(--brand); }
+/* The chosen one keeps its edge while its form is busy; so does the chosen option tile. */
+.button[aria-pressed="true"]:disabled, .choice[aria-pressed="true"]:disabled, .choice:has(input:checked:disabled),
+.journey-option[aria-pressed="true"]:disabled { border-color: var(--brand); }
 /* A disabled link button gets no box: it loses the underline that said it could be followed. */
 .button-link:disabled { background: transparent; border-color: transparent; text-decoration: none; }
 /* Sizes of the employee screen: the other marks (56 px) and the next mark (80 px, always primary and full width). */
@@ -296,6 +323,32 @@ td input:focus-visible, .company-switch:focus-visible {
    sesión» breaks in two lines up to 600 px. Slice C1 redraws the bar and deletes this rule. */
 .topbar-actions .button { padding: 0 11px; font-size: .875rem; }
 
+/* ===== Option tiles ===== */
+/* One of a few options that need a line of explanation: a toggle button (the shift of a day, the kind of schedule) or a label
+   around a radio (the kind of motive). A control, so it has the edge and the corners of one, and it is 56 px tall. The chosen
+   one takes the rule of the chosen button, above. The old names .journey-option and .employee-category-option are this tile
+   until the markup leaves them (slice H1); a company to enter with is one too until it becomes a row of a list (slice B5). */
+.choice, .journey-option, .employee-category-option, .company-choice {
+  display: flex; align-items: center; gap: var(--space-3); min-width: 0; min-height: var(--target-large);
+  border: var(--border-width) solid var(--border); border-radius: var(--radius); padding: var(--space-2) var(--space-3);
+  color: var(--text); background: var(--surface); text-align: left; cursor: pointer;
+  transition: background-color var(--motion-fast), border-color var(--motion-fast);
+}
+/* A toggle-button tile stacks its title and its help line. */
+.journey-option { flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; }
+.choice small, .journey-option small { color: var(--text-muted); font-size: var(--font-size-body); }
+/* The tile of a radio reads «Salud: estuviste enfermo o en el médico»: the word in the text colour, the rest in the muted one.
+   The colours sit on the text, not on the tile, so they do not change when the tile is chosen. */
+.employee-category-option > span { color: var(--text-muted); }
+.employee-category-option strong { color: var(--text); }
+/* One column; two where there is room for them. */
+.choice-list, .journey-picker, .employee-category-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
+@media (min-width: 600px) {
+  .choice-list, .journey-picker, .employee-category-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+/* Disabled as a button is: muted text on the band, never faded, so the options stay readable while their form is busy. */
+.choice:disabled, .choice:has(input:disabled), .journey-option:disabled, .company-choice:disabled { color: var(--text-muted); background: var(--surface-tint); border-color: var(--border); }
+
 /* ===== Messages ===== */
 .message { border-radius: 10px; padding: 12px 14px; margin: 14px 0; font-size: 1rem; line-height: 1.5; }
 /* PageMessage mounts its live region empty for one render: it stays in the accessibility tree but takes no room. */
@@ -305,9 +358,8 @@ td input:focus-visible, .company-switch:focus-visible {
 .message-success { border: 1px solid #d2e7d7; color: #2a6740; background: #f0f8f1; }
 
 /* ===== Company chooser ===== */
+/* Each company is an option tile (.company-choice, with the tiles above); here is only what is inside it. */
 .company-list { display: flex; flex-direction: column; gap: 9px; margin: 22px 0; }
-.company-choice { width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; border: 1px solid var(--line); border-radius: 12px; background: white; padding: 12px; color: #1c2d23; }
-.company-choice:hover { border-color: #a9c1ae; background: #fbfdfb; }
 .choice-icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 11px; background: #ebf3ed; color: var(--green); font-weight: 750; }
 .company-choice strong, .company-choice small { display: block; }
 .company-choice small { color: var(--muted); margin-top: 3px; font-size: .875rem; }
@@ -368,18 +420,27 @@ td input:focus-visible, .company-switch:focus-visible {
 .simple-row strong { font-size: .88rem; }
 .simple-row small { color: var(--text-secondary); margin-top: 3px; font-size: .875rem; }
 .row-avatar { width: 36px; height: 36px; display: grid; place-items: center; color: #477253; border-radius: 10px; background: #eff6ef; }
-.check-grid { display: flex; flex-wrap: wrap; gap: 9px 15px; padding: 4px 0; }
-.check-grid label, .inline-checks label { display: inline-flex; align-items: center; gap: 8px; min-height: var(--tap-target); padding: 4px 6px; color: var(--text-secondary); font-size: .875rem; }
-input[type=checkbox] { width: 24px; height: 24px; accent-color: var(--green-2); }
-.inline-checks { display: flex; flex-direction: column; gap: 5px; min-width: 100px; }
+/* A checkbox or a radio. The box is 24 px, the floor of WCAG 2.5.8, and it is never the target: the label around it is, as tall
+   and as wide as any control. The padding of the label centres one line of text on the box and lets a long text wrap under its
+   first line, with the box still on that line. The old ways to write a check share the rule until slice H1: the lists of
+   checks, the confirmation of a site's point and the bare «Activo» of the employees table. */
+.check, .check-grid label, .inline-checks label, .site-location-confirmation, td > label {
+  display: inline-flex; align-items: flex-start; gap: var(--space-2);
+  min-width: var(--target); min-height: var(--target); padding: calc((var(--target) - var(--target-floor)) / 2) 0;
+  color: var(--text); cursor: pointer;
+}
+/* The box takes the cursor of its label: a hand, or the "not allowed" sign when it is disabled. */
+input[type=checkbox], input[type=radio] { flex: 0 0 auto; width: var(--target-floor); height: var(--target-floor); margin: 0; accent-color: var(--brand); cursor: inherit; }
+/* Disabled: the box as the browser draws it, and its text muted. */
+.check:has(input:disabled), .check-grid label:has(input:disabled), .inline-checks label:has(input:disabled), .site-location-confirmation:has(input:disabled) { color: var(--text-muted); cursor: not-allowed; }
+.check-list, .check-grid { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); }
+.inline-checks { display: flex; flex-direction: column; gap: var(--space-1); min-width: 100px; }
 .table-scroll { width: 100%; overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: .9375rem; }
 th { padding: 10px 11px; text-align: left; color: var(--text-tertiary); border-bottom: 1px solid #e8ede9; font-size: .8125rem; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
 td { padding: 12px 11px; color: #56645b; border-bottom: 1px solid #f0f2f0; vertical-align: middle; }
 tr:last-child td { border-bottom: 0; }
 td strong { color: #25362b; }
-td input { min-height: var(--tap-target); padding: 6px 8px; }
-td input[type=checkbox] { min-height: 24px; padding: 0; }
 td .short-input { width: 74px; }
 .template-card { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 13px; border: 1px solid #e9efea; border-radius: 11px; background: #fcfdfc; }
 .template-card p { color: var(--text-secondary); margin: 7px 0 4px; font-size: .875rem; }
@@ -390,17 +451,13 @@ td .short-input { width: 74px; }
 .block-editor { margin: 0; min-width: 0; border: 1px solid #e5ebe6; border-radius: 10px; padding: 11px; }
 .block-editor legend { padding: 0 5px; color: var(--text-secondary); font-size: .875rem; font-weight: 700; }
 .block-fields { display: grid; grid-template-columns: 1fr .9fr 1fr .9fr auto; align-items: end; gap: 8px; }
-.block-fields .field-label { font-size: .8125rem; }
-.block-fields input, .block-fields select { min-height: var(--tap-target); padding: 5px 7px; }
 .remove-block { margin-bottom: 1px; }
 /* Horarios (issue #103): tramos as "Entra a las · Sale a las · Quitar", chips for the preview, edit in place in the card. */
 .block-fields.block-fields-tramo { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
-.schedule-types .journey-option { flex: 1 1 160px; color: var(--text-primary); }
 .schedule-chips { display: flex; flex-wrap: wrap; gap: 7px; margin: 7px 0 4px; padding: 0; list-style: none; }
 .template-card-open { flex-wrap: wrap; }
 .template-card-slot { flex-basis: 100%; min-width: 0; }
 .template-card-slot > h3 { margin: 0; font-size: 1rem; }
-.field-hint-error { color: var(--red); font-weight: 650; }
 /* Empleados: the horarios panel and the issued password open next to their place and are scrolled into view below the sticky bars. */
 .employee-detail { scroll-margin-top: calc(var(--topbar-height) + 80px); }
 .employee-detail .panel { margin: 12px 0 0; }
@@ -462,11 +519,6 @@ td .short-input { width: 74px; }
 .mark-action-primary:focus-visible { box-shadow: 0 0 0 3px var(--surface); }
 .motive-card { display: flex; flex-direction: column; gap: 14px; padding: 14px; border: 1px solid #e9eeea; border-radius: 11px; }
 .motive-card > div:first-child { display: flex; align-items: center; gap: 9px; }
-.journey-picker { display: flex; flex-wrap: wrap; gap: 9px; }
-.journey-option { min-width: 160px; display: flex; flex-direction: column; gap: 6px; text-align: left; border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 11px; }
-.journey-option-active { border-color: #97b39d; background: #f3f8f3; }
-.journey-option strong { font-size: .875rem; }
-.journey-option small { color: var(--text-secondary); font-size: .875rem; }
 /* UX phase 1, issue #102: employee screen. Modifiers of the classes above, with the same tokens. */
 .employee-heading { margin-bottom: 18px; }
 .employee-heading h1 { margin-bottom: 6px; }
@@ -484,18 +536,11 @@ td .short-input { width: 74px; }
 .employee-location-note { display: block; margin-top: 6px; }
 .mark-row-location { grid-column: 2 / -1; margin-top: -6px; color: var(--text-secondary); font-size: .8125rem; }
 .employee-motive-question { margin: 0; color: var(--text-primary); font-size: .95rem; line-height: 1.45; }
-.employee-category-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.employee-category-option { display: flex; align-items: flex-start; gap: 10px; min-height: var(--tap-target); padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-control); background: #fff; color: var(--text-secondary); font-size: .875rem; line-height: 1.4; cursor: pointer; }
-.employee-category-option strong { color: var(--text-primary); }
-.employee-category-option input { flex: 0 0 auto; width: 22px; height: 22px; min-height: 0; margin: 0; padding: 0; accent-color: var(--green-2); }
-.employee-category-option:has(input:checked) { border-color: #97b39d; background: #f3f8f3; }
-.employee-field-error { margin: 6px 0 0; color: var(--red); font-size: .875rem; }
 .employee-today-button { margin-top: 12px; }
 .password-toggle { align-self: flex-start; }
 /* Beats .auth-card > .muted, which left the hint glued under "Ingresar". */
 .auth-card > .auth-hint { margin: 20px 0 0; }
 @media (max-width: 520px) {
-  .employee-category-list { grid-template-columns: 1fr; }
   /* The help opens under the header across the screen instead of overflowing it from the button. */
   .employee-frame .install-help { position: fixed; top: calc(var(--topbar-height) + env(safe-area-inset-top) + 8px); right: 16px; left: 16px; width: auto; }
 }
@@ -614,7 +659,6 @@ td .short-input { width: 74px; }
 /* ===== Later additions: small modifiers of the regions above (folds, quick choices, work days, first steps) ===== */
 /* The result of a mark takes focus by script: no ring after a tap or a click, the global ring when the keyboard is in use. */
 .mark-feedback:focus:not(:focus-visible) { outline: none; }
-.fieldset-plain { min-width: 0; margin: 0; border: 0; padding: 0; }
 .update-banner { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 50; display: flex; align-items: center; gap: 12px; width: max-content; max-width: calc(100% - 32px); padding: 10px 14px; border: 1px solid #d2e7d7; border-radius: 12px; color: var(--green); background: #fff; box-shadow: var(--shadow); font-size: .9rem; }
 /* U3 (issue #104), small modifiers from existing tokens. A folded section (details/summary) like .site-location-manual, also
    for a whole panel; the setup guide rows; the notice of days loaded with its button. */

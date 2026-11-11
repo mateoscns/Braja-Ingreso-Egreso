@@ -69,8 +69,9 @@ export function CompanySwitcher({ memberships, activeCompanyId, onSelect, disabl
 }
 
 /**
- * A labelled control with an optional hint and an optional error, both shown under it and read with it:
- * the error also marks the control `aria-invalid` (without an error the control keeps its own value).
+ * A labelled control: label, hint, control and error, in that order. The hint comes first so it is read before typing and a
+ * phone's keyboard does not cover it; the error sits under the control. Both are read with the control, and the error also marks
+ * it `aria-invalid` (without an error the control keeps its own value) and the whole field `field-invalid`.
  */
 export function FormField({ label, children, hint, error }: { label: string; children: ReactNode; hint?: ReactNode; error?: ReactNode }) {
   const controlId = useId()
@@ -86,7 +87,8 @@ export function FormField({ label, children, hint, error }: { label: string; chi
       'aria-invalid': error ? true : controlElement.props['aria-invalid']
     })
     : children
-  return <div className="field"><label className="field-label" htmlFor={controlElement ? (controlElement.props.id ?? controlId) : undefined}>{label}</label>{control}
+  return <div className={error ? 'field field-invalid' : 'field'}><label className="field-label" htmlFor={controlElement ? (controlElement.props.id ?? controlId) : undefined}>{label}</label>
     {hint && <span className="field-hint" id={hintId}>{hint}</span>}
-    {error && <span className="field-hint field-hint-error" id={errorId}>{error}</span>}</div>
+    {control}
+    {error && <span className="field-error" id={errorId}>{error}</span>}</div>
 }

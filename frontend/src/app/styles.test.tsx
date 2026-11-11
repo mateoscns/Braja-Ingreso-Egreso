@@ -31,9 +31,9 @@ function colorOf(declarations: string, property: string) {
   if (!color) throw new Error(`No color in ${property}: ${value}`)
   return color[1] ? tokens.get(color[1]) ?? '' : color[0].toLowerCase()
 }
-/** Every `@media (max-width: <width>px)` block joined: the browser applies all of them, not only the first. */
-function media(width: number) {
-  const opening = `@media (max-width: ${width}px) {`
+/** Every `@media (max-width: <width>px)` block joined (or `min-width`): the browser applies all of them, not only the first. */
+function media(width: number, edge: 'max' | 'min' = 'max') {
+  const opening = `@media (${edge}-width: ${width}px) {`
   const blocks: string[] = []
   for (let start = css.indexOf(opening); start >= 0; start = css.indexOf(opening, start + opening.length)) {
     blocks.push(css.slice(start + opening.length, css.indexOf('\n}', start)))
@@ -43,11 +43,15 @@ function media(width: number) {
 }
 
 describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {
+  // Rewritten in slice B3 (the field half): the text box is one scoped rule and its edge is the border token on the surface
+  // token, not a colour written by hand.
   it('los bordes de los campos y de los botones de marca contrastan al menos 3:1 con el blanco (1.4.11)', () => {
-    const fieldBorder = colorOf(rule('.field input, .field select, .field textarea, td input, .company-switch'), 'border')
+    const textBox = ruleListing(TEXT_BOX).declarations
     const markBorder = colorOf(rule('.mark-action'), 'border')
 
-    expect(contrast(fieldBorder, '#ffffff')).toBeGreaterThanOrEqual(3)
+    expect(textBox).toMatch(/border:\s*var\(--border-width\) solid var\(--border\)/)
+    expect(textBox).toMatch(/background:\s*var\(--surface\)/)
+    expect(contrast(designToken('border'), designToken('surface'))).toBeGreaterThanOrEqual(3)
     expect(contrast(markBorder, '#ffffff')).toBeGreaterThanOrEqual(3)
   })
 
@@ -216,10 +220,10 @@ const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui',
 // Ceilings that only go down. Each one counts what the rules under the token block still write by hand, measured with the
 // pattern of its own test when the token block came in (2026-11-11). A slice that moves rules to tokens lowers the number in
 // the same commit; nobody raises one. Slice H1 turns the four into equalities with zero.
-const COLOR_LITERAL_CEILING = 129
-const UNTOKENED_FONT_SIZE_CEILING = 79
+const COLOR_LITERAL_CEILING = 117
+const UNTOKENED_FONT_SIZE_CEILING = 69
 const BOX_SHADOW_CEILING = 14
-const LEGACY_TOKEN_USE_CEILING = 129
+const LEGACY_TOKEN_USE_CEILING = 103
 
 // The old names with the values they had before the token block. A name is deleted from the stylesheet once nothing uses it
 // and never gets a new value in the meantime: a half-migrated rule must look exactly as it did.
@@ -299,12 +303,34 @@ describe('tokens de diseño: el bloque de arriba y lo que todavía queda fuera d
   })
 })
 
+/** A selector list split at its own commas: the ones inside `:is()`, `:not()` or `:has()` belong to one selector. */
+function splitSelectors(list: string) {
+  const selectors: string[] = []
+  let depth = 0
+  let current = ''
+  for (const character of list) {
+    if (character === '(') depth += 1
+    if (character === ')') depth -= 1
+    if (character === ',' && depth === 0) {
+      selectors.push(current)
+      current = ''
+    } else current += character
+  }
+  return [...selectors, current].map((selector) => selector.replace(/\s+/g, ' ').trim())
+}
 /** Every rule of the stylesheet, media blocks included, with its selector list split. */
 function allRules() {
   return [...withoutComments(css).matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({
-    selectors: match[1].split(',').map((selector) => selector.replace(/\s+/g, ' ').trim()),
+    selectors: splitSelectors(match[1]),
     declarations: match[2]
   }))
+}
+/** The first rule that names `selector` in its list, whatever else the list holds: a rule an old name shares with a new one is
+    found by either, and adding a name to the list does not break the test that reads it. */
+function ruleListing(selector: string) {
+  const found = allRules().find(({ selectors }) => selectors.includes(selector))
+  if (!found) throw new Error(`No rule lists ${selector}`)
+  return found
 }
 
 describe('base del documento: tipografía, enlaces, foco y placeholder', () => {
@@ -347,13 +373,16 @@ describe('base del documento: tipografía, enlaces, foco y placeholder', () => {
     expect(rule('a')).toMatch(/(?<![\w-])color:\s*var\(--brand\)/)
   })
 
+  // Changed in slice B3: the text box of a field no longer removes the outline, so the rule that named the ring again for the
+  // fields is gone. What is checked now is that no field, cell or company switcher sets an outline of its own.
   it('el foco se ve igual en todo control: un anillo de 3 px separado 2 px, con el color del token (2.4.7)', () => {
-    const fields = '.field input:focus-visible, .field select:focus-visible, .field textarea:focus-visible, td input:focus-visible, .company-switch:focus-visible'
+    const ownOutline = allRules()
+      .filter(({ selectors }) => selectors.some((selector) => /\.field(?![\w-])|^td\b|\.company-switch(?![\w-])/.test(selector)))
+      .filter(({ declarations }) => /(?<![\w-])outline(?:-[\w-]+)?\s*:/.test(declarations))
 
-    for (const selector of [':focus-visible', fields]) {
-      expect(rule(selector), selector).toMatch(/outline:\s*3px solid var\(--focus-ring\)/)
-      expect(rule(selector), selector).toMatch(/outline-offset:\s*2px/)
-    }
+    expect(rule(':focus-visible')).toMatch(/outline:\s*3px solid var\(--focus-ring\)/)
+    expect(rule(':focus-visible')).toMatch(/outline-offset:\s*2px/)
+    expect(ownOutline.map(({ selectors }) => selectors.join(', '))).toEqual([])
   })
 
   it('ninguna regla quita el contorno sin su regla :focus-visible que lo devuelve (2.4.7)', () => {
@@ -442,8 +471,10 @@ describe('botones: variantes y estados', () => {
     expect(base).toMatch(/text-decoration:\s*none/)
   })
 
+  // Changed in slice B3 (the lookup only): the rule of the chosen button is shared with the chosen option tile, so it is found
+  // by the name it lists instead of by its whole selector list.
   it('un botón elegido (aria-pressed) se distingue por su borde de 2 px del verde de la marca, no solo por el fondo (1.4.1)', () => {
-    const pressed = rule('.button[aria-pressed="true"]')
+    const pressed = ruleListing('.button[aria-pressed="true"]').declarations
 
     expect(pressed).toMatch(/border-color:\s*var\(--brand\)/)
     // The second pixel of the edge is drawn inside, so the button does not change size when it is chosen.
@@ -503,5 +534,146 @@ describe('botones: variantes y estados', () => {
     // The rule of the phone comes later in the file, so it still tightens the padding at 520 px or less.
     expect(rule('.topbar-actions .button', media(520))).toMatch(/padding:\s*0 9px/)
     expect(css.indexOf('.topbar-actions .button')).toBeLessThan(css.lastIndexOf('.topbar-actions .button'))
+  })
+})
+
+// The text box of a field: what is typed in, the select and the textarea. A checkbox or a radio inside a field is not one.
+const TEXT_BOX = '.field :is(input:not([type=checkbox], [type=radio]), select, textarea)'
+const allSelectors = () => allRules().flatMap(({ selectors }) => selectors)
+/** A selector of an option tile, by its new name or by one of the old ones that share its rules until the markup leaves them. */
+const isTile = (selector: string) => /\.(?:choice|journey-option|employee-category-option|company-choice)(?![\w-])/.test(selector)
+
+describe('campos, casillas y opciones: una sola forma', () => {
+  it('el recuadro de texto es una sola regla y no alcanza a las casillas ni a los botones de opción', () => {
+    const textBox = ruleListing(TEXT_BOX)
+
+    expect(textBox.declarations).toMatch(/border-radius:\s*var\(--radius\)/)
+    // Under 16 px iOS zooms the page when a field takes focus.
+    expect(textBox.declarations).toMatch(/font-size:\s*var\(--font-size-body\)/)
+    // The cells of the employees table while a row is edited and the company switcher of the top bar are text boxes outside a
+    // field; they share the box until slices E6 and C1 make them fields. Their selector keeps out checkboxes the same way.
+    expect(textBox.selectors).toEqual([TEXT_BOX, 'td input:where(:not([type=checkbox], [type=radio]))', '.company-switch'])
+    // The rule that reached every input is gone, and with it the rules that undid it for one checkbox or radio at a time.
+    for (const gone of ['.field input', 'td input', 'td input[type=checkbox]', '.auth-card .field input', '.block-fields input',
+      '.site-location-confirmation input', '.employee-category-option input']) {
+      expect(allSelectors(), gone).not.toContain(gone)
+    }
+  })
+
+  it('un campo de una línea mide el alto de toque del sistema y un área de texto arranca con lugar para varias líneas', () => {
+    expect(ruleListing('.field :is(input:not([type=checkbox], [type=radio]), select)').declarations).toMatch(/min-height:\s*var\(--target\)/)
+    expect(rule('.field textarea')).toMatch(/min-height:\s*5\.5rem/)
+    expect(rule('.field textarea')).toMatch(/resize:\s*vertical/)
+  })
+
+  it('la etiqueta y la ayuda de un campo miden 16 px y salen de los tokens; un grupo de campos no tiene recuadro', () => {
+    const label = rule('.field-label')
+    const hint = rule('.field-hint')
+    const group = ruleListing('.field-group').declarations
+
+    expect(rule('.field')).toMatch(/gap:\s*var\(--space-1\)/)
+    expect(label).toMatch(/font-size:\s*var\(--font-size-body\)/)
+    expect(label).toMatch(/font-weight:\s*var\(--font-weight-strong\)/)
+    expect(label).toMatch(/(?<![\w-])color:\s*var\(--text\)/)
+    expect(hint).toMatch(/font-size:\s*var\(--font-size-body\)/)
+    expect(hint).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
+    expect(ruleListing('.field-group').selectors).toEqual(['.field-group', 'fieldset.field', '.fieldset-plain'])
+    expect(group).toMatch(/border:\s*0/)
+    expect(group).toMatch(/padding:\s*0/)
+  })
+
+  it('un campo inválido se reconoce por su barra, su borde de 2 px y su texto, no solo por el rojo (1.4.1)', () => {
+    const invalidBox = rule('.field :is(input:not([type=checkbox], [type=radio]), select, textarea)[aria-invalid="true"]')
+    const error = ruleListing('.field-error')
+
+    expect(rule('.field-invalid')).toMatch(/border-left:\s*var\(--bar-width\) solid var\(--bad\)/)
+    expect(invalidBox).toMatch(/border-color:\s*var\(--bad\)/)
+    // As on a chosen button, the second pixel is drawn inside: the field does not change size when it turns invalid.
+    expect(invalidBox).toMatch(/box-shadow:\s*inset 0 0 0 var\(--border-width\) var\(--bad\)/)
+    expect(error.declarations).toMatch(/(?<![\w-])color:\s*var\(--bad\)/)
+    expect(error.declarations).toMatch(/font-weight:\s*var\(--font-weight-strong\)/)
+    // One rule for the error text: the three old names share it until the markup leaves them.
+    expect(error.selectors).toEqual(['.field-error', '.field-hint-error', '.employee-field-error', '.site-location-message-error'])
+    expect(allSelectors().filter((selector) => selector === '.field-hint-error')).toHaveLength(1)
+  })
+
+  // The schedule editor passes its errors as the hint of the field (hintOrError), and its summary says «debajo de cada campo».
+  // With the hint above the control those errors would jump over it; slice F2b gives them to the error prop and removes this.
+  it('un error que todavía llega como ayuda sigue mostrándose debajo del control', () => {
+    expect(rule('.field-hint:has(> .field-hint-error)')).toMatch(/order:\s*1/)
+  })
+
+  it('un campo deshabilitado se sigue leyendo: texto y fondo de los tokens, sin transparencia', () => {
+    const disabled = ruleListing('.field :is(input:not([type=checkbox], [type=radio]), select, textarea):disabled').declarations
+
+    expect(disabled).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
+    expect(disabled).toMatch(/background:\s*var\(--surface-tint\)/)
+    // Browsers fade a disabled field by themselves; the rule takes that back.
+    expect(disabled).toMatch(/opacity:\s*1\s*(?:;|$)/)
+  })
+
+  it('una casilla o un botón de opción mide el piso de 24 px y su etiqueta entera es el área de toque (2.5.8)', () => {
+    const box = rule('input[type=checkbox], input[type=radio]')
+    const label = ruleListing('.check')
+    const sized = allSelectors().filter((selector) => /\[type=["']?(?:checkbox|radio)/.test(selector.replace(/:(?:not|where)\([^()]*\)/g, '')))
+
+    expect(box).toMatch(/width:\s*var\(--target-floor\)/)
+    expect(box).toMatch(/height:\s*var\(--target-floor\)/)
+    expect(box).toMatch(/accent-color:\s*var\(--brand\)/)
+    // No other rule gives a checkbox or a radio a size, a padding or an edge.
+    expect(sized).toEqual(['input[type=checkbox]', 'input[type=radio]'])
+    expect(label.declarations).toMatch(/min-height:\s*var\(--target\)/)
+    expect(label.declarations).toMatch(/min-width:\s*var\(--target\)/)
+    expect(label.declarations).toMatch(/cursor:\s*pointer/)
+    expect(label.selectors).toEqual(['.check', '.check-grid label', '.inline-checks label', '.site-location-confirmation', 'td > label'])
+    expect(ruleListing('.check-list').selectors).toEqual(['.check-list', '.check-grid'])
+  })
+
+  it('una opción elegida se distingue igual que un botón elegido: comparten la regla del borde de la marca (1.4.1)', () => {
+    const chosen = ruleListing('.button[aria-pressed="true"]')
+
+    expect(chosen.selectors).toEqual([
+      '.button[aria-pressed="true"]', '.choice[aria-pressed="true"]', '.choice:has(input:checked)',
+      '.journey-option[aria-pressed="true"]', '.employee-category-option:has(input:checked)'
+    ])
+    expect(chosen.declarations).toMatch(/border-color:\s*var\(--brand\)/)
+    expect(chosen.declarations).toMatch(/box-shadow:\s*inset 0 0 0 var\(--border-width\) var\(--brand\)/)
+    expect(chosen.declarations).toMatch(/background:\s*var\(--surface-selected\)/)
+    // The chosen shift was told apart by a class with a paler edge (2.27:1) and a fill of 1.08:1; aria-pressed says it now.
+    expect(allSelectors().filter((selector) => selector.includes('.journey-option-active'))).toEqual([])
+  })
+
+  it('una opción es un control con el borde, las esquinas y el alto de los tokens', () => {
+    const tile = ruleListing('.choice')
+
+    expect(tile.selectors).toEqual(['.choice', '.journey-option', '.employee-category-option', '.company-choice'])
+    expect(tile.declarations).toMatch(/border:\s*var\(--border-width\) solid var\(--border\)/)
+    expect(tile.declarations).toMatch(/border-radius:\s*var\(--radius\)/)
+    expect(tile.declarations).toMatch(/min-height:\s*var\(--target-large\)/)
+    expect(tile.declarations).toMatch(/background:\s*var\(--surface\)/)
+    expect(tile.declarations).toMatch(/(?<![\w-])color:\s*var\(--text\)/)
+  })
+
+  it('una opción deshabilitada se sigue leyendo, sin opacidad, y la elegida conserva su borde', () => {
+    const disabled = ruleListing('.choice:disabled')
+    const faded = allRules().filter(({ selectors, declarations }) => selectors.some(isTile) && /(?<![\w-])opacity\s*:/.test(declarations))
+
+    expect(faded.map(({ selectors }) => selectors.join(', '))).toEqual([])
+    expect(disabled.selectors).toEqual(['.choice:disabled', '.choice:has(input:disabled)', '.journey-option:disabled', '.company-choice:disabled'])
+    expect(disabled.declarations).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
+    expect(disabled.declarations).toMatch(/background:\s*var\(--surface-tint\)/)
+    expect(disabled.declarations).toMatch(/border-color:\s*var\(--border\)/)
+    for (const selector of ['.button[aria-pressed="true"]:disabled', '.choice[aria-pressed="true"]:disabled', '.journey-option[aria-pressed="true"]:disabled']) {
+      expect(ruleListing(selector).declarations, selector).toMatch(/border-color:\s*var\(--brand\)/)
+    }
+  })
+
+  it('las opciones van en una columna y en dos desde 600 px', () => {
+    const list = '.choice-list, .journey-picker, .employee-category-list'
+
+    expect(rule(list)).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/)
+    expect(rule(list, media(600, 'min'))).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
+    // The one column is the base now: no narrow breakpoint has to bring it back.
+    expect(media(520)).not.toMatch(/\.employee-category-list/)
   })
 })
