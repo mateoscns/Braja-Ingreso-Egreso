@@ -5,68 +5,122 @@ import {
   confirmedMark, forAdmin, forEmployee, jornadaStateLabel, markButtonLabel, markWithArticle
 } from './labels'
 
-// The words each role read on 2026-11-11, before D-20261111-01 is applied: gathering them in one module must not change any.
+type DeviationType = Deviation['type']
+type DeviationStatus = Deviation['status']
+type MotiveCategory = NonNullable<Deviation['category']>
 
-const JORNADA_STATES = { NO_INGRESO: 'Sin ingreso', EN_CURSO: 'En curso', PAUSA_ABIERTA: 'En pausa', EGRESADA: 'Finalizada', CANCELADA: 'Cancelada' }
-const MOTIVE_CATEGORIES = { SALUD: 'Salud', TRANSPORTE: 'Transporte', EMERGENCIA: 'Emergencia', OTRA: 'Otra' }
+// The words of D-20261111-01 as the design system lists them (7.2): the ADMIN and the employee read the same one.
+
+const MARKS: [MarkAction, string][] = [
+  ['INGRESO', 'Entrada'],
+  ['EGRESO', 'Salida'],
+  // The decision does not name the break marks: both roles read the names the employee already had.
+  ['SALIDA_DESAYUNO', 'Salida a desayunar'],
+  ['VUELTA_DESAYUNO', 'Vuelta del desayuno'],
+  ['SALIDA_ALMUERZO', 'Salida a almorzar'],
+  ['VUELTA_ALMUERZO', 'Vuelta del almuerzo']
+]
+
+const CASES: [DeviationType, string][] = [
+  ['SIN_INGRESO', 'No marcó la entrada'],
+  ['LLEGADA_TARDE', 'Llegada tarde'],
+  ['EGRESO_TEMPRANO', 'Salió antes'],
+  ['EGRESO_TARDIO', 'Salió después de hora'],
+  ['MARCA_FALTANTE', 'No marcó la salida'],
+  ['EXCESO_DESAYUNO', 'Desayuno largo'],
+  ['EXCESO_ALMUERZO', 'Almuerzo largo'],
+  ['FUERA_DE_SEDE', 'Fuera del local']
+]
+
+// The one name that still depends on who reads it: the employee is told what is missing, the ADMIN what the person did.
+const CASE_STATES_OF_THE_ADMIN: [DeviationStatus, string][] = [
+  ['MOTIVO_PENDIENTE', 'Todavía no explicó'],
+  ['PENDIENTE_REVISION', 'A revisar'],
+  ['JUSTIFICADO', 'Justificado'],
+  ['NO_JUSTIFICADO', 'No justificado']
+]
+const CASE_STATES_OF_THE_EMPLOYEE: [DeviationStatus, string][] = [
+  ['MOTIVO_PENDIENTE', 'Falta explicar'],
+  ['PENDIENTE_REVISION', 'A revisar'],
+  ['JUSTIFICADO', 'Justificado'],
+  ['NO_JUSTIFICADO', 'No justificado']
+]
+
+const MOTIVE_CATEGORIES: [MotiveCategory, string][] = [
+  ['SALUD', 'Salud'],
+  ['TRANSPORTE', 'Transporte'],
+  ['EMERGENCIA', 'Emergencia'],
+  ['OTRA', 'Otra']
+]
+
+// The decision leaves the states of a day open, so they keep the words they had.
+const JORNADA_STATES: [JornadaStatus, string][] = [
+  ['NO_INGRESO', 'Sin ingreso'],
+  ['EN_CURSO', 'En curso'],
+  ['PAUSA_ABIERTA', 'En pausa'],
+  ['EGRESADA', 'Finalizada'],
+  ['CANCELADA', 'Cancelada']
+]
+
+const codes = (table: [string, string][]) => table.map(([code]) => code).sort()
 
 describe('forAdmin', () => {
-  it('names every mark', () => {
-    expect(forAdmin.mark).toEqual({
-      INGRESO: 'Ingreso', EGRESO: 'Egreso', SALIDA_DESAYUNO: 'Salida desayuno', VUELTA_DESAYUNO: 'Vuelta desayuno',
-      SALIDA_ALMUERZO: 'Salida almuerzo', VUELTA_ALMUERZO: 'Vuelta almuerzo'
-    })
+  it.each(MARKS)('names the mark %s «%s»', (action, word) => {
+    expect(forAdmin.mark[action]).toBe(word)
   })
 
-  it('names every case', () => {
-    expect(forAdmin.deviation).toEqual({
-      SIN_INGRESO: 'Sin ingreso', LLEGADA_TARDE: 'Llegada tarde', EGRESO_TEMPRANO: 'Egreso temprano', EGRESO_TARDIO: 'Egreso tardío',
-      MARCA_FALTANTE: 'Egreso sin marcar', EXCESO_DESAYUNO: 'Exceso de desayuno', EXCESO_ALMUERZO: 'Exceso de almuerzo', FUERA_DE_SEDE: 'Fuera de sede'
-    })
+  it.each(CASES)('names the case %s «%s»', (type, word) => {
+    expect(forAdmin.deviation[type]).toBe(word)
   })
 
-  it('names every state of a case', () => {
-    expect(forAdmin.deviationStatus).toEqual({
-      MOTIVO_PENDIENTE: 'Falta motivo', PENDIENTE_REVISION: 'A revisar', JUSTIFICADO: 'Justificado', NO_JUSTIFICADO: 'No justificado'
-    })
+  it.each(CASE_STATES_OF_THE_ADMIN)('names the state of a case %s «%s»', (status, word) => {
+    expect(forAdmin.deviationStatus[status]).toBe(word)
   })
 
-  it('names every category of a motive', () => {
-    expect(forAdmin.motiveCategory).toEqual(MOTIVE_CATEGORIES)
+  it.each(MOTIVE_CATEGORIES)('names the category of a motive %s «%s»', (category, word) => {
+    expect(forAdmin.motiveCategory[category]).toBe(word)
   })
 
-  it('names every state of a day', () => {
-    expect(forAdmin.jornadaState).toEqual(JORNADA_STATES)
+  it.each(JORNADA_STATES)('names the state of a day %s «%s»', (state, word) => {
+    expect(forAdmin.jornadaState[state]).toBe(word)
+  })
+
+  it('names nothing else', () => {
+    expect(Object.keys(forAdmin.mark).sort()).toEqual(codes(MARKS))
+    expect(Object.keys(forAdmin.deviation).sort()).toEqual(codes(CASES))
+    expect(Object.keys(forAdmin.deviationStatus).sort()).toEqual(codes(CASE_STATES_OF_THE_ADMIN))
+    expect(Object.keys(forAdmin.motiveCategory).sort()).toEqual(codes(MOTIVE_CATEGORIES))
+    expect(Object.keys(forAdmin.jornadaState).sort()).toEqual(codes(JORNADA_STATES))
   })
 })
 
 describe('forEmployee', () => {
-  it('names every mark', () => {
-    expect(forEmployee.mark).toEqual({
-      INGRESO: 'Entrada', EGRESO: 'Salida', SALIDA_DESAYUNO: 'Salida a desayunar', VUELTA_DESAYUNO: 'Vuelta del desayuno',
-      SALIDA_ALMUERZO: 'Salida a almorzar', VUELTA_ALMUERZO: 'Vuelta del almuerzo'
-    })
+  it.each(MARKS)('names the mark %s «%s»', (action, word) => {
+    expect(forEmployee.mark[action]).toBe(word)
   })
 
-  it('names every case', () => {
-    expect(forEmployee.deviation).toEqual({
-      SIN_INGRESO: 'Faltó la entrada', LLEGADA_TARDE: 'Llegada tarde', EGRESO_TEMPRANO: 'Salida temprana', EGRESO_TARDIO: 'Salida tarde',
-      MARCA_FALTANTE: 'Faltó la salida', EXCESO_DESAYUNO: 'Desayuno largo', EXCESO_ALMUERZO: 'Almuerzo largo', FUERA_DE_SEDE: 'Fuera del local'
-    })
+  it.each(CASES)('names the case %s «%s»', (type, word) => {
+    expect(forEmployee.deviation[type]).toBe(word)
   })
 
-  it('names every state of a case', () => {
-    expect(forEmployee.deviationStatus).toEqual({
-      MOTIVO_PENDIENTE: 'Falta explicar', PENDIENTE_REVISION: 'A revisar', JUSTIFICADO: 'Justificado', NO_JUSTIFICADO: 'No justificado'
-    })
+  it.each(CASE_STATES_OF_THE_EMPLOYEE)('names the state of a case %s «%s»', (status, word) => {
+    expect(forEmployee.deviationStatus[status]).toBe(word)
   })
 
-  it('names every category of a motive', () => {
-    expect(forEmployee.motiveCategory).toEqual(MOTIVE_CATEGORIES)
+  it.each(MOTIVE_CATEGORIES)('names the category of a motive %s «%s»', (category, word) => {
+    expect(forEmployee.motiveCategory[category]).toBe(word)
   })
 
-  it('names every state of a day', () => {
-    expect(forEmployee.jornadaState).toEqual(JORNADA_STATES)
+  it.each(JORNADA_STATES)('names the state of a day %s «%s»', (state, word) => {
+    expect(forEmployee.jornadaState[state]).toBe(word)
+  })
+
+  it('names nothing else', () => {
+    expect(Object.keys(forEmployee.mark).sort()).toEqual(codes(MARKS))
+    expect(Object.keys(forEmployee.deviation).sort()).toEqual(codes(CASES))
+    expect(Object.keys(forEmployee.deviationStatus).sort()).toEqual(codes(CASE_STATES_OF_THE_EMPLOYEE))
+    expect(Object.keys(forEmployee.motiveCategory).sort()).toEqual(codes(MOTIVE_CATEGORIES))
+    expect(Object.keys(forEmployee.jornadaState).sort()).toEqual(codes(JORNADA_STATES))
   })
 })
 
@@ -95,7 +149,7 @@ describe('the forms of a mark only the employee reads', () => {
 
 describe('jornadaStateLabel', () => {
   it('names every state of a day', () => {
-    for (const [state, word] of Object.entries(JORNADA_STATES)) expect(jornadaStateLabel(state as JornadaStatus)).toBe(word)
+    for (const [state, word] of JORNADA_STATES) expect(jornadaStateLabel(state)).toBe(word)
   })
 
   it('shows the code of a state the app does not know', () => {
@@ -105,10 +159,10 @@ describe('jornadaStateLabel', () => {
 
 describe('the lookups of the ADMIN screens', () => {
   it('read the ADMIN words', () => {
-    for (const [action, word] of Object.entries(forAdmin.mark)) expect(adminMarkName(action as MarkAction)).toBe(word)
-    for (const [type, word] of Object.entries(forAdmin.deviation)) expect(adminDeviationName(type as Deviation['type'])).toBe(word)
-    for (const [status, word] of Object.entries(forAdmin.deviationStatus)) expect(adminDeviationStatusName(status as Deviation['status'])).toBe(word)
-    for (const [category, word] of Object.entries(forAdmin.motiveCategory)) expect(adminCategoryName(category as NonNullable<Deviation['category']>)).toBe(word)
+    for (const [action, word] of MARKS) expect(adminMarkName(action)).toBe(word)
+    for (const [type, word] of CASES) expect(adminDeviationName(type)).toBe(word)
+    for (const [status, word] of CASE_STATES_OF_THE_ADMIN) expect(adminDeviationStatusName(status)).toBe(word)
+    for (const [category, word] of MOTIVE_CATEGORIES) expect(adminCategoryName(category)).toBe(word)
   })
 
   it('name where the location of a mark stands, with a dash for a state the app does not know', () => {
