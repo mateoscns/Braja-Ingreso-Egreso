@@ -452,7 +452,9 @@ describe('EmployeeApp', () => {
       resolveMotive(updated)
 
       expect(await screen.findByText('A revisar')).toBeInTheDocument()
-      expect(screen.getByText('Lo enviamos. Tu encargado lo va a revisar.')).toBeInTheDocument()
+      // PageMessage writes a success text one render after mounting its live region (2026-11-11, #120: looking for it
+      // without waiting failed two runs in three).
+      expect(await screen.findByText('Lo enviamos. Tu encargado lo va a revisar.')).toBeInTheDocument()
       expect(screen.queryByLabelText('Contá qué pasó')).not.toBeInTheDocument()
     })
 
