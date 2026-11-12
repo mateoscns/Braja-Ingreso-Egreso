@@ -270,10 +270,12 @@ const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui',
 // Lowered in slice N4 (the old menu, the fixed alerts bar and their room went): 42 → 30, 29 → 20, 6 → 4, 48 → 31.
 // Lowered in slice E2 (the coordinates of a mark take the tokens): font sizes 20 → 19, old names 31 → 30.
 // Lowered in slice D3 (the motive cards and their question went): colours 30 → 29, font sizes 19 → 18, old names 30 → 29.
-const COLOR_LITERAL_CEILING = 29
-const UNTOKENED_FONT_SIZE_CEILING = 18
-const BOX_SHADOW_CEILING = 4
-const LEGACY_TOKEN_USE_CEILING = 29
+// Lowered in slice E1 (the cards of the inbox and the box of its filters went): colours 29 → 16, font sizes 18 → 16, shadows
+// 4 → 3, old names 29 → 28.
+const COLOR_LITERAL_CEILING = 16
+const UNTOKENED_FONT_SIZE_CEILING = 16
+const BOX_SHADOW_CEILING = 3
+const LEGACY_TOKEN_USE_CEILING = 28
 
 // The old names with the values they had before the token block. A name is deleted from the stylesheet once nothing uses it
 // and never gets a new value in the meantime: a half-migrated rule must look exactly as it did.
@@ -714,7 +716,8 @@ describe('campos, casillas y opciones: una sola forma', () => {
 
   // Slice N2 (D-20261111-02): the forms of a day open under the mark or the day they change, as one piece.
   it('un formulario que se abre en su lugar es una barra a la izquierda, plano, con el espacio de los tokens (4.7)', () => {
-    const form = rule('.inline-form, .correction-form')
+    // Slice E1: the inbox's old name of the form (.correction-form) left the rule with its markup.
+    const form = rule('.inline-form')
 
     expect(form).toMatch(/border-left:\s*var\(--bar-width\) solid var\(--border\)/)
     expect(form).toMatch(/padding-left:\s*var\(--space-4\)/)
@@ -870,8 +873,8 @@ describe('listas de registros y tablas: filas separadas por una línea, nunca ta
 
   it('las filas van una debajo de la otra sin hueco: las separa su línea, no el espacio entre tarjetas', () => {
     for (const list of ['.history-list', '.simple-list', '.template-list']) expect(ruleListing(list).declarations, list).not.toMatch(/(?<![\w-])gap\s*:/)
-    // The inbox is its own slice (E1): it keeps its space for now. The employee's motives are records since slice D3.
-    expect(rule('.deviation-list')).toMatch(/gap:\s*10px/)
+    // Slice E1: the cases of the inbox are rows too, with no space between them. The employee's motives are records since D3.
+    expect(rule('.case-list')).not.toMatch(/(?<![\w-])gap\s*:/)
   })
 
   it('una lista de marcas o de cambios suelta separa sus filas con la línea; dentro de un registro sus renglones van sin línea', () => {
@@ -1060,6 +1063,65 @@ describe('pantalla del empleado: Para explicar', () => {
 
   it('las tarjetas de motivos, sus opciones propias y su pregunta se fueron con su marcado', () => {
     const gone = /\.(?:motive-card|motive-list|employee-motive-question|employee-category-option|employee-category-list)(?![\w-])/
+
+    expect(allSelectors().filter((selector) => gone.test(selector))).toEqual([])
+  })
+})
+
+// Slice E1 (design system 4.2 and 4.11): «Para revisar» is a list of cases, each a row with a state bar on its left edge and a
+// hairline under it, never a card; the decision pair stacks on a narrow row and sits side by side when it has room.
+describe('«Para revisar»: los casos y el par de decisiones', () => {
+  const value = (declarations: string, property: string) => new RegExp(`(?:^|[;\\s])${property}:\\s*([^;]+)`).exec(declarations)?.[1].trim()
+  /** The body of the `@container (<condition>) {` block. */
+  function containerBlock(condition: string) {
+    const opening = `@container (${condition}) {`
+    const start = css.indexOf(opening)
+    if (start < 0) throw new Error(`No container query for ${condition}`)
+    return css.slice(start + opening.length, css.indexOf('\n}', start))
+  }
+
+  it('un caso es una fila con su barra de estado a la izquierda y una línea fina debajo, sin recuadro ni sombra', () => {
+    const row = rule('.case')
+
+    expect(value(rule('.case-list'), 'list-style')).toBe('none')
+    expect(rule('.case-list')).not.toMatch(/(?<![\w-])gap\s*:/)
+    expect(value(row, 'border-left')).toBe('var(--state-bar-width) solid var(--border)')
+    expect(row).toMatch(HAIRLINE)
+    expect(row).toMatch(/overflow-wrap:\s*anywhere/)
+    expect(selectorsOf(rulesNaming('case', 'case-list', 'case-head', 'case-person', 'case-title', 'case-actions')
+      .filter(({ declarations }) => /(?<![\w-])(?:box-shadow|border-radius)\s*:/.test(declarations)))).toEqual([])
+  })
+
+  it('la barra dice de quién es el turno: punteada mientras la persona no explicó, ámbar a revisar, verde o roja ya decidido', () => {
+    expect(value(rule('.case-wait'), 'border-left-style')).toBe('dotted')
+    expect(value(rule('.case-todo'), 'border-left-color')).toBe('var(--warn)')
+    expect(value(rule('.case-ok'), 'border-left-color')).toBe('var(--ok)')
+    expect(value(rule('.case-bad'), 'border-left-color')).toBe('var(--bad)')
+    // Opened from a notification: the fill of what is selected, not a glow.
+    expect(value(rule('.case-target'), 'background')).toBe('var(--surface-selected)')
+  })
+
+  it('la persona es el texto más fuerte de la fila y el motivo cuelga de una línea fina', () => {
+    expect(value(rule('.case-person'), 'font-size')).toBe('var(--font-size-body-lg)')
+    expect(value(rule('.case-person'), 'font-weight')).toBe('var(--font-weight-heavy)')
+    expect(value(ruleListing('.motive-said').declarations, 'border-left')).toBe('var(--border-width-strong) solid var(--rule)')
+  })
+
+  it('el par se apila en una fila angosta, va lado a lado con lugar y en una pantalla ancha las decisiones van a la derecha del caso', () => {
+    // Two buttons of at least 10 rem each: side by side from a row of about 332 px, one under the other below that.
+    expect(rule('.button-pair')).toMatch(/grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(min\(100%,\s*10rem\),\s*1fr\)\)/)
+    expect(value(rule('.case-actions'), 'max-width')).toBe('28rem')
+    expect(value(rule('.case-list'), 'container-type')).toBe('inline-size')
+    expect(value(rule('.case', containerBlock('min-width: 56rem')), 'grid-template-columns')).toBe('minmax(0, 1fr) minmax(0, 24rem)')
+  })
+
+  it('los filtros son una franja plana: sin recuadro, esquinas ni fondo', () => {
+    expect(rule('.filter-bar')).not.toMatch(/(?<![\w-])(?:border|border-radius|background|box-shadow)\s*:/)
+    expect(value(rule('.filter-bar'), 'gap')).toBe('var(--space-3)')
+  })
+
+  it('las reglas de las tarjetas de la bandeja se fueron con su marcado', () => {
+    const gone = /\.(?:deviation-list|deviation-card|deviation-target|deviation-symbol|deviation-main|deviation-title|deviation-actions|reason-line|load-more|correction-form|filter-actions)(?![\w-])/
 
     expect(allSelectors().filter((selector) => gone.test(selector))).toEqual([])
   })

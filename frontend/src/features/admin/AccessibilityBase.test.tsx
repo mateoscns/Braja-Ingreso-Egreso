@@ -49,7 +49,9 @@ describe('accesibilidad de base en las pantallas existentes', () => {
       onFiltersChange={noop} onApplyFilters={noop} onClearFilters={noop} timeZones={new Map()} nextCursor={null} loading={false} inboxLoadError=""
       timeZoneLoadError="" error="" notice="" busy="" correction={null} correctionReason="" targetDeviation="" onReload={noop} onClassify={noop}
       onRetry={noop} onLoadMore={noop} onCorrectionReasonChange={noop} onSubmitCorrection={noop} onCancelCorrection={noop} />)
-    expect(container.querySelector('.deviation-symbol')).toHaveAttribute('aria-hidden', 'true')
+    // Changed in slice E1: the symbol of a case is gone; its state is a tag whose icon is not read.
+    expect(container.querySelector('.deviation-symbol')).toBeNull()
+    expect(container.querySelector('.case .status-chip svg')).toHaveAttribute('aria-hidden', 'true')
     cleanup()
 
     const sites = render(<SitesViewRender sites={[site]} loading={false} loadError="" error="" notice="" name="" timeZone="" busy={false} siteLocation={null}

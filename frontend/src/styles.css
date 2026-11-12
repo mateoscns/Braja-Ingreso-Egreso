@@ -516,9 +516,12 @@ html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-height) + env(safe
    screen. */
 .toolbar { display: flex; margin: 0 0 var(--space-4); }
 .toolbar .field { width: min(18rem, 100%); }
-.filter-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; align-items: end; margin-bottom: 18px; padding: 14px; border: 1px solid #e9eeea; border-radius: 12px; background: #fff; }
-.filter-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.filter-error { grid-column: 1 / -1; }
+/* The filters of «Para revisar»: a band of fields on the page, not a box (principle 3). Each field takes at least 10 rem; the
+   two buttons keep their width and go to the next line together (at 768 px they stood one under the other in a column of 10 rem). */
+.filter-bar { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: flex-end; margin-bottom: var(--space-4); }
+.filter-bar > .field { flex: 1 1 10rem; }
+.filter-bar > .button-row { flex: 0 0 auto; }
+.filter-error { flex-basis: 100%; }
 /* ===== Records: lists of days, marks, people, locals, schedules and search results ===== */
 /* A record is a row of its list, never a card (principle 3): no box, fill or corners; a hairline under each row separates
    it from the next, so the rows sit one under the other without a gap. Under 768 px the lists that become tables are drawn
@@ -562,8 +565,6 @@ html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-height) + env(safe
 .subsection-head > h3 { margin: 0; }
 
 /* ===== Lists, checks, tables, schedules, status chips ===== */
-/* The inbox cases are their own piece (slice E1); they keep their spacing until then. */
-.deviation-list { display: flex; flex-direction: column; gap: 10px; }
 /* The short lists (locals, steps, assignments, days skipped by a load) and the schedules: rows with a hairline, as above. */
 .simple-list, .template-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
 .simple-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: var(--border-width) solid var(--rule); }
@@ -654,21 +655,44 @@ td .short-input { width: 74px; }
 /* An error or decided against. */
 .status-bad, .status-no_justificado { color: var(--bad); background: var(--bad-surface); border-color: var(--bad); border-style: solid; }
 
-/* ===== Deviation cards of the inbox and inline forms ===== */
-.deviation-card { display: flex; align-items: flex-start; gap: 12px; padding: 14px; border: 1px solid #e9eeea; border-radius: 11px; background: #fff; transition: border-color .2s, background .2s; }
-.deviation-target { border-color: #c5d990; background: #fbfff0; box-shadow: 0 0 0 3px rgba(216,240,120,.2); }
-.load-more { display: flex; justify-content: center; padding-top: 14px; }
-.deviation-symbol { flex: 0 0 32px; width: 32px; height: 32px; display: grid; place-items: center; color: #996530; background: #fff4e3; border-radius: 10px; font-weight: 800; }
-.deviation-main { flex: 1; min-width: 0; }
-.deviation-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.deviation-title strong { color: #2b3c31; font-size: .85rem; }
-.deviation-main p { color: var(--text-secondary); margin: 6px 0 0; font-size: .875rem; line-height: 1.5; }
-.deviation-main .reason-line { padding: 8px 10px; border-left: 2px solid #d7e8cf; background: #f8faf7; color: #58675e; border-radius: 0 6px 6px 0; }
-.deviation-actions { display: flex; flex-wrap: wrap; gap: 6px; align-self: center; }
+/* ===== «Para revisar»: the cases (design system 4.2 and 4.11, slice E1) and inline forms ===== */
+/* A case is a row of its list, never a card: a state bar on its left edge and a hairline under it. The bar says whose turn it
+   is, as the tag does: dotted grey while the person has not explained, amber while the motive waits for the ADMIN, green or red
+   once decided. In order: the person (the owner, 2026-11-11: "Persona primero") with «Ver el día» at the right, the case and its
+   tag, when, the motive hung from a hairline (.motive-said), the decision; an open correction and a refused decision stay in the
+   row. The list is a container: where the row is wide the decision moves to the right of the case. */
+.case-list { margin: 0; padding: 0; list-style: none; container-type: inline-size; }
+.case {
+  display: grid; gap: var(--space-3); min-width: 0; padding: var(--space-4) 0 var(--space-4) var(--space-3);
+  border-left: var(--state-bar-width) solid var(--border); border-bottom: var(--border-width) solid var(--rule); overflow-wrap: anywhere;
+}
+.case-wait { border-left-style: dotted; }
+.case-todo { border-left-color: var(--warn); }
+.case-ok { border-left-color: var(--ok); }
+.case-bad { border-left-color: var(--bad); }
+/* Opened from a notification: the fill of what is selected; the text keeps a step off its right edge. */
+.case-target { padding-right: var(--space-3); background: var(--surface-selected); }
+.case-body { display: grid; gap: var(--space-1); min-width: 0; }
+.case-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 var(--space-3); }
+.case-person { margin: 0; font-size: var(--font-size-body-lg); font-weight: var(--font-weight-heavy); line-height: var(--line-height-heading); }
+.case-title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); margin: 0; }
+.case-title > strong { font-weight: var(--font-weight-heavy); }
+/* The decision: the pair takes the row on a phone (one button under the other below about 332 px) and stops at two comfortable
+   buttons on a wide row; a lone «Corregir a …» keeps the width of its words. */
+.case-actions { display: grid; justify-items: start; min-width: 0; max-width: 28rem; }
+.case-actions > .button-pair { justify-self: stretch; }
+/* A message inside the row is one more line of it: the row's gap spaces it. */
+.case > .message, .case .inline-form > .message { margin: 0; }
+.case > .inline-form { margin-top: 0; }
+.case-list + .case-more { margin-top: var(--space-4); }
+@container (min-width: 56rem) {
+  .case { grid-template-columns: minmax(0, 1fr) minmax(0, 24rem); column-gap: var(--space-5); align-items: center; }
+  .case > :not(.case-body, .case-actions) { grid-column: 1 / -1; }
+  .case-actions { justify-items: end; }
+}
 /* An inline form opens in place, under the row or the button that opened it (design system 4.7): a bar on its left, no box.
-   Inside a wrapping row (a mark of the phone list, a case of the inbox) it takes a line of its own. `.correction-form` is
-   the inbox's old name for it, until slice E1 changes that markup. */
-.inline-form, .correction-form { display: grid; gap: var(--space-4); flex-basis: 100%; width: 100%; margin-top: var(--space-4); padding-left: var(--space-4); border-left: var(--bar-width) solid var(--border); }
+   Inside a wrapping row (a mark of the phone list) it takes a line of its own. */
+.inline-form { display: grid; gap: var(--space-4); flex-basis: 100%; width: 100%; margin-top: var(--space-4); padding-left: var(--space-4); border-left: var(--bar-width) solid var(--border); }
 
 /* ===== Employee screen ===== */
 /* One column of 40 rem at most: the marks, the schedule and the day are read top to bottom, also on a tablet. */
@@ -697,7 +721,7 @@ td .short-input { width: 74px; }
 /* «Para explicar» (design system 4.7 and 4.12): one list of records, what is left to explain and what was sent. Each record says
    the case and its tag, when, and what happened; a motive still to write is an inline form with the amber bar of a task that
    waits for the person reading, its case on top; a sent one shows what was written, hung from a hairline, and opens its form in
-   the same row. */
+   the same row. The motive of a case in «Para revisar» hangs from the same hairline. */
 .motive-summary { display: grid; gap: var(--space-1); min-width: 0; }
 .motive-fact { margin: 0; color: var(--text); font-size: var(--font-size-body-lg); line-height: var(--line-height-heading); overflow-wrap: anywhere; }
 .motive-said { margin: var(--space-1) 0 0; padding-left: var(--space-3); border-left: var(--border-width-strong) solid var(--rule); overflow-wrap: anywhere; }
@@ -773,8 +797,6 @@ td .short-input { width: 74px; }
   .main-content { padding-top: 26px; padding-right: 16px; padding-left: 16px; }
   .page-title-row { align-items: flex-start; }
   .page-title-row .field { min-width: 130px; }
-  .deviation-card { flex-wrap: wrap; }
-  .deviation-actions { width: 100%; padding-left: 44px; }
 }
 @media (max-width: 520px) {
   /* Tighter on phones so "Guardar contraseña" fits on a 640 px screen under the rules of the new password. */
@@ -850,7 +872,7 @@ td .short-input { width: 74px; }
 /* 2026-11-09 integrated check of PR #107, small modifiers from existing tokens: the folded inbox filters on phones, the reasons
    of a work-days load inside its result box, and the temporary password large enough to read aloud or copy by hand. */
 .filter-fold { margin-bottom: var(--space-4); }
-/* Inside the fold the filters need no box of their own: the fold is the box. */
-.filter-fold .filter-bar { margin-bottom: 0; padding: 0; border: 0; background: transparent; }
+/* Inside the fold the filters end with the fold. */
+.filter-fold .filter-bar { margin-bottom: 0; }
 .message .work-days-skips { margin-top: 8px; }
 .issued-password-code { display: inline-block; color: var(--text-primary); font-size: 1.25rem; font-weight: 700; letter-spacing: .08em; overflow-wrap: anywhere; }

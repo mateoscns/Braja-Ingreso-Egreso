@@ -100,9 +100,11 @@ describe('administración de desvíos y marcas', () => {
     expect(await screen.findByRole('heading', { name: 'Equipo' })).toBeInTheDocument()
   })
 
+  // Changed in slice E1 (here and in the inbox tests below that wait for a case): the person is the first line of the case and
+  // names its row; it is no longer joined to the time with «·».
   it('muestra el nombre entregado por el servidor en la bandeja', async () => {
     render(<AdminInbox />)
-    expect(await screen.findByText(/Lucía Pérez ·/)).toBeInTheDocument()
+    expect(await screen.findByRole('listitem', { name: 'Lucía Pérez' })).toBeInTheDocument()
   })
 
   it('distingue un fallo de carga de la bandeja vacía y permite reintentar', async () => {
@@ -120,7 +122,7 @@ describe('administración de desvíos y marcas', () => {
     expect(await screen.findByText('Falló la carga de la bandeja.')).toBeInTheDocument()
     expect(screen.queryByText('No hay casos para mostrar.')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
-    expect(await screen.findByText(/Lucía Pérez ·/)).toBeInTheDocument()
+    expect(await screen.findByRole('listitem', { name: 'Lucía Pérez' })).toBeInTheDocument()
   })
 
   it('mantiene la bandeja si falla la carga de zonas horarias y explica el huso usado', async () => {
@@ -132,7 +134,7 @@ describe('administración de desvíos y marcas', () => {
 
     expect(await screen.findByText(/Falló la consulta de sedes\./)).toBeInTheDocument()
     expect(screen.getByText(/Las horas se muestran en la zona horaria de este dispositivo\./)).toBeInTheDocument()
-    expect(screen.getByText(/Lucía Pérez ·/)).toBeInTheDocument()
+    expect(screen.getByRole('listitem', { name: 'Lucía Pérez' })).toBeInTheDocument()
     expect(screen.queryByText('No hay casos para mostrar.')).not.toBeInTheDocument()
   })
 
@@ -576,7 +578,7 @@ describe('administración de desvíos y marcas', () => {
 
     it('pliega los filtros de la bandeja y resume en una línea los que están aplicados', async () => {
       render(<AdminInbox />)
-      await screen.findByText(/Lucía Pérez ·/)
+      await screen.findByRole('listitem', { name: 'Lucía Pérez' })
       const fold = screen.getByText('Filtros: todos').closest('details')!
       expect(fold).not.toHaveAttribute('open')
       const form = screen.getByRole('form', { name: 'Filtros de los casos', hidden: true })
@@ -592,7 +594,7 @@ describe('administración de desvíos y marcas', () => {
     it('en la pantalla ancha los filtros siguen abiertos, sin pliegue', async () => {
       Object.defineProperty(window, 'matchMedia', { configurable: true, value: vi.fn((query: string) => ({ matches: query === '(min-width: 768px)', addEventListener: vi.fn(), removeEventListener: vi.fn() })) })
       render(<AdminInbox />)
-      await screen.findByText(/Lucía Pérez ·/)
+      await screen.findByRole('listitem', { name: 'Lucía Pérez' })
       expect(screen.getByRole('form', { name: 'Filtros de los casos' }).closest('details')).toBeNull()
       expect(screen.queryByText(/^Filtros:/)).not.toBeInTheDocument()
     })
@@ -811,7 +813,7 @@ describe('administración de desvíos y marcas', () => {
 
     it('envía empleado, sede y fechas al aplicar y vuelve a la consulta sin filtros al limpiar', async () => {
       render(<AdminInbox />)
-      await screen.findByText(/Lucía Pérez ·/)
+      await screen.findByRole('listitem', { name: 'Lucía Pérez' })
       expect(inboxCalls()).toEqual(['/inbox?limit=50'])
 
       pick('Empleado', 'e-1'); pick('Local', 's-1'); pick('Desde', '2026-10-01'); pick('Hasta', '2026-10-10')
@@ -850,7 +852,7 @@ describe('administración de desvíos y marcas', () => {
       ['rango mayor a 366 días', { Desde: '2025-01-01', Hasta: '2026-10-01' }, 'El rango no puede superar los 366 días.']
     ])('no consulta la API con %s y explica el problema', async (_name, values, message) => {
       render(<AdminInbox />)
-      await screen.findByText(/Lucía Pérez ·/)
+      await screen.findByRole('listitem', { name: 'Lucía Pérez' })
       Object.entries(values).forEach(([label, value]) => pick(label, value))
       fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
       expect(await screen.findByRole('alert')).toHaveTextContent(message)
@@ -859,7 +861,7 @@ describe('administración de desvíos y marcas', () => {
 
     it('muestra un estado vacío claro cuando los filtros no encuentran nada', async () => {
       render(<AdminInbox />)
-      await screen.findByText(/Lucía Pérez ·/)
+      await screen.findByRole('listitem', { name: 'Lucía Pérez' })
       apiMocks.get.mockImplementation((path: string) => path.startsWith('/inbox') ? Promise.resolve({ items: [], nextCursor: null }) : Promise.resolve([]))
       pick('Local', 's-1')
       fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
@@ -871,7 +873,7 @@ describe('administración de desvíos y marcas', () => {
         ? Promise.resolve({ items: [{ ...deviation, status: 'PENDIENTE_REVISION' }], nextCursor: null })
         : Promise.resolve(path === '/sites' ? [site] : [employee]))
       render(<AdminInbox />)
-      await screen.findByText(/Lucía Pérez ·/)
+      await screen.findByRole('listitem', { name: 'Lucía Pérez' })
       pick('Empleado', 'e-1')
       fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
       fireEvent.click(await screen.findByRole('button', { name: 'Justificado' }))
@@ -884,9 +886,78 @@ describe('administración de desvíos y marcas', () => {
       ? Promise.resolve({ items: [{ ...deviation, occurredAt: '2026-10-16T11:15:00Z', createdAt: '2026-10-16T12:00:00Z' }], nextCursor: null })
       : Promise.resolve(path === '/sites' ? [site] : [employee]))
     render(<AdminInbox />)
-    const card = (await screen.findByText(/Lucía Pérez ·/)).closest('article')!
+    const card = await screen.findByRole('listitem', { name: 'Lucía Pérez' })
     expect(card).toHaveTextContent(/0?8:15/)
     expect(card).not.toHaveTextContent(/0?9:00/)
+  })
+
+  // Slice E1 (design system 4.2 and 4.11): each case is a row of a list that reads the person first (the owner, 2026-11-11:
+  // "Persona primero"), then the case with its tag, when and the motive, then the decision.
+  describe('«Para revisar» con las piezas del sistema: la persona primero y el par de decisiones', () => {
+    const toReview = { ...deviation, status: 'PENDIENTE_REVISION' as const, category: 'TRANSPORTE' as const, motiveText: 'Hubo paro de colectivos.' }
+    function withCases(items: object[]) {
+      const previousGet = apiMocks.get.getMockImplementation()!
+      apiMocks.get.mockImplementation((path: string) => path.startsWith('/inbox') ? Promise.resolve({ items, nextCursor: null }) : previousGet(path))
+    }
+
+    // The owner, 2026-11-11: "Sacarlas todas (Recomendado)": no line in capitals above the titles.
+    it('el título «Para revisar» no lleva la línea en mayúsculas arriba', async () => {
+      const { container } = render(<AdminInbox />)
+      const title = await screen.findByRole('heading', { level: 1, name: 'Para revisar' })
+
+      expect(title.previousElementSibling).toBeNull()
+      expect(container.querySelector('.eyebrow')).toBeNull()
+      expect(screen.queryByText('CENTRO DE CONTROL')).not.toBeInTheDocument()
+    })
+
+    it('cada caso se lee empezando por la persona, después el caso con su etiqueta, cuándo y el motivo', async () => {
+      withCases([toReview])
+      render(<AdminInbox />)
+      const row = await screen.findByRole('listitem', { name: 'Lucía Pérez' })
+      const person = within(row).getByText('Lucía Pérez')
+      const caseName = within(row).getByText('Llegada tarde')
+      const motive = within(row).getByText(/Hubo paro de colectivos\./)
+
+      expect(row.textContent?.startsWith('Lucía Pérez')).toBe(true)
+      expect(person.compareDocumentPosition(caseName) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(caseName.compareDocumentPosition(motive) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      // The state is a tag with its icon hidden from screen readers, never a symbol of its own.
+      const tag = within(row).getByText('A revisar')
+      expect(tag).toHaveClass('status-chip', 'status-todo')
+      expect(tag.querySelector('svg[aria-hidden="true"]')).not.toBeNull()
+    })
+
+    it('el par «Justificado» / «No justificado» es un grupo con nombre y ningún botón de la fila es el principal', async () => {
+      withCases([toReview])
+      render(<AdminInbox />)
+      const row = await screen.findByRole('listitem', { name: 'Lucía Pérez' })
+      const pair = within(row).getByRole('group', { name: 'Decidir el caso de Lucía Pérez' })
+
+      expect(within(pair).getAllByRole('button').map((button) => button.textContent)).toEqual(['Justificado', 'No justificado'])
+      expect(row.querySelector('.button-primary')).toBeNull()
+    })
+
+    it('una decisión que falla muestra su mensaje dentro de su fila', async () => {
+      withCases([toReview])
+      apiMocks.put.mockRejectedValueOnce(new Error('No se pudo guardar la clasificación.'))
+      render(<AdminInbox />)
+      const row = await screen.findByRole('listitem', { name: 'Lucía Pérez' })
+      fireEvent.click(within(row).getByRole('button', { name: 'Justificado' }))
+
+      expect(await within(row).findByRole('alert')).toHaveTextContent('No se pudo guardar la clasificación.')
+      expect(screen.getAllByRole('alert')).toHaveLength(1)
+    })
+
+    it('corregir una clasificación abre su formulario dentro de la fila del caso', async () => {
+      render(<AdminInbox />)
+      const row = await screen.findByRole('listitem', { name: 'Lucía Pérez' })
+      fireEvent.click(within(row).getByRole('button', { name: 'Corregir a no justificado' }))
+
+      expect(within(row).getByLabelText('Motivo de corrección')).toBeRequired()
+      // The way out of the form is a link button; the next action of the open form is the only filled one.
+      expect(within(row).getByRole('button', { name: 'Cancelar' })).toHaveClass('button-link')
+      expect([...row.querySelectorAll('.button-primary')].map((button) => button.textContent)).toEqual(['Guardar corrección'])
+    })
   })
 
   describe('cancelar jornadas y anular marcas (D-20261027-07, D-20261027-08)', () => {

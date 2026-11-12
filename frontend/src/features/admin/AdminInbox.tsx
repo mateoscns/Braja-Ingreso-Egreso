@@ -4,7 +4,7 @@ import { api, queryString } from '../../shared/api/client'
 import type { Deviation, Employee, Site } from '../../shared/api/types'
 import { validateDateRange } from '../../shared/dateRange'
 import { useWideTable } from '../../app/useBreakpoint'
-import { AdminInboxRender, EMPTY_INBOX_FILTERS, type DeviationClassification, type InboxFilterValues } from './AdminInboxRender'
+import { AdminInboxRender, EMPTY_INBOX_FILTERS, type DeviationClassification, type FailedDecision, type InboxFilterValues } from './AdminInboxRender'
 import { errText } from './adminShared'
 
 export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; onOpenJornada?: (item: Deviation) => void } = {}) {
@@ -23,6 +23,8 @@ export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; 
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState('')
+  // A refused decision is told inside the row of its case (design system 4.11), where the ADMIN pressed the button.
+  const [failedDecision, setFailedDecision] = useState<FailedDecision>(null)
   const [correction, setCorrection] = useState<{ deviationId: string; classification: DeviationClassification } | null>(null)
   const [correctionReason, setCorrectionReason] = useState('')
   const [targetDeviation] = useState(() => new URLSearchParams(window.location.search).get('deviation') ?? '')
@@ -30,7 +32,7 @@ export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; 
   // A new filter set always starts from the first page: a cursor is only valid for the filters that produced it.
   const reload = async (active: InboxFilterValues = appliedFilters) => {
     const requestId = ++generation.current
-    setLoading(true); setInboxLoadError(''); setTimeZoneLoadError(''); setError(''); setNotice(''); setNextCursor(null)
+    setLoading(true); setInboxLoadError(''); setTimeZoneLoadError(''); setError(''); setNotice(''); setFailedDecision(null); setNextCursor(null)
     try {
       const [page, sitesResult] = await Promise.all([
         api.get<{ items: Deviation[]; nextCursor?: string | null }>(`/inbox${queryString({ limit: 50, ...active })}`),
@@ -66,7 +68,7 @@ export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; 
     }
   }, [loading, items, targetDeviation])
   async function classify(item: Deviation, classification: DeviationClassification, reason?: string) {
-    setBusy(item.id); setError(''); setNotice('')
+    setBusy(item.id); setError(''); setNotice(''); setFailedDecision(null)
     try {
       const updated = await api.put<Deviation>(`/admin/deviations/${encodeURIComponent(item.id)}/classification`, {
         classification, ...(reason?.trim() ? { correctionReason: reason.trim() } : {})
@@ -74,7 +76,7 @@ export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; 
       setItems((current) => current.map((entry) => entry.id === updated.id ? updated : entry))
       setCorrection(null); setCorrectionReason('')
       setNotice('Clasificación guardada.')
-    } catch (reason) { setError(errText(reason)) } finally { setBusy('') }
+    } catch (reason) { setFailedDecision({ deviationId: item.id, message: errText(reason) }) } finally { setBusy('') }
   }
   function requestClassification(item: Deviation, classification: DeviationClassification) {
     if (item.status === 'JUSTIFICADO' || item.status === 'NO_JUSTIFICADO') {
@@ -92,7 +94,7 @@ export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; 
     } catch (reason) { if (requestId === generation.current) setError(errText(reason)) } finally { setBusy('') }
   }
   const filtered = Object.values(appliedFilters).some(Boolean)
-  return <AdminInboxRender narrow={narrow} appliedFilters={appliedFilters} coverage={coverage} onOpenJornada={onOpenJornada} items={items} employees={employees} sites={sites} filters={filters} filterError={filterError} filtered={filtered} onFiltersChange={(patch) => setFilters((current) => ({ ...current, ...patch }))} onApplyFilters={applyFilters} onClearFilters={clearFilters} timeZones={timeZones} nextCursor={nextCursor} loading={loading} inboxLoadError={inboxLoadError} timeZoneLoadError={timeZoneLoadError} error={error} notice={notice} busy={busy} correction={correction} correctionReason={correctionReason} targetDeviation={targetDeviation}
+  return <AdminInboxRender narrow={narrow} appliedFilters={appliedFilters} coverage={coverage} onOpenJornada={onOpenJornada} items={items} employees={employees} sites={sites} filters={filters} filterError={filterError} filtered={filtered} onFiltersChange={(patch) => setFilters((current) => ({ ...current, ...patch }))} onApplyFilters={applyFilters} onClearFilters={clearFilters} timeZones={timeZones} nextCursor={nextCursor} loading={loading} inboxLoadError={inboxLoadError} timeZoneLoadError={timeZoneLoadError} error={error} notice={notice} busy={busy} correction={correction} correctionReason={correctionReason} targetDeviation={targetDeviation} failedDecision={failedDecision}
     onReload={() => void reload()} onClassify={requestClassification} onRetry={() => void reload()} onLoadMore={() => void loadMore()} onCorrectionReasonChange={setCorrectionReason}
     onSubmitCorrection={(item) => void classify(item, correction!.classification, correctionReason)} onCancelCorrection={() => { setCorrection(null); setCorrectionReason('') }} />
 }
