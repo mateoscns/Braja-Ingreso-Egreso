@@ -36,6 +36,14 @@ describe('accesibilidad de base en las pantallas existentes', () => {
     expect(reset).toHaveAccessibleDescription('Está inactivo: activalo para restablecer su contraseña.')
   })
 
+  // Slice E6: the employees have no avatar; their state is a tag whose icon is not read.
+  it('el estado de una persona es una etiqueta cuyo ícono no se lee, y la lista no tiene avatares', () => {
+    const { container } = renderEmployees()
+
+    expect(container.querySelector('.row-avatar')).toBeNull()
+    expect(container.querySelector('td .status-chip svg')).toHaveAttribute('aria-hidden', 'true')
+  })
+
   it('no muestra la explicación cuando ya hay una sede marcada', () => {
     renderEmployees(['s-1'])
 
