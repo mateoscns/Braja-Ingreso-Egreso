@@ -4,8 +4,9 @@ import { api } from '../../shared/api/client'
 import type { Employee, PasswordReset, Site, Template, TemplateAssignment } from '../../shared/api/types'
 import { deviceDate } from '../../shared/dateRange'
 import { useWideTable } from '../../app/useBreakpoint'
+import { reveal, revealAndFocus, useFocusRequest } from '../../app/revealAndFocus'
 import { PASSWORD_TOO_LONG_MESSAGE, passwordTooLong } from '../../shared/password'
-import { EmployeesViewRender, employeeDetailId, ISSUED_PASSWORD_ID, messageKeys, TemplateAssignmentsRender, type IssuedPassword } from './EmployeesViewRender'
+import { EmployeesViewRender, employeeDetailId, focusIds, ISSUED_PASSWORD_ID, messageKeys, TemplateAssignmentsRender, type IssuedPassword } from './EmployeesViewRender'
 import { generateTemporaryPassword } from './temporaryPassword'
 import { errText } from './adminShared'
 
@@ -31,6 +32,9 @@ export function EmployeesView() {
   const [assignmentsLoading, setAssignmentsLoading] = useState(false); const [assignmentsLoadError, setAssignmentsLoadError] = useState(''); const [assignmentError, setAssignmentError] = useState('')
   const [assignmentTemplateId, setAssignmentTemplateId] = useState(''); const [assignmentValidFrom, setAssignmentValidFrom] = useState(''); const [assignmentBusy, setAssignmentBusy] = useState(false)
   const assignmentRequest = useRef(0)
+  // A form of a record takes the focus when it opens and gives it back to its button when it closes (design system 4.7); the
+  // buttons are disabled while a request runs, so the move waits for it.
+  const focusLater = useFocusRequest(!busy)
   async function openAssignments(id: string) {
     const requestId = ++assignmentRequest.current
     setAssignmentsFor(id); setAssignments([]); setAssignmentsLoadError(''); setAssignmentError(''); setAssignmentTemplateId(''); setAssignmentValidFrom(deviceDate()); setAssignmentsLoading(true)
@@ -53,11 +57,12 @@ export function EmployeesView() {
       setAssignmentTemplateId(''); setAssignmentValidFrom(deviceDate()); setNotice('Horario asignado.')
     } catch (reason) { setAssignmentError(errText(reason)) } finally { setAssignmentBusy(false) }
   }
-  // The horarios open next to the employee; on a long list or a phone they may start off screen.
+  // The horarios open next to the employee; on a long list or a phone they may start off screen. «Horarios» is a disclosure:
+  // the focus stays on it while they come into view.
   useEffect(() => {
     if (!assignmentsFor) return
-    const prefersReducedMotion = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    document.getElementById(employeeDetailId(assignmentsFor))?.scrollIntoView?.({ block: 'nearest', behavior: prefersReducedMotion ? 'auto' : 'smooth' })
+    const panel = document.getElementById(employeeDetailId(assignmentsFor))
+    if (panel) reveal(panel)
   }, [assignmentsFor])
   async function reload() {
     closeAssignments()
@@ -96,11 +101,17 @@ export function EmployeesView() {
     try {
       const updated = await api.patch<Employee>(`/employees/${encodeURIComponent(draft.id)}`, { displayName: draft.displayName, siteIds: draft.siteIds, toleranceMinutes: draft.toleranceMinutes, active: draft.active })
       setEmployees((current) => current.map((entry) => entry.id === updated.id ? updated : entry)); setDraft(null); setNotice('Cambios del empleado guardados.')
+      focusLater({ id: focusIds.editButton(updated.id) })
     } catch (reason) { setError(errText(reason)) } finally { setBusy(false) }
   }
   function startEditing(id: string) {
     const person = employees.find((entry) => entry.id === id)
     setDraft(person ? { ...person, siteIds: [...person.siteIds] } : null); setError(''); setNotice('')
+    if (person) focusLater({ id: focusIds.editForm(id), into: true })
+  }
+  function cancelEditing() {
+    if (draft) focusLater({ id: focusIds.editButton(draft.id) })
+    setDraft(null); setError('')
   }
   function updateDraft(patch: Partial<Employee>) { setDraft((current) => current ? { ...current, ...patch } : current) }
   const assignmentsEmployee = employees.find((person) => person.id === assignmentsFor)
@@ -108,7 +119,7 @@ export function EmployeesView() {
     templates={assignmentTemplates.filter((template) => assignmentsEmployee.siteIds.includes(template.siteId))} assignments={assignments}
     loading={assignmentsLoading} loadError={assignmentsLoadError} error={assignmentError} notice={messageAt === messageKeys.assignments ? notice : ''} busy={assignmentBusy} templateId={assignmentTemplateId} validFrom={assignmentValidFrom}
     onTemplateChange={setAssignmentTemplateId} onValidFromChange={setAssignmentValidFrom} onSubmit={(event) => void assignTemplate(event)}
-    onRetry={() => void openAssignments(assignmentsEmployee.id)} onClose={closeAssignments} /> : null
+    onRetry={() => void openAssignments(assignmentsEmployee.id)} onClose={() => { focusLater({ id: focusIds.schedulesButton(assignmentsEmployee.id) }); closeAssignments() }} /> : null
   // D-20261027-09: the temporary password lives only in this state; it is never written to browser storage and is
   // gone when the ADMIN dismisses the panel or leaves the view.
   const [resetTarget, setResetTarget] = useState<string | null>(null)
@@ -118,24 +129,41 @@ export function EmployeesView() {
   useEffect(() => {
     if (!issuedPassword) return
     const panel = document.getElementById(ISSUED_PASSWORD_ID)
-    if (issuedPassword.reason === 'created') panel?.scrollIntoView?.({ block: 'nearest' })
-    panel?.focus({ preventScroll: issuedPassword.reason === 'created' })
+    if (panel) revealAndFocus(panel)
   }, [issuedPassword])
-  function askReset(id: string) { setResetTarget(id); setIssuedPassword(null); setError(''); setNotice('') }
+  function askReset(id: string) {
+    setResetTarget(id); setIssuedPassword(null); setError(''); setNotice('')
+    // The sentence that says what a reset does, not the button that confirms it.
+    focusLater({ id: focusIds.resetNote(id) })
+  }
+  function cancelReset() {
+    if (resetTarget) focusLater({ id: focusIds.resetButton(resetTarget) })
+    setResetTarget(null)
+  }
   async function confirmReset() {
     const person = employees.find((entry) => entry.id === resetTarget)
     if (!person) return
     setBusy(true); setError(''); setNotice(''); setMessageAt(messageKeys.reset(person.id))
     try {
       const { temporaryPassword: issued } = await api.post<PasswordReset>(`/employees/${encodeURIComponent(person.id)}/password-reset`)
-      // employeeId: the password shows in the record of that person.
+      // employeeId: the password shows in the record of that person, and takes the focus (the effect above).
       setIssuedPassword({ displayName: person.displayName, temporaryPassword: issued, employeeId: person.id })
       setEmployees((current) => current.map((entry) => entry.id === person.id ? { ...entry, mustChangePassword: true } : entry))
-    } catch (reason) { setError(errText(reason)) } finally { setBusy(false); setResetTarget(null) }
+    } catch (reason) {
+      setError(errText(reason))
+      // The form closes with the refusal: its button comes back, next to the message.
+      focusLater({ id: focusIds.resetButton(person.id) })
+    } finally { setBusy(false); setResetTarget(null) }
+  }
+  /** The password was handed over: the focus goes back to where it came from, the reset of that person or the add form. */
+  function dismissIssuedPassword() {
+    if (issuedPassword?.reason === 'created') focusLater({ id: focusIds.createForm, into: true })
+    else if (issuedPassword?.employeeId) focusLater({ id: focusIds.resetButton(issuedPassword.employeeId) })
+    setIssuedPassword(null)
   }
   return <EmployeesViewRender employees={employees} sites={sites} loading={loading} loadError={loadError} error={error} notice={notice} messageAt={messageAt} busy={busy} dni={dni} displayName={displayName} siteIds={siteIds} tolerance={tolerance} temporaryPassword={temporaryPassword} draft={draft}
     generatedPassword={generatedPassword} cards={cards} assignmentsFor={assignmentsFor} assignmentsPanel={assignmentsPanel} onOpenAssignments={(id) => void openAssignments(id)}
     onReload={() => void reload()} onCreate={create} onDniChange={setDni} onDisplayNameChange={setDisplayName} onToggleSite={toggleSite} onToleranceChange={setTolerance} onTemporaryPasswordChange={typePassword} onGeneratePassword={generatePassword}
-    onSave={() => void saveEmployee()} onDraftChange={updateDraft} onStartEditing={startEditing} onCancelEditing={() => { setDraft(null); setError('') }}
-    resetTarget={resetTarget} issuedPassword={issuedPassword} onAskReset={askReset} onConfirmReset={() => void confirmReset()} onCancelReset={() => setResetTarget(null)} onDismissIssuedPassword={() => setIssuedPassword(null)} />
+    onSave={() => void saveEmployee()} onDraftChange={updateDraft} onStartEditing={startEditing} onCancelEditing={cancelEditing}
+    resetTarget={resetTarget} issuedPassword={issuedPassword} onAskReset={askReset} onConfirmReset={() => void confirmReset()} onCancelReset={cancelReset} onDismissIssuedPassword={dismissIssuedPassword} />
 }

@@ -23,6 +23,20 @@ export const ISSUED_PASSWORD_ID = 'issued-password'
 /** Where the result of a form shows (design system 4.7): the add form, or the edit or the reset of one person. */
 export const messageKeys = { create: 'create', edit: (id: string) => `edit:${id}`, reset: (id: string) => `reset:${id}`, assignments: 'assignments' }
 
+/**
+ * Where the container moves the focus (slice F1): a form that opens takes it, and the button that opened it gets it back when
+ * the form closes. The buttons of a record are hidden while its form is open, so they return in the render that closes it.
+ */
+export const focusIds = {
+  createForm: 'employee-create-form',
+  editButton: (id: string) => `employee-${id}-edit`,
+  editForm: (id: string) => `employee-${id}-edit-form`,
+  schedulesButton: (id: string) => `employee-${id}-schedules`,
+  resetButton: (id: string) => `employee-${id}-reset`,
+  /** The sentence that says what a reset does: it takes the focus, so it is read, and Enter cannot confirm by accident. */
+  resetNote: (id: string) => `employee-${id}-reset-note`
+}
+
 /** The state of a person: neutral while active, «waiting» (dashed) while inactive (design system 4.10). */
 function PersonStateTag({ active }: { active: boolean }) {
   return active ? <StatusTag tone="neutral" icon="check">Activo</StatusTag> : <StatusTag tone="wait" icon="ban">Inactivo</StatusTag>
@@ -63,13 +77,13 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
   const messagesAt = (key: string) => messageAt === key && (error || notice) ? <>{error && <PageMessage kind="error">{error}</PageMessage>}{notice && <PageMessage kind="success">{notice}</PageMessage>}</> : null
   // Link buttons: they open something under the record; the filled button belongs to the form they open.
   const rowActions = (saved: Employee, className: string) => <div className={className}>
-    <button type="button" className="button button-link" aria-label={`Editar empleado ${saved.displayName}`} disabled={busy} onClick={() => onStartEditing(saved.id)}>Editar</button>
-    <button type="button" className="button button-link" aria-label={`Horarios de ${saved.displayName}`} aria-expanded={assignmentsFor === saved.id} onClick={() => onOpenAssignments(saved.id)}>Horarios</button>
-    <button type="button" className="button button-link" aria-label={`Restablecer contraseña de ${saved.displayName}`} aria-describedby={saved.active ? undefined : `reset-inactive-${saved.id}`} disabled={busy || !saved.active} onClick={() => onAskReset(saved.id)}>Restablecer contraseña</button>
+    <button type="button" id={focusIds.editButton(saved.id)} className="button button-link" aria-label={`Editar empleado ${saved.displayName}`} disabled={busy} onClick={() => onStartEditing(saved.id)}>Editar</button>
+    <button type="button" id={focusIds.schedulesButton(saved.id)} className="button button-link" aria-label={`Horarios de ${saved.displayName}`} aria-expanded={assignmentsFor === saved.id} onClick={() => onOpenAssignments(saved.id)}>Horarios</button>
+    <button type="button" id={focusIds.resetButton(saved.id)} className="button button-link" aria-label={`Restablecer contraseña de ${saved.displayName}`} aria-describedby={saved.active ? undefined : `reset-inactive-${saved.id}`} disabled={busy || !saved.active} onClick={() => onAskReset(saved.id)}>Restablecer contraseña</button>
     {!saved.active && <span className="field-hint" id={`reset-inactive-${saved.id}`}>Está inactivo: activalo para restablecer su contraseña.</span>}
   </div>
   // One form for both layouts, under the record: the record keeps showing what is saved while the draft changes here.
-  const editForm = (saved: Employee, edit: Employee) => <form className="inline-form form-grid employee-edit-form" aria-label={`Editar empleado ${saved.displayName}`} noValidate onSubmit={(event) => { event.preventDefault(); onSave() }}>
+  const editForm = (saved: Employee, edit: Employee) => <form id={focusIds.editForm(saved.id)} className="inline-form form-grid employee-edit-form" aria-label={`Editar empleado ${saved.displayName}`} noValidate onSubmit={(event) => { event.preventDefault(); onSave() }}>
     <FormField label="Nombre"><input aria-label={`Nombre del empleado con ${who(saved)}`} value={edit.displayName} onChange={(event) => onDraftChange({ displayName: event.target.value })} /></FormField>
     <FormField label={TOLERANCE_LABEL} hint={TOLERANCE_HINT}><input aria-label={`${TOLERANCE_LABEL} del empleado con ${who(saved)}`} type="number" inputMode="numeric" min="0" max="240" value={edit.toleranceMinutes} onChange={(event) => onDraftChange({ toleranceMinutes: Number(event.target.value) })} /></FormField>
     <fieldset className="field field-wide"><legend className="field-label">Locales donde trabaja</legend><div className="check-list">{sites.map((site) => <label key={site.id} className="check"><input type="checkbox" aria-label={`${site.name} (${who(saved)})`} checked={edit.siteIds.includes(site.id)} onChange={() => toggleDraftSite(edit, site.id)} />{site.name}</label>)}</div></fieldset>
@@ -79,7 +93,7 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
   </form>
   // The step before a reset (D-20261027-09): it closes every session, so it says so and confirms with the danger style.
   const resetForm = (saved: Employee) => <form className="inline-form" onSubmit={(event) => { event.preventDefault(); onConfirmReset() }}>
-    <p>Se cierran todas sus sesiones y se genera una contraseña provisoria.</p>
+    <p id={focusIds.resetNote(saved.id)} tabIndex={-1}>Se cierran todas sus sesiones y se genera una contraseña provisoria.</p>
     {messagesAt(messageKeys.reset(saved.id))}
     <div className="button-row"><button className="button button-danger" disabled={busy}>{busy ? 'Restableciendo…' : 'Confirmar restablecimiento'}</button>
       <button type="button" className="button button-link" aria-label="Cancelar restablecimiento" disabled={busy} onClick={onCancelReset}>Cancelar</button></div>
@@ -123,7 +137,7 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
       <div className="panel-heading"><h2 id={LIST_HEADING_ID}>{loading || loadError ? 'Empleados' : `Empleados (${employees.length})`}</h2></div>
       {loading ? <Loading /> : loadError ? <LoadFailure message={loadError} onRetry={onReload} /> : employees.length ? cards ? recordList : table : <Empty>No hay empleados cargados.</Empty>}
     </section>
-    <Panel title="Dar de alta un empleado"><form className="form-grid" onSubmit={onCreate}>
+    <Panel title="Dar de alta un empleado"><form id={focusIds.createForm} className="form-grid" onSubmit={onCreate}>
       <FormField label="Nombre y apellido"><input required maxLength={160} value={displayName} onChange={(event) => onDisplayNameChange(event.target.value)} /></FormField>
       <FormField label="DNI"><input required minLength={7} maxLength={12} inputMode="numeric" value={dni} onChange={(event) => onDniChange(event.target.value)} /></FormField>
       <FormField label={TOLERANCE_LABEL} hint={TOLERANCE_HINT}><input type="number" inputMode="numeric" min="0" max="240" required value={tolerance} onChange={(event) => onToleranceChange(event.target.value)} /></FormField>

@@ -1,6 +1,6 @@
 import { cloneElement, createContext, isValidElement, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import type { Membership } from '../shared/api/types'
+import type { Membership, Session } from '../shared/api/types'
 import { BrandMark, Icon, type IconName } from './icons'
 
 export type MessageKind = 'info' | 'success' | 'warning' | 'error'
@@ -52,10 +52,49 @@ export function LoadFailure({ message, onRetry, retryLabel = 'Reintentar', disab
 /**
  * The title of a page with its lead; an optional action sits on the right and wraps under it on phones. The line in capitals above
  * the title is optional: a new page («Configuración») has none, since the system writes no capitals (design system 7.1), and the
- * old pages keep theirs until the owner decides on them.
+ * old pages keep theirs until the owner decides on them. tabIndex -1: after a change of section the title takes the focus by
+ * script (AdminApp), so it is read first; Tab does not stop on it.
  */
 export function PageHeading({ title, subtitle, action }: { title: string; subtitle: string; action?: ReactNode }) {
-  return <div className="page-title-row"><div><h1>{title}</h1><p className="muted">{subtitle}</p></div>{action}</div>
+  return <div className="page-title-row"><div><h1 tabIndex={-1}>{title}</h1><p className="muted">{subtitle}</p></div>{action}</div>
+}
+
+const PRODUCT_NAME = 'Fichaje Braja'
+
+/** The title of the browser tab (WCAG 2.4.2): what is shown first, so tabs read apart, then the product («Hoy · Fichaje Braja»). */
+export function pageTitle(name?: string): string {
+  return name ? `${name} · ${PRODUCT_NAME}` : PRODUCT_NAME
+}
+
+/** Names the browser tab after the screen shown. null leaves it to a screen further in: the ADMIN's sections name themselves. */
+export function useDocumentTitle(title: string | null) {
+  useEffect(() => { if (title !== null) document.title = title }, [title])
+}
+
+/** The screens App.tsx chooses between, before the app of a role takes over. */
+export type EntryScreen = 'boot' | 'login' | 'password' | 'company' | 'admin' | 'employee'
+
+/** Which screen the session asks for. It lives here, not in App.tsx, so it can be tested: App.tsx imports a module of the build. */
+export function entryScreen(loading: boolean, session: Session | null): EntryScreen {
+  if (loading) return 'boot'
+  if (!session) return 'login'
+  if (session.mustChangePassword) return 'password'
+  const active = session.memberships.find((membership) => membership.companyId === session.activeCompanyId)
+  if (!active) return 'company'
+  return active.role === 'ADMIN' ? 'admin' : 'employee'
+}
+
+/**
+ * The tab title of each screen: the name of the screen as its heading or its button says it. The employee has one screen, named
+ * after what it is for, «Marcar» (the name of its main section, design system 4.13). The ADMIN's sections name themselves.
+ */
+export const ENTRY_TITLES: Readonly<Record<EntryScreen, string | null>> = {
+  boot: pageTitle(),
+  login: pageTitle('Ingresar'),
+  password: pageTitle('Cambiá tu contraseña'),
+  company: pageTitle('Elegí una empresa'),
+  employee: pageTitle('Marcar'),
+  admin: null
 }
 
 /**

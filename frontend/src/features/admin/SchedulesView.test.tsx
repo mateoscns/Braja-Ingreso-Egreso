@@ -309,6 +309,47 @@ describe('Horarios: a schedule a shop owner understands', () => {
       expect(screen.queryByText('Horario «Corrido» creado.')).not.toBeInTheDocument()
     })
   })
+
+  // Slice F1 (WCAG 2.4.3; finding F-27, gap left by E5): a form that opens takes the focus, and the focus comes back to the
+  // button that opened it when it closes; a step that replaces a form takes the focus in its place.
+  describe('where the focus goes', () => {
+    const changeButton = () => screen.getByRole('button', { name: 'Cambiar horario Mañana' })
+    const step = () => within(screen.getByRole('region', { name: '¿Quién trabaja con este horario?' }))
+
+    it('«Cambiar horario» takes the focus to the name; «Cancelar» gives it back to «Cambiar horario»', async () => {
+      render(<TemplatesView />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Cambiar horario Mañana' }))
+      const card = within(screen.getByRole('listitem', { name: 'Mañana' }))
+
+      await waitFor(() => expect(card.getByLabelText('Nombre del horario')).toHaveFocus())
+      fireEvent.click(card.getByRole('button', { name: 'Cancelar' }))
+      await waitFor(() => expect(changeButton()).toHaveFocus())
+    })
+
+    it('saving a change takes the focus into the step that follows, and closing the step gives it back to «Cambiar horario»', async () => {
+      render(<TemplatesView />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Cambiar horario Mañana' }))
+      fireEvent.click(within(screen.getByRole('listitem', { name: 'Mañana' })).getByRole('button', { name: 'Guardar cambios' }))
+
+      await screen.findByRole('region', { name: '¿Quién trabaja con este horario?' })
+      await waitFor(() => expect(step().getByRole('checkbox', { name: 'Ana' })).toHaveFocus())
+      fireEvent.click(step().getByRole('button', { name: 'Ahora no' }))
+      await waitFor(() => expect(changeButton()).toHaveFocus())
+    })
+
+    it('creating a horario takes the focus into the step that replaces the form, and closing it takes it back to the form', async () => {
+      render(<TemplatesView />)
+      await screen.findByText('Mañana')
+      fireEvent.change(form().getByLabelText('Nombre del horario'), { target: { value: 'Corrido' } })
+      fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
+
+      await screen.findByRole('region', { name: '¿Quién trabaja con este horario?' })
+      await waitFor(() => expect(step().getByRole('checkbox', { name: 'Ana' })).toHaveFocus())
+      fireEvent.click(step().getByRole('button', { name: 'Ahora no' }))
+      // The first control of the form is the chosen type of horario.
+      await waitFor(() => expect(form().getByRole('radio', { name: /^Corrido/ })).toHaveFocus())
+    })
+  })
 })
 
 /** The row of buttons right after the block that holds `element`, inside the same form; null when something else comes next. */

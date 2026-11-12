@@ -958,6 +958,53 @@ describe('administración de desvíos y marcas', () => {
       expect(within(row).getByRole('button', { name: 'Cancelar' })).toHaveClass('button-link')
       expect([...row.querySelectorAll('.button-primary')].map((button) => button.textContent)).toEqual(['Guardar corrección'])
     })
+
+    // Slice F1 (WCAG 2.4.3; finding F-27): an inline form takes the focus when it opens and gives it back when it closes.
+    it('«Corregir a …» lleva el foco al motivo y «Cancelar» lo devuelve al botón', async () => {
+      render(<AdminInbox />)
+      const row = await screen.findByRole('listitem', { name: 'Lucía Pérez' })
+      fireEvent.click(within(row).getByRole('button', { name: 'Corregir a no justificado' }))
+
+      await waitFor(() => expect(within(row).getByLabelText('Motivo de corrección')).toHaveFocus())
+      fireEvent.click(within(row).getByRole('button', { name: 'Cancelar' }))
+      await waitFor(() => expect(within(row).getByRole('button', { name: 'Corregir a no justificado' })).toHaveFocus())
+    })
+
+    it('al guardar la corrección el foco vuelve al botón de la fila, que ahora ofrece la decisión contraria', async () => {
+      render(<AdminInbox />)
+      const row = await screen.findByRole('listitem', { name: 'Lucía Pérez' })
+      fireEvent.click(within(row).getByRole('button', { name: 'Corregir a no justificado' }))
+      fireEvent.change(within(row).getByLabelText('Motivo de corrección'), { target: { value: 'Se equivocó de día.' } })
+      fireEvent.click(within(row).getByRole('button', { name: 'Guardar corrección' }))
+
+      await waitFor(() => expect(within(row).getByRole('button', { name: 'Corregir a justificado' })).toHaveFocus())
+      expect(within(row).queryByLabelText('Motivo de corrección')).not.toBeInTheDocument()
+    })
+
+    it('decidir un caso deja el foco en el botón que queda en su fila, no en la página', async () => {
+      withCases([toReview])
+      render(<AdminInbox />)
+      const row = await screen.findByRole('listitem', { name: 'Lucía Pérez' })
+      fireEvent.click(within(row).getByRole('button', { name: 'No justificado' }))
+
+      await waitFor(() => expect(within(row).getByRole('button', { name: 'Corregir a justificado' })).toHaveFocus())
+    })
+
+    it('un caso abierto desde un aviso recibe el foco una sola vez: después lo maneja la persona', async () => {
+      const previousUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`
+      window.history.replaceState({}, '', `${window.location.pathname}?deviation=d-1`)
+      try {
+        render(<AdminInbox />)
+        const row = await screen.findByRole('listitem', { name: 'Lucía Pérez' })
+        await waitFor(() => expect(row).toHaveFocus())
+        expect(row).toHaveAttribute('tabindex', '-1')
+
+        fireEvent.click(within(row).getByRole('button', { name: 'Corregir a no justificado' }))
+        fireEvent.change(within(row).getByLabelText('Motivo de corrección'), { target: { value: 'Se equivocó de día.' } })
+        fireEvent.click(within(row).getByRole('button', { name: 'Guardar corrección' }))
+        await waitFor(() => expect(within(row).getByRole('button', { name: 'Corregir a justificado' })).toHaveFocus())
+      } finally { window.history.replaceState({}, '', previousUrl) }
+    })
   })
 
   describe('cancelar jornadas y anular marcas (D-20261027-07, D-20261027-08)', () => {
@@ -1627,6 +1674,89 @@ describe('dirección de cada sección del ADMIN', () => {
     await hashSettles()
     expect(await screen.findByRole('heading', { name: 'Horarios', level: 1 })).toBeInTheDocument()
     expect(menuLink('Horarios')).toHaveAttribute('aria-current', 'page')
+  })
+
+  // Slice F1 (WCAG 2.4.2 and 2.4.3; finding F-19): each section names the browser tab, and after a change of section made by
+  // the owner its title takes the focus, so a screen reader reads where he is and Tab goes on from there.
+  describe('cada sección nombra la pestaña y, al llegar, su título toma el foco', () => {
+    const title = (name: string) => screen.findByRole('heading', { name, level: 1 })
+
+    it.each([
+      ['#/para-revisar', 'Para revisar'],
+      ['#/hoy', 'Hoy'],
+      ['#/dias-de-trabajo', 'Días de trabajo'],
+      ['#/configuracion', 'Configuración'],
+      ['#/configuracion/locales', 'Locales'],
+      ['#/configuracion/horarios', 'Horarios'],
+      ['#/configuracion/equipo', 'Equipo'],
+      ['#/configuracion/primeros-pasos', 'Primeros pasos']
+    ])('la dirección %s se llama «%s · Fichaje Braja» en la pestaña', async (hash, name) => {
+      openAt(hash)
+      render(<AdminApp />)
+      await title(name)
+
+      await waitFor(() => expect(document.title).toBe(`${name} · Fichaje Braja`))
+      await hashSettles()
+    })
+
+    it('al abrir el panel el foco no se mueve: la primera sección no es un cambio', async () => {
+      openAt('#/hoy')
+      render(<AdminApp />)
+      const heading = await title('Hoy')
+      await waitFor(() => expect(apiMocks.get).toHaveBeenCalledWith('/employees/e-1/template-assignments'))
+      await hashSettles()
+
+      expect(heading).not.toHaveFocus()
+      expect(document.body).toHaveFocus()
+    })
+
+    it('elegir una sección del menú le pone su nombre a la pestaña y lleva el foco a su título', async () => {
+      render(<AdminApp />)
+      await startsOnFirstSteps()
+      fireEvent.click(menuLink('Hoy'))
+
+      const heading = await title('Hoy')
+      await waitFor(() => expect(heading).toHaveFocus())
+      expect(document.title).toBe('Hoy · Fichaje Braja')
+      await hashSettles()
+    })
+
+    it('volver atrás lleva el foco al título de la sección anterior', async () => {
+      render(<AdminApp />)
+      await startsOnFirstSteps()
+      fireEvent.click(menuLink('Locales'))
+      await title('Locales')
+      await hashSettles()
+
+      await back()
+      const heading = await title('Primeros pasos')
+      await waitFor(() => expect(heading).toHaveFocus())
+      expect(document.title).toBe('Primeros pasos · Fichaje Braja')
+    })
+
+    it('un botón del contenido que lleva a otra sección deja el foco en el título de esa sección, no en la página', async () => {
+      openAt('#/para-revisar')
+      render(<AdminApp />)
+      const notice = await screen.findByText('Mañana nadie tiene día cargado en Local Centro: cargalos para que puedan marcar.')
+      const load = within(notice.closest('.message') as HTMLElement).getByRole('button', { name: 'Cargar días' })
+      load.focus()
+      fireEvent.click(load)
+
+      const heading = await title('Días de trabajo')
+      await waitFor(() => expect(heading).toHaveFocus())
+      expect(document.title).toBe('Días de trabajo · Fichaje Braja')
+      await hashSettles()
+    })
+
+    it('«Ir» de un paso de «Primeros pasos» deja el foco en el título de la sección del paso', async () => {
+      render(<AdminApp />)
+      await startsOnFirstSteps()
+      fireEvent.click(screen.getByRole('button', { name: 'Ir a Días de trabajo: Días de trabajo cargados' }))
+
+      const heading = await title('Días de trabajo')
+      await waitFor(() => expect(heading).toHaveFocus())
+      await hashSettles()
+    })
   })
 
   // D-20261111-02, step 2: the daily work and the monthly load are two places.

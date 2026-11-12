@@ -843,3 +843,34 @@ describe('SitesView with the pieces of the system', () => {
     expect(search).toHaveAccessibleDescription('Calle y número')
   })
 })
+
+// Slice F1 (WCAG 2.4.3; finding F-27, gap left by E4): «Cambiar ubicación» takes the focus into its form and gets it back when
+// the form closes, saved or cancelled.
+describe('SitesView: where the focus goes when the location form opens and closes', () => {
+  const existing: Site = { id: 'site-1', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: -34.6, longitude: -58.38, geofenceRadiusMeters: 100 }
+  const opener = () => screen.getByRole('button', { name: 'Cambiar ubicación de Local Centro' })
+
+  it('opening it takes the focus to its first control, «Elegir en el mapa»; «Cancelar» gives it back to «Cambiar ubicación»', async () => {
+    vi.spyOn(api, 'get').mockResolvedValue([existing] as never)
+    render(<SitesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Cambiar ubicación de Local Centro' }))
+    const form = screen.getByRole('form', { name: 'Cambiar ubicación de Local Centro' })
+
+    await vi.waitFor(() => expect(within(form).getByRole('button', { name: 'Elegir en el mapa' })).toHaveFocus())
+    fireEvent.click(within(form).getByRole('button', { name: 'Cancelar' }))
+    await vi.waitFor(() => expect(opener()).toHaveFocus())
+  })
+
+  it('a saved location gives the focus back to «Cambiar ubicación», next to its result', async () => {
+    vi.spyOn(api, 'get').mockResolvedValue([existing] as never)
+    vi.spyOn(api, 'put').mockResolvedValue({ ...existing, geofenceRadiusMeters: 150 } as never)
+    render(<SitesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Cambiar ubicación de Local Centro' }))
+    const form = screen.getByRole('form', { name: 'Cambiar ubicación de Local Centro' })
+    fireEvent.change(within(form).getByRole('spinbutton', { name: 'Distancia permitida para marcar (metros)' }), { target: { value: '150' } })
+    fireEvent.submit(form)
+
+    expect(await within(screen.getByRole('listitem', { name: 'Local Centro' })).findByText('Ubicación del local actualizada.')).toBeInTheDocument()
+    await vi.waitFor(() => expect(opener()).toHaveFocus())
+  })
+})

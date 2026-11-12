@@ -18,6 +18,9 @@ const LIST_HEADING_ID = 'sites-title'
 /** Where the result of a form shows (design system 4.7): the add form, or the location change of one local. */
 export const siteMessageKeys = { create: 'create', edit: (siteId: string) => `edit:${siteId}` }
 
+/** «Cambiar ubicación» and its form: the form takes the focus when it opens, and the button gets it back when it closes (slice F1). */
+export const siteFocusIds = { locationButton: (siteId: string) => `site-${siteId}-location`, locationForm: (siteId: string) => `site-${siteId}-location-form` }
+
 export type SiteLocationEditDraft = {
   siteId: string; latitude: string; longitude: string; geofenceRadiusMeters: string
   locationStatus: 'idle' | 'loading' | 'selected' | 'error'; locationMessage: string; locationErrorKind: SiteLocationErrorKind | null
@@ -108,7 +111,7 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, mess
   const editForm = (site: Site, edit: SiteLocationEditDraft) => {
     const helpId = `site-location-help-${site.id}`
     const capturing = edit.locationStatus === 'loading'
-    return <form className="inline-form" aria-label={`Cambiar ubicación de ${site.name}`} onSubmit={onSaveLocationEdit}>
+    return <form id={siteFocusIds.locationForm(site.id)} className="inline-form" aria-label={`Cambiar ubicación de ${site.name}`} onSubmit={onSaveLocationEdit}>
       <fieldset className="field" aria-describedby={helpId}>
         <legend className="field-label">¿Dónde queda el local?</legend>
         {/* The help comes first, as the hint of a field: it is read before the buttons it explains. */}
@@ -149,7 +152,7 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, mess
             <p className="record-meta">Distancia permitida para marcar: {site.geofenceRadiusMeters ?? '—'} m</p>
             {/* Link buttons: they open something under the record; the filled button belongs to the form they open. */}
             <div className="record-actions">
-              <button type="button" className="button button-link" disabled={busy} aria-label={`Cambiar ubicación de ${site.name}`} onClick={() => onBeginLocationEdit(site)}>Cambiar ubicación</button>
+              <button type="button" id={siteFocusIds.locationButton(site.id)} className="button button-link" disabled={busy} aria-label={`Cambiar ubicación de ${site.name}`} onClick={() => onBeginLocationEdit(site)}>Cambiar ubicación</button>
               <button type="button" className="button button-link" disabled={busy} aria-expanded={siteLocationAuditFor === site.id} aria-controls={`site-location-audit-${site.id}`} onClick={() => onToggleSiteLocationAudit(site.id)}>{siteLocationAuditFor === site.id ? 'Ocultar historial' : 'Ver historial de ubicación'}</button>
             </div>
             {/* The open form, or the result of the one that just closed, where it was. */}

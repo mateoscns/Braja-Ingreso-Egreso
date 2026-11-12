@@ -4,7 +4,8 @@ import { api, queryString } from '../../shared/api/client'
 import type { Deviation, Employee, Site } from '../../shared/api/types'
 import { validateDateRange } from '../../shared/dateRange'
 import { useWideTable } from '../../app/useBreakpoint'
-import { AdminInboxRender, EMPTY_INBOX_FILTERS, type DeviationClassification, type FailedDecision, type InboxFilterValues } from './AdminInboxRender'
+import { revealAndFocus, useFocusRequest } from '../../app/revealAndFocus'
+import { AdminInboxRender, caseCorrectButtonId, caseCorrectionFormId, caseRowId, EMPTY_INBOX_FILTERS, type DeviationClassification, type FailedDecision, type InboxFilterValues } from './AdminInboxRender'
 import { errText } from './adminShared'
 
 export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; onOpenJornada?: (item: Deviation) => void } = {}) {
@@ -59,14 +60,19 @@ export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; 
   function clearFilters() {
     setFilters(EMPTY_INBOX_FILTERS); setAppliedFilters(EMPTY_INBOX_FILTERS); setFilterError(''); void reload(EMPTY_INBOX_FILTERS)
   }
+  // The case a notification opened comes into view and takes the focus once (design system 4.11): a later decision or page of
+  // cases must not pull the focus back to it.
+  const targetShown = useRef(false)
   useEffect(() => {
-    if (!loading && targetDeviation) {
-      const target = document.getElementById(`deviation-${targetDeviation}`)
-      if (!target) return
-      const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-      target.scrollIntoView({ block: 'center', behavior: prefersReducedMotion ? 'auto' : 'smooth' })
-    }
+    if (loading || !targetDeviation || targetShown.current) return
+    const target = document.getElementById(caseRowId(targetDeviation))
+    if (!target) return
+    targetShown.current = true
+    revealAndFocus(target, target, 'center')
   }, [loading, items, targetDeviation])
+  // A decided case keeps one button, «Corregir a …», in place of the pair: the focus goes there after a decision and when its
+  // correction form closes, once the row's buttons are enabled again.
+  const focusLater = useFocusRequest(busy === '')
   async function classify(item: Deviation, classification: DeviationClassification, reason?: string) {
     setBusy(item.id); setError(''); setNotice(''); setFailedDecision(null)
     try {
@@ -76,12 +82,18 @@ export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; 
       setItems((current) => current.map((entry) => entry.id === updated.id ? updated : entry))
       setCorrection(null); setCorrectionReason('')
       setNotice('Clasificación guardada.')
+      focusLater({ id: caseCorrectButtonId(item.id) })
     } catch (reason) { setFailedDecision({ deviationId: item.id, message: errText(reason) }) } finally { setBusy('') }
   }
   function requestClassification(item: Deviation, classification: DeviationClassification) {
     if (item.status === 'JUSTIFICADO' || item.status === 'NO_JUSTIFICADO') {
       setCorrection({ deviationId: item.id, classification }); setCorrectionReason('')
+      focusLater({ id: caseCorrectionFormId(item.id), into: true })
     } else void classify(item, classification)
+  }
+  function cancelCorrection() {
+    if (correction) focusLater({ id: caseCorrectButtonId(correction.deviationId) })
+    setCorrection(null); setCorrectionReason('')
   }
   async function loadMore() {
     if (!nextCursor) return
@@ -96,5 +108,5 @@ export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; 
   const filtered = Object.values(appliedFilters).some(Boolean)
   return <AdminInboxRender narrow={narrow} appliedFilters={appliedFilters} coverage={coverage} onOpenJornada={onOpenJornada} items={items} employees={employees} sites={sites} filters={filters} filterError={filterError} filtered={filtered} onFiltersChange={(patch) => setFilters((current) => ({ ...current, ...patch }))} onApplyFilters={applyFilters} onClearFilters={clearFilters} timeZones={timeZones} nextCursor={nextCursor} loading={loading} inboxLoadError={inboxLoadError} timeZoneLoadError={timeZoneLoadError} error={error} notice={notice} busy={busy} correction={correction} correctionReason={correctionReason} targetDeviation={targetDeviation} failedDecision={failedDecision}
     onReload={() => void reload()} onClassify={requestClassification} onRetry={() => void reload()} onLoadMore={() => void loadMore()} onCorrectionReasonChange={setCorrectionReason}
-    onSubmitCorrection={(item) => void classify(item, correction!.classification, correctionReason)} onCancelCorrection={() => { setCorrection(null); setCorrectionReason('') }} />
+    onSubmitCorrection={(item) => void classify(item, correction!.classification, correctionReason)} onCancelCorrection={cancelCorrection} />
 }

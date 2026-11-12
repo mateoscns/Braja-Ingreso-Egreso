@@ -265,6 +265,16 @@ describe('componentes compartidos de interfaz', () => {
     expect(screen.getByRole('button', { name: 'Actualizar' }).closest('.page-title-row')).not.toBeNull()
   })
 
+  // Slice F1 (WCAG 2.4.3): after a change of section the title takes the focus, so it is read first; it is not a stop of Tab.
+  it('el título de la página puede recibir el foco desde el código, pero Tab no se detiene en él', () => {
+    render(<PageHeading title="Empleados" subtitle="Cada persona entra con su DNI." />)
+    const title = screen.getByRole('heading', { level: 1, name: 'Empleados' })
+
+    expect(title).toHaveAttribute('tabindex', '-1')
+    title.focus()
+    expect(title).toHaveFocus()
+  })
+
   it('bloquea cambios simultáneos y anuncia la activación pendiente', async () => {
     const request = deferred<void>()
     const onSelect = vi.fn(() => request.promise)
