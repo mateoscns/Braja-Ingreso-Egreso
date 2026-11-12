@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Deviation, Employee, Session, Site } from '../../shared/api/types'
 import { CompanyScreen } from '../auth/AuthScreens'
@@ -65,7 +65,7 @@ describe('accesibilidad de base en las pantallas existentes', () => {
     render(<CompanyScreen session={session} onSelect={vi.fn(() => Promise.resolve())} onSignOut={noop} />)
 
     const choice = screen.getByRole('button', { name: /^Braja\s*Administración$/ })
-    expect(within(choice).getByText('B')).toHaveAttribute('aria-hidden', 'true')
-    expect(within(choice).getByText('→')).toHaveAttribute('aria-hidden', 'true')
+    // Slice D4: the letter in a box and the written arrow went; the arrow is an icon, hidden from screen readers.
+    expect(choice.querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
   })
 })

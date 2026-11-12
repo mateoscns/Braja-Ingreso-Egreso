@@ -56,11 +56,7 @@ const EXCEPTIONS: { file: string; text: string; reason: string }[] = [
     text: 'Sin ingreso',
     reason: 'The state of a day that has no entry yet (NO_INGRESO). D-20261111-01 names the case SIN_INGRESO («No marcó la entrada») '
       + 'but not the states of a day, which the design system (7.2) lists as still open; until the owner chooses, the state keeps its word.'
-  },
-  // The two eyebrows of the sign-in screens use «ingreso» as signing in, not as a mark. Owned by slice C1, fixed there
-  // (the brand lockups of AuthScreens.tsx; the slice plan keeps the eyebrows until the owner decides on them).
-  { file: 'src/features/auth/AuthScreens.tsx', text: 'INGRESO AL SISTEMA', reason: 'Owned by slice C1, fixed there: «ingreso» is signing in, not a mark.' },
-  { file: 'src/features/auth/AuthScreens.tsx', text: 'PRIMER INGRESO', reason: 'Owned by slice C1, fixed there: «ingreso» is signing in, not a mark.' }
+  }
 ]
 
 // An API value written as a constant: an enum value or a problem code, never shown as it is.
