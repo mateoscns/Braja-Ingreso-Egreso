@@ -52,7 +52,7 @@ export function SessionWarning({ client = api }: { client?: Pick<ApiClient, 'get
     finally { setRenewing(false) }
   }
   if (!shown) return null
-  return <Status as="div" className="update-banner message message-warning">
+  return <Status as="div" className="update-banner session-warning message message-warning">
     <Icon name="alert" />
     <div className="message-body"><p>{SESSION_WARNING_TEXT}</p>{error && <p role="alert">{error}</p>}</div>
     <button type="button" className="button button-secondary" disabled={renewing} onClick={() => void renew()}>Seguir conectado</button>
