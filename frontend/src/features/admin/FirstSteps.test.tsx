@@ -9,7 +9,13 @@ vi.mock('../../app/session', () => ({
     session: { dni: '30123456', activeCompanyId: 'c-1', memberships: [{ companyId: 'c-1', companyName: 'Braja', role: 'ADMIN' }] }
   })
 }))
-vi.mock('../../device/push/AdminPushControl', () => ({ AdminPushControl: () => null }))
+// The avisos of this device are the hook's business (device/push); AdminApp mounts it on every screen since slice N4.
+vi.mock('../../device/push/useAdminPush', () => ({
+  useAdminPush: () => ({
+    availability: 'unsupported', enabled: false, busy: false, configLoading: false, configReady: false, configError: '', error: '', message: '',
+    activate: () => Promise.resolve(), deactivate: () => Promise.resolve(), retryConfig: () => undefined
+  })
+}))
 vi.mock('../../device/pwa/InstallControl', () => ({ InstallControl: () => null }))
 vi.mock('../../shared/api/client', () => ({
   api: apiMocks,
@@ -55,16 +61,19 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.useRealTimers() })
 
-const menu = () => within(screen.getByRole('navigation', { name: 'Navegación principal' })).getAllByRole('button').map((button) => button.textContent)
+// Changed in slice N4: the four destinations and, under «Configuración», its parts, as links (their icons have no text).
+const menu = () => within(screen.getByRole('navigation', { name: 'Navegación principal' })).getAllByRole('link').map((link) => link.textContent)
+const menuLink = (name: string) => within(screen.getByRole('navigation', { name: 'Navegación principal' })).getByRole('link', { name })
 
 describe('Primeros pasos', () => {
   it('con una empresa vacía abre la guía primero, con los cinco pasos pendientes, y cada paso lleva a su sección', async () => {
     world = { sites: [], templates: [], employees: [], assignments: [], daysFrom: null }
     render(<AdminApp />)
     expect(await screen.findByRole('heading', { name: 'Primeros pasos' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Primeros pasos/ })).toHaveAttribute('aria-current', 'page')
-    expect(menu()).toEqual(['✓Primeros pasos', '◷Para revisar', '▦Hoy', '▥Días de trabajo', '⌖Locales', '▤Horarios', '♙Equipo'])
-    expect(screen.getByText('CONFIGURACIÓN')).toBeInTheDocument()
+    expect(menuLink('Primeros pasos')).toHaveAttribute('aria-current', 'page')
+    // D-20261111-02: «Primeros pasos» is a part of «Configuración», listed first while a step is missing.
+    expect(menu()).toEqual(['Para revisar', 'Hoy', 'Días de trabajo', 'Configuración', 'Primeros pasos', 'Locales', 'Horarios', 'Equipo'])
+    expect(menuLink('Configuración')).toHaveAttribute('aria-current', 'true')
     const steps = within(screen.getByRole('list', { name: 'Pasos para empezar' })).getAllByRole('listitem')
     expect(steps.map((step) => step.querySelector('strong')?.textContent)).toEqual(['1. Tu local', '2. Tus horarios', '3. Tu equipo', '4. Cada uno con su horario', '5. Días de trabajo cargados'])
     expect(steps.every((step) => step.textContent?.includes('Falta'))).toBe(true)
@@ -85,13 +94,15 @@ describe('Primeros pasos', () => {
     expect(within(steps[4]).getByRole('button', { name: /^Ir a Días de trabajo/ })).not.toHaveClass('button-primary')
   })
 
-  it('con todo configurado empieza en Bandeja, deja la guía al final del menú y la guía dice cuántos pueden marcar mañana', async () => {
+  // Changed in slice N4: with every step done the guide leaves the menu (D-20261111-02: «Primeros pasos mientras falte un paso»);
+  // its address still opens it.
+  it('con todo configurado empieza en «Para revisar», saca la guía del menú y la guía dice cuántos pueden marcar mañana', async () => {
     render(<AdminApp />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /Para revisar/ })).toHaveAttribute('aria-current', 'page'))
-    expect(menu()).toEqual(['◷Para revisar', '▦Hoy', '▥Días de trabajo', '⌖Locales', '▤Horarios', '♙Equipo', '✓Primeros pasos'])
+    await waitFor(() => expect(menuLink('Para revisar')).toHaveAttribute('aria-current', 'page'))
+    expect(menu()).toEqual(['Para revisar', 'Hoy', 'Días de trabajo', 'Configuración', 'Locales', 'Horarios', 'Equipo'])
     expect(await screen.findByText('Hay días cargados hasta el martes 10 de noviembre.')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /Primeros pasos/ }))
+    window.location.hash = '#/configuracion/primeros-pasos'
     expect(await screen.findByText('Listo: mañana puede marcar 1 persona. Volvé cada mes a cargar los días.')).toBeInTheDocument()
   })
 
@@ -101,7 +112,7 @@ describe('Primeros pasos', () => {
     const previous = apiMocks.get.getMockImplementation()!
     apiMocks.get.mockImplementation((path: string) => path === '/templates' ? new Promise((resolve) => { release = resolve }) : previous(path))
     render(<AdminApp />)
-    fireEvent.click(screen.getByRole('button', { name: /Equipo/ }))
+    fireEvent.click(menuLink('Equipo'))
     expect(await screen.findByRole('heading', { name: 'Equipo' })).toBeInTheDocument()
     await act(async () => { release([]) })
     expect(screen.getByRole('heading', { name: 'Equipo' })).toBeInTheDocument()
