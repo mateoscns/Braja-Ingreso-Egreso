@@ -281,7 +281,7 @@ export function EmployeeApp() {
         onSelect={(id) => { setSelectedId(id); setPendingAttempt(null); setConfirmation(null); setStep(null) }} />}
       <MarkFeedback feedbackRef={feedbackRef} sending={busy} error={markError} showRefresh={markFailed && !loading} onRefresh={() => void refreshAfterUnknown()} confirmation={confirmation} timeZone={zone} />
       {loading ? <Loading label="Cargando tu día…" />
-        : loadFailed ? <Panel title="No pudimos cargar tu día"><LoadFailure message={loadError} onRetry={() => void load()} /></Panel>
+        : loadFailed ? <Panel title="No pudimos cargar tu día"><LoadFailure message={loadError} primary onRetry={() => void load()} /></Panel>
         : <>
           <NowBlock sentence={sentence} jornada={selected} site={selectedSite} options={options} busy={busy} step={step} stepRef={stepRef}
             onMark={(action) => startMark(action)} onConfirmStep={confirmStep} onCancelStep={() => setStep(null)} />

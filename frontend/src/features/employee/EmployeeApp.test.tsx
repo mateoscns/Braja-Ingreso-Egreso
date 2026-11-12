@@ -442,6 +442,8 @@ describe('EmployeeApp', () => {
     const alert = await screen.findByRole('alert')
     expect(vi.mocked(LoadFailure).mock.lastCall?.[0]).toMatchObject({ message: 'Servidor no disponible.' })
     expect(screen.getByRole('region', { name: 'No pudimos cargar tu día' })).toContainElement(alert)
+    // It is the only way out of the screen, so it stays the filled main button it was before LoadFailure.
+    expect(screen.getByRole('button', { name: 'Reintentar' })).toHaveClass('button-primary')
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
 
     expect(await screen.findAllByRole('button', { name: /Mañana/ })).toHaveLength(2)

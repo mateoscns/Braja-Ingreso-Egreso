@@ -40,12 +40,13 @@ export function Status({ children, className, as: Tag = 'p' }: { children: React
 
 /**
  * A failed load: the error and the way to try again, in place of what could not be shown. `retryLabel` keeps a button that
- * names what it reloads; `disabled` turns it off while the load runs again.
+ * names what it reloads; `disabled` turns it off while the load runs again; `primary` fills the button when retrying is the
+ * only thing left to do on the screen.
  */
-export function LoadFailure({ message, onRetry, retryLabel = 'Reintentar', disabled = false }: {
-  message: string; onRetry: () => void; retryLabel?: string; disabled?: boolean
+export function LoadFailure({ message, onRetry, retryLabel = 'Reintentar', disabled = false, primary = false }: {
+  message: string; onRetry: () => void; retryLabel?: string; disabled?: boolean; primary?: boolean
 }) {
-  return <div className="form-stack"><PageMessage kind="error">{message}</PageMessage><button type="button" className="button button-quiet" disabled={disabled} onClick={onRetry}>{retryLabel}</button></div>
+  return <div className="form-stack"><PageMessage kind="error">{message}</PageMessage><button type="button" className={`button ${primary ? 'button-primary' : 'button-quiet'}`} disabled={disabled} onClick={onRetry}>{retryLabel}</button></div>
 }
 
 /**
