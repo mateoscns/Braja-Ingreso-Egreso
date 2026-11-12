@@ -113,6 +113,15 @@ describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {
     expect(selectorsOf(floating)).toEqual([])
   })
 
+  // Recheck of T12 (2026-11-12): in the flow, the session warning was out of sight for an ADMIN scrolled down a long list, so
+  // WCAG 2.2.1 held only for screen readers. It is the one exception to N-8: it sticks to the top while it shows, and the page
+  // keeps the focused control clear of it (2.4.11).
+  it('el aviso de sesión por vencer queda pegado arriba al desplazar la página, sin tapar el foco', () => {
+    expect(rule('.session-warning')).toMatch(/(?<![\w-])position:\s*sticky/)
+    expect(rule('.session-warning')).toMatch(/(?<![\w-])top:\s*0/)
+    expect(rule('html:has(.session-warning:not(:empty))')).toMatch(/scroll-padding-top:/)
+  })
+
   // Replaced in slice D4: the card went, and with it ".auth-card > .muted", which on 2026-11-09 beat the margin of the help
   // line and left it glued under «Ingresar». The line has a rule of its own now and keeps the space above it.
   it('la ayuda "¿Te olvidaste la contraseña?" queda separada del botón Ingresar', () => {

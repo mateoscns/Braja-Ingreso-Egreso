@@ -40,6 +40,8 @@ describe('el aviso de sesión por vencer', () => {
     const status = screen.getByRole('status')
     expect(status).toHaveTextContent(WARNING)
     expect(status).toContainElement(warningButton())
+    // The class that keeps it on screen while the page is scrolled (styles.css, recheck of T12).
+    expect(status).toHaveClass('session-warning')
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Lo que escribe')).toHaveFocus()

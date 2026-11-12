@@ -876,6 +876,11 @@ td .button-row { gap: var(--space-2); }
 /* T12, the session warning (app/sessionWarning.tsx, D-20261112-02): the same banner, after the one of a new version and before
    the screen. Under a banner already shown it does not clear the status bar again. */
 .update-banner:not(:empty) ~ .update-banner { padding-top: var(--space-3); }
+/* Recheck of T12: in the flow, an ADMIN scrolled down a long list never saw it (WCAG 2.2.1). It is the one exception to N-8: it
+   sticks to the top while it shows, under the status bar strip and over the screen, and the page scrolls a focused control clear
+   of it (2.4.11; 9rem holds the banner on two lines with its button under them at 320 px). */
+.session-warning { position: sticky; z-index: 15; top: 0; }
+html:has(.session-warning:not(:empty)) { scroll-padding-top: calc(env(safe-area-inset-top) + 9rem); }
 /* A fold (details/summary) is a control: bordered, its summary as tall as a target, with an arrow at the right drawn by two
    borders, so there is no glyph to hide from screen readers. The summary text is the name of what it holds; a heading inside the
    summary is left to its screen slice (finding F-30). */
