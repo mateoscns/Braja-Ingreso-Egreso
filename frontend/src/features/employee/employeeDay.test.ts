@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Deviation, Jornada, Mark } from '../../shared/api/types'
 import {
-  allowedActions, confirmationText, daySentence, describeDeviation, exitConfirmation, markOptions, markLocationLabel, scheduledEnd, scheduledStart, zonedInstant
+  allowedActions, confirmationText, daySentence, daySlots, describeDeviation, exitConfirmation, markOptions, markLocationLabel, scheduledEnd, scheduledStart, zonedInstant
 } from './employeeDay'
 
 const timeZone = 'America/Argentina/Buenos_Aires'
@@ -130,6 +130,81 @@ describe('markLocationLabel', () => {
     expect(markLocationLabel('SIN_UBICACION')).toBe('Sin ubicación')
     expect(markLocationLabel('PURGADA')).toBe('')
     expect(markLocationLabel('NO_APLICA')).toBe('')
+  })
+})
+
+// Slice D2 (design system 4.14): the day is a sheet of four fixed rows, so the employee sees at a glance what is done and what
+// is missing. Times are the site's (UTC-3).
+describe('daySlots', () => {
+  const row = (day: Jornada, name: string) => daySlots(day, timeZone).find((slot) => slot.name === name)!
+
+  it('siempre devuelve las cuatro filas en el mismo orden, también sin marcas', () => {
+    const slots = daySlots(jornada('NO_INGRESO'), timeZone)
+
+    expect(slots.map((slot) => slot.name)).toEqual(['Entrada', 'Desayuno', 'Almuerzo', 'Salida'])
+    for (const slot of slots) expect(slot, slot.name).toMatchObject({ times: [], note: null, voided: [] })
+  })
+
+  it('una pausa muestra una hora mientras estás afuera y el rango cuando volviste', () => {
+    const out = jornada('PAUSA_ABIERTA', [mark('INGRESO', '2026-11-09T11:02:00Z', 1), mark('SALIDA_DESAYUNO', '2026-11-09T12:30:00Z', 2)])
+    expect(row(out, 'Desayuno').times).toEqual(['09:30'])
+
+    const back = jornada('EN_CURSO', [...out.marks, mark('VUELTA_DESAYUNO', '2026-11-09T12:48:00Z', 3)])
+    expect(row(back, 'Desayuno').times).toEqual(['09:30 a 09:48'])
+    expect(row(back, 'Entrada').times).toEqual(['08:02'])
+    expect(row(back, 'Almuerzo').times).toEqual([])
+  })
+
+  it('una marca anulada nunca llena su fila y queda listada aparte, debajo de su fila', () => {
+    const onlyVoided = jornada('NO_INGRESO', [mark('INGRESO', '2026-11-09T11:02:00Z', 1, { voided: true })])
+    expect(row(onlyVoided, 'Entrada')).toMatchObject({ times: [], voided: ['08:02'], note: null })
+
+    const replaced = jornada('EN_CURSO', [mark('INGRESO', '2026-11-09T11:02:00Z', 1, { voided: true }), mark('INGRESO', '2026-11-09T11:05:00Z', 2)])
+    expect(row(replaced, 'Entrada')).toMatchObject({ times: ['08:05'], voided: ['08:02'] })
+
+    const voidedBreak = jornada('EN_CURSO', [mark('INGRESO', '2026-11-09T11:02:00Z', 1), mark('SALIDA_ALMUERZO', '2026-11-09T15:00:00Z', 2, { voided: true })])
+    expect(row(voidedBreak, 'Almuerzo')).toMatchObject({ times: [], voided: ['12:00'] })
+  })
+
+  // A mark the ADMIN loaded is stored with no location (NO_APLICA, MarkService.forgottenMark), and acceptedAt is when it was
+  // stored: the row shows the declared time and says who loaded it instead of a location line.
+  it('una marca que cargó tu encargado muestra la hora declarada y la nota «Cargada por tu encargado»', () => {
+    const stored = '2026-11-10T00:15:00Z'
+    const loaded = jornada('EGRESADA', [
+      mark('INGRESO', stored, 1, { occurredAt: '2026-11-09T11:00:00Z', locationStatus: 'NO_APLICA' }),
+      mark('SALIDA_DESAYUNO', '2026-11-09T12:30:00Z', 2), mark('VUELTA_DESAYUNO', stored, 3, { occurredAt: '2026-11-09T12:45:00Z', locationStatus: 'NO_APLICA' }),
+      mark('EGRESO', '2026-11-09T19:02:00Z', 4)
+    ])
+
+    expect(row(loaded, 'Entrada')).toMatchObject({ times: ['08:00'], note: { kind: 'loaded', text: 'Cargada por tu encargado' } })
+    // The two marks of a break differ: the note of the one the ADMIN loaded wins.
+    expect(row(loaded, 'Desayuno')).toMatchObject({ times: ['09:30 a 09:45'], note: { kind: 'loaded', text: 'Cargada por tu encargado' } })
+    expect(row(loaded, 'Salida')).toMatchObject({ times: ['16:02'], note: { kind: 'sent', text: 'Ubicación enviada' } })
+  })
+
+  it('dos marcas del mismo tipo se listan las dos, cada pausa con su rango', () => {
+    const twice = jornada('EGRESADA', [
+      mark('INGRESO', '2026-11-09T11:00:00Z', 1), mark('SALIDA_DESAYUNO', '2026-11-09T12:00:00Z', 2), mark('VUELTA_DESAYUNO', '2026-11-09T12:15:00Z', 3),
+      mark('SALIDA_DESAYUNO', '2026-11-09T15:00:00Z', 4), mark('VUELTA_DESAYUNO', '2026-11-09T15:10:00Z', 5),
+      mark('EGRESO', '2026-11-09T19:00:00Z', 6), mark('EGRESO', '2026-11-09T19:05:00Z', 7, { locationStatus: 'NO_APLICA' })
+    ])
+
+    expect(row(twice, 'Desayuno').times).toEqual(['09:00 a 09:15', '12:00 a 12:10'])
+    expect(row(twice, 'Salida').times).toEqual(['16:00', '16:05'])
+  })
+
+  it('la nota de ubicación de una fila es una sola línea: enviando, sin ubicación o enviada', () => {
+    const note = (statuses: Mark['locationStatus'][]) => {
+      const out = mark('SALIDA_ALMUERZO', '2026-11-09T15:00:00Z', 2, { locationStatus: statuses[0] })
+      const back = statuses[1] ? [mark('VUELTA_ALMUERZO', '2026-11-09T15:40:00Z', 3, { locationStatus: statuses[1] })] : []
+      return row(jornada('EN_CURSO', [mark('INGRESO', '2026-11-09T11:00:00Z', 1), out, ...back]), 'Almuerzo').note
+    }
+
+    expect(note(['RECIBIDA', 'PENDIENTE'])).toEqual({ kind: 'pending', text: 'Enviando ubicación…' })
+    expect(note(['SIN_UBICACION', 'RECIBIDA'])).toEqual({ kind: 'missing', text: 'Sin ubicación' })
+    expect(note(['RECIBIDA', 'RECIBIDA'])).toEqual({ kind: 'sent', text: 'Ubicación enviada' })
+    // Purged after 90 days: nothing useful to say.
+    expect(note(['PURGADA', 'RECIBIDA'])).toBeNull()
   })
 })
 

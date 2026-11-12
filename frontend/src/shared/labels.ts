@@ -80,6 +80,9 @@ export const confirmedMark: Record<MarkAction, string> = {
   INGRESO: 'tu entrada', SALIDA_DESAYUNO: 'tu salida a desayunar', VUELTA_DESAYUNO: 'tu vuelta del desayuno',
   SALIDA_ALMUERZO: 'tu salida a almorzar', VUELTA_ALMUERZO: 'tu vuelta del almuerzo', EGRESO: 'tu salida'
 }
+/** The four rows of the employee's day sheet (design system 4.14): the entry, each break with its two marks, the exit. */
+export type DaySlotKind = 'ENTRADA' | 'DESAYUNO' | 'ALMUERZO' | 'SALIDA'
+export const daySlotName: Record<DaySlotKind, string> = { ENTRADA: mark.INGRESO, DESAYUNO: 'Desayuno', ALMUERZO: 'Almuerzo', SALIDA: mark.EGRESO }
 
 // The ADMIN screens look a name up by its code.
 

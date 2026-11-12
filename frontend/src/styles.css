@@ -612,15 +612,27 @@ td .short-input { width: 74px; }
 /* ===== Employee screen ===== */
 /* One column of 40 rem at most: the marks, the schedule and the day are read top to bottom, also on a tablet. */
 .employee-main { width: min(100% - 2 * var(--gutter), 40rem); margin: 0 auto; padding: var(--space-4) 0 var(--space-7); }
-.employee-title { align-items: flex-end; }
-.employee-title .field { width: 165px; }
 /* The chips of a schedule in the ADMIN's «Horarios» still use this name (slice E5). */
 .schedule-block { display: inline-flex; border: 1px solid #e3ebe4; border-radius: 6px; padding: 4px 7px; color: #516259; background: #fbfdfb; font-size: 1rem; }
-.mark-timeline { border-top: 1px solid #edf1ee; padding: 17px 2px 0; }
-.timeline-title { color: var(--text-secondary); margin-bottom: 12px; font-size: .8125rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
-.mark-row { position: relative; display: grid; grid-template-columns: 13px minmax(130px, 1fr) auto; align-items: center; gap: 9px; padding: 8px 0; color: #44564b; font-size: 1rem; }
-.timeline-point { width: 8px; height: 8px; border: 2px solid #74a181; border-radius: 50%; background: #fff; }
-.mark-row time { color: var(--text-secondary); font-size: .875rem; }
+/* The day sheet (design system 4.14): four fixed rows, the name at the left and the time large, so what is done and what is
+   missing reads at a glance. A hairline above each row and one under the last; the cells undo the column heads of `th`. */
+.day-sheet { border-bottom: var(--border-width) solid var(--rule); }
+.day-sheet th, .day-sheet td { padding: var(--space-3) 0; border-top: var(--border-width) solid var(--rule); border-bottom: 0; vertical-align: baseline; }
+.day-sheet th { width: 32%; padding-right: var(--space-3); color: var(--text); font-size: var(--font-size-body-lg); font-weight: var(--font-weight-strong); }
+/* The time, then the note: under it on a phone, beside it from 600 px. Two marks of one kind are two lines. */
+.day-sheet-cell { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1) var(--space-3); min-width: 0; }
+.day-sheet-times { display: grid; gap: var(--space-1); }
+.day-sheet-time { font-size: var(--font-size-title); font-weight: var(--font-weight-heavy); line-height: var(--line-height-heading); font-variant-numeric: tabular-nums; }
+.day-sheet-empty { color: var(--text-muted); font-weight: var(--font-weight-regular); }
+.day-sheet-note { display: inline-flex; align-items: flex-start; gap: var(--space-1); color: var(--text-muted); font-size: var(--font-size-body); line-height: var(--line-height-heading); }
+/* A voided mark is a row of its own right under its row, with no line between: the time struck, small and muted, beside its tag. */
+.day-sheet-voided th, .day-sheet-voided td { padding-top: 0; border-top: 0; }
+.day-sheet-voided .day-sheet-cell { flex-direction: row; flex-wrap: wrap; align-items: center; }
+.day-sheet-voided .day-sheet-time { color: var(--text-muted); font-size: var(--font-size-body); font-weight: var(--font-weight-regular); }
+.day-sheet + .muted { margin-top: var(--space-3); }
+@media (min-width: 600px) {
+  .day-sheet-cell { flex-direction: row; flex-wrap: wrap; align-items: baseline; }
+}
 .motive-card { display: flex; flex-direction: column; gap: 14px; padding: 14px; border: 1px solid #e9eeea; border-radius: 11px; }
 .motive-card > div:first-child { display: flex; align-items: center; gap: 9px; }
 /* The greeting stays the h1 of the page but is drawn small and muted: the state of the day under it is the largest text. */
@@ -655,7 +667,6 @@ td .short-input { width: 74px; }
 .receipt-location-sent { color: var(--ok); font-weight: var(--font-weight-strong); }
 .receipt-location-missing { padding-top: var(--space-3); border-top: var(--border-width) solid var(--ok); color: var(--text); }
 .receipt-location-missing > .icon { color: var(--warn); }
-.mark-row-location { grid-column: 2 / -1; margin-top: -6px; color: var(--text-secondary); font-size: .8125rem; }
 .employee-motive-question { margin: 0; color: var(--text-primary); font-size: .95rem; line-height: 1.45; }
 .employee-today-button { margin-top: 12px; }
 .password-toggle { align-self: flex-start; }
@@ -715,10 +726,6 @@ td .short-input { width: 74px; }
   .page-title-row { flex-wrap: wrap; }
   .form-grid { grid-template-columns: 1fr; }
   .field-wide { grid-column: auto; }
-  .employee-title { flex-direction: column; }
-  .employee-title .field { width: 100%; }
-  .mark-row { grid-template-columns: 13px minmax(110px, 1fr); }
-  .mark-row time { grid-column: 2; margin-top: -5px; }
   .push-control { right: max(9px, env(safe-area-inset-right)); bottom: calc(9px + env(safe-area-inset-bottom)); left: max(9px, env(safe-area-inset-left)); width: auto; gap: 8px; padding: 9px; }
   /* Horarios: the chips get the whole width and "Cambiar horario" goes under them. */
   .template-card { flex-wrap: wrap; }
