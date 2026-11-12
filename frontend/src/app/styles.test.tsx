@@ -167,8 +167,10 @@ describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {
   // a phone lying down) nothing is reserved.
   it('deja lugar para que la barra de navegación no tape el contenido ni el foco (2.4.11)', () => {
     const value = (declarations: string, property: string) => new RegExp(`(?:^|[;\\s])${property}:\\s*([^;]+)`).exec(declarations)?.[1].trim()
-    const reserve = /^calc\(var\(--bottom-nav-height\) \+ env\(safe-area-inset-bottom\)/
+    // The room is the bar's real height measured by AdminNav (it takes two rows with a large system text), else its one-row height.
+    const reserve = /^calc\(var\(--bottom-nav-room\) \+ var/
 
+    expect(value(rule(':root'), '--bottom-nav-room')).toBe('calc(var(--bottom-nav-height) + env(safe-area-inset-bottom))')
     expect(value(rule('.main-content'), 'padding-bottom')).toMatch(reserve)
     expect(value(rule('html:has(.nav)'), 'scroll-padding-bottom')).toMatch(reserve)
     expect(value(rule('.nav'), 'padding-bottom')).toBe('env(safe-area-inset-bottom)')
@@ -576,9 +578,20 @@ describe('botones: variantes y estados', () => {
   // Replaced in slice N4: the button of the fixed alerts bar is gone. A destination of the bar is as tall as the bar (72 px)
   // and at least 80 px wide at 320 px; a row of the rail is as tall as any control.
   it('cada destino de la barra mide el alto de la barra y cada renglón de la columna el alto de toque (2.5.8)', () => {
-    expect(rule('.nav-link')).toMatch(/min-height:\s*var\(--bottom-nav-height\)/)
+    // A row's floor stops at 72 px, so with a large text it grows with its words, not with a scaled floor (device check).
+    expect(rule('.nav-link')).toMatch(/min-height:\s*min\(var\(--bottom-nav-height\), 72px\)/)
     expect(rule('.nav-link', media(1024))).toMatch(/min-height:\s*var\(--target\)/)
     expect(Number(/--bottom-nav-height:\s*([\d.]+)rem/.exec(rule(':root'))?.[1])).toBeGreaterThanOrEqual(3)
+  })
+
+  // Device check before release (2026-11-12): with the system text at 170 % or more, the bar was wider than a 360 px screen and
+  // the brand ran over «Cerrar sesión» (WCAG 1.4.4, 1.4.10). The destinations wrap to a second row instead, and the brand to a
+  // second line; nothing is cut and no label shrinks.
+  it('con texto grande la barra pasa a dos filas y la marca a dos renglones, sin cortar nada', () => {
+    expect(rule('.nav-list')).toMatch(/flex-wrap:\s*wrap/)
+    expect(rule('.nav-list > li')).toMatch(/min-width:\s*min-content/)
+    expect(rule('.topbar > .brand')).toMatch(/flex-wrap:\s*wrap/)
+    expect(rule('.topbar > .brand')).toMatch(/min-width:\s*0/)
   })
 })
 

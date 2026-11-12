@@ -129,6 +129,40 @@ describe('navegación del ADMIN: cuatro destinos', () => {
   })
 })
 
+// Device check before release (2026-11-12): with the system text at 170 % or more the four destinations did not fit in 360 px
+// and «Configuración» went off the screen. The bar now takes two rows when needed, and the page keeps its real height clear.
+describe('el lugar que la página le deja a la barra de abajo', () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); document.documentElement.style.removeProperty('--bottom-nav-room') })
+
+  function observeWith(height: number, position: string) {
+    let changed: () => void = () => undefined
+    vi.stubGlobal('ResizeObserver', class { constructor(callback: () => void) { changed = callback } observe() {} disconnect() {} })
+    vi.spyOn(window, 'getComputedStyle').mockReturnValue({ position } as CSSStyleDeclaration)
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(() => height)
+    return () => changed()
+  }
+
+  it('es el alto real de la barra fija, también cuando crece a dos filas, y se libera al salir', () => {
+    const resize = observeWith(80, 'fixed')
+    const view = render(<AdminNav section="inbox" setupMissing={false} onNavigate={vi.fn()} />)
+    const room = () => document.documentElement.style.getPropertyValue('--bottom-nav-room')
+    expect(room()).toBe('80px')
+
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(() => 160)
+    act(() => resize())
+    expect(room()).toBe('160px')
+
+    view.unmount()
+    expect(room()).toBe('')
+  })
+
+  it('no reserva nada cuando la barra es la columna de la izquierda, en el flujo de la página', () => {
+    observeWith(400, 'static')
+    render(<AdminNav section="inbox" setupMissing={false} onNavigate={vi.fn()} />)
+    expect(document.documentElement.style.getPropertyValue('--bottom-nav-room')).toBe('')
+  })
+})
+
 describe('navegación del ADMIN dentro de la aplicación', () => {
   const openAt = (hash: string) => window.history.replaceState(null, '', `/admin${hash}`)
   const hashSettles = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)))
