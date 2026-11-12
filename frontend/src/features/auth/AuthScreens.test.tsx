@@ -23,6 +23,11 @@ function watchStatusRegions() {
   }
 }
 
+/** An accessible description that holds this text, whatever else (a hint) is read with it. */
+function describedWith(text: string): RegExp {
+  return new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+}
+
 const twoCompanies = { accountId: 'a', memberships: [
   { companyId: 'c-1', companyName: 'Braja', role: 'ADMIN' as const },
   { companyId: 'c-2', companyName: 'Otra empresa', role: 'EMPLOYEE' as const }
@@ -144,7 +149,7 @@ describe('pantallas de acceso', () => {
     fireEvent.change(next, { target: { value: 'CorrectHorseBattery9!' } })
     fireEvent.change(confirm, { target: { value: 'DifferentHorseBattery9!' } })
     fireEvent.click(screen.getByRole('button', { name: 'Guardar contraseña' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('Las contraseñas nuevas no coinciden.')
+    expect(confirm).toHaveAccessibleDescription('Las contraseñas nuevas no coinciden.')
     expect(onChange).not.toHaveBeenCalled()
 
     fireEvent.change(confirm, { target: { value: 'CorrectHorseBattery9!' } })
@@ -172,7 +177,7 @@ describe('pantallas de acceso', () => {
     it('does not call the server with a 73-byte password that fits in 72 characters and explains the limit', async () => {
       const onChange = vi.fn().mockResolvedValue(undefined)
       submitNewPassword(onChange, `ñ${'a'.repeat(71)}`)
-      expect(await screen.findByRole('alert')).toHaveTextContent('La contraseña es demasiado larga. Usá una más corta: las letras con tilde y la ñ cuentan doble.')
+      expect(screen.getByLabelText('Nueva contraseña')).toHaveAccessibleDescription(describedWith('La contraseña es demasiado larga. Usá una más corta: las letras con tilde y la ñ cuentan doble.'))
       expect(onChange).not.toHaveBeenCalled()
     })
 
@@ -209,7 +214,7 @@ describe('pantallas de acceso', () => {
       fireEvent.change(screen.getByLabelText('Nueva contraseña'), { target: { value: 'corta' } })
       fireEvent.change(screen.getByLabelText('Repetí la nueva contraseña'), { target: { value: 'corta' } })
       fireEvent.click(screen.getByRole('button', { name: 'Guardar contraseña' }))
-      expect(await screen.findByRole('alert')).toHaveTextContent('La contraseña nueva tiene que tener al menos 12 letras o números.')
+      expect(screen.getByLabelText('Nueva contraseña')).toHaveAccessibleDescription('Llevás 5 de 12. La contraseña nueva tiene que tener al menos 12 letras o números.')
       expect(onChange).not.toHaveBeenCalled()
     })
 
@@ -345,5 +350,144 @@ describe('pantallas de acceso: la barra de la marca y la hoja plana', () => {
     await screen.findByRole('status')
     expect(screen.getByRole('button', { name: /Braja/ }).querySelector('.spinner')).toHaveAttribute('aria-hidden', 'true')
     expect(screen.getByRole('button', { name: /Otra empresa/ }).querySelector('.spinner')).toBeNull()
+  })
+})
+
+// Slice F2a (design system 4.3 and 4.7; WCAG 3.3.1, 3.3.3): each form checks itself when it is sent, says what is wrong under
+// each field and takes the focus to the first one; the browser's own bubble never shows. A field's error is read with its field
+// and is not an alert of its own; what the server answers is one message inside the form, above its button.
+describe('una sola forma de validar en las pantallas de acceso', () => {
+  const isBefore = (first: Element, second: Element) => Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
+
+  it('el ingreso vacío marca cada campo con su mensaje, sin la burbuja del navegador, y lleva el foco al DNI', async () => {
+    const onSignIn = vi.fn()
+    render(<LoginScreen onSignIn={onSignIn} />)
+    const button = screen.getByRole('button', { name: 'Ingresar' })
+    expect(button.closest('form')).toHaveAttribute('novalidate')
+    expect(button).toBeEnabled()
+
+    fireEvent.click(button)
+
+    const dni = screen.getByLabelText('DNI')
+    const password = screen.getByLabelText('Contraseña')
+    expect(dni).toHaveAttribute('aria-invalid', 'true')
+    expect(dni).toHaveAccessibleDescription('Escribí tu DNI.')
+    expect(password).toHaveAttribute('aria-invalid', 'true')
+    expect(password).toHaveAccessibleDescription('Escribí tu contraseña.')
+    await waitFor(() => expect(dni).toHaveFocus())
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(onSignIn).not.toHaveBeenCalled()
+  })
+
+  it('un DNI corto dice cuántos números lleva; al corregirlo su mensaje se va', async () => {
+    const onSignIn = vi.fn()
+    render(<LoginScreen onSignIn={onSignIn} />)
+    const dni = screen.getByLabelText('DNI')
+    fireEvent.change(dni, { target: { value: '123456' } })
+    fireEvent.change(screen.getByLabelText('Contraseña'), { target: { value: 'temporary-password' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ingresar' }))
+
+    expect(dni).toHaveAccessibleDescription('El DNI tiene que tener de 7 a 12 números.')
+    expect(screen.getByLabelText('Contraseña')).not.toHaveAttribute('aria-invalid')
+    await waitFor(() => expect(dni).toHaveFocus())
+    expect(onSignIn).not.toHaveBeenCalled()
+
+    fireEvent.change(dni, { target: { value: '1234567' } })
+    expect(dni).not.toHaveAttribute('aria-invalid')
+    expect(dni).toHaveAccessibleDescription('')
+  })
+
+  it('con el DNI escrito y la contraseña vacía, el foco va a la contraseña', async () => {
+    render(<LoginScreen onSignIn={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('DNI'), { target: { value: '30123456' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ingresar' }))
+
+    await waitFor(() => expect(screen.getByLabelText('Contraseña')).toHaveFocus())
+    expect(screen.getByLabelText('DNI')).not.toHaveAttribute('aria-invalid')
+  })
+
+  it('el error del ingreso es uno solo para el formulario, adentro y arriba del botón, sin señalar ningún campo', async () => {
+    const onSignIn = vi.fn().mockRejectedValue(new Error('El DNI o la contraseña son incorrectos.'))
+    render(<LoginScreen onSignIn={onSignIn} />)
+    fireEvent.change(screen.getByLabelText('DNI'), { target: { value: '30123456' } })
+    fireEvent.change(screen.getByLabelText('Contraseña'), { target: { value: 'temporary-password' } })
+    const button = screen.getByRole('button', { name: 'Ingresar' })
+    const form = button.closest('form')!
+
+    fireEvent.click(button)
+
+    const alert = await within(form).findByRole('alert')
+    expect(alert).toHaveTextContent('El DNI o la contraseña son incorrectos.')
+    expect(isBefore(alert, screen.getByRole('button', { name: 'Ingresar' }))).toBe(true)
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    for (const label of ['DNI', 'Contraseña']) {
+      expect(screen.getByLabelText(label)).not.toHaveAttribute('aria-invalid')
+      expect(screen.getByLabelText(label)).toHaveAccessibleDescription('')
+    }
+  })
+
+  it('el cambio de contraseña vacío marca la que te dieron y la nueva, y lleva el foco a la primera', async () => {
+    const onChange = vi.fn()
+    render(<PasswordChangeScreen onChange={onChange} onSignOut={vi.fn()} />)
+    const button = screen.getByRole('button', { name: 'Guardar contraseña' })
+    expect(button.closest('form')).toHaveAttribute('novalidate')
+    expect(button).toBeEnabled()
+
+    fireEvent.click(button)
+
+    const current = screen.getByLabelText('Contraseña que te dieron')
+    expect(current).toHaveAttribute('aria-invalid', 'true')
+    expect(current).toHaveAccessibleDescription('Escribí la contraseña actual, la que te dieron para entrar.')
+    const next = screen.getByLabelText('Nueva contraseña')
+    expect(next).toHaveAttribute('aria-invalid', 'true')
+    // The counter stays the hint, read before the error.
+    expect(next).toHaveAccessibleDescription('Llevás 0 de 12. La contraseña nueva tiene que tener al menos 12 letras o números.')
+    expect(screen.getByLabelText('Repetí la nueva contraseña')).not.toHaveAttribute('aria-invalid')
+    await waitFor(() => expect(current).toHaveFocus())
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('si las nuevas no coinciden lo dice debajo de la repetición y lleva el foco ahí', async () => {
+    render(<PasswordChangeScreen onChange={vi.fn()} onSignOut={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('Contraseña que te dieron'), { target: { value: 'temporary-password' } })
+    fireEvent.change(screen.getByLabelText('Nueva contraseña'), { target: { value: 'CorrectHorseBattery9!' } })
+    fireEvent.change(screen.getByLabelText('Repetí la nueva contraseña'), { target: { value: 'CorrectHorseBattery' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar contraseña' }))
+
+    const confirm = screen.getByLabelText('Repetí la nueva contraseña')
+    expect(confirm).toHaveAttribute('aria-invalid', 'true')
+    expect(confirm).toHaveAccessibleDescription('Las contraseñas nuevas no coinciden.')
+    await waitFor(() => expect(confirm).toHaveFocus())
+    expect(screen.getByLabelText('Contraseña que te dieron')).not.toHaveAttribute('aria-invalid')
+    expect(screen.getByLabelText('Nueva contraseña')).not.toHaveAttribute('aria-invalid')
+  })
+
+  it('lo que responde el servidor al cambiar la contraseña va dentro del formulario, arriba de Guardar contraseña', async () => {
+    render(<PasswordChangeScreen onChange={vi.fn().mockRejectedValue(new Error('La contraseña actual no coincide.'))} onSignOut={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('Contraseña que te dieron'), { target: { value: 'temporary-password' } })
+    fireEvent.change(screen.getByLabelText('Nueva contraseña'), { target: { value: 'CorrectHorseBattery9!' } })
+    fireEvent.change(screen.getByLabelText('Repetí la nueva contraseña'), { target: { value: 'CorrectHorseBattery9!' } })
+    const form = screen.getByRole('button', { name: 'Guardar contraseña' }).closest('form')!
+
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar contraseña' }))
+
+    const alert = await within(form).findByRole('alert')
+    expect(alert).toHaveTextContent('La contraseña actual no coincide.')
+    expect(isBefore(alert, screen.getByRole('button', { name: 'Guardar contraseña' }))).toBe(true)
+  })
+
+  it('después de un envío fallido las contraseñas se siguen pudiendo pegar (3.3.8)', () => {
+    render(<LoginScreen onSignIn={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Ingresar' }))
+    expect(fireEvent.paste(screen.getByLabelText('Contraseña'))).toBe(true)
+    cleanup()
+
+    render(<PasswordChangeScreen onChange={vi.fn()} onSignOut={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar contraseña' }))
+    for (const label of ['Contraseña que te dieron', 'Nueva contraseña', 'Repetí la nueva contraseña']) expect(fireEvent.paste(screen.getByLabelText(label))).toBe(true)
   })
 })
