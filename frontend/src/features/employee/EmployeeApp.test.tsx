@@ -733,6 +733,52 @@ describe('EmployeeApp', () => {
     })
   })
 
+  // Slice F2a (design system 4.3 and 4.7; WCAG 3.3.1): the motive is checked when it is sent, every missing field says so at
+  // once and the focus goes to the first one; the browser's own bubble never shows.
+  describe('una sola forma de validar el motivo', () => {
+    it('un envío vacío marca el tipo y el texto a la vez y lleva el foco a la primera opción', async () => {
+      configureApi([pendingDeviation])
+      render(<EmployeeApp />)
+      const text = await screen.findByLabelText('Contá qué pasó')
+      const card = text.closest('form')!
+      const button = within(card).getByRole('button', { name: 'Enviar motivo' })
+      expect(card).toHaveAttribute('novalidate')
+      expect(button).toBeEnabled()
+
+      fireEvent.click(button)
+
+      const group = within(card).getByRole('group', { name: '¿Qué tipo de motivo es?' })
+      await waitFor(() => expect(group).toHaveAccessibleDescription('Elegí una de las opciones.'))
+      expect(group).toHaveAttribute('aria-invalid', 'true')
+      expect(text).toHaveAttribute('aria-invalid', 'true')
+      expect(text).toHaveAccessibleDescription('Por ejemplo: hubo paro de colectivos. Contá en pocas palabras qué pasó.')
+      await waitFor(() => expect(within(card).getByRole('radio', { name: /Salud/ })).toHaveFocus())
+      expect(mocks.apiPut).not.toHaveBeenCalled()
+    })
+
+    it('elegir un tipo borra solo su mensaje; enviar otra vez sin texto lleva el foco al cuadro de texto', async () => {
+      configureApi([pendingDeviation])
+      render(<EmployeeApp />)
+      const text = await screen.findByLabelText('Contá qué pasó')
+      const card = text.closest('form')!
+      fireEvent.click(within(card).getByRole('button', { name: 'Enviar motivo' }))
+      await waitFor(() => expect(text).toHaveAttribute('aria-invalid', 'true'))
+
+      fireEvent.click(within(card).getByRole('radio', { name: /Otra/ }))
+
+      const group = within(card).getByRole('group', { name: '¿Qué tipo de motivo es?' })
+      expect(group).not.toHaveAttribute('aria-invalid')
+      expect(group).toHaveAccessibleDescription('')
+      expect(text).toHaveAttribute('aria-invalid', 'true')
+      expect(text).not.toHaveFocus()
+
+      fireEvent.click(within(card).getByRole('button', { name: 'Enviar motivo' }))
+
+      await waitFor(() => expect(text).toHaveFocus())
+      expect(mocks.apiPut).not.toHaveBeenCalled()
+    })
+  })
+
   it('no ofrece corregir un motivo ya clasificado, pero sí agregar el primero si se clasificó sin motivo', async () => {
     configureApi([
       { ...pendingDeviation, id: 'classified', status: 'JUSTIFICADO', category: 'OTRA', motiveText: 'Revisado.' },

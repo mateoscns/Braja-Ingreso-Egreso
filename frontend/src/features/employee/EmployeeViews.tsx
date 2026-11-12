@@ -18,7 +18,8 @@ export type MarkConfirmation = { markId: string; action: MarkAction; acceptedAt:
 export type MarkStep = { kind: 'exit' | 'location'; action: MarkAction; text: string }
 export type MotiveCategory = NonNullable<Deviation['category']>
 export type MotiveValues = { category: MotiveCategory | ''; text: string }
-export type MotiveError = { field: 'category' | 'text' | 'form'; message: string }
+/** The errors of one motive form: one per field, checked on submit, and `form` for what the server answered. */
+export type MotiveErrors = { category?: string; text?: string; form?: string }
 
 const CATEGORIES: { value: MotiveCategory; label: string; help: string }[] = [
   { value: 'SALUD', label: forEmployee.motiveCategory.SALUD, help: 'estuviste enfermo o en el médico' },
@@ -172,7 +173,7 @@ export type MotivePanelProps = {
   /** The cases of the day on screen: those not pending are records with what was sent and a button to correct it. */
   deviations: Deviation[]
   notice: string; jornadas: Jornada[]; sites: Site[]
-  values: Record<string, MotiveValues>; errors: Record<string, MotiveError>; savingId: string; editingIds: string[]
+  values: Record<string, MotiveValues>; errors: Record<string, MotiveErrors>; savingId: string; editingIds: string[]
   onChange: (id: string, patch: Partial<MotiveValues>) => void; onSubmit: (event: FormEvent, item: Deviation) => void
   onCancel: (id: string) => void; onRetry: () => void; onEdit: (item: Deviation) => void
 }
@@ -244,10 +245,21 @@ function MotiveForm({ item, todo = false, formRef, children, values, errors, sav
   const error = errors[item.id]
   const saving = savingId === item.id
   const categoryErrorId = `${ids}-category-error`
-  const textErrorId = `${ids}-text-error`
-  return <form ref={formRef} className={todo ? 'inline-form inline-form-todo' : 'inline-form'} noValidate aria-busy={saving} onSubmit={(event) => onSubmit(event, item)}>
+  // A failed submit takes the focus to the first field it marked, once its error is tied to it (design system 4.7). Field
+  // errors only come from a submit; editing a field clears its own, which must not move the focus.
+  const submitted = useRef(false)
+  useEffect(() => {
+    if (!submitted.current) return
+    submitted.current = false
+    const form = formRef.current
+    if (error?.category) (form?.querySelector<HTMLInputElement>('input[type=radio]:checked') ?? form?.querySelector<HTMLInputElement>('input[type=radio]'))?.focus()
+    else if (error?.text) form?.querySelector('textarea')?.focus()
+  }, [error, formRef])
+  return <form ref={formRef} className={todo ? 'inline-form inline-form-todo' : 'inline-form'} noValidate aria-busy={saving}
+    onSubmit={(event) => { submitted.current = true; onSubmit(event, item) }}>
     {children}
-    <fieldset className="field" aria-describedby={error?.field === 'category' ? categoryErrorId : undefined}>
+    {/* A group has no FormField: its error is tied by aria-describedby, in the look of a field error. */}
+    <fieldset className={error?.category ? 'field field-invalid' : 'field'} aria-invalid={error?.category ? true : undefined} aria-describedby={error?.category ? categoryErrorId : undefined}>
       <legend className="field-label">¿Qué tipo de motivo es?</legend>
       <div className="choice-list">{CATEGORIES.map((category) =>
         <label key={category.value} className="choice">
@@ -255,12 +267,12 @@ function MotiveForm({ item, todo = false, formRef, children, values, errors, sav
           {/* The colon is only heard: the tile shows the word over its help, and its name still reads «Salud: estuviste…». */}
           <span className="choice-text"><strong>{category.label}<span className="visually-hidden">:</span></strong> <small>{category.help}</small></span>
         </label>)}</div>
-      {error?.field === 'category' && <p className="employee-field-error" id={categoryErrorId} role="alert">{error.message}</p>}
+      {error?.category && <span className="field-error" id={categoryErrorId}><Icon name="alert" />{error.category}</span>}
     </fieldset>
-    <FormField label="Contá qué pasó" hint="Por ejemplo: hubo paro de colectivos."><textarea maxLength={4000} rows={3} value={value.text} aria-invalid={error?.field === 'text' || undefined}
-      aria-describedby={error?.field === 'text' ? textErrorId : undefined} onChange={(event) => onChange(item.id, { text: event.target.value })} /></FormField>
-    {error?.field === 'text' && <p className="employee-field-error" id={textErrorId} role="alert">{error.message}</p>}
-    {error?.field === 'form' && <PageMessage kind="error">{error.message}</PageMessage>}
+    <FormField label="Contá qué pasó" hint="Por ejemplo: hubo paro de colectivos." error={error?.text}>
+      <textarea maxLength={4000} rows={3} value={value.text} onChange={(event) => onChange(item.id, { text: event.target.value })} />
+    </FormField>
+    {error?.form && <PageMessage kind="error">{error.form}</PageMessage>}
     <div className="button-row">
       <button className="button button-primary" disabled={saving}>{saving ? 'Enviando…' : item.status === 'PENDIENTE_REVISION' ? 'Guardar corrección' : 'Enviar motivo'}</button>
       {editingIds.includes(item.id) && <button type="button" className="button button-link" disabled={saving} onClick={() => onCancel(item.id)}>Cancelar</button>}

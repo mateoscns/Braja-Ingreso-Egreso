@@ -110,17 +110,17 @@ describe('DayMarksPanel', () => {
   })
 })
 
+const deviation: Deviation = {
+  id: 'd-1', jornadaId: 'j-1', siteId: site.id, type: 'LLEGADA_TARDE', status: 'MOTIVO_PENDIENTE', category: null,
+  occurredAt: '2026-11-09T11:20:00Z', createdAt: '2026-11-09T11:20:00Z', pushEligible: true
+}
+const motiveProps = (overrides: Partial<ComponentProps<typeof MotivePanel>> = {}): ComponentProps<typeof MotivePanel> => ({
+  loading: false, loadFailed: false, pendingError: '', retrying: false, truncated: false, limit: 100, items: [], notice: '', jornadas: [], sites: [site],
+  values: {}, errors: {}, savingId: '', editingIds: [], deviations: [], onChange: vi.fn(), onSubmit: vi.fn(), onCancel: vi.fn(), onRetry: vi.fn(), onEdit: vi.fn(), ...overrides
+})
+
 // Slice F3 (WCAG 4.1.3): a sending line is announced only if its region is in the document before its text.
 describe('líneas de espera y cargas fallidas', () => {
-  const deviation: Deviation = {
-    id: 'd-1', jornadaId: 'j-1', siteId: site.id, type: 'LLEGADA_TARDE', status: 'MOTIVO_PENDIENTE', category: null,
-    occurredAt: '2026-11-09T11:20:00Z', createdAt: '2026-11-09T11:20:00Z', pushEligible: true
-  }
-  const motiveProps = (overrides: Partial<ComponentProps<typeof MotivePanel>> = {}): ComponentProps<typeof MotivePanel> => ({
-    loading: false, loadFailed: false, pendingError: '', retrying: false, truncated: false, limit: 100, items: [], notice: '', jornadas: [], sites: [site],
-    values: {}, errors: {}, savingId: '', editingIds: [], deviations: [], onChange: vi.fn(), onSubmit: vi.fn(), onCancel: vi.fn(), onRetry: vi.fn(), onEdit: vi.fn(), ...overrides
-  })
-
   it('mientras la marca se envía, su región está en el lugar de la confirmación antes que su texto', () => {
     const feedback = <MarkFeedback feedbackRef={createRef()} sending error="" showRefresh={false} onRefresh={vi.fn()} confirmation={null} />
 
@@ -152,5 +152,44 @@ describe('líneas de espera y cargas fallidas', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('No pudimos cargar lo que tenés para explicar. Servidor no disponible.')
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
     expect(onRetry).toHaveBeenCalledTimes(1)
+  })
+})
+
+// Slice F2a (design system 4.3 and 4.7): each error of the motive is read with its field and marks it; it is not an alert of
+// its own. What the server answers is one message inside the form, above its buttons.
+describe('los errores del motivo van con su campo', () => {
+  const isBefore = (first: Element, second: Element) => Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
+
+  it('el tipo y el texto muestran su mensaje a la vez, cada uno unido a su campo', () => {
+    render(<MotivePanel {...motiveProps({ items: [deviation], errors: { [deviation.id]: { category: 'Elegí una de las opciones.', text: 'Contá en pocas palabras qué pasó.' } } })} />)
+
+    const group = screen.getByRole('group', { name: '¿Qué tipo de motivo es?' })
+    expect(group).toHaveAttribute('aria-invalid', 'true')
+    expect(group).toHaveAccessibleDescription('Elegí una de las opciones.')
+    const text = screen.getByLabelText('Contá qué pasó')
+    expect(text).toHaveAttribute('aria-invalid', 'true')
+    // The example stays the hint, read before the error.
+    expect(text).toHaveAccessibleDescription('Por ejemplo: hubo paro de colectivos. Contá en pocas palabras qué pasó.')
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('lo que responde el servidor va dentro del formulario, arriba del botón, sin marcar ningún campo', () => {
+    render(<MotivePanel {...motiveProps({ items: [deviation], errors: { [deviation.id]: { form: 'Tu encargado ya lo revisó: ya no se puede cambiar.' } } })} />)
+
+    const button = screen.getByRole('button', { name: 'Enviar motivo' })
+    const alert = within(button.closest('form')!).getByRole('alert')
+    expect(alert).toHaveTextContent('Tu encargado ya lo revisó: ya no se puede cambiar.')
+    expect(isBefore(alert, button)).toBe(true)
+    expect(screen.getByRole('group', { name: '¿Qué tipo de motivo es?' })).not.toHaveAttribute('aria-invalid')
+    expect(screen.getByLabelText('Contá qué pasó')).not.toHaveAttribute('aria-invalid')
+  })
+
+  it('el botón de enviar solo se apaga mientras se envía', () => {
+    const { unmount } = render(<MotivePanel {...motiveProps({ items: [deviation] })} />)
+    expect(screen.getByRole('button', { name: 'Enviar motivo' })).toBeEnabled()
+    unmount()
+
+    render(<MotivePanel {...motiveProps({ items: [deviation], savingId: deviation.id })} />)
+    expect(screen.getByRole('button', { name: 'Enviando…' })).toBeDisabled()
   })
 })

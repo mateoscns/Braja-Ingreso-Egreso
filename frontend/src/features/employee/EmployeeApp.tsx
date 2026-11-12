@@ -13,7 +13,7 @@ import { LOCATION_NOTICE, locationNoticeSeen, rememberLocationNotice, skipNotice
 import { noteMarkInterrupted } from '../auth/interruptedMark'
 import {
   DayHeading, DayMarksPanel, JourneyPicker, MarkFeedback, MotivePanel, NowBlock, OtherDayPanel,
-  type MarkConfirmation, type MarkStep, type MotiveError, type MotiveValues
+  type MarkConfirmation, type MarkStep, type MotiveErrors, type MotiveValues
 } from './EmployeeViews'
 
 /** A failed mark whose result is unknown: if a new mark of that action shows up on refresh, it did arrive. */
@@ -57,7 +57,7 @@ export function EmployeeApp() {
   const [failedMark, setFailedMark] = useState<FailedMark | null>(null)
   const [step, setStep] = useState<MarkStep | null>(null)
   const [motiveValues, setMotiveValues] = useState<Record<string, MotiveValues>>({})
-  const [motiveErrors, setMotiveErrors] = useState<Record<string, MotiveError>>({})
+  const [motiveErrors, setMotiveErrors] = useState<Record<string, MotiveErrors>>({})
   const [motiveNotice, setMotiveNotice] = useState('')
   const [savingMotive, setSavingMotive] = useState('')
   const [markFailed, setMarkFailed] = useState(false)
@@ -234,18 +234,31 @@ export function EmployeeApp() {
     if (failed && jornada) showArrivedMark(jornada, failed)
   }
 
-  function clearMotiveError(id: string) {
-    setMotiveErrors((current) => { if (!current[id]) return current; const next = { ...current }; delete next[id]; return next })
+  /** Removes the given errors of one motive form (all of them by default); the form's entry goes once it has none left. */
+  function clearMotiveError(id: string, fields: (keyof MotiveErrors)[] = ['category', 'text', 'form']) {
+    setMotiveErrors((current) => {
+      const entry = current[id]
+      if (!entry || !fields.some((field) => entry[field])) return current
+      const rest = { ...entry }
+      for (const field of fields) delete rest[field]
+      const next = { ...current }
+      if (rest.category || rest.text || rest.form) next[id] = rest; else delete next[id]
+      return next
+    })
   }
   function updateMotive(id: string, patch: Partial<MotiveValues>) {
     setMotiveValues((current) => ({ ...current, [id]: { category: current[id]?.category ?? '', text: current[id]?.text ?? '', ...patch } }))
-    clearMotiveError(id)
+    // Editing a field removes its own error and the server's answer; the other field keeps its error until the next submit.
+    clearMotiveError(id, [...(Object.keys(patch) as (keyof MotiveValues)[]), 'form'])
   }
   async function saveMotive(event: FormEvent, item: Deviation) {
     event.preventDefault()
     const values = motiveValues[item.id] ?? { category: '', text: '' }
-    if (!values.category) { setMotiveErrors((current) => ({ ...current, [item.id]: { field: 'category', message: 'Elegí una de las opciones.' } })); return }
-    if (!values.text.trim()) { setMotiveErrors((current) => ({ ...current, [item.id]: { field: 'text', message: 'Contá en pocas palabras qué pasó.' } })); return }
+    // Every field is checked at once, so both errors show together (design system 4.7).
+    const found: MotiveErrors = {}
+    if (!values.category) found.category = 'Elegí una de las opciones.'
+    if (!values.text.trim()) found.text = 'Contá en pocas palabras qué pasó.'
+    if (found.category || found.text) { setMotiveErrors((current) => ({ ...current, [item.id]: found })); return }
     setSavingMotive(item.id); setMotiveNotice(''); clearMotiveError(item.id)
     try {
       const updated = await api.put<Deviation>(`/deviations/${encodeURIComponent(item.id)}/motive`, { category: values.category, text: values.text.trim() })
@@ -256,7 +269,7 @@ export function EmployeeApp() {
       setMotiveNotice('Lo enviamos. Tu encargado lo va a revisar.')
     } catch (reason) {
       // What the employee typed stays in the card.
-      setMotiveErrors((current) => ({ ...current, [item.id]: { field: 'form', message: motiveFailureMessage(reason) } }))
+      setMotiveErrors((current) => ({ ...current, [item.id]: { form: motiveFailureMessage(reason) } }))
     }
     finally { setSavingMotive('') }
   }
