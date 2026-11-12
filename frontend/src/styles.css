@@ -104,10 +104,8 @@
   --text-tertiary: #5c6d62;
   --page: #f4f7f5;
   --focus: #1d513c;
-  --tap-target: 44px;
   --radius-control: 9px;
   --green: #12372a;
-  --green-2: #1d513c;
   --green-3: #e7f1e9;
   --muted: var(--text-secondary);
   --line: #e4e9e5;
@@ -229,11 +227,6 @@ fieldset.field > .message, .site-map-panel > .message { margin: 0; }
 .site-location-coordinates { color: var(--text); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 /* The link stands alone on its line, so it is a whole target like any control. */
 .site-location-selection > a { display: inline-flex; align-items: center; min-height: var(--target); }
-/* The coordinate fields and the fold of «Horarios» (ScheduleEditor) still use these names; slice E5 moves them to the system. */
-.site-location-coordinate-inputs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-@media (max-width: 640px) { .site-location-coordinate-inputs { grid-template-columns: 1fr; } }
-.site-location-manual > summary { display: inline-flex; align-items: center; min-height: var(--tap-target); color: var(--green-2); font-size: .875rem; font-weight: 650; cursor: pointer; }
-.site-location-manual[open] > summary { margin-bottom: 8px; }
 /* D-20261109-01, the map picker: a part of the form in its flow, no box. The search with its button, the answers, the hint, the
    map and «Confirmar ubicación» go one under the other; on a phone of 640 px the map and that button fit in one screenful. */
 .site-map-panel { display: grid; gap: var(--space-3); min-width: 0; }
@@ -339,8 +332,8 @@ fieldset.field > .message, .site-map-panel > .message { margin: 0; }
 .button-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); gap: var(--space-3); }
 
 /* ===== Option tiles ===== */
-/* One of a few options that need a line of explanation: a toggle button (the shift of a day, the kind of schedule) or a label
-   around a radio (the kind of motive). A control, so it has the edge and the corners of one, and it is 56 px tall. The chosen
+/* One of a few options that need a line of explanation: a toggle button (the shift of a day) or a label around a radio (the
+   kind of motive, the kind of schedule). A control, so it has the edge and the corners of one, and it is 56 px tall. The chosen
    one takes the rule of the chosen button, above. The old name .journey-option is this tile until the markup leaves it (slice
    H1). A company to enter with is a tile too (slice D4, below). */
 .choice, .journey-option {
@@ -585,8 +578,8 @@ html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-height) + env(safe
 .subsection-head > h3 { margin: 0; }
 
 /* ===== Lists, checks, tables, schedules, status chips ===== */
-/* The short lists (locals, steps, assignments, days skipped by a load) and the schedules: rows with a hairline, as above. */
-.simple-list, .template-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+/* The short lists (the parts of «Configuración», the steps of «Primeros pasos»): rows with a hairline, as above. */
+.simple-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
 .simple-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: var(--border-width) solid var(--rule); }
 /* Inside a message (the days a load skipped) the last record needs no line: the message ends there. */
 .message .record:last-child { border-bottom: 0; }
@@ -597,9 +590,8 @@ html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-height) + env(safe
 .row-avatar { width: 36px; height: 36px; display: grid; place-items: center; color: #477253; border-radius: 10px; background: #eff6ef; }
 /* A checkbox or a radio. The box is 24 px, the floor of WCAG 2.5.8, and it is never the target: the label around it is, as tall
    and as wide as any control. The padding of the label centres one line of text on the box and lets a long text wrap under its
-   first line, with the box still on that line. The old way to write a check shares the rule until slice H1: the list of checks
-   of «Horarios». */
-.check, .check-grid label {
+   first line, with the box still on that line. */
+.check {
   display: inline-flex; align-items: flex-start; gap: var(--space-2);
   min-width: var(--target); min-height: var(--target); padding: calc((var(--target) - var(--target-floor)) / 2) 0;
   color: var(--text); cursor: pointer;
@@ -607,8 +599,8 @@ html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-height) + env(safe
 /* The box takes the cursor of its label: a hand, or the "not allowed" sign when it is disabled. */
 input[type=checkbox], input[type=radio] { flex: 0 0 auto; width: var(--target-floor); height: var(--target-floor); margin: 0; accent-color: var(--brand); cursor: inherit; }
 /* Disabled: the box as the browser draws it, and its text muted. */
-.check:has(input:disabled), .check-grid label:has(input:disabled) { color: var(--text-muted); cursor: not-allowed; }
-.check-list, .check-grid { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); }
+.check:has(input:disabled) { color: var(--text-muted); cursor: not-allowed; }
+.check-list { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); }
 /* A table is the form of a list of records from 768 px: a sheet with the same fields in the same order. Column heads in
    14 px bold muted words (sentence case: the markup writes them that way), an edge line under them, a hairline under every
    row. A table wider than its room scrolls inside this box, never the page. */
@@ -620,27 +612,23 @@ td { padding: var(--space-2) var(--space-3) var(--space-2) 0; color: var(--text)
 td:first-child:not([colspan]) { font-weight: var(--font-weight-heavy); }
 /* The last cell holds the row's buttons; they wrap under each other rather than widen the table. */
 td .button-row { gap: var(--space-2); }
-/* A schedule is a record too: its name and its blocks, with «Cambiar horario» at the right (under them on a phone). */
-.template-card { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: var(--border-width) solid var(--rule); }
-.template-card p { color: var(--text-muted); margin: var(--space-1) 0; font-size: var(--font-size-body); }
-.template-card small { color: var(--text-muted); font-size: var(--font-size-body); }
-.template-title { display: flex; align-items: center; gap: 8px; }
-.form-subhead { display: flex; align-items: center; justify-content: space-between; color: var(--text-secondary); font-size: .875rem; }
-.form-subhead span { color: var(--text-secondary); font-size: .875rem; }
-.block-editor { margin: 0; min-width: 0; border: 1px solid #e5ebe6; border-radius: 10px; padding: 11px; }
-.block-editor legend { padding: 0 5px; color: var(--text-secondary); font-size: .875rem; font-weight: 700; }
-.block-fields { display: grid; grid-template-columns: 1fr .9fr 1fr .9fr auto; align-items: end; gap: 8px; }
-.remove-block { margin-bottom: 1px; }
-/* Horarios (issue #103): tramos as "Entra a las · Sale a las · Quitar", chips for the preview, edit in place in the card. */
-.block-fields.block-fields-tramo { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
-.schedule-chips { display: flex; flex-wrap: wrap; gap: 7px; margin: 7px 0 4px; padding: 0; list-style: none; }
-.template-card-open { flex-wrap: wrap; }
-.template-card-slot { flex-basis: 100%; min-width: 0; }
-.template-card-slot > h3 { margin: 0; font-size: 1rem; }
-@media (max-width: 520px) {
-  .block-fields.block-fields-tramo { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .block-fields-tramo .remove-block { grid-column: 1 / -1; justify-self: start; }
-}
+/* ===== «Horarios» (slice E5) ===== */
+/* A schedule in words, in a record or as the preview of its form: its tramos in the text colour, then its pause limits, muted.
+   Text that wraps, not chips (principle 3): the parts are told apart by the space between them and by their colour. */
+.schedule-parts { display: flex; flex-wrap: wrap; gap: 0 var(--space-4); margin: 0; padding: 0; list-style: none; color: var(--text-muted); }
+.schedule-time { color: var(--text); font-weight: var(--font-weight-strong); font-variant-numeric: tabular-nums; }
+/* Each tramo is a group of the form named by its legend; a hairline separates it from the one above. Its two times go side by
+   side at every width, as a range is read («de 09:00 a 13:00»); «Quitar este tramo» takes the line under them. */
+.tramo + .tramo { padding-top: var(--space-4); border-top: var(--border-width) solid var(--rule); }
+/* A legend sits on the top edge of its fieldset, so the hairline would run through «Tramo 2»; floated, it is an ordinary line
+   under the edge. */
+.tramo > legend { float: left; width: 100%; }
+.tramo-fields { clear: both; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: var(--space-2) var(--space-4); }
+.tramo-fields > .button-link { grid-column: 1 / -1; justify-self: start; }
+/* The step after creating a horario, in place of the create form: what was saved, the lead and the form, spaced by one gap as
+   the same step is under a record (.inline-form). */
+.schedule-step { display: grid; gap: var(--space-4); min-width: 0; }
+.schedule-step > .message { margin: 0; }
 /* A status tag (StatusTag in app/ui.tsx): the state of a thing in a word, after its icon. Shape and word first, colour last. A
    border and 4 px corners, no pointer and no hover: it is never taken for a button (8 px corners). Plain text in the tab order. */
 .status-chip {
@@ -708,8 +696,6 @@ td .button-row { gap: var(--space-2); }
 /* ===== Employee screen ===== */
 /* One column of 40 rem at most: the marks, the schedule and the day are read top to bottom, also on a tablet. */
 .employee-main { width: min(100% - 2 * var(--gutter), 40rem); margin: 0 auto; padding: var(--space-4) 0 var(--space-7); }
-/* The chips of a schedule in the ADMIN's «Horarios» still use this name (slice E5). */
-.schedule-block { display: inline-flex; border: 1px solid #e3ebe4; border-radius: 6px; padding: 4px 7px; color: #516259; background: #fbfdfb; font-size: 1rem; }
 /* The day sheet (design system 4.14): four fixed rows, the name at the left and the time large, so what is done and what is
    missing reads at a glance. A hairline above each row and one under the last; the cells undo the column heads of `th`. */
 .day-sheet { border-bottom: var(--border-width) solid var(--rule); }
@@ -795,8 +781,6 @@ td .button-row { gap: var(--space-2); }
 
 @media (max-width: 1050px) {
   .content-grid { grid-template-columns: 1fr; }
-  .block-fields { grid-template-columns: 1fr 1fr; }
-  .remove-block { justify-self: start; }
 }
 @media (max-width: 760px) {
   /* The bottom padding is the room of the navigation bar, above. */
@@ -808,10 +792,6 @@ td .button-row { gap: var(--space-2); }
   .page-title-row { flex-wrap: wrap; }
   .form-grid { grid-template-columns: 1fr; }
   .field-wide { grid-column: auto; }
-  /* Horarios: the chips get the whole width and "Cambiar horario" goes under them. */
-  .template-card { flex-wrap: wrap; }
-  .template-card > div:first-child { flex: 1 1 100%; min-width: 0; }
-  .block-fields { grid-template-columns: 1fr 1fr; }
 }
 
 /* ===== Reduced motion and forced colours ===== */

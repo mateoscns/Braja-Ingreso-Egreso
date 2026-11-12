@@ -140,15 +140,18 @@ describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {
   })
 
   // The first half changed in slice D1: the marks of the employee go one under the other in a single column at every width, so
-  // each one keeps the whole row (2026-11-09: one extra action took half the row).
-  it('las marcas del empleado van en una sola columna y la tarjeta de horario baja su botón en el celular', () => {
+  // each one keeps the whole row (2026-11-09: one extra action took half the row). The second half was replaced in slice E5: a
+  // schedule is a record, and the actions of a record wrap under it at every width, with no breakpoint of their own.
+  it('las marcas del empleado van en una sola columna y los botones de un registro bajan solos cuando no entran', () => {
     expect(rule('.now-actions')).toMatch(/display:\s*grid/)
     expect(rule('.now-actions')).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/)
     // No breakpoint splits them into columns again.
     const columns = allRules().filter(({ selectors }) => selectors.some((selector) => selector.includes('.now-actions')))
       .flatMap(({ declarations }) => [...declarations.matchAll(/grid-template-columns:\s*([^;]+)/g)].map((match) => match[1].trim()))
     expect(columns).toEqual(['minmax(0, 1fr)'])
-    expect(rule('.template-card', media(520))).toMatch(/flex-wrap:\s*wrap/)
+    expect(rule('.record-actions')).toMatch(/flex-wrap:\s*wrap/)
+    expect(selectorsOf(rulesNaming('record-actions', 'template-card').filter(({ declarations }) => /flex-wrap/.test(declarations))))
+      .toEqual(['.record-actions'])
   })
 
   // Replaced in slice N4 (WCAG 2.4.11): the content ends above the bar and the scroll to a focused control leaves the bar clear,
@@ -280,10 +283,12 @@ const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui',
 // 10 → 9, old names 21 → 19.
 // Lowered in slice E4 (the boxes of the location and of the map went, the map frame and its zoom buttons take the tokens and its
 // height no longer reads --topbar-height, which is deleted): colours 10 → 6, font sizes 9 → 7, old names 19 → 7.
-const COLOR_LITERAL_CEILING = 6
-const UNTOKENED_FONT_SIZE_CEILING = 7
+// Lowered in slice E5 (the schedule cards, their chips, the boxed tramos, the small subhead and the fold of «Horarios» went):
+// colours 6 → 2, font sizes 7 → 1, old names 7 → 2.
+const COLOR_LITERAL_CEILING = 2
+const UNTOKENED_FONT_SIZE_CEILING = 1
 const BOX_SHADOW_CEILING = 2
-const LEGACY_TOKEN_USE_CEILING = 7
+const LEGACY_TOKEN_USE_CEILING = 2
 
 // The old names with the values they had before the token block. A name is deleted from the stylesheet once nothing uses it
 // and never gets a new value in the meantime: a half-migrated rule must look exactly as it did.
@@ -670,8 +675,9 @@ describe('campos, casillas y opciones: una sola forma', () => {
     expect(label.declarations).toMatch(/cursor:\s*pointer/)
     // Slice E6: the checks of the employees table (.inline-checks, the bare «Activo» in a cell) are .check now.
     // Slice E4: the confirmation of a local's point is a .check too.
-    expect(label.selectors).toEqual(['.check', '.check-grid label'])
-    expect(ruleListing('.check-list').selectors).toEqual(['.check-list', '.check-grid'])
+    // Slice E5: the people of «Horarios» are .check in a .check-list, so the old names left the rules.
+    expect(label.selectors).toEqual(['.check'])
+    expect(ruleListing('.check-list').selectors).toEqual(['.check-list'])
   })
 
   it('una opción elegida se distingue igual que un botón elegido: comparten la regla del borde de la marca (1.4.1)', () => {
@@ -867,12 +873,13 @@ describe('mensajes, etiquetas de estado, secciones, plegables, vacío y carga', 
 // The records of a list (days, marks, people, locals, schedules, results of a search) keep their old class names until each
 // screen slice renames them to record-*; what they look like is decided here.
 const HAIRLINE = /border-bottom:\s*var\(--border-width\) solid var\(--rule\)/
-const RECORD_CLASSES = ['history-list', 'history-card', 'history-head', 'history-items', 'simple-list', 'simple-row', 'template-list', 'template-card']
+// Slice E5: a schedule is a .record, so template-list and template-card left the list with their rules.
+const RECORD_CLASSES = ['history-list', 'history-card', 'history-head', 'history-items', 'simple-list', 'simple-row']
 
 describe('listas de registros y tablas: filas separadas por una línea, nunca tarjetas', () => {
   it('cada registro es una fila con una línea fina debajo, sin recuadro, esquinas, fondo ni sombra (principio 3)', () => {
     // Slice E4: a local is a .record, so '.simple-list > article' left the list with its rule.
-    for (const record of ['.history-card', '.template-card', '.simple-row']) {
+    for (const record of ['.history-card', '.simple-row']) {
       expect(rule(record), record).toMatch(HAIRLINE)
       expect(rule(record), record).toMatch(/padding:\s*var\(--space-3\) 0/)
     }
@@ -882,7 +889,7 @@ describe('listas de registros y tablas: filas separadas por una línea, nunca ta
   })
 
   it('las filas van una debajo de la otra sin hueco: las separa su línea, no el espacio entre tarjetas', () => {
-    for (const list of ['.history-list', '.simple-list', '.template-list']) expect(ruleListing(list).declarations, list).not.toMatch(/(?<![\w-])gap\s*:/)
+    for (const list of ['.history-list', '.simple-list']) expect(ruleListing(list).declarations, list).not.toMatch(/(?<![\w-])gap\s*:/)
     // Slice E1: the cases of the inbox are rows too, with no space between them. The employee's motives are records since D3.
     expect(rule('.case-list')).not.toMatch(/(?<![\w-])gap\s*:/)
   })
@@ -903,7 +910,7 @@ describe('listas de registros y tablas: filas separadas por una línea, nunca ta
   it('el nombre de un registro va en negrita y sus datos en 16 px del color secundario', () => {
     expect(rule('.history-head > strong:first-child')).toMatch(/font-size:\s*var\(--font-size-body-lg\)/)
     expect(rule('.history-head > strong:first-child')).toMatch(/font-weight:\s*var\(--font-weight-heavy\)/)
-    for (const detail of ['.history-items small', '.simple-row small', '.template-card small']) {
+    for (const detail of ['.history-items small', '.simple-row small']) {
       expect(rule(detail), detail).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
       expect(rule(detail), detail).toMatch(/font-size:\s*var\(--font-size-body\)/)
     }
@@ -1287,5 +1294,50 @@ describe('«Locales»: la lista, el formulario de ubicación y el marco del mapa
     expect(allSelectors().filter((selector) => gone.test(selector))).toEqual([])
     // No narrow breakpoint resizes the map: the base rule is the phone's.
     expect(media(760)).not.toMatch(/site-map/)
+  })
+})
+
+// Slice E5: «Horarios» is built with the pieces of the system. A schedule is a record whose parts are text, not chips; the form
+// groups each tramo under its legend, with a hairline between tramos and its two times side by side at every width.
+describe('«Horarios»: los horarios, sus tramos y su resumen con las piezas del sistema', () => {
+  const value = (declarations: string, property: string) => new RegExp(`(?:^|[;\\s])${property}:\\s*([^;]+)`).exec(declarations)?.[1].trim()
+
+  it('el resumen de un horario es texto: las horas en el color del texto y las pausas apagadas, sin recuadros', () => {
+    const parts = rule('.schedule-parts')
+    const time = rule('.schedule-time')
+
+    expect(value(parts, 'list-style')).toBe('none')
+    expect(value(parts, 'color')).toBe('var(--text-muted)')
+    expect(value(parts, 'flex-wrap')).toBe('wrap')
+    expect(value(time, 'color')).toBe('var(--text)')
+    expect(value(time, 'font-weight')).toBe('var(--font-weight-strong)')
+    expect(time).toMatch(/font-variant-numeric:\s*tabular-nums/)
+    expect(selectorsOf(rulesNaming('schedule-parts', 'schedule-time')
+      .filter(({ declarations }) => /(?<![\w-])(?:border|border-radius|background|box-shadow)\s*:/.test(declarations)))).toEqual([])
+  })
+
+  it('cada tramo va separado del anterior por una línea fina y sus dos horas van lado a lado en todo ancho', () => {
+    expect(value(rule('.tramo + .tramo'), 'border-top')).toBe('var(--border-width) solid var(--rule)')
+    expect(value(rule('.tramo-fields'), 'grid-template-columns')).toBe('repeat(2, minmax(0, 1fr))')
+    // The boxes of the two times stay level when one of them has a hint above it («Sale al día siguiente»).
+    expect(value(rule('.tramo-fields'), 'align-items')).toBe('end')
+    expect(selectorsOf(allRules().filter(({ selectors, declarations }) => selectors.some((selector) => selector.includes('.tramo-fields'))
+      && /grid-template-columns/.test(declarations)))).toEqual(['.tramo-fields'])
+  })
+
+  it('el paso de asignar personas separa sus partes con el espacio del sistema, en la sección como debajo del horario', () => {
+    expect(value(rule('.schedule-step'), 'gap')).toBe('var(--space-4)')
+    expect(value(rule('.schedule-step > .message'), 'margin')).toBe('0')
+    expect(value(rule('.inline-form > .message'), 'margin')).toBe('0')
+    // The legend of a tramo is an ordinary line under the hairline, not a gap cut into it.
+    expect(value(rule('.tramo > legend'), 'float')).toBe('left')
+  })
+
+  it('las reglas propias de las tarjetas, los tramos, las fichas y las casillas viejas de «Horarios» se fueron con su marcado', () => {
+    const gone = /\.(?:template-list|template-card|template-card-open|template-card-slot|template-title|form-subhead|block-editor|block-fields|block-fields-tramo|remove-block|schedule-chips|schedule-block|check-grid|site-location-manual|site-location-coordinate-inputs)(?![\w-])/
+
+    expect(allSelectors().filter((selector) => gone.test(selector))).toEqual([])
+    // Its only rule was the coordinate fields of the fold: the breakpoint went with it.
+    expect(css).not.toMatch(/@media \(max-width: 640px\)/)
   })
 })
