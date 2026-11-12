@@ -130,6 +130,66 @@ describe('SitesViewRender location picker', () => {
   })
 })
 
+/**
+ * Watches the document and tells whether a status region entered it empty and got its text afterwards: screen readers announce
+ * a change inside a region they already know, and often say nothing for one that arrives with its text (WCAG 4.1.3, slice F3).
+ */
+function watchStatusRegions() {
+  const records: MutationRecord[] = []
+  const observer = new MutationObserver((batch) => { records.push(...batch) })
+  observer.observe(document.body, { childList: true, subtree: true })
+  return {
+    enteredEmpty(region: Element) {
+      records.push(...observer.takeRecords())
+      observer.disconnect()
+      const entered = records.findIndex((record) => [...record.addedNodes].some((node) => node.contains(region)))
+      return entered >= 0 && records.slice(entered + 1).some((record) => record.addedNodes.length > 0 && region.contains(record.target))
+    }
+  }
+}
+
+describe('SitesViewRender location messages', () => {
+  it('announces the search for the device location in the create form: its region is there before its text', () => {
+    const watch = watchStatusRegions()
+    renderSitesView(null, true)
+
+    const status = screen.getByRole('status')
+    expect(status).toHaveTextContent('Buscando la ubicación del dispositivo…')
+    expect(status).toHaveClass('site-location-message', 'site-location-message-loading')
+    expect(watch.enteredEmpty(status)).toBe(true)
+  })
+
+  it('announces the search for the device location in the edit form: its region is there before its text', () => {
+    const site: Site = { id: 'site-1', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: null, longitude: null, geofenceRadiusMeters: 100 }
+    const locationEdit: SiteLocationEditDraft = {
+      siteId: site.id, latitude: '', longitude: '', geofenceRadiusMeters: '100', locationStatus: 'loading',
+      locationMessage: 'Buscando la ubicación actual del dispositivo…', locationErrorKind: null, locationAccuracyMeters: null, locationConfirmed: false, locationSource: null
+    }
+    const watch = watchStatusRegions()
+    renderSitesView(null, false, vi.fn(), { sites: [site], locationEdit })
+
+    const status = within(screen.getByRole('form', { name: 'Cambiar ubicación de Local Centro' })).getByRole('status')
+    expect(status).toHaveTextContent('Buscando la ubicación actual del dispositivo…')
+    expect(status).toHaveClass('site-location-message', 'site-location-message-loading')
+    expect(watch.enteredEmpty(status)).toBe(true)
+  })
+
+  it('keeps a failed capture an alert, with its title, from the moment it appears', () => {
+    const site: Site = { id: 'site-1', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: null, longitude: null, geofenceRadiusMeters: 100 }
+    const locationEdit: SiteLocationEditDraft = {
+      siteId: site.id, latitude: '', longitude: '', geofenceRadiusMeters: '100', locationStatus: 'error',
+      locationMessage: 'No se pudo obtener la ubicación. Volvé a intentar.', locationErrorKind: 'permission-denied', locationAccuracyMeters: null, locationConfirmed: false, locationSource: null
+    }
+    renderSitesView(null, false, vi.fn(), { sites: [site], locationEdit })
+
+    const alert = within(screen.getByRole('form', { name: 'Cambiar ubicación de Local Centro' })).getByRole('alert')
+    expect(alert).toHaveClass('site-location-message', 'site-location-message-error')
+    expect(alert).toHaveAttribute('aria-live', 'assertive')
+    expect(alert).toHaveTextContent('No se pudo obtener la ubicación. Volvé a intentar.')
+    expect(within(screen.getByRole('form', { name: 'Cambiar ubicación de Local Centro' })).queryByRole('status')).not.toBeInTheDocument()
+  })
+})
+
 describe('SitesView location administration API', () => {
   it('creates a site with the default radius and no coordinates when GPS is skipped', async () => {
     const created: Site = { id: 'site-new', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: null, longitude: null, geofenceRadiusMeters: 100 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { AppHeader, CompanySwitcher, Loading, PageMessage, Panel } from '../../app/ui'
+import { AppHeader, CompanySwitcher, LoadFailure, Loading, Panel } from '../../app/ui'
 import { useSession } from '../../app/session'
 import { ApiError, api } from '../../shared/api/client'
 import type { Deviation, Jornada, Mark, Site } from '../../shared/api/types'
@@ -281,7 +281,7 @@ export function EmployeeApp() {
         onSelect={(id) => { setSelectedId(id); setPendingAttempt(null); setConfirmation(null); setStep(null) }} />}
       <MarkFeedback feedbackRef={feedbackRef} sending={busy} error={markError} showRefresh={markFailed && !loading} onRefresh={() => void refreshAfterUnknown()} confirmation={confirmation} timeZone={zone} />
       {loading ? <Loading label="Cargando tu día…" />
-        : loadFailed ? <Panel title="No pudimos cargar tu día"><PageMessage kind="error">{loadError}</PageMessage><button type="button" className="button button-primary" onClick={() => void load()}>Reintentar</button></Panel>
+        : loadFailed ? <Panel title="No pudimos cargar tu día"><LoadFailure message={loadError} onRetry={() => void load()} /></Panel>
         : <>
           <NowBlock sentence={sentence} jornada={selected} site={selectedSite} options={options} busy={busy} step={step} stepRef={stepRef}
             onMark={(action) => startMark(action)} onConfirmStep={confirmStep} onCancelStep={() => setStep(null)} />

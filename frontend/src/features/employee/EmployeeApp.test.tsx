@@ -5,6 +5,7 @@ import type { Deviation, Jornada, Site } from '../../shared/api/types'
 import { ApiError, NetworkError, TimeoutError } from '../../shared/api/client'
 import { forgetLocationNotice, rememberLocationNotice } from './locationNotice'
 import { clearMarkInterrupted, markWasInterrupted } from '../auth/interruptedMark'
+import { LoadFailure } from '../../app/ui'
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
@@ -30,6 +31,11 @@ vi.mock('../../shared/api/client', async (importOriginal) => ({
 vi.mock('../../app/session', () => ({ useSession: mocks.useSession }))
 vi.mock('../../device/pwa/InstallControl', () => ({ InstallControl: () => null }))
 vi.mock('./markFlow', () => ({ createMarkAttempt: mocks.createMarkAttempt, submitMark: mocks.submitMark }))
+// The real LoadFailure, watched: a failed load must go through it (slice F3).
+vi.mock('../../app/ui', async (importOriginal) => {
+  const ui = await importOriginal<typeof import('../../app/ui')>()
+  return { ...ui, LoadFailure: vi.fn(ui.LoadFailure) }
+})
 
 const timeZone = 'America/Argentina/Buenos_Aires'
 /** 11:00 in Buenos Aires: two hours after the 09:00 entry and six before the 17:00 end of the shift. */
@@ -414,6 +420,28 @@ describe('EmployeeApp', () => {
     expect(screen.getByRole('heading', { name: 'No pudimos cargar tu día' })).toBeInTheDocument()
     expect(screen.queryByText(/no tenés un día de trabajo cargado/)).not.toBeInTheDocument()
 
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
+
+    expect(await screen.findAllByRole('button', { name: /Mañana/ })).toHaveLength(2)
+    expect(siteRequests).toBe(2)
+  })
+
+  it('un día que no se pudo cargar usa la carga fallida compartida, bajo su título, y su Reintentar vuelve a pedir el día', async () => {
+    let siteRequests = 0
+    mocks.apiGet.mockImplementation((path: string) => {
+      if (path === '/sites') {
+        siteRequests += 1
+        return siteRequests === 1 ? Promise.reject(new Error('Servidor no disponible.')) : Promise.resolve(sites)
+      }
+      if (path.startsWith('/jornadas/mine?')) return Promise.resolve(jornadas)
+      if (path.startsWith('/deviations?')) return Promise.resolve([])
+      throw new Error(`GET inesperado: ${path}`)
+    })
+    render(<EmployeeApp />)
+
+    const alert = await screen.findByRole('alert')
+    expect(vi.mocked(LoadFailure).mock.lastCall?.[0]).toMatchObject({ message: 'Servidor no disponible.' })
+    expect(screen.getByRole('region', { name: 'No pudimos cargar tu día' })).toContainElement(alert)
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
 
     expect(await screen.findAllByRole('button', { name: /Mañana/ })).toHaveLength(2)

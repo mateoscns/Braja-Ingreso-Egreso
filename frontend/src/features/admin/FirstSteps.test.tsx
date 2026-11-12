@@ -1,6 +1,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { LoadFailure } from '../../app/ui'
 import { AdminApp } from './AdminApp'
+import { FirstStepsRender } from './FirstSteps'
 
 const apiMocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn() }))
 vi.mock('../../app/session', () => ({
@@ -17,6 +19,11 @@ vi.mock('../../device/push/useAdminPush', () => ({
   })
 }))
 vi.mock('../../device/pwa/InstallControl', () => ({ InstallControl: () => null }))
+// The real LoadFailure, watched: a failed load must go through it (slice F3).
+vi.mock('../../app/ui', async (importOriginal) => {
+  const ui = await importOriginal<typeof import('../../app/ui')>()
+  return { ...ui, LoadFailure: vi.fn(ui.LoadFailure) }
+})
 vi.mock('../../shared/api/client', () => ({
   api: apiMocks,
   queryString: (values: Record<string, string | number | null | undefined>) => {
@@ -117,6 +124,23 @@ describe('Primeros pasos', () => {
     await act(async () => { release([]) })
     expect(screen.getByRole('heading', { name: 'Equipo' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Primeros pasos' })).not.toBeInTheDocument()
+  })
+})
+
+describe('Primeros pasos sin datos', () => {
+  // Slice F3: a failed load goes through the shared LoadFailure, with its own «Reintentar», off while the review runs again.
+  it('si no pudo revisar qué falta, lo dice con la carga fallida compartida y su Reintentar vuelve a revisar', () => {
+    const onRetry = vi.fn()
+    const props = { steps: null, error: 'No pudimos revisar qué falta.', readyCount: 0, onGo: vi.fn(), onRetry }
+    const { rerender } = render(<FirstStepsRender {...props} loading={false} />)
+
+    expect(vi.mocked(LoadFailure).mock.lastCall?.[0]).toMatchObject({ message: 'No pudimos revisar qué falta.', disabled: false })
+    expect(screen.getByRole('alert')).toHaveTextContent('No pudimos revisar qué falta.')
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
+    expect(onRetry).toHaveBeenCalledTimes(1)
+    rerender(<FirstStepsRender {...props} loading />)
+    expect(screen.getByRole('button', { name: 'Reintentar' })).toBeDisabled()
   })
 })
 
