@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Icon, type IconName } from './icons'
-import { AppHeader, Brand, CompanySwitcher, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel, Status, StatusTag } from './ui'
+import { AppHeader, Brand, CompanySwitcher, Fieldset, FieldsSummary, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel, Status, StatusTag } from './ui'
 
 afterEach(cleanup)
 
@@ -123,6 +123,38 @@ describe('componentes compartidos de interfaz', () => {
     const control = screen.getByLabelText('Fecha')
     expect(control).toHaveAttribute('aria-describedby', 'ayuda-externa')
     expect(control).toHaveAttribute('aria-invalid', 'false')
+  })
+
+  // Slice F2b: a group of checks or choices is one field too, with its hint first and its error last, both read with the group.
+  it('un grupo de controles es un campo: leyenda, ayuda, controles y error, que lo marca inválido', () => {
+    const { rerender } = render(<Fieldset legend="Locales donde trabaja" hint="Marcá uno o más." error="Marcá al menos un local."><label><input type="checkbox" />Local Centro</label></Fieldset>)
+
+    const group = screen.getByRole('group', { name: 'Locales donde trabaja' })
+    expect(group).toHaveClass('field', 'field-invalid')
+    expect(group).toHaveAttribute('aria-invalid', 'true')
+    expect(group).toHaveAccessibleDescription('Marcá uno o más. Marcá al menos un local.')
+    expect([...group.children].map((child) => child.className || child.tagName)).toEqual(['field-label', 'field-hint', 'LABEL', 'field-error'])
+    expect(screen.getByText('Marcá al menos un local.').querySelector('svg')?.outerHTML).toBe(iconMarkup('alert'))
+
+    rerender(<Fieldset legend="Locales donde trabaja" hint="Marcá uno o más." className="field-wide"><label><input type="checkbox" />Local Centro</label></Fieldset>)
+    expect(group).toHaveClass('field', 'field-wide')
+    expect(group).not.toHaveClass('field-invalid')
+    expect(group).not.toHaveAttribute('aria-invalid')
+    expect(group).toHaveAccessibleDescription('Marcá uno o más.')
+  })
+
+  it('el error de un grupo puede llevar el id que le dan, para un control de adentro que también lo nombra', () => {
+    render(<Fieldset legend="¿Para qué período?" error="Elegí el primer y el último día." errorId="period-error"><input aria-label="Primer día" aria-describedby="period-error" /></Fieldset>)
+
+    expect(screen.getByLabelText('Primer día')).toHaveAccessibleDescription('Elegí el primer y el último día.')
+  })
+
+  it('el resumen de un formulario largo aparece solo con dos o más campos mal, como alerta', () => {
+    const { rerender } = render(<FieldsSummary count={1} />)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    rerender(<FieldsSummary count={2} />)
+    expect(screen.getByRole('alert')).toHaveTextContent('Revisá lo que está marcado debajo de cada campo.')
   })
 
   it('nombra las regiones de paneles con su título', () => {

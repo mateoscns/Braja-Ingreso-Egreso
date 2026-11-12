@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useId, useState, type FormEvent, type ReactNode } from 'react'
 import { Brand, PageMessage, FormField, Status } from '../../app/ui'
 import { Icon } from '../../app/icons'
+import { useFieldErrors } from '../../app/useFieldErrors'
 import type { Session } from '../../shared/api/types'
 import {
   OWN_PASSWORD_RULE, OWN_PASSWORD_TOO_LONG_MESSAGE, OWN_PASSWORD_TOO_SHORT_MESSAGE, PASSWORD_MAX_CHARACTERS, PASSWORD_MIN_CHARACTERS, passwordTooLong
@@ -23,33 +24,6 @@ function PasswordToggle({ shown, label, onToggle }: { shown: boolean; label: str
   return <button type="button" className="button button-link" aria-pressed={shown} onClick={onToggle}>{shown && <Icon name="check" />}{label}</button>
 }
 
-/** The errors of a form's fields, by field; a field without one is valid. */
-type FieldErrors<Field extends string> = Partial<Record<Field, string>>
-
-/**
- * The errors of a form checked on submit (design system 4.7): `check` shows them and, after the render that ties each one to its
- * field, moves the focus to the first invalid field in `order`; editing a field removes only its own error.
- */
-function useFieldErrors<Field extends string>(order: Field[]) {
-  const [errors, setErrors] = useState<FieldErrors<Field>>({})
-  const [failedSubmits, setFailedSubmits] = useState(0)
-  const controls = useRef<Partial<Record<Field, HTMLInputElement | null>>>({})
-  useEffect(() => {
-    const first = order.find((field) => errors[field])
-    if (failedSubmits && first) controls.current[first]?.focus()
-  }, [failedSubmits])
-  /** Shows the errors found; false when there are any, so the caller stops. */
-  function check(found: FieldErrors<Field>): boolean {
-    setErrors(found)
-    if (!order.some((field) => found[field])) return true
-    setFailedSubmits((count) => count + 1)
-    return false
-  }
-  function clear(field: Field) { setErrors((current) => { if (!current[field]) return current; const next = { ...current }; delete next[field]; return next }) }
-  const bind = (field: Field) => (element: HTMLInputElement | null) => { controls.current[field] = element }
-  return { errors, check, clear, bind }
-}
-
 const DNI_MIN_CHARACTERS = 7
 
 export function LoginScreen({ onSignIn, error }: { onSignIn: (dni: string, password: string) => Promise<void>; error?: string }) {
@@ -58,13 +32,15 @@ export function LoginScreen({ onSignIn, error }: { onSignIn: (dni: string, passw
   const [shown, setShown] = useState(false)
   const [busy, setBusy] = useState(false)
   const [formError, setFormError] = useState('')
-  const fields = useFieldErrors<'dni' | 'password'>(['dni', 'password'])
+  // The form's id: a failed check moves the focus to its first invalid field (app/useFieldErrors).
+  const formId = useId()
+  const fields = useFieldErrors<'dni' | 'password'>()
   // A mark cut by an expired session was not saved: say it instead of the generic session notice.
   const [markInterrupted, setMarkInterrupted] = useState(markWasInterrupted)
   async function submit(event: FormEvent) {
     event.preventDefault(); setFormError('')
     // The checks the browser made before (required, minLength 7): only in our words and tied to the field.
-    const valid = fields.check({
+    const valid = fields.check(formId, {
       dni: !dni.trim() ? 'Escribí tu DNI.' : dni.length < DNI_MIN_CHARACTERS ? 'El DNI tiene que tener de 7 a 12 números.' : undefined,
       password: password ? undefined : 'Escribí tu contraseña.'
     })
@@ -80,10 +56,10 @@ export function LoginScreen({ onSignIn, error }: { onSignIn: (dni: string, passw
   return <AuthFrame title="Bienvenido" lead="Ingresá con tu DNI y contraseña.">
     {notice && <PageMessage kind="error">{notice}</PageMessage>}
     {busy && <Status>Entrando, esperá un momento…</Status>}
-    <form onSubmit={submit} className="form-stack" aria-busy={busy} noValidate>
-      <FormField label="DNI" error={fields.errors.dni}><input ref={fields.bind('dni')} autoComplete="username" inputMode="numeric" minLength={DNI_MIN_CHARACTERS} maxLength={12} required value={dni}
+    <form id={formId} onSubmit={submit} className="form-stack" aria-busy={busy} noValidate>
+      <FormField label="DNI" error={fields.errors.dni}><input autoComplete="username" inputMode="numeric" minLength={DNI_MIN_CHARACTERS} maxLength={12} required value={dni}
         onChange={(e) => { setDni(e.target.value); fields.clear('dni') }} /></FormField>
-      <FormField label="Contraseña" error={fields.errors.password}><input ref={fields.bind('password')} type={shown ? 'text' : 'password'} autoComplete="current-password" maxLength={256} required value={password}
+      <FormField label="Contraseña" error={fields.errors.password}><input type={shown ? 'text' : 'password'} autoComplete="current-password" maxLength={256} required value={password}
         onChange={(e) => { setPassword(e.target.value); fields.clear('password') }} /></FormField>
       <PasswordToggle shown={shown} label="Mostrar contraseña" onToggle={() => setShown((value) => !value)} />
       {formError && <PageMessage kind="error">{formError}</PageMessage>}
@@ -129,11 +105,12 @@ export function PasswordChangeScreen({ onChange, onSignOut }: { onChange: (curre
   const [shown, setShown] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const fields = useFieldErrors<'current' | 'next' | 'confirm'>(['current', 'next', 'confirm'])
+  const formId = useId()
+  const fields = useFieldErrors<'current' | 'next' | 'confirm'>()
   async function submit(event: FormEvent) {
     event.preventDefault(); setError('')
     // The same checks as before, each under its own field and all at once.
-    const valid = fields.check({
+    const valid = fields.check(formId, {
       current: current ? undefined : 'Escribí la contraseña actual, la que te dieron para entrar.',
       next: next.length < PASSWORD_MIN_CHARACTERS ? OWN_PASSWORD_TOO_SHORT_MESSAGE : passwordTooLong(next) ? OWN_PASSWORD_TOO_LONG_MESSAGE : undefined,
       confirm: next !== confirm ? 'Las contraseñas nuevas no coinciden.' : undefined
@@ -146,12 +123,12 @@ export function PasswordChangeScreen({ onChange, onSignOut }: { onChange: (curre
   const type = shown ? 'text' : 'password'
   return <AuthFrame title="Cambiá tu contraseña" lead={<>Cambiá la contraseña que te dieron por una tuya. <strong>{OWN_PASSWORD_RULE}</strong></>}>
     {busy && <Status>Guardando tu contraseña…</Status>}
-    <form onSubmit={submit} className="form-stack" aria-busy={busy} noValidate>
-      <FormField label="Contraseña que te dieron" error={fields.errors.current}><input ref={fields.bind('current')} type={type} autoComplete="current-password" required value={current}
+    <form id={formId} onSubmit={submit} className="form-stack" aria-busy={busy} noValidate>
+      <FormField label="Contraseña que te dieron" error={fields.errors.current}><input type={type} autoComplete="current-password" required value={current}
         onChange={(e) => { setCurrent(e.target.value); fields.clear('current') }} /></FormField>
-      <FormField label="Nueva contraseña" hint={lengthCounter(next)} error={fields.errors.next}><input ref={fields.bind('next')} type={type} autoComplete="new-password" minLength={PASSWORD_MIN_CHARACTERS} maxLength={PASSWORD_MAX_CHARACTERS} required value={next}
+      <FormField label="Nueva contraseña" hint={lengthCounter(next)} error={fields.errors.next}><input type={type} autoComplete="new-password" minLength={PASSWORD_MIN_CHARACTERS} maxLength={PASSWORD_MAX_CHARACTERS} required value={next}
         onChange={(e) => { setNext(e.target.value); fields.clear('next') }} /></FormField>
-      <FormField label="Repetí la nueva contraseña" error={fields.errors.confirm}><input ref={fields.bind('confirm')} type={type} autoComplete="new-password" minLength={PASSWORD_MIN_CHARACTERS} maxLength={PASSWORD_MAX_CHARACTERS} required value={confirm}
+      <FormField label="Repetí la nueva contraseña" error={fields.errors.confirm}><input type={type} autoComplete="new-password" minLength={PASSWORD_MIN_CHARACTERS} maxLength={PASSWORD_MAX_CHARACTERS} required value={confirm}
         onChange={(e) => { setConfirm(e.target.value); fields.clear('confirm') }} /></FormField>
       <PasswordToggle shown={shown} label="Mostrar contraseñas" onToggle={() => setShown((value) => !value)} />
       {/* What the server answered goes inside the form, above its button (design system 4.7). */}
