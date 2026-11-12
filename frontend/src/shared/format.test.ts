@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatBlock, formatClock, formatLocalDate, jornadaStateLabel } from './format'
+import { formatBlock, formatClock, formatDateTime, formatLocalDate, jornadaStateLabel } from './format'
 
 describe('formatos legibles', () => {
   it('traduce cada estado de jornada con un único mapeo', () => {
@@ -21,5 +21,14 @@ describe('formatos legibles', () => {
 
   it('formatea una fecha ISO de jornada en es-AR sin correrla por la zona del dispositivo', () => {
     expect(formatLocalDate('2026-10-20')).toMatch(/20 oct\.? 2026/)
+  })
+
+  // T12 (UX A-4): es-AR writes «4:05 p. m.» by default, while the employee's day and the horarios read «16:05».
+  it('muestra fecha y hora con el reloj de 24 horas, el mismo de la pantalla del empleado y de los horarios', () => {
+    const zone = 'America/Argentina/Buenos_Aires'
+    expect(formatDateTime('2026-10-16T19:05:00Z', zone)).toMatch(/^16 oct\.? 2026, 16:05$/)
+    expect(formatDateTime('2026-10-16T12:05:00Z', zone)).toMatch(/^16 oct\.? 2026, 09:05$/)
+    expect(formatDateTime('2026-10-16T03:00:00Z', zone)).toMatch(/^16 oct\.? 2026, 00:00$/)
+    expect(formatDateTime('2026-10-16T19:05:00Z', zone)).not.toMatch(/m\./)
   })
 })

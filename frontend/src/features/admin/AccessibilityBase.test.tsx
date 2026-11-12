@@ -56,7 +56,7 @@ describe('accesibilidad de base en las pantallas existentes', () => {
     const deviation: Deviation = { id: 'd-1', jornadaId: 'j-1', siteId: 's-1', type: 'SIN_INGRESO', status: 'MOTIVO_PENDIENTE', createdAt: '2026-11-09T12:00:00Z', pushEligible: false }
     const { container } = render(<AdminInboxRender items={[deviation]} employees={[]} sites={[site]} filters={EMPTY_INBOX_FILTERS} filtered={false}
       onFiltersChange={noop} onApplyFilters={noop} onClearFilters={noop} timeZones={new Map()} nextCursor={null} loading={false} inboxLoadError=""
-      timeZoneLoadError="" error="" notice="" busy="" correction={null} correctionReason="" targetDeviation="" onReload={noop} onClassify={noop}
+      timeZoneLoadError="" error="" busy="" correction={null} correctionReason="" targetDeviation="" onReload={noop} onClassify={noop}
       onRetry={noop} onLoadMore={noop} onCorrectionReasonChange={noop} onSubmitCorrection={noop} onCancelCorrection={noop} />)
     // Changed in slice E1: the symbol of a case is gone; its state is a tag whose icon is not read.
     expect(container.querySelector('.deviation-symbol')).toBeNull()

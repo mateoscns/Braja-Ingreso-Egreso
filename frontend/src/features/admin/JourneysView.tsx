@@ -66,8 +66,11 @@ function siteTimeInput(value: string, timeZone: string): string {
 /** A jornada to open on arrival (from a deviation in Bandeja); forgottenAction preselects the mark that is missing. */
 export type OpenJornadaRequest = { jornadaId: string; forgottenAction?: MarkAction }
 
-/** searchOpen: the old address of «Historial» was followed, so the search of earlier days opens. */
-export function JourneysView({ openJornada, searchOpen = false }: { openJornada?: OpenJornadaRequest; searchOpen?: boolean } = {}) {
+/**
+ * searchArrival: how many times the old address of «Historial» was followed (0: it was not); each new arrival opens the search
+ * of earlier days, also after the owner closed it.
+ */
+export function JourneysView({ openJornada, searchArrival = 0 }: { openJornada?: OpenJornadaRequest; searchArrival?: number } = {}) {
   const [employees, setEmployees] = useState<Employee[]>([]); const [sites, setSites] = useState<Site[]>([])
   const [jornadas, setJornadas] = useState<JourneyRow[]>([]); const [loading, setLoading] = useState(true); const [journeysLoading, setJourneysLoading] = useState(false); const [journeysDate, setJourneysDate] = useState(''); const [journeysError, setJourneysError] = useState(''); const [dependencyError, setDependencyError] = useState(''); const [error, setError] = useState(''); const [notice, setNotice] = useState('')
   const [detail, setDetail] = useState<Jornada | null>(null); const [detailLoading, setDetailLoading] = useState(false); const [markBusy, setMarkBusy] = useState('')
@@ -174,14 +177,22 @@ export function JourneysView({ openJornada, searchOpen = false }: { openJornada?
     setDetailLoading(true); setError('')
     try {
       const jornada = await api.get<Jornada>(`/jornadas/${encodeURIComponent(jornadaId)}`)
-      if (requestId === detailRequest.current) setDetail(jornada)
+      if (requestId !== detailRequest.current) return
+      setDetail(jornada)
+      // A mark added, corrected or voided changes the state of the day: its row in the list shows the state just read (T12).
+      setJornadas((rows) => rows.map((row) => row.id === jornada.id && row.state !== jornada.state ? { ...row, state: jornada.state } : row))
     } catch (reason) {
       if (requestId === detailRequest.current) { setMessageAt('detail'); setError(errText(reason)) }
     } finally { if (requestId === detailRequest.current) setDetailLoading(false) }
   }
-  /** «Ver marcas», or a day opened from Bandeja: the day opens in its row, comes into view and its title takes the focus. */
+  /**
+   * «Ver marcas», or a day opened from Bandeja: the day opens in its row, comes into view and its title takes the focus. The
+   * result of a form of the day open before is that day's: it does not follow into this one (T12: «Día cancelado.» showed in
+   * the detail of another day).
+   */
   async function openDetail(jornadaId: string) {
     setReveal({ kind: 'detail' })
+    setNotice(''); setMessageAt('')
     await showDetail(jornadaId)
   }
   const detailSite = detail ? sites.find((site) => site.id === detail.siteId) : undefined
@@ -287,7 +298,8 @@ export function JourneysView({ openJornada, searchOpen = false }: { openJornada?
     void loadJourneys(value)
   }
   const peopleById = useMemo(() => new Map(employees.map((person) => [person.id, person.displayName])), [employees])
-  const daySearch = <AdminHistory employees={employees} sites={sites} loadingOptions={loading} opening={detailLoading} openOnArrival={searchOpen} onOpenDay={(id) => void openDetail(id)} />
+  const daySearch = <AdminHistory employees={employees} sites={sites} loadingOptions={loading} optionsError={dependencyError} onRetryOptions={() => void loadDependencies(date)}
+    opening={detailLoading} arrival={searchArrival} onOpenDay={(id) => void openDetail(id)} />
   return <JourneysViewRender daySearch={daySearch} narrow={narrow} sites={sites} jornadas={jornadas} loading={loading} journeysLoading={journeysLoading} journeysDate={journeysDate} journeysError={journeysError} dependencyError={dependencyError} error={error} notice={notice} messageAt={messageAt} detail={detail} detailFor={detailFor} detailLoading={detailLoading} markBusy={markBusy} date={date} peopleById={peopleById} dateError={dateError} detailSite={detailSite} detailTimeZone={detailTimeZone} forgotAction={forgotAction} forgotOccurredAt={forgotOccurredAt} forgotReason={forgotReason} editingMarkId={editingMarkId} correctedAction={correctedAction} correctedOccurredAt={correctedOccurredAt} correctionReason={correctionReason}
     cancelOpen={cancelOpen} cancelReason={cancelReason} voidingMarkId={voidingMarkId} voidReason={voidReason}
     forgottenErrors={forgottenFields.errors} correctionErrors={correctionFields.errors} voidError={voidFields.errors.reason} cancelError={cancelFields.errors.reason}

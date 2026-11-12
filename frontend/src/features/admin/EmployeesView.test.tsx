@@ -316,7 +316,7 @@ describe('«Equipo» with the pieces of the system', () => {
   })
 
   it('a refused reset says so under the record of the person', async () => {
-    apiMocks.post.mockRejectedValueOnce(new Error('Esta persona también tiene acceso en otra empresa o como ADMIN; su contraseña la restablece el operador.'))
+    apiMocks.post.mockRejectedValueOnce(new Error('Esta persona también tiene acceso en otra empresa o como ADMIN, así que su contraseña no se puede restablecer desde acá. Pedí ayuda al soporte de Fichaje Braja.'))
     render(<EmployeesView />)
     fireEvent.click(await screen.findByRole('button', { name: 'Restablecer contraseña de Lucía Pérez' }))
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar restablecimiento' }))
@@ -382,7 +382,7 @@ describe('«Equipo»: where the focus goes when a form of a person opens and clo
   })
 
   it('a refused reset gives the focus back to «Restablecer contraseña», next to its message', async () => {
-    apiMocks.post.mockRejectedValueOnce(new Error('Esta persona también tiene acceso en otra empresa o como ADMIN; su contraseña la restablece el operador.'))
+    apiMocks.post.mockRejectedValueOnce(new Error('Esta persona también tiene acceso en otra empresa o como ADMIN, así que su contraseña no se puede restablecer desde acá. Pedí ayuda al soporte de Fichaje Braja.'))
     render(<EmployeesView />)
     fireEvent.click(await screen.findByRole('button', { name: 'Restablecer contraseña de Lucía Pérez' }))
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar restablecimiento' }))

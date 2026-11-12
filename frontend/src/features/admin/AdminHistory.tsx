@@ -9,19 +9,21 @@ import { dateRangeErrors, useFieldErrors } from '../../app/useFieldErrors'
 import { AdminHistoryRender, HISTORY_FILTERS_ID, type HistoryFilterValues } from './AdminHistoryRender'
 import { errText } from './adminShared'
 
-export function AdminHistory({ employees, sites, loadingOptions, opening, openOnArrival = false, onOpenDay }: {
+export function AdminHistory({ employees, sites, loadingOptions, optionsError = '', onRetryOptions = () => undefined, opening, arrival = 0, onOpenDay }: {
   employees: Employee[]; sites: Site[]
   /** «Hoy» is still reading the people and the locals: the filters wait for them. */
   loadingOptions: boolean
+  /** «Hoy» could not read them: the filters would offer only «Todos», so the search says so and retries them (T12). */
+  optionsError?: string; onRetryOptions?: () => void
   /** A day is being read for the detail of «Hoy»: «Ver marcas» waits, as it does on the list of the date. */
   opening: boolean
-  /** The old address of «Historial» was followed: the fold opens. */
-  openOnArrival?: boolean
+  /** How many times the old address of «Historial» was followed (0: never): each new arrival opens the fold. */
+  arrival?: number
   onOpenDay: (jornadaId: string) => void
 }) {
-  const [open, setOpen] = useState(openOnArrival)
-  // Also when «Hoy» is already on screen and the old address is followed again.
-  useEffect(() => { if (openOnArrival) setOpen(true) }, [openOnArrival])
+  const [open, setOpen] = useState(arrival > 0)
+  // Also when «Hoy» is already on screen and the old address is followed again, after the owner closed the fold (T12, QA B5).
+  useEffect(() => { if (arrival > 0) setOpen(true) }, [arrival])
   const [filters, setFilters] = useState<HistoryFilterValues>(() => ({ employeeId: '', siteId: '', from: deviceDate(6), to: deviceDate() }))
   // The same checks as before, each under the filter it is about and all at once (design system 4.7).
   const fields = useFieldErrors<'who' | 'from' | 'to'>()
@@ -55,6 +57,6 @@ export function AdminHistory({ employees, sites, loadingOptions, opening, openOn
     if ('employeeId' in patch || 'siteId' in patch) fields.clear('who')
     if ('from' in patch || 'to' in patch) fields.clear('from', 'to')
   }
-  return <AdminHistoryRender open={open} onOpenChange={setOpen} employees={employees} sites={sites} loadingOptions={loadingOptions} filters={filters} filterErrors={fields.errors} rows={rows} loading={loading} error={error} opening={opening}
+  return <AdminHistoryRender open={open} onOpenChange={setOpen} employees={employees} sites={sites} loadingOptions={loadingOptions} optionsFailed={Boolean(optionsError)} onRetryOptions={onRetryOptions} filters={filters} filterErrors={fields.errors} rows={rows} loading={loading} error={error} opening={opening}
     onFiltersChange={changeFilters} onSearch={() => void search()} onOpenDay={onOpenDay} />
 }

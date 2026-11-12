@@ -61,6 +61,8 @@ export type AdminSectionState = {
   /** The retired address the shown section was reached by (HISTORY_ADDRESS opens the search of «Hoy»); null once the
       owner moves on. */
   retiredAddress: string | null
+  /** Counts every arrival by a retired address, also one equal to the last: following it again can open what it opens again. */
+  retiredArrival: number
 }
 
 /**
@@ -72,6 +74,7 @@ export type AdminSectionState = {
 export function useAdminSection(start: AdminSection | null): AdminSectionState {
   const [addressed, setAddressed] = useState<AdminSection | null>(null)
   const [retiredAddress, setRetiredAddress] = useState<string | null>(null)
+  const [retiredArrival, setRetiredArrival] = useState(0)
   // The address is read in the first effect, not during render: when the company changes, App.tsx mounts a new
   // AdminApp whose render runs before the old one's cleanup has cleared its address.
   const [ready, setReady] = useState(false)
@@ -84,7 +87,7 @@ export function useAdminSection(start: AdminSection | null): AdminSectionState {
     const take = (hash: string) => {
       const named = sectionFromHash(hash)
       const retired = named !== null && hash !== SECTION_ADDRESSES[named]
-      if (retired) replaceHash(SECTION_ADDRESSES[named])
+      if (retired) { replaceHash(SECTION_ADDRESSES[named]); setRetiredArrival((count) => count + 1) }
       setRetiredAddress(retired ? hash : null)
       setAddressed(named)
     }
@@ -122,5 +125,5 @@ export function useAdminSection(start: AdminSection | null): AdminSectionState {
     if (window.location.hash !== SECTION_ADDRESSES[next]) window.location.hash = SECTION_ADDRESSES[next]
   }, [])
 
-  return { section, go, retiredAddress }
+  return { section, go, retiredAddress, retiredArrival }
 }
