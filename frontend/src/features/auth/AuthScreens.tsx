@@ -26,6 +26,26 @@ function PasswordToggle({ shown, label, onToggle }: { shown: boolean; label: str
   return <button type="button" className="button button-link" aria-pressed={shown} onClick={onToggle}>{shown && <Icon name="check" />}{label}</button>
 }
 
+/**
+ * The app opened and the server gave no answer about the session (issue #169): no internet, or the server restarting. A session
+ * may still be open (30 days for an employee), so this is not the sign-in. Back online, SessionProvider checks again by itself.
+ */
+export function OfflineScreen({ onRetry }: { onRetry: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false)
+  const [tried, setTried] = useState(false)
+  async function retry() {
+    setBusy(true)
+    // A check that answers leaves this screen; one that does not keeps it, and says so.
+    try { await onRetry() } finally { setBusy(false); setTried(true) }
+  }
+  return <AuthFrame title="Sin conexión" lead="No pudimos conectarnos con Fichaje Braja. Si ya habías entrado, tu sesión sigue abierta: cuando vuelva internet, tocá «Reintentar».">
+    <div className="form-stack">
+      <Status>{tried && !busy ? 'Seguimos sin conexión. Probá de nuevo en un rato.' : ''}</Status>
+      <button type="button" className="button button-primary button-block" disabled={busy} onClick={() => void retry()}>{busy ? 'Reintentando…' : 'Reintentar'}</button>
+    </div>
+  </AuthFrame>
+}
+
 const DNI_MIN_CHARACTERS = 7
 
 export function LoginScreen({ onSignIn, error }: { onSignIn: (dni: string, password: string) => Promise<void>; error?: string }) {

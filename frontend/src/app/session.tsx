@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ApiError, api } from '../shared/api/client'
+import { ApiError, NetworkError, TimeoutError, api } from '../shared/api/client'
 import type { Session } from '../shared/api/types'
 import { SessionWarning, warnsBeforeIdleClose } from './sessionWarning'
 
@@ -7,6 +7,10 @@ type SessionContextValue = {
   session: Session | null
   loading: boolean
   error: string
+  /** The first check of the session got no answer (no internet, a timeout, or a 5xx while the server restarts): there may be a session. */
+  unreachable: boolean
+  /** Asks the server for the session again, after a check that got no answer. */
+  retry: () => Promise<void>
   signIn: (dni: string, password: string) => Promise<void>
   signOut: () => Promise<void>
   activateCompany: (companyId: string) => Promise<void>
@@ -19,19 +23,35 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [unreachable, setUnreachable] = useState(false)
+  // Read by the listener of «online», which stays attached so the event is never missed between a render and its effects.
+  const unreachableRef = useRef(false)
 
   const refresh = useCallback(async () => {
     try {
       const current = await api.get<Session>('/session')
       setSession(current)
       setError('')
+      unreachableRef.current = false
+      setUnreachable(false)
     } catch (reason) {
+      // Issue #169: an answer that never came is not a closed session. The installed app opened without internet showed the
+      // sign-in, and an employee with a 30-day session believed they had been signed out.
+      const noAnswer = reason instanceof NetworkError || reason instanceof TimeoutError || (reason instanceof ApiError && reason.status >= 500)
+      unreachableRef.current = noAnswer
+      setUnreachable(noAnswer)
       if (reason instanceof ApiError && reason.status === 401) setSession(null)
-      else setError(reason instanceof Error ? reason.message : 'No se pudo validar la sesión.')
+      else if (!noAnswer) setError(reason instanceof Error ? reason.message : 'No se pudo validar la sesión.')
     } finally { setLoading(false) }
   }, [])
 
   useEffect(() => { void refresh() }, [refresh])
+  // Back online, the check runs again by itself; nothing is stored in the browser meanwhile (rule 27).
+  useEffect(() => {
+    const again = () => { if (unreachableRef.current) void refresh() }
+    window.addEventListener('online', again)
+    return () => window.removeEventListener('online', again)
+  }, [refresh])
 
   const sessionRef = useRef<Session | null>(null)
   // A layout effect runs in the same commit that shows the session, before anything the user can click: with a passive
@@ -81,8 +101,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setSession((current) => current ? { ...current, mustChangePassword: false } : current)
   }, [])
 
-  const value = useMemo(() => ({ session, loading, error, signIn, signOut, activateCompany, changePassword }),
-    [session, loading, error, signIn, signOut, activateCompany, changePassword])
+  const value = useMemo(() => ({ session, loading, error, unreachable, retry: refresh, signIn, signOut, activateCompany, changePassword }),
+    [session, loading, error, unreachable, refresh, signIn, signOut, activateCompany, changePassword])
   // Above every screen of an account with the 30 minute limit, while it has a session (D-20261112-02). It mounts when a session
   // appears, so its clock starts with the session just read; every later answer of the server restarts it.
   return <SessionContext.Provider value={value}>{warnsBeforeIdleClose(session) && <SessionWarning />}{children}</SessionContext.Provider>

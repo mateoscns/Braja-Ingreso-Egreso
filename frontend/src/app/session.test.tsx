@@ -13,12 +13,13 @@ const session = (mustChangePassword = false) => ({
 })
 
 function Probe() {
-  const { session: current, loading, error, activateCompany, changePassword, signOut } = useSession()
+  const { session: current, loading, error, unreachable, activateCompany, changePassword, signOut } = useSession()
   const [failure, setFailure] = useState('')
   if (loading) return <p>cargando</p>
   return <div>
     <p data-testid="state">{current ? `con sesión, cambio pendiente: ${current.mustChangePassword}` : 'sin sesión'}</p>
     <p data-testid="error">{error}</p>
+    <p data-testid="unreachable">{unreachable ? 'sin conexión' : 'conectado'}</p>
     <p data-testid="failure">{failure}</p>
     <button onClick={() => { activateCompany('c-2').catch((reason: Error) => setFailure(reason.message)) }}>cambiar empresa</button>
     <button onClick={() => { changePassword('incorrecta', 'nueva-contraseña-larga').catch((reason: Error) => setFailure(reason.message)) }}>cambiar contraseña</button>
@@ -29,6 +30,34 @@ function Probe() {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); api.clearCsrf() })
 
 describe('SessionProvider', () => {
+  // Issue #169 (2026-11-12): the installed app opened without internet showed the sign-in, as if the 30-day session were gone.
+  it('si al abrir la app no hay conexión, no da la sesión por cerrada y vuelve a probar sola cuando vuelve internet', async () => {
+    const fetchMock = vi.fn().mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce(json(session()))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<SessionProvider><Probe /></SessionProvider>)
+
+    expect(await screen.findByText('sin conexión')).toBeInTheDocument()
+    expect(screen.getByTestId('state')).toHaveTextContent('sin sesión')
+
+    window.dispatchEvent(new Event('online'))
+    expect(await screen.findByText('con sesión, cambio pendiente: false')).toBeInTheDocument()
+    expect(screen.getByTestId('unreachable')).toHaveTextContent('conectado')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('un servidor que no responde (503 del proxy mientras reinicia) tampoco da la sesión por cerrada', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(problem(503, 'SERVICE_UNAVAILABLE')))
+    render(<SessionProvider><Probe /></SessionProvider>)
+    expect(await screen.findByText('sin conexión')).toBeInTheDocument()
+  })
+
+  it('un 401 al abrir la app sigue siendo el ingreso, no la falta de conexión', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(problem(401, 'UNAUTHORIZED')))
+    render(<SessionProvider><Probe /></SessionProvider>)
+    expect(await screen.findByText('sin sesión')).toBeInTheDocument()
+    expect(screen.getByTestId('unreachable')).toHaveTextContent('conectado')
+  })
+
   it('sin sesión al abrir la app muestra el ingreso sin hablar de sesión vencida', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(problem(401, 'UNAUTHORIZED')))
     render(<SessionProvider><Probe /></SessionProvider>)
