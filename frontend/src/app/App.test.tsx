@@ -22,6 +22,9 @@ describe('el título de cada pantalla de entrada', () => {
   it('cada pantalla que elige la aplicación tiene su título, y la del ADMIN lo deja a su sección', () => {
     expect(entryScreen(true, null)).toBe('boot')
     expect(entryScreen(false, null)).toBe('login')
+    // Issue #169: without a session because the server could not be reached, not because it said there is none.
+    expect(entryScreen(false, null, true)).toBe('offline')
+    expect(entryScreen(false, session({}), true)).toBe('employee')
     expect(entryScreen(false, session({ mustChangePassword: true }))).toBe('password')
     expect(entryScreen(false, session({ activeCompanyId: null, memberships: [membership('EMPLOYEE', 'c-1'), membership('ADMIN', 'c-2')] }))).toBe('company')
     expect(entryScreen(false, session({}))).toBe('employee')
@@ -30,6 +33,7 @@ describe('el título de cada pantalla de entrada', () => {
     expect(ENTRY_TITLES).toEqual({
       boot: 'Fichaje Braja',
       login: 'Ingresar · Fichaje Braja',
+      offline: 'Sin conexión · Fichaje Braja',
       password: 'Cambiá tu contraseña · Fichaje Braja',
       company: 'Elegí una empresa · Fichaje Braja',
       employee: 'Marcar · Fichaje Braja',

@@ -74,11 +74,13 @@ export function useDocumentTitle(title: string | null) {
 }
 
 /** The screens App.tsx chooses between, before the app of a role takes over. */
-export type EntryScreen = 'boot' | 'login' | 'password' | 'company' | 'admin' | 'employee'
+export type EntryScreen = 'boot' | 'offline' | 'login' | 'password' | 'company' | 'admin' | 'employee'
 
 /** Which screen the session asks for. It lives here, not in App.tsx, so it can be tested: App.tsx imports a module of the build. */
-export function entryScreen(loading: boolean, session: Session | null): EntryScreen {
+export function entryScreen(loading: boolean, session: Session | null, unreachable = false): EntryScreen {
   if (loading) return 'boot'
+  // Issue #169: no session because the server could not be reached, not because it said there is none.
+  if (!session && unreachable) return 'offline'
   if (!session) return 'login'
   if (session.mustChangePassword) return 'password'
   const active = session.memberships.find((membership) => membership.companyId === session.activeCompanyId)
@@ -92,6 +94,7 @@ export function entryScreen(loading: boolean, session: Session | null): EntryScr
  */
 export const ENTRY_TITLES: Readonly<Record<EntryScreen, string | null>> = {
   boot: pageTitle(),
+  offline: pageTitle('Sin conexión'),
   login: pageTitle('Ingresar'),
   password: pageTitle('Cambiá tu contraseña'),
   company: pageTitle('Elegí una empresa'),

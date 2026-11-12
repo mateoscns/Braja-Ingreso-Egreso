@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { expectSkipLinkToMain } from '../../app/testing/skipLink'
-import { LoginScreen, CompanyScreen, PasswordChangeScreen } from './AuthScreens'
+import { LoginScreen, CompanyScreen, OfflineScreen, PasswordChangeScreen } from './AuthScreens'
 import { clearMarkInterrupted, markWasInterrupted, noteMarkInterrupted } from './interruptedMark'
 
 afterEach(() => { cleanup(); clearMarkInterrupted() })
@@ -35,6 +35,32 @@ const twoCompanies = { accountId: 'a', memberships: [
 ], activeCompanyId: null, mustChangePassword: false }
 
 // Slice G1 (WCAG 2.4.1): the three screens start with «Ir al contenido», as the apps do, and keep one main as its target.
+// Issue #169 (2026-11-12): opened without internet, the installed app showed the sign-in although the session was still open.
+describe('la pantalla sin conexión', () => {
+  it('dice que la sesión sigue abierta y reintenta; si sigue sin conexión, lo dice', async () => {
+    let finish: () => void = () => undefined
+    const onRetry = vi.fn(() => new Promise<void>((resolve) => { finish = resolve }))
+    render(<OfflineScreen onRetry={onRetry} />)
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Sin conexión' })).toBeInTheDocument()
+    expect(screen.getByText(/tu sesión sigue abierta/)).toBeInTheDocument()
+    expect(screen.queryByLabelText('DNI')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
+    expect(onRetry).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: 'Reintentando…' })).toBeDisabled()
+
+    finish()
+    expect(await screen.findByText('Seguimos sin conexión. Probá de nuevo en un rato.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reintentar' })).toBeEnabled()
+  })
+
+  it('lo primero que alcanza Tab es «Ir al contenido», como en las otras pantallas de acceso', () => {
+    render(<OfflineScreen onRetry={vi.fn(async () => undefined)} />)
+    expectSkipLinkToMain()
+  })
+})
+
 describe('el salto al contenido de las pantallas de acceso', () => {
   it.each([
     ['ingreso', () => <LoginScreen onSignIn={vi.fn()} />],
