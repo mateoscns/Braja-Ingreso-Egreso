@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useId, useRef, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { Icon, type IconName } from '../../app/icons'
+import { reveal } from '../../app/revealAndFocus'
 import { Empty, FormField, LoadFailure, Loading, PageMessage, Panel, Status, StatusTag, type StatusTone } from '../../app/ui'
 import type { Deviation, Jornada, MarkAction, Site } from '../../shared/api/types'
 import { formatBlock, formatDateTime, formatLocalDate, jornadaStateLabel } from '../../shared/format'
@@ -86,6 +87,8 @@ function MarkReceipt({ confirmation, timeZone }: { confirmation: MarkConfirmatio
 
 /** The button of a mark in the "now" block: a question that it opened gives the focus back to it when it closes. */
 export const markButtonId = (action: MarkAction) => `now-mark-${action}`
+/** «Lo enviamos…»: it takes the focus when the case sent leaves the list with its form (slice G2). */
+export const MOTIVE_NOTICE_ID = 'motive-notice'
 
 /** The next mark is the one filled button, 80 px tall; every other mark is a secondary button of 56 px. All full width. */
 function MarkButton({ action, next = false, busy, onMark }: { action: MarkAction; next?: boolean; busy: boolean; onMark: (action: MarkAction) => void }) {
@@ -195,7 +198,7 @@ export function MotivePanel(props: MotivePanelProps) {
   ]
   // The lead invites to write: it is left out when every case listed is already decided.
   const writable = rows.some(({ item, pending }) => pending || item.status === 'PENDIENTE_REVISION' || canAddFirstMotive(item))
-  const success = notice && <PageMessage kind="success">{notice}</PageMessage>
+  const success = notice && <PageMessage kind="success" id={MOTIVE_NOTICE_ID}>{notice}</PageMessage>
   return <Panel title="Para explicar">
     {loading ? <Loading label="Cargando…" /> : loadFailed ? <Empty>No pudimos cargar lo que tenés para explicar.</Empty>
       : !rows.length && !pendingError && !retrying ? <>{success}<Empty>No tenés nada para explicar.</Empty></>
@@ -284,9 +287,13 @@ function MotiveForm({ item, todo = false, formRef, children, values, errors, sav
   </form>
 }
 
-export function OtherDayPanel({ date, disabled, onDate, onToday }: { date: string; disabled: boolean; onDate: (date: string) => void; onToday: () => void }) {
+export function OtherDayPanel({ date, disabled, loading, onDate, onToday }: { date: string; disabled: boolean; loading: boolean; onDate: (date: string) => void; onToday: () => void }) {
+  const field = useRef<HTMLInputElement>(null)
+  // While the chosen day loads, the sections above shrink to one line and the page scrolls up: the field the date is being typed
+  // in ended out of sight (slice G2). Once the day is drawn, it comes back into view if it still has the focus.
+  useEffect(() => { if (!loading && field.current && document.activeElement === field.current) reveal(field.current) }, [loading])
   return <Panel title="Ver otros días">
-    <FormField label="Día" hint="Elegí un día para ver sus marcas."><input type="date" value={date} disabled={disabled} onChange={(event) => onDate(event.target.value)} /></FormField>
+    <FormField label="Día" hint="Elegí un día para ver sus marcas."><input ref={field} type="date" value={date} disabled={disabled} onChange={(event) => onDate(event.target.value)} /></FormField>
     {date && <button type="button" className="button button-secondary button-wide employee-today-button" disabled={disabled} onClick={onToday}>Volver a hoy</button>}
   </Panel>
 }

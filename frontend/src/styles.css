@@ -271,6 +271,9 @@ fieldset.field > .message, .site-map-panel > .message { margin: 0; }
 /* ===== Focus ===== */
 /* One ring for everything that takes focus: 3 px, 2 px away from the control, so it is read against the surface in the gap. */
 :focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+/* The calendar or clock button inside a date or time field is a Tab stop of its own where only :focus-within matches the field,
+   and Chrome drew just a thin square around the icon (slice G2). A text field shows the ring on a click too, so this one does. */
+input:is([type="date"], [type="time"], [type="datetime-local"]):focus-within { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
 
 /* ===== Buttons ===== */
 /* One size for every button: the target of the layout (48 px on touch layouts, 44 px from 1024 px) and 16 px text that may wrap.
@@ -849,6 +852,7 @@ td .button-row { gap: var(--space-2); }
 
 @media (forced-colors: active) {
   :focus-visible { outline-color: Highlight !important; }
+  input:is([type="date"], [type="time"], [type="datetime-local"]):focus-within { outline-color: Highlight !important; }
   .spinner { border-color: CanvasText; border-top-color: Highlight; }
   /* Forced colours drop fills and box shadows, so the fill and the second pixel of a chosen edge are gone, and borders take the
      text colour. A chosen toggle (a button or a tile with aria-pressed) takes the system colours of a selected item, untouched by
@@ -857,6 +861,8 @@ td .button-row { gap: var(--space-2); }
   .button[aria-pressed="true"], .choice[aria-pressed="true"], .journey-option[aria-pressed="true"] { forced-color-adjust: none; border-color: Highlight; color: HighlightText; background: Highlight; }
   .choice[aria-pressed="true"] small, .journey-option[aria-pressed="true"] small { color: HighlightText; }
   .choice:has(input:checked) { border-color: Highlight; }
+  /* The tint of a disabled field is gone and its edge took the text colour: an empty one looked usable (slice G2). */
+  .field :is(input:not([type=checkbox], [type=radio]), select, textarea):disabled { border-color: GrayText; }
   /* The bar of a destination is a border: transparent ones would show in the text colour, so every bar takes the page's colour
      and only the current place's is drawn, in the colour of a selected item (on top on the bottom bar, on the left on the rail). */
   .nav-link { border-top-color: Canvas; border-left-color: Canvas; }

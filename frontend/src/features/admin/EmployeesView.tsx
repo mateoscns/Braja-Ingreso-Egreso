@@ -115,11 +115,16 @@ export function EmployeesView() {
       const created = await api.post<Employee>('/employees', { dni: dni.trim(), displayName: displayName.trim(), siteIds, toleranceMinutes: Number(tolerance), ...(sentPassword ? { temporaryPassword: sentPassword } : {}) })
       setEmployees((current) => [...current, created]); setDni(''); setDisplayName(''); setSiteIds(onlySite(sites)); setTolerance('5'); setTemporaryPassword(''); setGeneratedPassword(false)
       // An account that already existed keeps its password and the one sent is not used (OrganizationService.createEmployee).
-      if (sentPassword && created.mustChangePassword === false) setNotice('Empleado creado. Ese DNI ya tenía cuenta: sigue entrando con su contraseña de siempre.')
+      const issued = Boolean(sentPassword) && created.mustChangePassword !== false
+      if (sentPassword && !issued) setNotice('Empleado creado. Ese DNI ya tenía cuenta: sigue entrando con su contraseña de siempre.')
       else {
         setNotice('Empleado creado.')
-        if (sentPassword) setIssuedPassword({ displayName: created.displayName, temporaryPassword: sentPassword, reason: 'created' })
+        if (issued) setIssuedPassword({ displayName: created.displayName, temporaryPassword: sentPassword, reason: 'created' })
       }
+      // «Crear empleado» was disabled while it sent and lost the focus (slice G2): it goes back to the emptied form, unless the
+      // password to hand over takes it. Shown from its top: the form is taller than a phone, and «nearest» left its first field
+      // above the screen.
+      if (!issued) focusLater({ id: focusIds.createForm, into: true, block: 'start' })
     } catch (reason) { setError(errText(reason)); createFields.focusProblem(focusIds.createForm) } finally { setBusy(false) }
   }
   function generatePassword() { setTemporaryPassword(generateTemporaryPassword()); setGeneratedPassword(true); createFields.clear('temporaryPassword') }

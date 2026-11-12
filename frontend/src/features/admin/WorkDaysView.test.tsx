@@ -100,6 +100,16 @@ describe('«Días de trabajo» con las piezas del sistema', () => {
     expect(within(skipped).getByRole('button', { name: 'Asignar horario' })).toHaveClass('button-link')
   })
 
+  // Slice G2 (keyboard pass on the built app, 2026-11-12): «Cargar días» was disabled while it sent, so the focus fell to the
+  // page and the result was left for the keyboard to find.
+  it('después de cargar, el foco va al resultado de la carga', async () => {
+    apiMocks.post.mockResolvedValue({ created: [{ id: 'j-1', employeeId: 'e-1', siteId: 's-1', localDate: '2026-11-30', state: 'NO_INGRESO' }], skipped: [] })
+    render(<WorkDaysPanel sites={[site]} employees={[employee]} templates={[template]} disabled={false} onLoaded={noop} onAssignSchedules={noop} onReviewSchedules={noop} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Cargar días' }))
+
+    await waitFor(() => expect(screen.getByRole('group', { name: 'Resultado de la carga' })).toHaveFocus())
+  })
+
   // Design system 4.15 (finding F-30): the summary text is the name of the fold; a heading inside a summary breaks it.
   it('el día suelto es un plegable nombrado por su resumen, sin un título adentro', () => {
     render(<WorkDaysViewRender {...viewProps} />)

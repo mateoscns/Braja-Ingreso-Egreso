@@ -413,6 +413,9 @@ export function SitesView() {
         geofenceRadiusMeters
       })
       setSites((current) => [...current, created]); setLoadError(''); setName(''); setCreateRadiusMeters('100'); clearLocation(); setNotice('Local creado.')
+      // «Crear local» was disabled while it sent and lost the focus (slice G2): it goes back to the emptied form, shown from its
+      // top (the form is taller than a phone, and «nearest» left its first field above the screen).
+      focusLater({ id: siteFocusIds.createForm, into: true, block: 'start' })
     }
     catch (reason) { setError(errText(reason)); createFields.focusProblem(siteFocusIds.createForm) } finally { setBusy(false) }
   }

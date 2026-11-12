@@ -1498,3 +1498,26 @@ describe('puntos de corte, colores forzados, salto al contenido y foco por códi
     expect(value(rule('.field'), 'gap')).toBe('var(--space-1)')
   })
 })
+
+// Slice G2: what the checks on the built app found (scratchpad g2, 2026-11-12).
+describe('verificación sobre la aplicación construida', () => {
+  // A date or time field has one more Tab stop, its calendar or clock button, inside the field. There neither :focus nor
+  // :focus-visible matches the field, only :focus-within (Chrome 157, probed on the built app), so Chrome drew only its own thin
+  // square around the icon instead of the ring of every other control.
+  it('un campo de fecha u hora lleva el anillo común también cuando el foco está en su botón de calendario (2.4.7)', () => {
+    const fields = 'input:is([type="date"], [type="time"], [type="datetime-local"]):focus-within'
+
+    expect(rule(fields)).toMatch(/outline:\s*3px solid var\(--focus-ring\)/)
+    expect(rule(fields)).toMatch(/outline-offset:\s*2px/)
+    expect(mediaBlock('forced-colors: active')).toMatch(/input:is\(\[type="date"\], \[type="time"\], \[type="datetime-local"\]\):focus-within\s*\{\s*outline-color:\s*Highlight/)
+  })
+
+  // Forced colours drop the tinted fill that marks a disabled field, and its edge took the text colour: an empty disabled field
+  // looked like one that can be used. A disabled button already turns GrayText there.
+  it('con colores forzados un campo deshabilitado tiene el borde del color del sistema para lo deshabilitado', () => {
+    const forced = mediaBlock('forced-colors: active')
+    const disabled = rule('.field :is(input:not([type=checkbox], [type=radio]), select, textarea):disabled', forced)
+
+    expect(disabled).toMatch(/border-color:\s*GrayText/)
+  })
+})

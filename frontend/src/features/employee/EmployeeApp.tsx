@@ -13,7 +13,7 @@ import { LOCATION_NOTICE, locationNoticeSeen, rememberLocationNotice, skipNotice
 import { noteMarkInterrupted } from '../auth/interruptedMark'
 import { useFocusRequest } from '../../app/revealAndFocus'
 import {
-  DayHeading, DayMarksPanel, JourneyPicker, markButtonId, MarkFeedback, MotivePanel, NowBlock, OtherDayPanel,
+  DayHeading, DayMarksPanel, JourneyPicker, markButtonId, MarkFeedback, MOTIVE_NOTICE_ID, MotivePanel, NowBlock, OtherDayPanel,
   type MarkConfirmation, type MarkStep, type MotiveErrors, type MotiveValues
 } from './EmployeeViews'
 
@@ -275,6 +275,9 @@ export function EmployeeApp() {
       setEditingMotives((current) => current.filter((id) => id !== item.id))
       setMotiveValues((current) => { const next = { ...current }; delete next[item.id]; return next })
       setMotiveNotice('Lo enviamos. Tu encargado lo va a revisar.')
+      // A case of another day leaves the list with its form, and the focus with it (slice G2); one of this day keeps its row,
+      // whose button takes the focus back (MotivePanel).
+      if (!deviations.some((entry) => entry.id === updated.id)) focusLater({ id: MOTIVE_NOTICE_ID })
     } catch (reason) {
       // What the employee typed stays in the card.
       setMotiveErrors((current) => ({ ...current, [item.id]: { form: motiveFailureMessage(reason) } }))
@@ -321,7 +324,7 @@ export function EmployeeApp() {
         onSelect={(id) => { setSelectedId(id); setPendingAttempt(null); setConfirmation(null); setStep(null) }} />}
       <MarkFeedback feedbackRef={feedbackRef} sending={busy} error={markError} showRefresh={markFailed && !loading} onRefresh={() => void refreshAfterUnknown()} confirmation={confirmation} timeZone={zone} />
       {sections}
-      <OtherDayPanel date={date} disabled={busy} onDate={setDate} onToday={() => setDate('')} />
+      <OtherDayPanel date={date} disabled={busy} loading={loading} onDate={setDate} onToday={() => setDate('')} />
     </main>
   </div>
 }
