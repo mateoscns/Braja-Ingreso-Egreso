@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LoginScreen, CompanyScreen, PasswordChangeScreen } from './AuthScreens'
 import { clearMarkInterrupted, markWasInterrupted, noteMarkInterrupted } from './interruptedMark'
@@ -253,5 +253,97 @@ describe('pantallas de acceso', () => {
       render(<LoginScreen onSignIn={vi.fn()} error="Tu sesión venció. Iniciá sesión nuevamente." />)
       expect(screen.getByRole('alert')).toHaveTextContent('Tu sesión venció. Iniciá sesión nuevamente.')
     })
+  })
+})
+
+// Slice D4: the three screens sit under the top bar of the app, with the brand only, and on the flat page of the design system
+// (no card). The owner removed the line in capitals above each title (2026-11-11: "Sacarlas todas").
+describe('pantallas de acceso: la barra de la marca y la hoja plana', () => {
+  const screens: [string, () => ReturnType<typeof render>][] = [
+    ['el ingreso', () => render(<LoginScreen onSignIn={vi.fn()} />)],
+    ['el cambio de contraseña', () => render(<PasswordChangeScreen onChange={vi.fn()} onSignOut={vi.fn()} />)],
+    ['la elección de empresa', () => render(<CompanyScreen session={twoCompanies} onSelect={vi.fn()} onSignOut={vi.fn()} />)]
+  ]
+
+  it.each(screens)('%s: la marca va como texto en la barra de arriba, el título es el único h1 y no hay renglón en mayúsculas', (_, show) => {
+    const { container } = show()
+    const banner = screen.getByRole('banner')
+
+    expect(banner).toHaveTextContent('Fichaje Braja')
+    // There is nowhere to go from here: the brand is text, as on the employee's screen.
+    expect(within(banner).queryByRole('link')).toBeNull()
+    expect(container.querySelectorAll('h1')).toHaveLength(1)
+    expect(screen.getByRole('main')).toContainElement(screen.getByRole('heading', { level: 1 }))
+    expect(container.querySelector('.eyebrow')).toBeNull()
+    expect(container.textContent).not.toMatch(/INGRESO AL SISTEMA|CUENTA COMPARTIDA|PRIMER INGRESO/)
+  })
+
+  it('los campos conservan su etiqueta y su autocompletado, y la contraseña se puede pegar (3.3.8)', () => {
+    render(<LoginScreen onSignIn={vi.fn()} />)
+    expect(screen.getByLabelText('DNI')).toHaveAttribute('autocomplete', 'username')
+    expect(screen.getByLabelText('DNI')).toHaveAttribute('inputmode', 'numeric')
+    expect(screen.getByLabelText('Contraseña')).toHaveAttribute('autocomplete', 'current-password')
+    // fireEvent returns false when a handler prevented the default action.
+    expect(fireEvent.paste(screen.getByLabelText('Contraseña'))).toBe(true)
+    cleanup()
+
+    render(<PasswordChangeScreen onChange={vi.fn()} onSignOut={vi.fn()} />)
+    expect(screen.getByLabelText('Contraseña que te dieron')).toHaveAttribute('autocomplete', 'current-password')
+    for (const label of ['Nueva contraseña', 'Repetí la nueva contraseña']) {
+      expect(screen.getByLabelText(label)).toHaveAttribute('autocomplete', 'new-password')
+      expect(fireEvent.paste(screen.getByLabelText(label))).toBe(true)
+    }
+  })
+
+  it('solo el botón que sigue va relleno; mostrar la contraseña y cerrar sesión son enlaces', () => {
+    const filled = (container: HTMLElement) => [...container.querySelectorAll('.button-primary')].map((button) => button.textContent)
+
+    const login = render(<LoginScreen onSignIn={vi.fn()} />)
+    expect(filled(login.container)).toEqual(['Ingresar'])
+    expect(screen.getByRole('button', { name: 'Mostrar contraseña' })).toHaveClass('button-link')
+    cleanup()
+
+    const change = render(<PasswordChangeScreen onChange={vi.fn()} onSignOut={vi.fn()} />)
+    expect(filled(change.container)).toEqual(['Guardar contraseña'])
+    expect(screen.getByRole('button', { name: 'Mostrar contraseñas' })).toHaveClass('button-link')
+    expect(screen.getByRole('button', { name: 'Cerrar sesión' })).toHaveClass('button-link')
+    cleanup()
+
+    const companies = render(<CompanyScreen session={twoCompanies} onSelect={vi.fn()} onSignOut={vi.fn()} />)
+    expect(filled(companies.container)).toEqual([])
+    expect(screen.getByRole('button', { name: 'Cerrar sesión' })).toHaveClass('button-link')
+  })
+
+  it('mostrar la contraseña suma un tilde al botón sin cambiarle el nombre', () => {
+    render(<LoginScreen onSignIn={vi.fn()} />)
+    const toggle = screen.getByRole('button', { name: 'Mostrar contraseña' })
+    expect(toggle.querySelector('svg')).toBeNull()
+
+    fireEvent.click(toggle)
+
+    expect(toggle).toHaveAccessibleName('Mostrar contraseña')
+    expect(toggle.querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
+  })
+
+  it('cada empresa es una opción de una lista: su nombre sobre su rol, sin letra en un cuadro ni flecha escrita', () => {
+    render(<CompanyScreen session={twoCompanies} onSelect={vi.fn()} onSignOut={vi.fn()} />)
+
+    expect(within(screen.getByRole('list')).getAllByRole('listitem')).toHaveLength(2)
+    const braja = screen.getByRole('button', { name: /^Braja\s*Administración$/ })
+    expect(braja).toHaveClass('choice')
+    expect(braja.querySelector('.choice-text > strong')).toHaveTextContent('Braja')
+    expect(braja.querySelector('.choice-text > small')).toHaveTextContent('Administración')
+    expect(braja.querySelector('.choice-icon')).toBeNull()
+    expect(braja).not.toHaveTextContent('→')
+  })
+
+  it('mientras se activa una empresa, la elegida muestra la rueda de espera en lugar de su flecha', async () => {
+    render(<CompanyScreen session={twoCompanies} onSelect={() => new Promise<void>(() => {})} onSignOut={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Braja/ }))
+
+    await screen.findByRole('status')
+    expect(screen.getByRole('button', { name: /Braja/ }).querySelector('.spinner')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByRole('button', { name: /Otra empresa/ }).querySelector('.spinner')).toBeNull()
   })
 })

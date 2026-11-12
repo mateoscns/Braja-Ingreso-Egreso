@@ -114,10 +114,11 @@ describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {
     expect(selectorsOf(floating)).toEqual([])
   })
 
-  // 2026-11-09: ".auth-card > .muted" (margin 0 0 26px) beat ".auth-hint" and the hint sat glued under "Ingresar".
-  it('la ayuda "¿Te olvidaste la clave?" queda separada del botón Ingresar', () => {
-    expect(rule('.auth-card > .auth-hint')).toMatch(/margin:\s*20px 0 0/)
-    expect(css.indexOf('.auth-card > .auth-hint')).toBeGreaterThan(css.indexOf('.auth-card > .muted'))
+  // Replaced in slice D4: the card went, and with it ".auth-card > .muted", which on 2026-11-09 beat the margin of the help
+  // line and left it glued under «Ingresar». The line has a rule of its own now and keeps the space above it.
+  it('la ayuda "¿Te olvidaste la contraseña?" queda separada del botón Ingresar', () => {
+    expect(/margin-top:\s*([^;]+)/.exec(rule('.auth-hint'))?.[1].trim()).toBe('var(--space-5)')
+    expect(allSelectors().filter((selector) => selector.includes('.auth-card'))).toEqual([])
   })
 
   // Replaced in slice N4: the alerts bar left the screen for the «Configuración» page. Nothing is fixed on screen but the bar of
@@ -272,10 +273,12 @@ const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui',
 // Lowered in slice D3 (the motive cards and their question went): colours 30 → 29, font sizes 19 → 18, old names 30 → 29.
 // Lowered in slice E1 (the cards of the inbox and the box of its filters went): colours 29 → 16, font sizes 18 → 16, shadows
 // 4 → 3, old names 29 → 28.
-const COLOR_LITERAL_CEILING = 16
-const UNTOKENED_FONT_SIZE_CEILING = 16
-const BOX_SHADOW_CEILING = 3
-const LEGACY_TOKEN_USE_CEILING = 28
+// Lowered in slice D4 (the card of the sign-in screens, its eyebrow and the glyph boxes of the companies went): colours 16 → 11,
+// font sizes 16 → 10, shadows 3 → 2, old names 28 → 22.
+const COLOR_LITERAL_CEILING = 11
+const UNTOKENED_FONT_SIZE_CEILING = 10
+const BOX_SHADOW_CEILING = 2
+const LEGACY_TOKEN_USE_CEILING = 22
 
 // The old names with the values they had before the token block. A name is deleted from the stylesheet once nothing uses it
 // and never gets a new value in the meantime: a half-migrated rule must look exactly as it did.
@@ -419,12 +422,10 @@ describe('base del documento: tipografía, enlaces, foco y placeholder', () => {
     for (const heading of ['h1', 'h2']) expect(rule(heading), heading).not.toMatch(/letter-spacing/)
   })
 
-  it('el texto chico de arriba de un título mide 14 px, en negrita y sin espaciado entre letras', () => {
-    const eyebrow = rule('.eyebrow')
-
-    expect(eyebrow).toMatch(/font-size:\s*var\(--font-size-meta\)/)
-    expect(eyebrow).toMatch(/font-weight:\s*var\(--font-weight-heavy\)/)
-    expect(eyebrow).not.toMatch(/letter-spacing/)
+  // Replaced in slice D4: the owner removed the line in capitals above the titles (2026-11-11: "Sacarlas todas"); the last three,
+  // on the sign-in screens, went with this slice and their rule with them.
+  it('no queda el renglón chico arriba de los títulos', () => {
+    expect(selectorsOf(rulesNaming('eyebrow'))).toEqual([])
   })
 
   it('un enlace se reconoce sin depender del color: va subrayado y con el verde de la marca (1.4.1)', () => {
@@ -577,7 +578,7 @@ describe('botones: variantes y estados', () => {
 const TEXT_BOX = '.field :is(input:not([type=checkbox], [type=radio]), select, textarea)'
 const allSelectors = () => allRules().flatMap(({ selectors }) => selectors)
 /** A selector of an option tile, by its new name or by one of the old ones that share its rules until the markup leaves them. */
-const isTile = (selector: string) => /\.(?:choice|journey-option|employee-category-option|company-choice)(?![\w-])/.test(selector)
+const isTile = (selector: string) => /\.(?:choice|journey-option|employee-category-option)(?![\w-])/.test(selector)
 
 describe('campos, casillas y opciones: una sola forma', () => {
   it('el recuadro de texto es una sola regla y no alcanza a las casillas ni a los botones de opción', () => {
@@ -682,8 +683,8 @@ describe('campos, casillas y opciones: una sola forma', () => {
   it('una opción es un control con el borde, las esquinas y el alto de los tokens', () => {
     const tile = ruleListing('.choice')
 
-    // Slice D3: the kinds of motive are .choice tiles, so their old name left the rule.
-    expect(tile.selectors).toEqual(['.choice', '.journey-option', '.company-choice'])
+    // Slice D3: the kinds of motive are .choice tiles, so their old name left the rule; slice D4: so are the companies.
+    expect(tile.selectors).toEqual(['.choice', '.journey-option'])
     expect(tile.declarations).toMatch(/border:\s*var\(--border-width\) solid var\(--border\)/)
     expect(tile.declarations).toMatch(/border-radius:\s*var\(--radius\)/)
     expect(tile.declarations).toMatch(/min-height:\s*var\(--target-large\)/)
@@ -696,7 +697,7 @@ describe('campos, casillas y opciones: una sola forma', () => {
     const faded = allRules().filter(({ selectors, declarations }) => selectors.some(isTile) && /(?<![\w-])opacity\s*:/.test(declarations))
 
     expect(faded.map(({ selectors }) => selectors.join(', '))).toEqual([])
-    expect(disabled.selectors).toEqual(['.choice:disabled', '.choice:has(input:disabled)', '.journey-option:disabled', '.company-choice:disabled'])
+    expect(disabled.selectors).toEqual(['.choice:disabled', '.choice:has(input:disabled)', '.journey-option:disabled'])
     expect(disabled.declarations).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
     expect(disabled.declarations).toMatch(/background:\s*var\(--surface-tint\)/)
     expect(disabled.declarations).toMatch(/border-color:\s*var\(--border\)/)
@@ -1122,6 +1123,58 @@ describe('«Para revisar»: los casos y el par de decisiones', () => {
 
   it('las reglas de las tarjetas de la bandeja se fueron con su marcado', () => {
     const gone = /\.(?:deviation-list|deviation-card|deviation-target|deviation-symbol|deviation-main|deviation-title|deviation-actions|reason-line|load-more|correction-form|filter-actions)(?![\w-])/
+
+    expect(allSelectors().filter((selector) => gone.test(selector))).toEqual([])
+  })
+})
+
+// Slice D4: the sign-in, password change and company screens sit under the top bar with the brand only, in one column on the
+// white page. No card (principle 1): the title, its lead and the form read top to bottom, and the companies are option tiles.
+describe('pantallas de acceso: la barra de la marca y una columna en la página blanca', () => {
+  const value = (declarations: string, property: string) => new RegExp(`(?:^|[;\\s])${property}:\\s*([^;]+)`).exec(declarations)?.[1].trim()
+  const AUTH_CLASSES = ['auth-page', 'auth-lead', 'auth-hint', 'auth-footnote', 'company-list']
+
+  it('la columna es plana: ninguna regla de estas pantallas dibuja recuadro, fondo, esquinas ni sombra', () => {
+    const boxed = rulesNaming(...AUTH_CLASSES).filter(({ declarations }) => /(?<![\w-])(?:border|border-radius|background|box-shadow)\s*:/.test(declarations))
+
+    expect(rulesNaming('auth-page').length).toBeGreaterThan(0)
+    expect(selectorsOf(boxed)).toEqual([])
+    // As wide as a field needs to be read and typed in, never wider than the screen minus its gutters.
+    expect(value(rule('.auth-page'), 'width')).toBe('min(100% - 2 * var(--gutter), 26rem)')
+  })
+
+  it('el texto de estas pantallas usa los colores, los tamaños y los espacios de los tokens', () => {
+    const written = rulesNaming(...AUTH_CLASSES).flatMap(({ selectors, declarations }) => [...declarations.matchAll(/([\w-]+)\s*:\s*([^;]+)/g)]
+      .filter(([, property]) => /^(?:color|font-size|margin|margin-[\w-]+|padding|padding-[\w-]+|gap)$/.test(property))
+      .map(([, property, written]) => ({ where: `${selectors.join(', ')} ${property}`, written: written.trim() })))
+      // What is left once the tokens are taken out is a zero or nothing; a number written by hand would remain.
+      .filter(({ written }) => /\d/.test(written.replace(/var\(--[\w-]+\)/g, '').replace(/(?<![\w.])0(?![\w.])/g, '')))
+
+    expect(written).toEqual([])
+    expect(value(rule('.auth-lead'), 'color')).toBe('var(--text-muted)')
+    expect(value(rule('.auth-footnote'), 'color')).toBe('var(--text-muted)')
+  })
+
+  it('cada empresa es una opción del sistema en una lista sin viñetas, una debajo de la otra', () => {
+    expect(value(rule('.company-list'), 'list-style')).toBe('none')
+    expect(value(rule('.company-list'), 'display')).toBe('grid')
+    expect(value(rule('.company-list'), 'gap')).toBe('var(--space-2)')
+    // The tile is a button that takes the row; its name and role take what is left, so the arrow sits at the end.
+    expect(value(rule('.company-list .choice'), 'width')).toBe('100%')
+    expect(value(rule('.company-list .choice-text'), 'flex')).toBe('1 1 auto')
+  })
+
+  it('un botón de enlace dentro de un formulario apilado conserva el ancho de sus palabras y, después de un campo, se le acerca', () => {
+    expect(value(rule('.form-stack > .button-link'), 'align-self')).toBe('flex-start')
+    // 12 px up from the gap of 16 px: «Mostrar contraseña» reads with the field it shows, and its target stays clear of the box.
+    expect(value(rule('.form-stack > .field + .button-link'), 'margin-top')).toBe('calc(-1 * var(--space-3))')
+    expect(value(rule('.form-stack'), 'gap')).toBe('var(--space-4)')
+    // A toggle link is drawn chosen when on (fill and edge of 2 px): it keeps a chip's room in both states.
+    expect(value(rule('.button-link[aria-pressed]'), 'padding')).toBe('0 var(--space-3)')
+  })
+
+  it('la tarjeta, la marca propia de estas pantallas y la letra y la flecha de cada empresa se fueron con su marcado', () => {
+    const gone = /\.(?:auth-card|auth-brand|company-choice|choice-icon|choice-arrow|password-toggle)(?![\w-])/
 
     expect(allSelectors().filter((selector) => gone.test(selector))).toEqual([])
   })

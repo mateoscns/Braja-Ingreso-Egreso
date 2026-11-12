@@ -158,7 +158,6 @@ h2 { font-size: var(--font-size-title); line-height: var(--line-height-heading);
 h3 { font-size: var(--font-size-body-lg); line-height: var(--line-height-heading); }
 .muted { color: var(--muted); margin-bottom: 0; line-height: 1.55; }
 .small-copy { font-size: .88rem; margin: -4px 0 18px; }
-.eyebrow { color: var(--text-tertiary); font-size: var(--font-size-meta); font-weight: var(--font-weight-heavy); margin: 0 0 10px; }
 /* Inline SVG icons (app/icons.tsx): sized by the text next to them and drawn with its colour; they never shrink in a row. */
 .icon { flex-shrink: 0; width: 1.25em; height: 1.25em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 /* Text for screen readers only (a table caption, the name of an empty cell): off the screen, still in the accessibility tree. */
@@ -173,18 +172,23 @@ h3 { font-size: var(--font-size-body-lg); line-height: var(--line-height-heading
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ===== Auth screens, form layout, fields; the location and the map of a site ===== */
-.auth-page { min-height: 100vh; min-height: 100dvh; padding: max(56px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(32px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); display: flex; flex-direction: column; align-items: center; background: radial-gradient(ellipse at 50% 3%, #e8f1e8 0, var(--page) 48%); }
-/* The brand on the light page of the sign-in screens: its mark keeps the dark tile of the app icon, the only surface lime is
-   legible on; the words take the brand green. Slice D4 decides the rest of these screens. */
-.auth-brand { margin-bottom: 32px; }
-.auth-brand .brand { color: var(--brand); }
-.auth-brand .brand-light { color: var(--text-muted); }
-.auth-brand .brand-mark { border-color: var(--brand); background: var(--brand); }
-.auth-card { width: min(100%, 436px); padding: 38px; background: rgba(255,255,255,.92); border: 1px solid #e9eeea; border-radius: 22px; box-shadow: 0 24px 80px rgba(20, 49, 34, .08); }
-.auth-card h1 { font-size: 1.9rem; }
-.auth-card > .muted { font-size: .93rem; margin: 0 0 26px; }
-.auth-footnote { margin: 22px 0 0; color: var(--text-secondary); font-size: .875rem; }
+/* The sign-in, password change and company screens (AuthScreens.tsx): the top bar with the brand only, then one column on the
+   white page, centred, as wide as a field needs to be read. No card (principle 1): the title, its lead and the form read top to
+   bottom. The space above is small on purpose: «Guardar contraseña» stays in the first screenful of a 320 × 640 phone. */
+.auth-page { width: min(100% - 2 * var(--gutter), 26rem); margin: 0 auto; padding: var(--space-4) 0 var(--space-7); }
+.auth-lead { max-width: var(--measure); margin: 0 0 var(--space-4); color: var(--text-muted); }
+/* What to do without a password: apart from «Ingresar», so it is not read as part of the button. */
+.auth-hint { margin-top: var(--space-5); margin-bottom: 0; color: var(--text-muted); }
+.auth-footnote { margin: var(--space-6) 0 0; color: var(--text-muted); }
+@media (min-width: 600px) {
+  .auth-page { padding-top: var(--space-6); }
+}
 .form-stack { display: flex; flex-direction: column; gap: var(--space-4); }
+/* A link button in a stacked form («Mostrar contraseña», «Cerrar sesión») keeps the width of its words: stretched across the
+   column, its underline would read as a line of the form. */
+.form-stack > .button-link { align-self: flex-start; }
+/* Right after a field it acts on that field («Mostrar contraseña»): it moves up to it, still 4 px clear of the box. */
+.form-stack > .field + .button-link { margin-top: calc(-1 * var(--space-3)); }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
 /* One field (FormField in app/ui.tsx): label, hint, control, error, in that order. The hint is read before typing and the
    keyboard of a phone does not cover it; the error sits under the control it is about. */
@@ -312,6 +316,9 @@ fieldset.field { gap: var(--space-2); }
 .journey-option[aria-pressed="true"]:disabled { border-color: var(--brand); }
 /* A disabled link button gets no box: it loses the underline that said it could be followed. */
 .button-link:disabled { background: transparent; border-color: transparent; text-decoration: none; }
+/* A link that is a toggle («Mostrar contraseña») takes the chosen look above when on, with its check: it gets the room of a
+   chip in both states, so the edge does not touch its words and they do not move when it is pressed. */
+.button-link[aria-pressed] { padding: 0 var(--space-3); }
 /* Sizes of the employee screen: the other marks (56 px) and the next mark (80 px, always primary and full width). */
 .button-large { min-height: var(--target-large); font-size: var(--font-size-body-lg); }
 .button-clock { min-height: var(--target-clock); gap: var(--space-3); font-size: var(--font-size-display); }
@@ -327,8 +334,8 @@ fieldset.field { gap: var(--space-2); }
 /* One of a few options that need a line of explanation: a toggle button (the shift of a day, the kind of schedule) or a label
    around a radio (the kind of motive). A control, so it has the edge and the corners of one, and it is 56 px tall. The chosen
    one takes the rule of the chosen button, above. The old name .journey-option is this tile until the markup leaves it (slice
-   H1); a company to enter with is one too until it becomes a row of a list (slice B5). */
-.choice, .journey-option, .company-choice {
+   H1). A company to enter with is a tile too (slice D4, below). */
+.choice, .journey-option {
   display: flex; align-items: center; gap: var(--space-3); min-width: 0; min-height: var(--target-large);
   border: var(--border-width) solid var(--border); border-radius: var(--radius); padding: var(--space-2) var(--space-3);
   color: var(--text); background: var(--surface); text-align: left; cursor: pointer;
@@ -346,7 +353,7 @@ fieldset.field { gap: var(--space-2); }
   .choice-list, .journey-picker { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 /* Disabled as a button is: muted text on the band, never faded, so the options stay readable while their form is busy. */
-.choice:disabled, .choice:has(input:disabled), .journey-option:disabled, .company-choice:disabled { color: var(--text-muted); background: var(--surface-tint); border-color: var(--border); }
+.choice:disabled, .choice:has(input:disabled), .journey-option:disabled { color: var(--text-muted); background: var(--surface-tint); border-color: var(--border); }
 
 /* ===== Messages ===== */
 /* What happened, whether it was saved and what to do (PageMessage in app/ui.tsx). The kind is told by a bar on the left, a tinted
@@ -374,12 +381,11 @@ fieldset.field { gap: var(--space-2); }
 .message > .spinner { margin-top: .125em; }
 
 /* ===== Company chooser ===== */
-/* Each company is an option tile (.company-choice, with the tiles above); here is only what is inside it. */
-.company-list { display: flex; flex-direction: column; gap: 9px; margin: 22px 0; }
-.choice-icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 11px; background: #ebf3ed; color: var(--green); font-weight: 750; }
-.company-choice strong, .company-choice small { display: block; }
-.company-choice small { color: var(--muted); margin-top: 3px; font-size: .875rem; }
-.choice-arrow { margin-left: auto; color: var(--text-secondary); font-size: 1.2rem; }
+/* Each company is an option tile (.choice, above) that enters at once: one under the other, each across the column. Its name
+   and role take the row, so the arrow (or the spinner of the one being activated) sits at its end. */
+.company-list { display: grid; gap: var(--space-2); margin: 0 0 var(--space-4); padding: 0; list-style: none; }
+.company-list .choice { width: 100%; }
+.company-list .choice-text { flex: 1 1 auto; }
 
 /* ===== Frame: top bar, ADMIN menu, page heading, panel, filters, change list ===== */
 .app-frame { min-height: 100vh; min-height: 100dvh; }
@@ -761,9 +767,6 @@ td .short-input { width: 74px; }
 .receipt-location-missing { padding-top: var(--space-3); border-top: var(--border-width) solid var(--ok); color: var(--text); }
 .receipt-location-missing > .icon { color: var(--warn); }
 .employee-today-button { margin-top: var(--space-3); }
-.password-toggle { align-self: flex-start; }
-/* Beats .auth-card > .muted, which left the hint glued under "Ingresar". */
-.auth-card > .auth-hint { margin: 20px 0 0; }
 
 /* ===== The «Configuración» page (ConfigurationPage in features/admin, design system 5.2 and 4.18) ===== */
 /* Each part is a row of the list that leads to it: its icon, its name over what it is for, and an arrow. A row, not a card. */
@@ -799,13 +802,6 @@ td .short-input { width: 74px; }
   .page-title-row .field { min-width: 130px; }
 }
 @media (max-width: 520px) {
-  /* Tighter on phones so "Guardar contraseña" fits on a 640 px screen under the rules of the new password. */
-  .auth-page { padding-top: max(16px, env(safe-area-inset-top)); }
-  .auth-brand { margin-bottom: 18px; }
-  .auth-card { padding: 20px; border-radius: 18px; }
-  .auth-card h1 { font-size: 1.6rem; }
-  .auth-card > .muted { margin-bottom: 18px; }
-  .auth-card .form-stack { gap: 12px; }
   .page-title-row { flex-wrap: wrap; }
   .form-grid { grid-template-columns: 1fr; }
   .field-wide { grid-column: auto; }
