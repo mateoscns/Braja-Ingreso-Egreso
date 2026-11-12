@@ -31,9 +31,10 @@ function colorOf(declarations: string, property: string) {
   if (!color) throw new Error(`No color in ${property}: ${value}`)
   return color[1] ? tokens.get(color[1]) ?? '' : color[0].toLowerCase()
 }
-/** Every `@media (max-width: <width>px)` block joined (or `min-width`): the browser applies all of them, not only the first. */
-function media(width: number, edge: 'max' | 'min' = 'max') {
-  const opening = `@media (${edge}-width: ${width}px) {`
+/** Every `@media (min-width: <width>px)` block joined: the browser applies all of them, not only the first. Slice G1: the sheet is
+    mobile first, so a width is always a minimum (the one `max-width: 359px` block is read with mediaBlock). */
+function media(width: 600 | 768 | 1024) {
+  const opening = `@media (min-width: ${width}px) {`
   const blocks: string[] = []
   for (let start = css.indexOf(opening); start >= 0; start = css.indexOf(opening, start + opening.length)) {
     blocks.push(css.slice(start + opening.length, css.indexOf('\n}', start)))
@@ -69,7 +70,7 @@ describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {
   // the left from there. A phone lying down (360 px tall) keeps the bar in the page instead of losing 72 px of its height to it.
   // The four labels are whole at 320 px: equal shares that never get narrower than the longest word («Configuración»).
   it('la navegación del ADMIN es una barra fija abajo hasta 1024 px, una columna a la izquierda desde ahí y entra entera en 320 px', () => {
-    const wide = media(1024, 'min')
+    const wide = media(1024)
     const lying = mediaBlock('max-height: 480px')
 
     expect(rule('.nav')).toMatch(/position:\s*fixed/)
@@ -91,7 +92,7 @@ describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {
   it('la barra de arriba es una grilla de marca, contexto y salida, sin alto fijo y sin quedar pegada arriba', () => {
     const areas = (declarations: string) => /grid-template-areas:\s*([^;]+)/.exec(declarations)?.[1] ?? ''
     const phone = rule('.topbar')
-    const wide = rule('.topbar', media(1024, 'min'))
+    const wide = rule('.topbar', media(1024))
     const positioned = rulesNaming('topbar').filter(({ declarations }) => /(?<![\w-])position\s*:\s*(?:sticky|fixed)/.test(declarations))
 
     expect(phone).toMatch(/display:\s*grid/)
@@ -164,7 +165,7 @@ describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {
     expect(value(rule('.main-content'), 'padding-bottom')).toMatch(reserve)
     expect(value(rule('html:has(.nav)'), 'scroll-padding-bottom')).toMatch(reserve)
     expect(value(rule('.nav'), 'padding-bottom')).toBe('env(safe-area-inset-bottom)')
-    for (const block of [media(1024, 'min'), mediaBlock('max-height: 480px')]) {
+    for (const block of [media(1024), mediaBlock('max-height: 480px')]) {
       expect(value(rule('.main-content', block), 'padding-bottom')).toBe('var(--space-7)')
       expect(value(rule('html:has(.nav)', block), 'scroll-padding-bottom')).toBe('0')
     }
@@ -415,7 +416,7 @@ describe('base del documento: tipografía, enlaces, foco y placeholder', () => {
   // Replaced in slice N4: the fixed alerts bar whose line height this held is gone. The labels of the navigation: 14 px in 600
   // on the bar, the place shown told by a bar of 4 px and the weight, never by the colour alone (1.4.1).
   it('el lugar actual de la navegación se reconoce por una barra de 4 px y la negrita, no solo por el color (1.4.1)', () => {
-    const wide = media(1024, 'min')
+    const wide = media(1024)
 
     expect(rule('.nav-link')).toMatch(/font-size:\s*var\(--font-size-meta\)/)
     expect(rule('.nav-link')).toMatch(/font-weight:\s*var\(--font-weight-strong\)/)
@@ -580,7 +581,7 @@ describe('botones: variantes y estados', () => {
   // and at least 80 px wide at 320 px; a row of the rail is as tall as any control.
   it('cada destino de la barra mide el alto de la barra y cada renglón de la columna el alto de toque (2.5.8)', () => {
     expect(rule('.nav-link')).toMatch(/min-height:\s*var\(--bottom-nav-height\)/)
-    expect(rule('.nav-link', media(1024, 'min'))).toMatch(/min-height:\s*var\(--target\)/)
+    expect(rule('.nav-link', media(1024))).toMatch(/min-height:\s*var\(--target\)/)
     expect(Number(/--bottom-nav-height:\s*([\d.]+)rem/.exec(rule(':root'))?.[1])).toBeGreaterThanOrEqual(3)
   })
 })
@@ -738,9 +739,10 @@ describe('campos, casillas y opciones: una sola forma', () => {
     const list = '.choice-list, .journey-picker'
 
     expect(rule(list)).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/)
-    expect(rule(list, media(600, 'min'))).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
-    // The one column is the base now: no narrow breakpoint has to bring it back.
-    expect(media(520)).not.toMatch(/\.employee-category-list/)
+    expect(rule(list, media(600))).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
+    // The one column is the base now: no narrow breakpoint has to bring it back. Slice G1: the 520 px block this read is gone,
+    // and the only narrow block left is the one of 359 px.
+    expect(mediaBlock('max-width: 359px')).not.toMatch(/\.(?:choice-list|journey-picker|employee-category-list)/)
   })
 
   // Slice N2 (D-20261111-02): the forms of a day open under the mark or the day they change, as one piece.
@@ -1061,7 +1063,7 @@ describe('pantalla del empleado: el bloque de ahora y la confirmación de una ma
     expect(voided).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
     // Under the time on a phone, beside it from 600 px.
     expect(/flex-direction:\s*([^;]+)/.exec(rule('.day-sheet-cell'))?.[1].trim()).toBe('column')
-    expect(/flex-direction:\s*([^;]+)/.exec(rule('.day-sheet-cell', media(600, 'min')))?.[1].trim()).toBe('row')
+    expect(/flex-direction:\s*([^;]+)/.exec(rule('.day-sheet-cell', media(600)))?.[1].trim()).toBe('row')
   })
 
   it('las reglas de la línea de tiempo de las marcas se fueron con su marcado', () => {
@@ -1246,7 +1248,7 @@ describe('«Equipo»: la lista de personas con las piezas del sistema', () => {
 
     expect(value(code, 'font-family')).toBe('var(--font-mono)')
     expect(value(code, 'font-size')).toBe('var(--font-size-title)')
-    expect(value(rule('.issued-password-code', media(600, 'min')), 'font-size')).toBe('var(--font-size-display)')
+    expect(value(rule('.issued-password-code', media(600)), 'font-size')).toBe('var(--font-size-display)')
     expect(value(code, 'font-weight')).toBe('var(--font-weight-heavy)')
     expect(code).not.toMatch(/letter-spacing/)
     // A result: the bar and the fill of a success message, no box.
@@ -1282,7 +1284,7 @@ describe('«Locales»: la lista, el formulario de ubicación y el marco del mapa
 
     // The vh value is the fallback of a browser without dvh; the last one wins where dvh is known.
     expect(value(canvas, 'height')).toEqual(['clamp(12.5rem, 45vh, 22.5rem)', 'clamp(12.5rem, 45dvh, 22.5rem)'])
-    expect(value(rule('.site-map-canvas', media(768, 'min')), 'height')).toEqual(['clamp(16rem, 50vh, 27.5rem)', 'clamp(16rem, 50dvh, 27.5rem)'])
+    expect(value(rule('.site-map-canvas', media(768)), 'height')).toEqual(['clamp(16rem, 50vh, 27.5rem)', 'clamp(16rem, 50dvh, 27.5rem)'])
     expect(value(canvas, 'border')).toEqual(['var(--border-width) solid var(--border)'])
     expect(value(canvas, 'border-radius')).toEqual(['var(--radius)'])
     expect(css).not.toMatch(/--topbar-height/)
@@ -1307,8 +1309,9 @@ describe('«Locales»: la lista, el formulario de ubicación y el marco del mapa
     const gone = /\.(?:site-location-field|site-location-actions|site-location-message|site-location-message-\w+|site-location-confirmation|audit-history|audit-items)(?![\w-])/
 
     expect(allSelectors().filter((selector) => gone.test(selector))).toEqual([])
-    // No narrow breakpoint resizes the map: the base rule is the phone's.
-    expect(media(760)).not.toMatch(/site-map/)
+    // No narrow breakpoint resizes the map: the base rule is the phone's. Slice G1: the 760 px block this read is gone, and the
+    // only narrow block left is the one of 359 px.
+    expect(mediaBlock('max-width: 359px')).not.toMatch(/site-map/)
   })
 })
 
@@ -1383,7 +1386,7 @@ describe('«Primeros pasos»: los pasos con las piezas del sistema', () => {
 
   it('la etiqueta y «Ir» van debajo del texto en el teléfono y a su lado desde 600 px, y un paso no es una tarjeta', () => {
     expect(areas(rule('.step'))).toBe('"number body" ". foot"')
-    expect(areas(rule('.step', media(600, 'min')))).toBe('"number body foot"')
+    expect(areas(rule('.step', media(600)))).toBe('"number body foot"')
     expect(rule('.step-foot')).toMatch(/flex-wrap:\s*wrap/)
     // The row is a record: its hairline and padding come from .record; no rule of a step adds a fill, corners or a shadow.
     expect(selectorsOf(rulesNaming('step', 'step-body', 'step-foot', 'step-next', 'step-done')
@@ -1394,5 +1397,104 @@ describe('«Primeros pasos»: los pasos con las piezas del sistema', () => {
     const gone = /\.(?:simple-list|simple-row|row-avatar|first-steps|first-step|first-step-copy)(?![\w-])/
 
     expect(allSelectors().filter((selector) => gone.test(selector))).toEqual([])
+  })
+})
+
+// Slice G1 (design system 2.4, WCAG 2.4.1, 1.4.10, 1.4.11, 2.1.1): the four breakpoints of the system and nothing else, and the
+// last gaps of structure: the skip link, the states that forced colours would wipe out and the focus of what takes it by script.
+describe('puntos de corte, colores forzados, salto al contenido y foco por código', () => {
+  const value = (declarations: string, property: string) => new RegExp(`(?:^|[;\\s])${property}:\\s*([^;]+)`).exec(declarations)?.[1].trim()
+
+  it('la hoja usa solo los puntos de corte del sistema: min-width de 600, 768 y 1024 px, y max-width solo de 359 px', () => {
+    const conditions = [...withoutComments(css).matchAll(/@media\s+([^{]+)\{/g)].map((match) => match[1])
+    const widths = conditions.flatMap((condition) => [...condition.matchAll(/\((min|max)-width:\s*([^)]+)\)/g)].map((match) => `${match[1]}-width: ${match[2].trim()}`))
+
+    expect(widths.filter((width) => width.startsWith('max-'))).toEqual(['max-width: 359px'])
+    expect([...new Set(widths.filter((width) => width.startsWith('min-')))].sort()).toEqual(['min-width: 1024px', 'min-width: 600px', 'min-width: 768px'])
+    // A phone lying down is a height, not a width; the list of cases switches by its own width (@container), not the screen's.
+    expect(mediaBlock('max-height: 480px')).toMatch(/\.nav\s*\{/)
+  })
+
+  // What the old narrow blocks did is the base now, and the wide side moved to a block of the system: 520 px went to 600 px,
+  // 760 px to 768 px and 1050 px to 1024 px.
+  it('lo que cambiaba en las pantallas angostas es la regla de base y lo ancho va a un bloque del sistema', () => {
+    expect(value(rule('.form-grid'), 'grid-template-columns')).toBe('1fr')
+    expect(value(rule('.form-grid', media(600)), 'grid-template-columns')).toBe('repeat(2, minmax(0, 1fr))')
+    // A wide field takes the whole row where the form has two columns; in one column it needs no rule.
+    expect(allSelectors().filter((selector) => selector === '.field-wide')).toHaveLength(1)
+    expect(value(rule('.field-wide', media(600)), 'grid-column')).toBe('1 / -1')
+    expect(value(rule('.page-title-row'), 'flex-wrap')).toBe('wrap')
+    expect(value(rule('.page-title-row'), 'align-items')).toBe('flex-start')
+    expect(value(rule('.page-title-row', media(600)), 'flex-wrap')).toBe('nowrap')
+    expect(value(rule('.page-title-row', media(768)), 'align-items')).toBe('flex-end')
+    expect(value(rule('.content-grid'), 'grid-template-columns')).toBe('1fr')
+    expect(value(rule('.content-grid', media(1024)), 'grid-template-columns')).toBe('minmax(0, .9fr) minmax(360px, 1.1fr)')
+    // The content's own padding on a phone, and the wider one from 768 px in longhands, so the room kept for the bottom bar stays.
+    expect(rule('.main-content')).toMatch(/padding:\s*26px 16px\s*;/)
+    const wide = rule('.main-content', media(768))
+    expect(wide).not.toMatch(/(?<![\w-])padding\s*:/)
+    expect(value(wide, 'padding-top')).toBe('38px')
+    for (const side of ['padding-right', 'padding-left']) expect(value(wide, side), side).toBe('clamp(22px, 4vw, 64px)')
+  })
+
+  // Forced colours drop fills and box shadows (the second pixel of a chosen edge); borders stay, in the text colour. So a chosen
+  // toggle takes the system colours of a selected item, a chosen radio tile its edge, and the bars of the navigation the colour of
+  // the page, but the current place's.
+  it('con colores forzados lo elegido, lo apretado y el lugar actual se siguen viendo con los colores del sistema (1.4.11)', () => {
+    const forced = mediaBlock('forced-colors: active')
+    const pressed = rule('.button[aria-pressed="true"], .choice[aria-pressed="true"], .journey-option[aria-pressed="true"]', forced)
+
+    expect(value(pressed, 'border-color')).toBe('Highlight')
+    expect(value(pressed, 'background')).toBe('Highlight')
+    expect(value(pressed, 'color')).toBe('HighlightText')
+    // Left as written: the browser would paint the page's colour behind the words, where HighlightText does not read.
+    expect(value(pressed, 'forced-color-adjust')).toBe('none')
+    expect(value(rule('.choice[aria-pressed="true"] small, .journey-option[aria-pressed="true"] small', forced), 'color')).toBe('HighlightText')
+    expect(value(rule('.choice:has(input:checked)', forced), 'border-color')).toBe('Highlight')
+    expect(value(rule('.nav-link', forced), 'border-top-color')).toBe('Canvas')
+    expect(value(rule('.nav-link', forced), 'border-left-color')).toBe('Canvas')
+    expect(value(rule('.nav-link[aria-current]', forced), 'border-top-color')).toBe('Highlight')
+    expect(value(rule('.nav-link[aria-current="page"]', forced), 'border-left-color')).toBe('Highlight')
+  })
+
+  it('«Ir al contenido» queda fuera de la vista hasta tener el foco y entonces aparece sobre la barra de arriba sin mover nada (2.4.1)', () => {
+    const link = rule('.skip-link')
+    const hidden = rule('.skip-link:not(:focus)')
+
+    expect(value(link, 'position')).toBe('absolute')
+    expect(value(link, 'min-height')).toBe('var(--target)')
+    expect(value(link, 'background')).toBe('var(--surface)')
+    expect(value(link, 'border')).toBe('var(--border-width) solid var(--border)')
+    // Out of sight but still in the accessibility tree, as .visually-hidden.
+    expect(value(hidden, 'clip-path')).toBe('inset(50%)')
+    expect(hidden).not.toMatch(/display:\s*none|visibility:\s*hidden/)
+    // The ring of the dark bar, which is what is around it.
+    expect(value(rule('.skip-link:focus-visible'), 'outline-color')).toBe('var(--lime)')
+  })
+
+  // A heading, a row or a message the code gives the focus to (tabindex -1): a ring when the keyboard is in use, none after a tap
+  // or a click, also where a browser would draw one for a script focus after a click.
+  it('lo que toma el foco por código no muestra el anillo después de un toque o un clic', () => {
+    expect(value(rule('[tabindex="-1"]:focus:not(:focus-visible)'), 'outline')).toBe('none')
+  })
+
+  // 2026-11-12, slice F2b: a date of the filters with its error under it stood taller than its neighbours, so its box sat higher.
+  it('con un error en los filtros los campos se alinean arriba y los botones quedan a la altura de los recuadros', () => {
+    // Every `@container (min-width: 56rem)` block joined: the list of cases has one too.
+    const opening = '@container (min-width: 56rem) {'
+    const wide = [...css.matchAll(/@container \(min-width: 56rem\) \{/g)].map((match) => css.slice(match.index + opening.length, css.indexOf('\n}', match.index))).join('\n')
+    const buttons = '.filter-bar:has(.field-error) > .button-row'
+
+    expect(value(rule('.filter-bar'), 'align-items')).toBe('flex-end')
+    expect(value(rule('.filter-bar'), 'container-type')).toBe('inline-size')
+    expect(value(rule('.filter-bar:has(.field-error)'), 'align-items')).toBe('flex-start')
+    // On a line of their own the buttons stay at its foot, with no room added above them.
+    expect(value(rule(buttons), 'align-self')).toBe('flex-end')
+    expect(rule(buttons)).not.toMatch(/margin/)
+    // Where the bar holds the fields and the buttons in one line, they move down by a label (one line of the body text) and the
+    // gap of a field: they start where the boxes start.
+    expect(value(rule(buttons, wide), 'align-self')).toBe('flex-start')
+    expect(value(rule(buttons, wide), 'margin-top')).toBe('calc(var(--font-size-body) * var(--line-height-body) + var(--space-1))')
+    expect(value(rule('.field'), 'gap')).toBe('var(--space-1)')
   })
 })

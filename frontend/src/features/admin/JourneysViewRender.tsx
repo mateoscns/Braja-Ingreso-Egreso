@@ -4,7 +4,7 @@
 // tables named by their section from there (design system 4.12); states are StatusTag (4.10).
 import { Fragment, type FormEvent, type ReactNode } from 'react'
 import { Icon, type IconName } from '../../app/icons'
-import { Empty, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel, StatusTag } from '../../app/ui'
+import { Empty, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel, StatusTag, TableScroll } from '../../app/ui'
 import type { FieldErrors } from '../../app/useFieldErrors'
 import type { Deviation, Jornada, JornadaAudit, JornadaAuditEntry, JornadaStatus, Mark, MarkAction, Site } from '../../shared/api/types'
 import { adminCategoryName as categoryName, adminDeviationName as deviationName, adminDeviationStatusName as statusName, adminMarkLocationName as locationName, adminMarkName as actionName } from '../../shared/labels'
@@ -133,14 +133,14 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
           {!mark.voided && markButtons(mark, 'record-actions')}
           {underMark(mark)}
         </li>)}</ul>
-        : <div className="table-scroll"><table aria-labelledby={DETAIL_HEADING_ID}><thead><tr><th scope="col">Marca</th><th scope="col">Hora</th><th scope="col">Registrada</th><th scope="col">Ubicación</th><th scope="col">Acciones</th></tr></thead><tbody>{detail.marks.map((mark) => {
+        : <TableScroll labelledBy={DETAIL_HEADING_ID}><table aria-labelledby={DETAIL_HEADING_ID}><thead><tr><th scope="col">Marca</th><th scope="col">Hora</th><th scope="col">Registrada</th><th scope="col">Ubicación</th><th scope="col">Acciones</th></tr></thead><tbody>{detail.marks.map((mark) => {
           const under = underMark(mark)
           return <Fragment key={mark.id}>{mark.voided
             ? <tr className="record-voided"><td><s>{actionName(mark.action)}</s> <VoidedTag /></td><td><s>{markTime(mark)}</s></td><td>{recordedTime(mark)}</td><td>{markLocation(mark)}</td><td>{voidedNote(mark)}</td></tr>
             : <tr><td>{actionName(mark.action)}</td><td>{markTime(mark)}</td><td>{recordedTime(mark)}</td><td>{markLocation(mark)}</td><td>{markButtons(mark, 'button-row')}</td></tr>}
             {/* The form of a mark, or its result, in a full-width row right under it (design system 4.12). */}
             {under && <tr><td colSpan={5}>{under}</td></tr>}</Fragment>
-        })}</tbody></table></div>}
+        })}</tbody></table></TableScroll>}
       {detail.state !== 'CANCELADA' && <form id={FORGOTTEN_FORM_ID} className="inline-form" noValidate onSubmit={onAddForgottenMark}><fieldset className="form-grid fieldset-plain" disabled={!detailTimeZone}>
         <div className="field-wide"><h3>Agregar una marca que faltó</h3><p className="field-hint">Escribí la hora de {detailSite?.name ?? 'el local'}. Queda guardado que la agregaste vos y por qué.</p></div>
         <FormField label="¿Qué marca faltó?"><select value={forgotAction} onChange={(event) => onForgotActionChange(event.target.value as MarkAction)}>{MARK_ACTIONS.map((action) => <option key={action} value={action}>{actionName(action)}</option>)}</select></FormField>
@@ -168,12 +168,12 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
           <div className="record-actions"><button className="button button-link" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></div>
           {detailIn(jornada.id)}
         </li>
-      })}</ul> : <div className="table-scroll"><table aria-labelledby={LIST_HEADING_ID}><thead><tr><th scope="col">Empleado</th><th scope="col">Local</th><th scope="col">Estado</th><th scope="col">Acciones</th></tr></thead><tbody>{jornadas.map((jornada) => {
+      })}</ul> : <TableScroll labelledBy={LIST_HEADING_ID}><table aria-labelledby={LIST_HEADING_ID}><thead><tr><th scope="col">Empleado</th><th scope="col">Local</th><th scope="col">Estado</th><th scope="col">Acciones</th></tr></thead><tbody>{jornadas.map((jornada) => {
         const open = detailIn(jornada.id)
         return <Fragment key={jornada.id}><tr><td>{peopleById.get(jornada.employeeId) ?? 'Empleado'}</td><td>{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Local'}</td><td><DayStateTag state={jornada.state} /></td><td><button className="button button-link" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></td></tr>
           {/* The day opens in a full-width row under its own; once read, the row is named by the day's title. */}
           {open && <tr aria-labelledby={detail && !detailLoading ? DETAIL_HEADING_ID : undefined}><td colSpan={4}>{open}</td></tr>}</Fragment>
-      })}</tbody></table></div> : <Empty>No hay días cargados para esta fecha.</Empty>}
+      })}</tbody></table></TableScroll> : <Empty>No hay días cargados para esta fecha.</Empty>}
     </section>
     {daySearch}
     {/* A day that is not a row of the list (one found by the search, or the list could not show it) opens here, right

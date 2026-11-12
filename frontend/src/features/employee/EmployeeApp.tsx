@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { AppHeader, CompanySwitcher, LoadFailure, Loading, Panel } from '../../app/ui'
+import { AppHeader, CompanySwitcher, CONTENT_ID, LoadFailure, Loading, Panel, SkipLink } from '../../app/ui'
 import { useSession } from '../../app/session'
 import { ApiError, api } from '../../shared/api/client'
 import type { Deviation, Jornada, Mark, Site } from '../../shared/api/types'
@@ -309,11 +309,13 @@ export function EmployeeApp() {
     ...(motivesFirst ? [motivePanel, marksPanel] : [marksPanel, motivePanel])]
 
   return <div className="app-frame employee-frame">
+    {/* Before the top bar, which comes first on every visit (WCAG 2.4.1). */}
+    <SkipLink />
     <AppHeader companyName={active.companyName} name={session.displayName?.trim() || (session.dni ? `DNI ${session.dni}` : 'Empleado')} onSignOut={() => void signOut()}>
       <InstallControl audience="employee" />
       <CompanySwitcher memberships={session.memberships} activeCompanyId={active.companyId} onSelect={activateCompany} disabled={busy} />
     </AppHeader>
-    <main className="employee-main">
+    <main id={CONTENT_ID} tabIndex={-1} className="employee-main">
       <DayHeading name={name} />
       {!loading && !loadFailed && jornadas.length > 1 && <JourneyPicker jornadas={jornadas} sites={sites} selectedId={selectedId} disabled={busy}
         onSelect={(id) => { setSelectedId(id); setPendingAttempt(null); setConfirmation(null); setStep(null) }} />}
