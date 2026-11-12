@@ -1,3 +1,4 @@
+import { Icon } from '../../app/icons'
 import { LoadFailure, Loading, PageMessage, Panel } from '../../app/ui'
 import type { AdminSection, CoverageNotice, SetupStep } from './setupStatus'
 
@@ -30,11 +31,15 @@ export function FirstStepsRender({ steps, loading, error, readyCount, onGo, onRe
 
 /**
  * Days loaded from tomorrow on. Shown when the page loads, not in answer to an action, so it is a polite status even when it is
- * an error: an alert on arrival would interrupt every screen reader on Bandeja and Jornadas.
+ * an error: an alert on arrival would interrupt every screen reader on Bandeja and Jornadas. Written as a message of the system
+ * (PageMessage would make the error an alert): the icon of its kind, then the words and, under them, the link to the load.
  */
 export function CoverageNoticeRender({ notice, actionLabel, onAction }: { notice: CoverageNotice; actionLabel: string; onAction: () => void }) {
-  return <div className={`message message-${notice.kind} coverage-notice`} role="status" aria-atomic="true">
-    <span>{notice.text}</span>
-    <button type="button" className="button button-small button-outline" onClick={onAction}>{actionLabel}</button>
+  return <div className={`message message-${notice.kind}`} role="status" aria-atomic="true">
+    <Icon name={notice.kind === 'error' ? 'error' : 'info'} />
+    <div className="message-body">
+      <p>{notice.text}</p>
+      <button type="button" className="button button-link" onClick={onAction}>{actionLabel}</button>
+    </div>
   </div>
 }

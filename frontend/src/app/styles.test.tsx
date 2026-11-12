@@ -275,10 +275,11 @@ const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui',
 // 4 → 3, old names 29 → 28.
 // Lowered in slice D4 (the card of the sign-in screens, its eyebrow and the glyph boxes of the companies went): colours 16 → 11,
 // font sizes 16 → 10, shadows 3 → 2, old names 28 → 22.
-const COLOR_LITERAL_CEILING = 11
+// Lowered in slice E3 (the box of the preview of a load went): colours 11 → 10, old names 22 → 21.
+const COLOR_LITERAL_CEILING = 10
 const UNTOKENED_FONT_SIZE_CEILING = 10
 const BOX_SHADOW_CEILING = 2
-const LEGACY_TOKEN_USE_CEILING = 22
+const LEGACY_TOKEN_USE_CEILING = 21
 
 // The old names with the values they had before the token block. A name is deleted from the stylesheet once nothing uses it
 // and never gets a new value in the meantime: a half-migrated rule must look exactly as it did.
@@ -1177,5 +1178,29 @@ describe('pantallas de acceso: la barra de la marca y una columna en la página 
     const gone = /\.(?:auth-card|auth-brand|company-choice|choice-icon|choice-arrow|password-toggle)(?![\w-])/
 
     expect(allSelectors().filter((selector) => gone.test(selector))).toEqual([])
+  })
+})
+
+// Slice E3: «Días de trabajo» is built with the pieces of the system. The preview, the result and the notice of days loaded are
+// messages; the days a load skipped are records inside its message; the forms space their messages with their own gap.
+describe('«Días de trabajo»: la carga del mes con las piezas del sistema', () => {
+  const value = (declarations: string, property: string) => new RegExp(`(?:^|[;\\s])${property}:\\s*([^;]+)`).exec(declarations)?.[1].trim()
+
+  it('los renglones de un mensaje van sin margen propio y la última fila de una lista dentro de un mensaje no lleva línea', () => {
+    expect(value(rule('.message-body > p'), 'margin')).toBe('0')
+    expect(value(rule('.message .record:last-child'), 'border-bottom')).toBe('0')
+  })
+
+  it('un mensaje dentro de los formularios de «Días de trabajo» lo separa el espacio del formulario, no un margen más', () => {
+    expect(value(rule('.work-days-form .message'), 'margin')).toBe('0')
+    expect(value(rule('.form-stack'), 'gap')).toBe('var(--space-4)')
+  })
+
+  it('las reglas propias de la vista previa, de lo omitido y del aviso se fueron con su marcado', () => {
+    const gone = /\.(?:work-days-preview|work-days-skip|work-days-skips|coverage-notice|choice-row)(?![\w-])/
+
+    expect(allSelectors().filter((selector) => gone.test(selector))).toEqual([])
+    // A row of a list inside a message is a record now: nothing draws the old row there.
+    expect(allSelectors()).not.toContain('.message .simple-row:last-child')
   })
 })
