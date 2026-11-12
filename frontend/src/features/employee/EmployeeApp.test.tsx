@@ -1069,6 +1069,19 @@ describe('EmployeeApp', () => {
       expect(screen.getByLabelText('Día')).toHaveValue('')
     })
 
+    // Review advisory of T12 (R3-other-day-truthy-date): choosing today's date in the field left today read-only.
+    it('elegir la fecha de hoy en «Ver otros días» deja la pantalla de hoy, con sus botones de marcar', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      await breakfastButton()
+
+      fireEvent.change(screen.getByLabelText('Día'), { target: { value: today } })
+
+      expect(screen.getByLabelText('Día')).toHaveValue('')
+      expect(screen.queryByText('Para marcar, volvé a hoy.')).not.toBeInTheDocument()
+      expect(await screen.findByRole('button', { name: 'Me voy a desayunar' })).toBeInTheDocument()
+    })
+
     it('un día sin nada cargado también dice que para marcar hay que volver a hoy', async () => {
       configureSingle(jornadas[0])
       render(<EmployeeApp />)

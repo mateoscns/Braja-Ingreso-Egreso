@@ -4,7 +4,7 @@ import { useSession } from '../../app/session'
 import { ApiError, api } from '../../shared/api/client'
 import type { Deviation, Jornada, Mark, Site } from '../../shared/api/types'
 import { createMarkAttempt, submitMark, type LocationResult, type MarkAction, type MarkAttempt } from './markFlow'
-import { loadEmployeeDayData, loadPendingMotives, PENDING_MOTIVES_LIMIT } from './dayData'
+import { loadEmployeeDayData, loadPendingMotives, localCalendarDate, PENDING_MOTIVES_LIMIT } from './dayData'
 import { InstallControl } from '../../device/pwa/InstallControl'
 import { formatLocalDate } from '../../shared/format'
 import { daySentence, exitConfirmation, markOptions, type LocationOutcome } from './employeeDay'
@@ -149,6 +149,13 @@ export function EmployeeApp() {
   const zone = selectedSite?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone
   // Another day is only for looking (D-20261112-01): its marks are not offered, a forgotten one is loaded by the ADMIN.
   const options = selected && !date ? markOptions(selected, zone, now) : null
+  // Today's date chosen in the field is today, with its marks (D-20261112-01 speaks of a day that is not today): it goes back to
+  // the today view, which also keeps an overnight shift that started yesterday. With locals in several zones, only a date that
+  // is today in all of them counts as today.
+  function chooseDate(value: string) {
+    const zones = sites.length ? sites.map((site) => site.timeZone) : [zone]
+    setDate(value && zones.every((timeZone) => localCalendarDate(timeZone, new Date()) === value) ? '' : value)
+  }
 
   function openStep(next: MarkStep) { setStep(next); setStepFocus((count) => count + 1) }
 
@@ -330,7 +337,7 @@ export function EmployeeApp() {
         onSelect={(id) => { setSelectedId(id); setPendingAttempt(null); setConfirmation(null); setStep(null) }} />}
       <MarkFeedback feedbackRef={feedbackRef} sending={busy} error={markError} showRefresh={markFailed && !loading} onRefresh={() => void refreshAfterUnknown()} confirmation={confirmation} timeZone={zone} />
       {sections}
-      <OtherDayPanel date={date} disabled={busy} loading={loading} onDate={setDate} onToday={() => setDate('')} />
+      <OtherDayPanel date={date} disabled={busy} loading={loading} onDate={chooseDate} onToday={() => setDate('')} />
     </main>
   </div>
 }
