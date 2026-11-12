@@ -308,7 +308,7 @@ describe('EmployeeApp', () => {
       render(<EmployeeApp />)
       fireEvent.click(await breakfastButton())
 
-      expect(await screen.findByText('Para marcar necesitamos saber que estás en el local. Solo se mira en el momento de marcar.')).toBeInTheDocument()
+      expect(await screen.findByText('Al marcar, el celular manda tu ubicación una sola vez para saber si estás en el local. Si no llega, la marca igual se registra.')).toBeInTheDocument()
       fireEvent.click(screen.getByRole('button', { name: 'Volver' }))
       await waitFor(() => expect(screen.getByRole('button', { name: 'Me voy a desayunar' })).toHaveFocus())
       expect(mocks.submitMark).not.toHaveBeenCalled()
@@ -333,14 +333,16 @@ describe('EmployeeApp', () => {
       render(<EmployeeApp />)
       fireEvent.click(await breakfastButton())
 
-      expect(await screen.findByText('Para marcar necesitamos saber que estás en el local. Solo se mira en el momento de marcar.')).toBeInTheDocument()
+      expect(await screen.findByText('Al marcar, el celular manda tu ubicación una sola vez para saber si estás en el local. Si no llega, la marca igual se registra.')).toBeInTheDocument()
+      // Rule 2 (T12, finding A-1): the location never blocks a mark, so the notice does not word it as a condition.
+      expect(screen.queryByText(/necesitamos|para marcar/i)).not.toBeInTheDocument()
       expect(mocks.submitMark).not.toHaveBeenCalled()
       fireEvent.click(screen.getByRole('button', { name: 'Continuar' }))
       await waitFor(() => expect(mocks.submitMark).toHaveBeenCalledTimes(1))
 
       fireEvent.click(await screen.findByRole('button', { name: 'Me voy a almorzar' }))
       await waitFor(() => expect(mocks.submitMark).toHaveBeenCalledTimes(2))
-      expect(screen.queryByText(/necesitamos saber que estás en el local/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/manda tu ubicación una sola vez/)).not.toBeInTheDocument()
     })
   })
 
@@ -603,6 +605,8 @@ describe('EmployeeApp', () => {
 
       const card = motive.closest('form')!
       expect(await within(card).findByRole('alert')).toHaveTextContent('Tu encargado ya lo revisó: ya no se puede cambiar.')
+      // T12 (#114, 2026-11-12; WCAG 2.4.3): the button was disabled while it sent, so the focus was lost; it goes to the message.
+      await waitFor(() => expect(within(card).getByRole('alert')).toHaveFocus())
       expect(motive).toHaveValue('Paro de colectivos.')
       expect(screen.getByRole('radio', { name: /Transporte/ })).toBeChecked()
     })
@@ -780,6 +784,8 @@ describe('EmployeeApp', () => {
       fireEvent.click(within(item).getByRole('button', { name: 'Guardar corrección' }))
 
       expect(await within(item).findByRole('alert')).toHaveTextContent('No hay internet. Lo que escribiste sigue acá')
+      // T12 (#114, 2026-11-12; WCAG 2.4.3): the button was disabled while it sent, so the focus was lost; it goes to the message.
+      await waitFor(() => expect(within(item).getByRole('alert')).toHaveFocus())
       expect(within(item).getByLabelText('Contá qué pasó')).toHaveValue('Se inundó la cocina.')
       expect(within(item).getByRole('radio', { name: /Emergencia/ })).toBeChecked()
     })
@@ -791,7 +797,8 @@ describe('EmployeeApp', () => {
     it('un envío vacío marca el tipo y el texto a la vez y lleva el foco a la primera opción', async () => {
       configureApi([pendingDeviation])
       render(<EmployeeApp />)
-      const text = await screen.findByLabelText('Contá qué pasó')
+      // Under the load of the full suite the first draw took longer than the default second once (L37).
+      const text = await screen.findByLabelText('Contá qué pasó', undefined, { timeout: 5000 })
       const card = text.closest('form')!
       const button = within(card).getByRole('button', { name: 'Enviar motivo' })
       expect(card).toHaveAttribute('novalidate')
@@ -1036,6 +1043,41 @@ describe('EmployeeApp', () => {
 
       expect(within(otherDays).getByLabelText('Día')).toHaveValue('')
       expect(await screen.findByText('Estás trabajando desde las 09:00.')).toBeInTheDocument()
+    })
+    // T12 (#114, 2026-11-12, finding K-1): another day still offered the mark buttons of an open day. Mateo answered "Solo mirar
+    // (Recomendado)" (D-20261112-01): another day is only for looking; a forgotten mark is loaded by the ADMIN.
+    it('en otro día abierto no hay botones de marcar ni la tolerancia de hoy, y ofrece volver a hoy', async () => {
+      const pastOpen = { ...makeJornada('jornada-past', 'site-center'), localDate: '2026-10-15' }
+      configureSingle(jornadas[0])
+      const today = mocks.apiGet.getMockImplementation()!
+      mocks.apiGet.mockImplementation((path: string) => path === '/jornadas/mine?localDate=2026-10-15' ? Promise.resolve([pastOpen]) : today(path))
+      render(<EmployeeApp />)
+      await breakfastButton()
+      expect(screen.getByText(/minutos de tolerancia para entrar/)).toBeInTheDocument()
+
+      fireEvent.change(within(screen.getByRole('region', { name: 'Ver otros días' })).getByLabelText('Día'), { target: { value: '2026-10-15' } })
+
+      expect(await screen.findByText(/Estás viendo el 15 oct 2026/)).toBeInTheDocument()
+      expect(await screen.findByRole('region', { name: 'Tus marcas del 15 oct 2026' })).toBeInTheDocument()
+      const now = screen.getByText('Para marcar, volvé a hoy.').closest('section')!
+      expect(within(now).getAllByRole('button').map((button) => button.textContent)).toEqual(['Volver a hoy'])
+      for (const name of ['Me voy a desayunar', 'Me voy a almorzar', 'Marcar salida', 'Marcar entrada']) expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
+      expect(screen.queryByText(/tolerancia/)).not.toBeInTheDocument()
+      expect(screen.getByText(/Local Centro/)).toBeInTheDocument()
+
+      fireEvent.click(within(now).getByRole('button', { name: 'Volver a hoy' }))
+      expect(screen.getByLabelText('Día')).toHaveValue('')
+    })
+
+    it('un día sin nada cargado también dice que para marcar hay que volver a hoy', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      await breakfastButton()
+      fireEvent.change(screen.getByLabelText('Día'), { target: { value: '2026-10-14' } })
+
+      expect(await screen.findByText(/Ese día no tenés un día de trabajo cargado/)).toBeInTheDocument()
+      expect(screen.getByText('Para marcar, volvé a hoy.')).toBeInTheDocument()
+      expect(screen.getAllByRole('button', { name: 'Volver a hoy' })).toHaveLength(2)
     })
   })
 

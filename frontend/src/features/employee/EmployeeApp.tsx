@@ -12,8 +12,9 @@ import { loadFailureMessage, markFailureMessage, motiveFailureMessage } from './
 import { LOCATION_NOTICE, locationNoticeSeen, rememberLocationNotice, skipNoticeIfLocationGranted } from './locationNotice'
 import { noteMarkInterrupted } from '../auth/interruptedMark'
 import { useFocusRequest } from '../../app/revealAndFocus'
+import { useProblemFocus } from '../../app/useFieldErrors'
 import {
-  DayHeading, DayMarksPanel, JourneyPicker, markButtonId, MarkFeedback, MOTIVE_NOTICE_ID, MotivePanel, NowBlock, OtherDayPanel,
+  DayHeading, DayMarksPanel, JourneyPicker, markButtonId, MarkFeedback, MOTIVE_NOTICE_ID, motiveFormId, MotivePanel, NowBlock, OtherDayPanel,
   type MarkConfirmation, type MarkStep, type MotiveErrors, type MotiveValues
 } from './EmployeeViews'
 
@@ -78,6 +79,9 @@ export function EmployeeApp() {
   // The question replaces the mark buttons: «No, seguir trabajando» or «Volver» bring them back, and the focus goes to the one
   // that asked (finding F-27), not to the page.
   const focusLater = useFocusRequest(!busy)
+  // A refused motive (a field missing or the server's answer) takes the focus to its first problem; the button pressed may be
+  // disabled while it sends (T12; WCAG 2.4.3).
+  const focusProblem = useProblemFocus()
   useEffect(() => { skipNoticeIfLocationGranted() }, [])
   // A 401 while a mark is being sent means it was not saved; the login screen says so (the session listener unmounts this view).
   useEffect(() => api.onSessionExpired(() => { if (markInFlight.current) noteMarkInterrupted() }), [])
@@ -143,7 +147,8 @@ export function EmployeeApp() {
   const selectedSite = sites.find((site) => site.id === selected?.siteId)
   if (!session || !active) return null
   const zone = selectedSite?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone
-  const options = selected ? markOptions(selected, zone, now) : null
+  // Another day is only for looking (D-20261112-01): its marks are not offered, a forgotten one is loaded by the ADMIN.
+  const options = selected && !date ? markOptions(selected, zone, now) : null
 
   function openStep(next: MarkStep) { setStep(next); setStepFocus((count) => count + 1) }
 
@@ -266,7 +271,7 @@ export function EmployeeApp() {
     const found: MotiveErrors = {}
     if (!values.category) found.category = 'Elegí una de las opciones.'
     if (!values.text.trim()) found.text = 'Contá en pocas palabras qué pasó.'
-    if (found.category || found.text) { setMotiveErrors((current) => ({ ...current, [item.id]: found })); return }
+    if (found.category || found.text) { setMotiveErrors((current) => ({ ...current, [item.id]: found })); focusProblem(motiveFormId(item.id)); return }
     setSavingMotive(item.id); setMotiveNotice(''); clearMotiveError(item.id)
     try {
       const updated = await api.put<Deviation>(`/deviations/${encodeURIComponent(item.id)}/motive`, { category: values.category, text: values.text.trim() })
@@ -281,6 +286,7 @@ export function EmployeeApp() {
     } catch (reason) {
       // What the employee typed stays in the card.
       setMotiveErrors((current) => ({ ...current, [item.id]: { form: motiveFailureMessage(reason) } }))
+      focusProblem(motiveFormId(item.id))
     }
     finally { setSavingMotive('') }
   }
@@ -308,7 +314,7 @@ export function EmployeeApp() {
   const sections = loading ? [<Loading key="loading" label="Cargando tu día…" />, motivePanel]
     : loadFailed ? [<Panel key="failed" title="No pudimos cargar tu día"><LoadFailure message={loadError} primary onRetry={() => void load()} /></Panel>, motivePanel]
     : [<NowBlock key="now" sentence={sentence} jornada={selected} site={selectedSite} options={options} busy={busy} step={step} stepRef={stepRef}
-      onMark={(action) => startMark(action)} onConfirmStep={confirmStep} onCancelStep={cancelStep} />,
+      onMark={(action) => startMark(action)} onConfirmStep={confirmStep} onCancelStep={cancelStep} onToday={date ? () => setDate('') : undefined} />,
     ...(motivesFirst ? [motivePanel, marksPanel] : [marksPanel, motivePanel])]
 
   return <div className="app-frame">
