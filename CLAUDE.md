@@ -107,15 +107,16 @@ en un estado:
   `ADMIN`.
 - **Registro de decisiones**: `docs/DECISIONES.md`, filas `ID
   (D-AAAAMMDD-NN) | fecha | decisión | propuesta por | estado | motivo`. Al
-  2026-11-12: 75 filas, todas adoptadas y 0 propuestas (16 del 2026-10-14, 6
+  2026-11-12: 76 filas, todas adoptadas y 0 propuestas (16 del 2026-10-14, 6
   del 10-15, 5 del 10-16, 1 del 10-18, 6 del 10-19, 2 del 10-23, 12 del 10-27,
   1 del 10-29, 2 del 10-30, 15 del 11-02, 3 del 11-09, 3 del 11-11: el
   vocabulario visible de la interfaz, D-20261111-01, con su ajuste de persona
   gramatical para el empleado, D-20261111-03, y el menú del `ADMIN` en cuatro
-  destinos, D-20261111-02; y 3 del 11-12, de la revisión T12 del #114: otro
+  destinos, D-20261111-02; y 4 del 11-12: de la revisión T12 del #114, otro
   día del empleado solo para mirar, D-20261112-01, el aviso de sesión por
   vencer del `ADMIN`, D-20261112-02, y el cambio de empresa con «Cambiar»,
-  D-20261112-03). Las 15 del 2026-11-02
+  D-20261112-03, y la excepción a la regla 38 para fusionar el rediseño en
+  `main`, D-20261112-04). Las 15 del 2026-11-02
   (D-20261102-01 a -15) son propuestas de la IA durante la campaña #72 que
   Mateo adoptó con su aprobación general de ese día al plan de producción
   (`odd/tasks/production-readiness.md`); cada una lo dice en su motivo.
