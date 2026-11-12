@@ -141,7 +141,7 @@ describe('ApiClient: códigos de error conocidos', () => {
     [409, 'JORNADA_EXISTS', 'Esa persona ya tiene ese día cargado en ese local.'],
     [409, 'MEMBERSHIP_EXISTS', 'Esa persona ya tiene un rol en esta empresa.'],
     [409, 'ACCOUNT_INACTIVE', 'La cuenta de ese DNI no está habilitada y no se puede agregar a la empresa.'],
-    [409, 'ACCOUNT_SHARED', 'Esta persona también tiene acceso en otra empresa o como ADMIN; su contraseña la restablece el operador.'],
+    [409, 'ACCOUNT_SHARED', 'Esta persona también tiene acceso en otra empresa o como ADMIN, así que su contraseña no se puede restablecer desde acá. Pedí ayuda al soporte de Fichaje Braja.'],
     [409, 'EMPLOYEE_INACTIVE', 'El empleado está dado de baja; reactivalo antes de restablecer la contraseña.'],
     [409, 'JORNADA_HAS_MARKS', 'El día de trabajo ya tiene marcas y no se puede cancelar. Corregí o anulá sus marcas.'],
     [409, 'JORNADA_CANCELLED', 'Este día de trabajo fue cancelado por el administrador y no admite marcas.'],
@@ -375,5 +375,64 @@ describe('ApiClient: codes of the production backend and proxy', () => {
   it('a 422 with an unknown code keeps the generic validation message', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(coded(422, 'VALIDATION_ERROR')))
     await expect(new ApiClient().get('/x')).rejects.toMatchObject({ message: 'Revisá los datos ingresados.' })
+  })
+})
+
+// T12 (#114): the warning before the ADMIN session expires restarts its clock on every answer the server gave (rule 23).
+describe('ApiClient: observer of answered requests', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  const ok = () => new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  const coded = (status: number) => new Response(JSON.stringify({ status, code: 'X' }), { status, headers: { 'Content-Type': 'application/problem+json' } })
+
+  it('tells every answer of a request with the session cookie, an error included, and changes neither the request nor its result', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(ok()).mockResolvedValueOnce(coded(409))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new ApiClient()
+    const listener = vi.fn()
+    const stop = client.onResponse(listener)
+
+    await expect(client.get('/session')).resolves.toEqual({ ok: true })
+    expect(listener).toHaveBeenCalledTimes(1)
+    await expect(client.get('/x')).rejects.toMatchObject({ status: 409 })
+    expect(listener).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'GET', credentials: 'include', cache: 'no-store', redirect: 'error' })
+
+    stop()
+    fetchMock.mockResolvedValueOnce(ok())
+    await client.get('/session')
+    expect(listener).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not tell a request that never got an answer nor one sent without the cookie', async () => {
+    const fetchMock = vi.fn().mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce(ok())
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new ApiClient()
+    const listener = vi.fn()
+    client.onResponse(listener)
+
+    await expect(client.get('/session')).rejects.toMatchObject({ name: 'NetworkError' })
+    await client.publicConfig()
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  // Verifier of T12: Caddy answers 503 under /api while the backend restarts, without reaching it, so a 5xx is no proof that the
+  // server saw the session; counting it hid «Seguir conectado» and the session still closed two minutes later.
+  it('does not tell a 5xx answer, which may come from the proxy without touching the session', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(coded(503)).mockResolvedValueOnce(coded(500))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new ApiClient()
+    const listener = vi.fn()
+    client.onResponse(listener)
+
+    await expect(client.get('/session')).rejects.toMatchObject({ status: 503 })
+    await expect(client.get('/x')).rejects.toMatchObject({ status: 500 })
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  it('a listener that throws does not break the request', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(ok()))
+    const client = new ApiClient()
+    client.onResponse(() => { throw new Error('listener') })
+    await expect(client.get('/session')).resolves.toEqual({ ok: true })
   })
 })

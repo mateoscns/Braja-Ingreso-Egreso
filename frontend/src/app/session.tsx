@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ApiError, api } from '../shared/api/client'
 import type { Session } from '../shared/api/types'
+import { SessionWarning, warnsBeforeIdleClose } from './sessionWarning'
 
 type SessionContextValue = {
   session: Session | null
@@ -82,7 +83,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(() => ({ session, loading, error, signIn, signOut, activateCompany, changePassword }),
     [session, loading, error, signIn, signOut, activateCompany, changePassword])
-  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
+  // Above every screen of an account with the 30 minute limit, while it has a session (D-20261112-02). It mounts when a session
+  // appears, so its clock starts with the session just read; every later answer of the server restarts it.
+  return <SessionContext.Provider value={value}>{warnsBeforeIdleClose(session) && <SessionWarning />}{children}</SessionContext.Provider>
 }
 
 export function useSession(): SessionContextValue {

@@ -870,7 +870,10 @@ td .button-row { gap: var(--space-2); }
 .update-banner > .message-body { flex: 0 1 auto; }
 .update-banner > * { align-self: center; margin-top: 0; }
 /* The banner already keeps the phone's status bar clear: the top bar under it does not do it a second time. */
-.update-banner:not(:empty) + .app-frame > .topbar { padding-top: 0; }
+.update-banner:not(:empty) ~ .app-frame > .topbar { padding-top: 0; }
+/* T12, the session warning (app/sessionWarning.tsx, D-20261112-02): the same banner, after the one of a new version and before
+   the screen. Under a banner already shown it does not clear the status bar again. */
+.update-banner:not(:empty) ~ .update-banner { padding-top: var(--space-3); }
 /* A fold (details/summary) is a control: bordered, its summary as tall as a target, with an arrow at the right drawn by two
    borders, so there is no glyph to hide from screen readers. The summary text is the name of what it holds; a heading inside the
    summary is left to its screen slice (finding F-30). */

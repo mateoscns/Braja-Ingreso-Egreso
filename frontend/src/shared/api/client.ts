@@ -53,7 +53,7 @@ const CONFLICT_MESSAGES: Record<string, string> = {
   JORNADA_EXISTS: 'Esa persona ya tiene ese día cargado en ese local.',
   MEMBERSHIP_EXISTS: 'Esa persona ya tiene un rol en esta empresa.',
   ACCOUNT_INACTIVE: 'La cuenta de ese DNI no está habilitada y no se puede agregar a la empresa.',
-  ACCOUNT_SHARED: 'Esta persona también tiene acceso en otra empresa o como ADMIN; su contraseña la restablece el operador.',
+  ACCOUNT_SHARED: 'Esta persona también tiene acceso en otra empresa o como ADMIN, así que su contraseña no se puede restablecer desde acá. Pedí ayuda al soporte de Fichaje Braja.',
   EMPLOYEE_INACTIVE: 'El empleado está dado de baja; reactivalo antes de restablecer la contraseña.',
   JORNADA_HAS_MARKS: 'El día de trabajo ya tiene marcas y no se puede cancelar. Corregí o anulá sus marcas.',
   JORNADA_CANCELLED: 'Este día de trabajo fue cancelado por el administrador y no admite marcas.',
@@ -114,6 +114,12 @@ type RequestOptions = { headers?: Record<string, string>; signal?: AbortSignal }
 export type MutationOptions = { signal?: AbortSignal }
 /** Called when an authenticated request gets 401: the server no longer has a live session for this browser. */
 export type SessionExpiredListener = () => void
+/**
+ * Called when a request sent with the session cookie got an answer below 500: the server saw the session, so its idle clock
+ * started again (rule 23). A 5xx may come from the proxy while the backend restarts, without reaching it, so it is not told.
+ * It only observes; it cannot change the request or its result.
+ */
+export type ResponseListener = () => void
 
 const LOGIN_URL = '/api/v1/session'
 const PASSWORD_URL = '/api/v1/session/password'
@@ -123,6 +129,7 @@ export class ApiClient {
   private csrfPromise?: Promise<string>
   private readonly sessionExpiredListeners = new Set<SessionExpiredListener>()
   private readonly passwordChangeListeners = new Set<SessionExpiredListener>()
+  private readonly responseListeners = new Set<ResponseListener>()
 
   async get<T>(path: string, options: RequestOptions = {}): Promise<T> {
     return this.request<T>('GET', path, undefined, options)
@@ -167,6 +174,12 @@ export class ApiClient {
   onPasswordChangeRequired(listener: () => void): () => void {
     this.passwordChangeListeners.add(listener)
     return () => { this.passwordChangeListeners.delete(listener) }
+  }
+
+  /** Subscribes to the answers of requests sent with the session cookie; returns the unsubscribe function. */
+  onResponse(listener: ResponseListener): () => void {
+    this.responseListeners.add(listener)
+    return () => { this.responseListeners.delete(listener) }
   }
 
   private async request<T>(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
@@ -225,6 +238,9 @@ export class ApiClient {
       if (reason instanceof DOMException && reason.name === 'TimeoutError') throw new TimeoutError()
       throw new NetworkError()
     }
+    // A request without the cookie (the public configuration) does not touch the session, and a 5xx may never have reached the
+    // backend (Caddy answers 503 while it restarts). A failing listener is ignored.
+    if (init.credentials === 'include' && response.status < 500) this.responseListeners.forEach((listener) => { try { listener() } catch { /* Solo observa. */ } })
     if (!response.ok) {
       let problem: ApiProblem | undefined
       try {
