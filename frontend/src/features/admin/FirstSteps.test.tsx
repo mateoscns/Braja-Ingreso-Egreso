@@ -1,8 +1,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { LoadFailure } from '../../app/ui'
+import { LoadFailure, StatusTag } from '../../app/ui'
 import { AdminApp } from './AdminApp'
 import { CoverageNoticeRender, FirstStepsRender } from './FirstSteps'
+import type { SetupStep } from './setupStatus'
 
 const apiMocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn() }))
 vi.mock('../../app/session', () => ({
@@ -19,10 +20,11 @@ vi.mock('../../device/push/useAdminPush', () => ({
   })
 }))
 vi.mock('../../device/pwa/InstallControl', () => ({ InstallControl: () => null }))
-// The real LoadFailure, watched: a failed load must go through it (slice F3).
+// The real LoadFailure and StatusTag, watched: a failed load must go through the first (slice F3), the state of a step through
+// the second (slice E7).
 vi.mock('../../app/ui', async (importOriginal) => {
   const ui = await importOriginal<typeof import('../../app/ui')>()
-  return { ...ui, LoadFailure: vi.fn(ui.LoadFailure) }
+  return { ...ui, LoadFailure: vi.fn(ui.LoadFailure), StatusTag: vi.fn(ui.StatusTag) }
 })
 vi.mock('../../shared/api/client', () => ({
   api: apiMocks,
@@ -124,6 +126,77 @@ describe('Primeros pasos', () => {
     await act(async () => { release([]) })
     expect(screen.getByRole('heading', { name: 'Equipo' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Primeros pasos' })).not.toBeInTheDocument()
+  })
+})
+
+// Slice E7 (design system 4.19): the guide is an ordered list of records of the system. Three steps done, one that could not be
+// checked from here and the next one to do, with the texts setupSteps writes.
+const STEPS: SetupStep[] = [
+  { title: 'Tu local', explanation: 'Cargá el local donde trabaja tu equipo y dónde queda, para saber si marcan desde ahí.', done: true, section: 'sedes', sectionLabel: 'Locales' },
+  { title: 'Tus horarios', explanation: 'Armá los horarios de cada local: a qué hora se entra, se sale y cuánto duran las pausas.', done: true, section: 'plantillas', sectionLabel: 'Horarios' },
+  { title: 'Tu equipo', explanation: 'Dá de alta a las personas que van a marcar, con su DNI y su local.', done: true, section: 'empleados', sectionLabel: 'Equipo' },
+  { title: 'Cada uno con su horario', explanation: 'Elegí qué horario tiene cada persona, desde Equipo.', done: 'unknown', detail: 'Revisá Equipo: son muchas personas para revisarlas desde acá.', section: 'empleados', sectionLabel: 'Equipo' },
+  { title: 'Días de trabajo cargados', explanation: 'Cargá los días que trabaja cada persona. Se hace una vez por mes.', done: false, detail: 'Falta en: Local Centro.', section: 'workdays', sectionLabel: 'Días de trabajo' }
+]
+const showSteps = () => {
+  render(<FirstStepsRender steps={STEPS} loading={false} error="" readyCount={0} onGo={vi.fn()} onRetry={vi.fn()} />)
+  const list = screen.getByRole('list', { name: 'Pasos para empezar' })
+  return { list, steps: within(list).getAllByRole('listitem') }
+}
+
+describe('Primeros pasos como registros del sistema', () => {
+  it('los pasos son una lista ordenada de registros, cada uno con su número, que no se lee porque el título ya lo dice', () => {
+    const { list, steps } = showSteps()
+
+    expect(list.tagName).toBe('OL')
+    expect(list).toHaveClass('record-list')
+    expect(steps).toHaveLength(5)
+    for (const step of steps) {
+      expect(step).toHaveClass('record', 'step')
+      expect(step.querySelector('.step-number')).toHaveAttribute('aria-hidden', 'true')
+    }
+    expect(steps.map((step) => step.querySelector('.record-title')?.textContent)).toEqual(['1. Tu local', '2. Tus horarios', '3. Tu equipo', '4. Cada uno con su horario', '5. Días de trabajo cargados'])
+    // A done step has the check of the icon set in its box, not a typed glyph.
+    expect(steps[0].querySelector('.step-number svg.icon')).not.toBeNull()
+    expect(steps[0]).not.toHaveTextContent('✓')
+    expect(steps[4].querySelector('.step-number')).toHaveTextContent('5')
+  })
+
+  it('solo el próximo paso tiene el botón lleno; un paso listo lleva a su sección con un enlace y los demás con un botón secundario', () => {
+    const { list, steps } = showSteps()
+    const go = (step: HTMLElement) => within(step).getByRole('button', { name: /^Ir a / })
+
+    expect(list.querySelectorAll('.button-primary')).toHaveLength(1)
+    expect(go(steps[4])).toHaveClass('button-primary')
+    expect(steps[4]).toHaveClass('step-next')
+    expect(steps.filter((step) => step.classList.contains('step-next'))).toHaveLength(1)
+    for (const done of steps.slice(0, 3)) expect(go(done)).toHaveClass('button-link')
+    expect(go(steps[3])).toHaveClass('button-secondary')
+    expect(go(steps[3])).toHaveAccessibleName('Ir a Equipo: Cada uno con su horario')
+  })
+
+  it('un paso listo no muestra su explicación; uno que falta o que hay que revisar la muestra con lo que falta', () => {
+    const { steps } = showSteps()
+
+    for (const [index, done] of steps.slice(0, 3).entries()) {
+      expect(done).toHaveClass('step-done')
+      expect(done).not.toHaveTextContent(STEPS[index].explanation)
+    }
+    expect(steps[3]).toHaveTextContent(STEPS[3].explanation)
+    expect(steps[3].querySelector('.step-detail')).toHaveTextContent('Revisá Equipo: son muchas personas para revisarlas desde acá.')
+    expect(steps[4]).toHaveTextContent(STEPS[4].explanation)
+    expect(steps[4].querySelector('.step-detail')).toHaveTextContent('Falta en: Local Centro.')
+  })
+
+  it('el estado de cada paso es una etiqueta del sistema con su ícono: Listo, Revisalo, Falta', () => {
+    const { list, steps } = showSteps()
+
+    expect(vi.mocked(StatusTag).mock.calls.map(([props]) => [props.tone, props.icon, props.children])).toEqual([
+      ['ok', 'check', 'Listo'], ['ok', 'check', 'Listo'], ['ok', 'check', 'Listo'], ['todo', 'eye', 'Revisalo'], ['todo', 'alert', 'Falta']
+    ])
+    for (const step of steps) expect(step.querySelector('.status-chip svg')).toHaveAttribute('aria-hidden', 'true')
+    // The setup steps no longer borrow the classes of the deviations.
+    expect(list.querySelector('.status-justificado, .status-motivo_pendiente')).toBeNull()
   })
 })
 

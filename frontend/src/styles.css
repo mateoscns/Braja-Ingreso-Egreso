@@ -578,16 +578,8 @@ html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-height) + env(safe
 .subsection-head > h3 { margin: 0; }
 
 /* ===== Lists, checks, tables, schedules, status chips ===== */
-/* The short lists (the parts of «Configuración», the steps of «Primeros pasos»): rows with a hairline, as above. */
-.simple-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
-.simple-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: var(--border-width) solid var(--rule); }
 /* Inside a message (the days a load skipped) the last record needs no line: the message ends there. */
 .message .record:last-child { border-bottom: 0; }
-.simple-row strong, .simple-row small { display: block; }
-.simple-row strong { font-weight: var(--font-weight-heavy); }
-.simple-row small { color: var(--text-muted); font-size: var(--font-size-body); }
-/* The numbered steps of «Primeros pasos» still draw their number in this box (slice E7). */
-.row-avatar { width: 36px; height: 36px; display: grid; place-items: center; color: #477253; border-radius: 10px; background: #eff6ef; }
 /* A checkbox or a radio. The box is 24 px, the floor of WCAG 2.5.8, and it is never the target: the label around it is, as tall
    and as wide as any control. The padding of the label centres one line of text on the box and lets a long text wrap under its
    first line, with the box still on that line. */
@@ -646,7 +638,7 @@ td .button-row { gap: var(--space-2); }
 /* It waits for someone else: a dashed edge and muted words. */
 .status-wait, .status-motivo_pendiente, .status-inactivo { color: var(--text-muted); background: var(--surface); border-color: var(--border); border-style: dashed; }
 /* It waits for the person looking at the screen. */
-.status-todo, .status-pendiente_revision, .first-step .status-motivo_pendiente { color: var(--warn); background: var(--warn-surface); border-color: var(--warn); border-style: solid; }
+.status-todo, .status-pendiente_revision { color: var(--warn); background: var(--warn-surface); border-color: var(--warn); border-style: solid; }
 /* Confirmed, done or decided in favour. */
 .status-ok, .status-justificado { color: var(--ok); background: var(--ok-surface); border-color: var(--ok); border-style: solid; }
 /* An error or decided against. */
@@ -759,6 +751,31 @@ td .button-row { gap: var(--space-2); }
 .receipt-location-missing > .icon { color: var(--warn); }
 .employee-today-button { margin-top: var(--space-3); }
 
+/* ===== «Primeros pasos» (FirstStepsRender in features/admin, design system 4.19, slice E7) ===== */
+/* Each step is a record of its list (.record gives the hairline and the padding): its number in a box of ink, then the text, then
+   its tag and «Ir». On a phone the tag and «Ir» go under the text, where the thumb reaches them; from 600 px they sit beside it,
+   so a done step is one line. */
+.step { grid-template-columns: 2.5rem minmax(0, 1fr); grid-template-areas: "number body" ". foot"; gap: var(--space-2) var(--space-3); align-items: start; }
+/* The number repeats the one of the title for the eye (aria-hidden); a done step holds the check, green. */
+.step-number {
+  grid-area: number; display: grid; place-items: center; width: 2.5rem; height: 2.5rem;
+  border: var(--border-width-strong) solid var(--text); border-radius: var(--radius);
+  font-size: var(--font-size-body-lg); font-weight: var(--font-weight-heavy); line-height: var(--line-height-tight);
+}
+.step-done .step-number { color: var(--ok); }
+.step-body { grid-area: body; display: grid; gap: var(--space-1); min-width: 0; }
+/* The title stands as tall as the box, so its line is centred on the number (it may wrap and grow). */
+.step .record-title { min-height: 2.5rem; }
+/* What is missing: amber, the colour of what waits for the person reading, and in the weight of a label. */
+.step-detail { margin: 0; color: var(--warn); font-weight: var(--font-weight-strong); }
+.step-foot { grid-area: foot; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+/* The next step: the amber bar of a task that waits for the person reading, on its left edge; the bar repeats the tag. */
+.step-next { padding-left: var(--space-3); border-left: var(--bar-width) solid var(--warn); }
+@media (min-width: 600px) {
+  .step { grid-template-columns: 2.5rem minmax(0, 1fr) auto; grid-template-areas: "number body foot"; }
+  .step-foot { align-self: center; justify-content: flex-end; }
+}
+
 /* ===== The «Configuración» page (ConfigurationPage in features/admin, design system 5.2 and 4.18) ===== */
 /* Each part is a row of the list that leads to it: its icon, its name over what it is for, and an arrow. A row, not a card. */
 .config-link { display: flex; align-items: center; gap: var(--space-3); min-height: 4rem; padding: var(--space-3) 0; border-bottom: var(--border-width) solid var(--rule); color: var(--text); text-decoration: none; }
@@ -836,11 +853,6 @@ td .button-row { gap: var(--space-2); }
 .fold[open] > summary::after { margin: .25em var(--space-1) 0; transform: rotate(-135deg); }
 .fold[open] > summary { margin-bottom: var(--space-2); }
 .fold > summary h2 { color: var(--text); }
-/* U3 (issue #104), small modifiers from existing tokens: the setup guide rows. */
-.first-steps { margin: 0; padding: 0; list-style: none; }
-.first-step { flex-wrap: wrap; }
-.first-step-copy { flex: 1 1 220px; min-width: 0; }
-.first-step .status-chip { margin-left: auto; }
 /* The two forms of «Días de trabajo» (slice E3): a message inside them (the preview, an error, a result) is one more step of the
    form, spaced by the form's own gap and not by a margin on top of it. */
 .work-days-form .message { margin: 0; }

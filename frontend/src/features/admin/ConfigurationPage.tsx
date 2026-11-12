@@ -29,7 +29,8 @@ export function ConfigurationPage({ setupMissing, secure, onNavigate, push }: {
   const parts: readonly NavItem[] = setupMissing ? [SETUP_PART, ...CONFIGURATION_PARTS] : CONFIGURATION_PARTS
   return <>
     <PageHeading title="Configuración" subtitle="Tus locales, sus horarios, tu equipo y los avisos en este dispositivo." />
-    <ul className="simple-list config-parts" aria-label="Partes de la configuración">{parts.map((part) => <li key={part.section}>
+    {/* A list of records (design system 5.2) whose row is the link itself: the whole row is the target and carries the hairline. */}
+    <ul className="record-list" aria-label="Partes de la configuración">{parts.map((part) => <li key={part.section}>
       <a className="config-link" href={SECTION_ADDRESSES[part.section]} onClick={(event) => followLink(event, part.section, onNavigate)}>
         <Icon name={part.icon} />
         <span className="config-link-copy"><strong>{part.label}</strong><small>{ABOUT[part.section]}</small></span>
