@@ -168,7 +168,8 @@ describe('EmployeeApp', () => {
 
       expect(await screen.findByText('Estás trabajando desde las 09:00.')).toBeInTheDocument()
       const headings = [...container.querySelectorAll('h1, h2')].map((heading) => heading.textContent)
-      expect(headings).toEqual(['Hola, DNI 30123456', 'Marcar', 'Tus marcas de hoy', 'Para explicar', 'Lo que pasó este día', 'Ver otros días'])
+      // Slice D3: with something to explain, «Para explicar» comes before the marks, and the day has no section of its own.
+      expect(headings).toEqual(['Hola, DNI 30123456', 'Marcar', 'Para explicar', 'Tus marcas de hoy', 'Ver otros días'])
       const sentence = screen.getByText('Estás trabajando desde las 09:00.')
       expect(sentence.compareDocumentPosition(screen.getByRole('button', { name: 'Me voy a desayunar' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     })
@@ -562,7 +563,6 @@ describe('EmployeeApp', () => {
       const card = (await screen.findByLabelText('Contá qué pasó')).closest('form')!
       expect(card).toHaveTextContent('No marcaste tu salida.')
       expect(mocks.apiGet).toHaveBeenCalledWith('/deviations?status=MOTIVO_PENDIENTE&limit=100')
-      expect(screen.getByText('Este día no hubo nada para explicar.')).toBeInTheDocument()
 
       fireEvent.click(screen.getByRole('radio', { name: /Otra/ }))
       fireEvent.change(screen.getByLabelText('Contá qué pasó'), { target: { value: 'Me olvidé de marcar al salir.' } })
@@ -628,6 +628,109 @@ describe('EmployeeApp', () => {
     await waitFor(() => expect(mocks.apiPut).toHaveBeenCalledWith('/deviations/deviation-1/motive', { category: 'TRANSPORTE', text: 'Paro de colectivos.' }))
     expect(await screen.findByText(/Paro de colectivos\./)).toBeInTheDocument()
     expect(screen.queryByLabelText('Contá qué pasó')).not.toBeInTheDocument()
+  })
+
+  // Slice D3 (design system 4.5 and 4.7): what is left to explain and what was already sent are one section, «Para explicar»;
+  // a correction opens inside its own item, and the kinds of motive are option tiles. The owner, 2026-11-11: "Sí, arriba si hay
+  // algo pendiente (Recomendado)".
+  describe('Para explicar como una sola tarea', () => {
+    const underReview: Deviation = { ...pendingDeviation, status: 'PENDIENTE_REVISION', category: 'OTRA', motiveText: 'Texto anterior.' }
+    const isBefore = (first: Element, second: Element) => Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
+
+    it('lo pendiente y lo ya enviado del día están en una sola sección, sin otra sección para el día', async () => {
+      configureApi([pendingDeviation, { ...underReview, id: 'deviation-2', type: 'EXCESO_DESAYUNO' }])
+      const { container } = render(<EmployeeApp />)
+      const section = await screen.findByRole('region', { name: 'Para explicar' })
+
+      await within(section).findByLabelText('Contá qué pasó')
+      expect(within(section).getAllByRole('listitem')).toHaveLength(2)
+      expect(within(section).getByRole('button', { name: 'Corregir motivo' })).toBeInTheDocument()
+      expect([...container.querySelectorAll('h2')].map((heading) => heading.textContent)).not.toContain('Lo que pasó este día')
+    })
+
+    it('con algo pendiente va arriba de Tus marcas de hoy, justo después del bloque de marcar', async () => {
+      configureSingle(jornadas[0], [pendingDeviation])
+      render(<EmployeeApp />)
+      const section = await screen.findByRole('region', { name: 'Para explicar' })
+      await within(section).findByLabelText('Contá qué pasó')
+
+      expect(isBefore(screen.getByRole('region', { name: 'Marcar' }), section)).toBe(true)
+      expect(isBefore(section, screen.getByRole('region', { name: 'Tus marcas de hoy' }))).toBe(true)
+    })
+
+    it('sin nada pendiente va debajo de Tus marcas de hoy y es una sola oración', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      await breakfastButton()
+      const section = screen.getByRole('region', { name: 'Para explicar' })
+
+      expect(isBefore(screen.getByRole('region', { name: 'Tus marcas de hoy' }), section)).toBe(true)
+      expect(section).toHaveTextContent(/^Para explicar\s*No tenés nada para explicar\.$/)
+    })
+
+    it('los tipos de motivo son un grupo de opciones con nombre, una opción grande por tipo', async () => {
+      configureApi([pendingDeviation])
+      render(<EmployeeApp />)
+      const card = (await screen.findByLabelText('Contá qué pasó')).closest('form')!
+
+      const group = within(card).getByRole('group', { name: '¿Qué tipo de motivo es?' })
+      const radios = within(group).getAllByRole('radio')
+      expect(radios).toHaveLength(4)
+      radios.forEach((radio) => expect(radio.closest('label')).toHaveClass('choice'))
+      expect(within(group).getByRole('radio', { name: 'Salud: estuviste enfermo o en el médico' })).toBeInTheDocument()
+    })
+
+    it('el ejemplo es una ayuda unida al cuadro de texto, no un texto de relleno', async () => {
+      configureApi([pendingDeviation])
+      render(<EmployeeApp />)
+      const text = await screen.findByLabelText('Contá qué pasó')
+
+      expect(text).not.toHaveAttribute('placeholder')
+      expect(text).toHaveAccessibleDescription('Por ejemplo: hubo paro de colectivos.')
+    })
+
+    it('Corregir motivo abre su formulario en el mismo renglón y lleva el foco adentro; Cancelar lo devuelve al botón', async () => {
+      configureApi([underReview], [])
+      render(<EmployeeApp />)
+      const opener = await screen.findByRole('button', { name: 'Corregir motivo' })
+      const item = opener.closest('li')!
+
+      fireEvent.click(opener)
+
+      expect(item).toContainElement(screen.getByLabelText('Contá qué pasó'))
+      await waitFor(() => expect(within(item).getByRole('radio', { name: /Otra/ })).toHaveFocus())
+      fireEvent.click(within(item).getByRole('button', { name: 'Cancelar' }))
+
+      await waitFor(() => expect(within(item).getByRole('button', { name: 'Corregir motivo' })).toHaveFocus())
+      expect(screen.queryByLabelText('Contá qué pasó')).not.toBeInTheDocument()
+    })
+
+    it('al guardar la corrección el foco vuelve al botón que abrió el formulario', async () => {
+      configureApi([underReview], [])
+      mocks.apiPut.mockResolvedValueOnce({ ...underReview, category: 'TRANSPORTE', motiveText: 'Paro de colectivos.' })
+      render(<EmployeeApp />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Corregir motivo' }))
+      fireEvent.click(screen.getByRole('radio', { name: /Transporte/ }))
+      fireEvent.change(screen.getByLabelText('Contá qué pasó'), { target: { value: 'Paro de colectivos.' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Guardar corrección' }))
+
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Corregir motivo' })).toHaveFocus())
+    })
+
+    it('si falla el envío de una corrección, el formulario sigue abierto en su renglón con lo escrito', async () => {
+      configureApi([underReview], [])
+      mocks.apiPut.mockRejectedValueOnce(new NetworkError())
+      render(<EmployeeApp />)
+      const item = (await screen.findByRole('button', { name: 'Corregir motivo' })).closest('li')!
+      fireEvent.click(within(item).getByRole('button', { name: 'Corregir motivo' }))
+      fireEvent.click(within(item).getByRole('radio', { name: /Emergencia/ }))
+      fireEvent.change(within(item).getByLabelText('Contá qué pasó'), { target: { value: 'Se inundó la cocina.' } })
+      fireEvent.click(within(item).getByRole('button', { name: 'Guardar corrección' }))
+
+      expect(await within(item).findByRole('alert')).toHaveTextContent('No hay internet. Lo que escribiste sigue acá')
+      expect(within(item).getByLabelText('Contá qué pasó')).toHaveValue('Se inundó la cocina.')
+      expect(within(item).getByRole('radio', { name: /Emergencia/ })).toBeChecked()
+    })
   })
 
   it('no ofrece corregir un motivo ya clasificado, pero sí agregar el primero si se clasificó sin motivo', async () => {

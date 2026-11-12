@@ -118,7 +118,7 @@ describe('líneas de espera y cargas fallidas', () => {
   }
   const motiveProps = (overrides: Partial<ComponentProps<typeof MotivePanel>> = {}): ComponentProps<typeof MotivePanel> => ({
     loading: false, loadFailed: false, pendingError: '', retrying: false, truncated: false, limit: 100, items: [], notice: '', jornadas: [], sites: [site],
-    values: {}, errors: {}, savingId: '', editingIds: [], onChange: vi.fn(), onSubmit: vi.fn(), onCancel: vi.fn(), onRetry: vi.fn(), ...overrides
+    values: {}, errors: {}, savingId: '', editingIds: [], deviations: [], onChange: vi.fn(), onSubmit: vi.fn(), onCancel: vi.fn(), onRetry: vi.fn(), onEdit: vi.fn(), ...overrides
   })
 
   it('mientras la marca se envía, su región está en el lugar de la confirmación antes que su texto', () => {

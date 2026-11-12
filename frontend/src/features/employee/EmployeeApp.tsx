@@ -12,7 +12,7 @@ import { loadFailureMessage, markFailureMessage, motiveFailureMessage } from './
 import { LOCATION_NOTICE, locationNoticeSeen, rememberLocationNotice, skipNoticeIfLocationGranted } from './locationNotice'
 import { noteMarkInterrupted } from '../auth/interruptedMark'
 import {
-  DayHeading, DayMarksPanel, DeviationsPanel, JourneyPicker, MarkFeedback, MotivePanel, NowBlock, OtherDayPanel,
+  DayHeading, DayMarksPanel, JourneyPicker, MarkFeedback, MotivePanel, NowBlock, OtherDayPanel,
   type MarkConfirmation, type MarkStep, type MotiveError, type MotiveValues
 } from './EmployeeViews'
 
@@ -42,6 +42,11 @@ export function EmployeeApp() {
   const [pendingError, setPendingError] = useState('')
   const [pendingRetrying, setPendingRetrying] = useState(false)
   const [editingMotives, setEditingMotives] = useState<string[]>([])
+  /**
+   * «Para explicar» goes above the marks while something waits for a motive (the owner, 2026-11-11). Once there it stays until
+   * the day is loaded again: sending the last motive does not move the section, its confirmation and the focus away.
+   */
+  const [motivesFirst, setMotivesFirst] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadFailed, setLoadFailed] = useState(false)
   const [loadError, setLoadError] = useState('')
@@ -98,6 +103,7 @@ export function EmployeeApp() {
         : (loaded.find((jornada) => jornada.state !== 'CANCELADA') ?? loaded[0])?.id ?? '')
       setDeviations(dayData.deviations); setEditingMotives([])
       applyPendingMotives(dayData.pendingMotives, dayData.pendingMotivesTruncated, dayData.pendingMotivesError)
+      setMotivesFirst(dayData.pendingMotives.length > 0)
       return loaded
     } catch (reason) {
       if (requestId === loadSequence.current) { setLoadFailed(true); setLoadError(loadFailureMessage(reason)) }
@@ -109,6 +115,7 @@ export function EmployeeApp() {
   function applyPendingMotives(items: Deviation[], truncated: boolean, failure: string) {
     pendingSequence.current += 1
     setPendingMotives(items); setPendingTruncated(truncated); setPendingError(failure); setPendingRetrying(false)
+    if (items.length) setMotivesFirst(true)
   }
   /** Retries only the pending list: the day view already loaded. */
   async function retryPendingMotives() {
@@ -264,11 +271,21 @@ export function EmployeeApp() {
     setMotiveValues((current) => { const next = { ...current }; delete next[id]; return next })
     clearMotiveError(id)
   }
-  const motiveForms = [...pendingMotives, ...deviations.filter((item) => editingMotives.includes(item.id) && !pendingMotives.some((pending) => pending.id === item.id))]
   const name = session.displayName?.trim() || (session.dni ? `DNI ${session.dni}` : 'bienvenido')
   const sentence = loading || loadFailed ? ''
     : date ? `Estás viendo el ${formatLocalDate(date)}.${jornadas.length ? '' : ' Ese día no tenés un día de trabajo cargado.'}`
     : daySentence(selected, zone, now)
+  const motivePanel = <MotivePanel key="motives" loading={loading} loadFailed={loadFailed} pendingError={pendingError} retrying={pendingRetrying} truncated={pendingTruncated}
+    limit={PENDING_MOTIVES_LIMIT} items={pendingMotives} deviations={deviations} notice={motiveNotice} jornadas={jornadas} sites={sites} values={motiveValues}
+    errors={motiveErrors} savingId={savingMotive} editingIds={editingMotives} onChange={updateMotive} onSubmit={(event, item) => void saveMotive(event, item)}
+    onCancel={cancelMotiveEdit} onRetry={() => void retryPendingMotives()} onEdit={startMotiveEdit} />
+  const marksPanel = selected && <DayMarksPanel key="marks" title={date ? `Tus marcas del ${formatLocalDate(date)}` : 'Tus marcas de hoy'} jornada={selected} site={selectedSite} />
+  // One keyed list, so «Para explicar» changes place without being mounted again (what is typed and the focus stay).
+  const sections = loading ? [<Loading key="loading" label="Cargando tu día…" />, motivePanel]
+    : loadFailed ? [<Panel key="failed" title="No pudimos cargar tu día"><LoadFailure message={loadError} primary onRetry={() => void load()} /></Panel>, motivePanel]
+    : [<NowBlock key="now" sentence={sentence} jornada={selected} site={selectedSite} options={options} busy={busy} step={step} stepRef={stepRef}
+      onMark={(action) => startMark(action)} onConfirmStep={confirmStep} onCancelStep={() => setStep(null)} />,
+    ...(motivesFirst ? [motivePanel, marksPanel] : [marksPanel, motivePanel])]
 
   return <div className="app-frame employee-frame">
     <AppHeader companyName={active.companyName} name={session.displayName?.trim() || (session.dni ? `DNI ${session.dni}` : 'Empleado')} onSignOut={() => void signOut()}>
@@ -280,17 +297,7 @@ export function EmployeeApp() {
       {!loading && !loadFailed && jornadas.length > 1 && <JourneyPicker jornadas={jornadas} sites={sites} selectedId={selectedId} disabled={busy}
         onSelect={(id) => { setSelectedId(id); setPendingAttempt(null); setConfirmation(null); setStep(null) }} />}
       <MarkFeedback feedbackRef={feedbackRef} sending={busy} error={markError} showRefresh={markFailed && !loading} onRefresh={() => void refreshAfterUnknown()} confirmation={confirmation} timeZone={zone} />
-      {loading ? <Loading label="Cargando tu día…" />
-        : loadFailed ? <Panel title="No pudimos cargar tu día"><LoadFailure message={loadError} primary onRetry={() => void load()} /></Panel>
-        : <>
-          <NowBlock sentence={sentence} jornada={selected} site={selectedSite} options={options} busy={busy} step={step} stepRef={stepRef}
-            onMark={(action) => startMark(action)} onConfirmStep={confirmStep} onCancelStep={() => setStep(null)} />
-          {selected && <DayMarksPanel title={date ? `Tus marcas del ${formatLocalDate(date)}` : 'Tus marcas de hoy'} jornada={selected} site={selectedSite} />}
-        </>}
-      <MotivePanel loading={loading} loadFailed={loadFailed} pendingError={pendingError} retrying={pendingRetrying} truncated={pendingTruncated} limit={PENDING_MOTIVES_LIMIT}
-        items={motiveForms} notice={motiveNotice} jornadas={jornadas} sites={sites} values={motiveValues} errors={motiveErrors} savingId={savingMotive} editingIds={editingMotives}
-        onChange={updateMotive} onSubmit={(event, item) => void saveMotive(event, item)} onCancel={cancelMotiveEdit} onRetry={() => void retryPendingMotives()} />
-      <DeviationsPanel loading={loading} loadFailed={loadFailed} deviations={deviations} jornadas={jornadas} sites={sites} editingIds={editingMotives} onEdit={startMotiveEdit} />
+      {sections}
       <OtherDayPanel date={date} disabled={busy} onDate={setDate} onToday={() => setDate('')} />
     </main>
   </div>
