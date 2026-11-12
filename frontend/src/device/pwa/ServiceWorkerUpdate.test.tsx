@@ -26,4 +26,16 @@ describe('ServiceWorkerUpdate', () => {
 
     expect(updateSW).toHaveBeenCalledWith(true)
   })
+
+  // A status is announced reliably only when its text appears in a region that already exists (the pattern of PageMessage).
+  it('la región del aviso ya está en la página, vacía, antes de que llegue una versión nueva, para que se anuncie', () => {
+    const register = vi.fn<RegisterServiceWorker>(() => vi.fn(() => Promise.resolve()))
+    render(<ServiceWorkerUpdate register={register} />)
+    const region = screen.getByRole('status')
+
+    expect(region).toBeEmptyDOMElement()
+    act(() => { register.mock.calls[0][0].onNeedRefresh?.() })
+    expect(screen.getByRole('status')).toBe(region)
+    expect(region).toHaveTextContent('Hay una versión nueva')
+  })
 })

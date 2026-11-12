@@ -20,7 +20,7 @@ export default defineConfig(({ mode }) => {
           short_name: 'Braja',
           description: 'Registro de ingreso, egreso y pausas de Braja.',
           theme_color: '#12372a',
-          background_color: '#f5f7f4',
+          background_color: '#ffffff',
           display: 'standalone',
           lang: 'es-AR',
           start_url: '/',

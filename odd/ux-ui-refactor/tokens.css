@@ -1,0 +1,104 @@
+/* ==========================================================================================================================
+   Fichaje Braja: design tokens ("Planilla" hybrid). This block is the top of frontend/src/styles.css.
+   Every colour, size, radius and duration used below it comes from here: no literal outside this block
+   (guarded by src/app/styles.test.tsx, "ningún color fuera del bloque de tokens").
+   Contrast of every pairing: WCAG 2.2 AA, computed by the same test from these values.
+   Breakpoints cannot be custom properties; the four in use are min-width 600 px, 768 px and 1024 px, and max-width 359 px.
+   ========================================================================================================================== */
+:root {
+  /* The app has one light theme: native controls (date pickers, selects, scrollbars) must not turn dark. */
+  color-scheme: light;
+
+  /* Surfaces. White is the page and every control; tint is for bands (rail, context strip, notices, disabled);
+     selected is the fill of the chosen option and of the current place. A fill never carries a state alone. */
+  --surface: #ffffff;
+  --surface-tint: #f4f3ee;
+  --surface-tint-strong: #eae9e2;
+  --surface-selected: #e3efe5;
+
+  /* Text. Two colours only; emphasis comes from weight and size, never from a third grey. */
+  --text: #14201a;
+  --text-muted: #47524b;
+
+  /* Lines. --rule is decorative (a hairline between rows, 1.40:1); --border is the edge of anything that can be
+     operated or that states something (fields, buttons, tags, the tab bar), 4.46:1 on white. */
+  --rule: #d9dbd5;
+  --border: #6f7a73;
+
+  /* Brand. Filled brand green is the next action; dark as a surface exists only in the top bar. Lime is only the
+     brand mark and the focus ring on the top bar. */
+  --brand: #12372a;
+  --brand-pressed: #0b261c;
+  --on-brand: #ffffff;
+  --on-brand-muted: #c4d6cb;
+  --lime: #d8f078;
+
+  /* Focus ring: 3 px, 2 px away from the control, so it is read against the surface between them. */
+  --focus-ring: #14201a;
+
+  /* States. Each pair is a foreground (text, icon, border, state bar) and its tinted surface.
+     ok: confirmed by the server, justified, done. warn: waiting for the person who is looking at the screen.
+     bad: an error, not justified. "Waiting for someone else" and "info" have no colour: --border and --surface-tint. */
+  --ok: #1c6638;
+  --ok-surface: #e9f3ea;
+  --warn: #7d5200;
+  --warn-surface: #fbf0d5;
+  --bad: #a0261b;
+  --bad-surface: #fbe9e6;
+
+  /* Type. System fonts only (the production CSP allows no external font and no font file is bundled). */
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+  --font-size-meta: .875rem;     /* 14 px: tags, bottom-bar labels, table column heads, timestamps. Nothing else. */
+  --font-size-body: 1rem;        /* 16 px: text, labels, hints, buttons, fields. */
+  --font-size-body-lg: 1.125rem; /* 18 px: the employee screen, leads, the name in a row. */
+  --font-size-title: 1.25rem;    /* 20 px: section titles, times in the day sheet, the confirmation sentence. */
+  --font-size-display: 1.5rem;   /* 24 px (32 px from 1024 px): page title, the state of the day, the clocking button. */
+  --font-weight-regular: 400;
+  --font-weight-strong: 600;     /* labels and buttons; on a Roboto without a 600 face it draws as 700 */
+  --font-weight-heavy: 700;      /* headings, times, tags, the current place */
+  --line-height-body: 1.5;
+  --line-height-heading: 1.25;
+  --line-height-tight: 1.2;      /* one-line controls and the display size */
+  --measure: 65ch;               /* longest line of running text */
+
+  /* Space: 4 · 8 · 12 · 16 · 24 · 32 · 48. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --gutter: var(--space-4);      /* page side padding: 16 px, 24 px from 600 px, 32 px from 1024 px */
+
+  /* Shape. Three radii, two border widths, two bar widths; no shadow anywhere. */
+  --radius-tag: 4px;
+  --radius: 8px;                 /* every control */
+  --radius-block: 12px;          /* the employee's "now" block and the confirmation of a mark */
+  --border-width: 1px;
+  --border-width-strong: 2px;    /* selected option, section rule, "now" block, an invalid field */
+  --bar-width: 4px;              /* the bar of a message, of an open inline form and of the current place */
+  --state-bar-width: 6px;        /* the state bar on the edge of a case */
+
+  /* Targets, in rem so they grow with the user's text size. WCAG 2.5.8 (AA) asks for 24 px; 44 px is this
+     product's working minimum (48 px on touch layouts); the clocking button is its own size. */
+  --target-floor: 1.5rem;        /* 24 px: the box of a checkbox or radio, inside a label of --target */
+  --target: 3rem;                /* 48 px; 44 px from 1024 px */
+  --target-large: 3.5rem;        /* 56 px: the other marks of the employee */
+  --target-clock: 5rem;          /* 80 px: the next mark */
+
+  /* Layout. */
+  --bottom-nav-height: 4.5rem;   /* 72 px: icon plus a label of up to two lines */
+  --rail-width: 15rem;
+  --content-max: 68.75rem;       /* 1100 px */
+
+  /* Motion: colour changes only; the global prefers-reduced-motion rule turns it off. */
+  --motion-fast: 120ms;
+}
+@media (min-width: 600px) {
+  :root { --gutter: var(--space-5); }
+}
+@media (min-width: 1024px) {
+  :root { --gutter: var(--space-6); --target: 2.75rem; --font-size-display: 2rem; }
+}

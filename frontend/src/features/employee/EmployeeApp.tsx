@@ -1,19 +1,21 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { AppHeader, CompanySwitcher, Loading, PageMessage, Panel } from '../../app/ui'
+import { AppHeader, CompanySwitcher, CONTENT_ID, LoadFailure, Loading, Panel, SkipLink } from '../../app/ui'
 import { useSession } from '../../app/session'
 import { ApiError, api } from '../../shared/api/client'
 import type { Deviation, Jornada, Mark, Site } from '../../shared/api/types'
 import { createMarkAttempt, submitMark, type LocationResult, type MarkAction, type MarkAttempt } from './markFlow'
-import { loadEmployeeDayData, loadPendingMotives, PENDING_MOTIVES_LIMIT } from './dayData'
+import { loadEmployeeDayData, loadPendingMotives, localCalendarDate, PENDING_MOTIVES_LIMIT } from './dayData'
 import { InstallControl } from '../../device/pwa/InstallControl'
 import { formatLocalDate } from '../../shared/format'
 import { daySentence, exitConfirmation, markOptions, type LocationOutcome } from './employeeDay'
 import { loadFailureMessage, markFailureMessage, motiveFailureMessage } from './employeeMessages'
 import { LOCATION_NOTICE, locationNoticeSeen, rememberLocationNotice, skipNoticeIfLocationGranted } from './locationNotice'
 import { noteMarkInterrupted } from '../auth/interruptedMark'
+import { useFocusRequest } from '../../app/revealAndFocus'
+import { useProblemFocus } from '../../app/useFieldErrors'
 import {
-  DayHeading, DayMarksPanel, DeviationsPanel, JourneyPicker, MarkFeedback, MarkPanel, MotivePanel, OtherDayPanel,
-  type MarkConfirmation, type MarkStep, type MotiveError, type MotiveValues
+  DayHeading, DayMarksPanel, JourneyPicker, markButtonId, MarkFeedback, MOTIVE_NOTICE_ID, motiveFormId, MotivePanel, NowBlock, OtherDayPanel,
+  type MarkConfirmation, type MarkStep, type MotiveErrors, type MotiveValues
 } from './EmployeeViews'
 
 /** A failed mark whose result is unknown: if a new mark of that action shows up on refresh, it did arrive. */
@@ -42,6 +44,11 @@ export function EmployeeApp() {
   const [pendingError, setPendingError] = useState('')
   const [pendingRetrying, setPendingRetrying] = useState(false)
   const [editingMotives, setEditingMotives] = useState<string[]>([])
+  /**
+   * «Para explicar» goes above the marks while something waits for a motive (the owner, 2026-11-11). Once there it stays until
+   * the day is loaded again: sending the last motive does not move the section, its confirmation and the focus away.
+   */
+  const [motivesFirst, setMotivesFirst] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadFailed, setLoadFailed] = useState(false)
   const [loadError, setLoadError] = useState('')
@@ -52,7 +59,7 @@ export function EmployeeApp() {
   const [failedMark, setFailedMark] = useState<FailedMark | null>(null)
   const [step, setStep] = useState<MarkStep | null>(null)
   const [motiveValues, setMotiveValues] = useState<Record<string, MotiveValues>>({})
-  const [motiveErrors, setMotiveErrors] = useState<Record<string, MotiveError>>({})
+  const [motiveErrors, setMotiveErrors] = useState<Record<string, MotiveErrors>>({})
   const [motiveNotice, setMotiveNotice] = useState('')
   const [savingMotive, setSavingMotive] = useState('')
   const [markFailed, setMarkFailed] = useState(false)
@@ -69,6 +76,12 @@ export function EmployeeApp() {
   // Buttons are disabled while a mark is in flight, so focus moves to the outcome once it is known.
   useEffect(() => { if (feedbackFocus) feedbackRef.current?.focus() }, [feedbackFocus])
   useEffect(() => { if (stepFocus) stepRef.current?.focus() }, [stepFocus])
+  // The question replaces the mark buttons: «No, seguir trabajando» or «Volver» bring them back, and the focus goes to the one
+  // that asked (finding F-27), not to the page.
+  const focusLater = useFocusRequest(!busy)
+  // A refused motive (a field missing or the server's answer) takes the focus to its first problem; the button pressed may be
+  // disabled while it sends (T12; WCAG 2.4.3).
+  const focusProblem = useProblemFocus()
   useEffect(() => { skipNoticeIfLocationGranted() }, [])
   // A 401 while a mark is being sent means it was not saved; the login screen says so (the session listener unmounts this view).
   useEffect(() => api.onSessionExpired(() => { if (markInFlight.current) noteMarkInterrupted() }), [])
@@ -98,6 +111,7 @@ export function EmployeeApp() {
         : (loaded.find((jornada) => jornada.state !== 'CANCELADA') ?? loaded[0])?.id ?? '')
       setDeviations(dayData.deviations); setEditingMotives([])
       applyPendingMotives(dayData.pendingMotives, dayData.pendingMotivesTruncated, dayData.pendingMotivesError)
+      setMotivesFirst(dayData.pendingMotives.length > 0)
       return loaded
     } catch (reason) {
       if (requestId === loadSequence.current) { setLoadFailed(true); setLoadError(loadFailureMessage(reason)) }
@@ -109,6 +123,7 @@ export function EmployeeApp() {
   function applyPendingMotives(items: Deviation[], truncated: boolean, failure: string) {
     pendingSequence.current += 1
     setPendingMotives(items); setPendingTruncated(truncated); setPendingError(failure); setPendingRetrying(false)
+    if (items.length) setMotivesFirst(true)
   }
   /** Retries only the pending list: the day view already loaded. */
   async function retryPendingMotives() {
@@ -132,7 +147,15 @@ export function EmployeeApp() {
   const selectedSite = sites.find((site) => site.id === selected?.siteId)
   if (!session || !active) return null
   const zone = selectedSite?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone
-  const options = selected ? markOptions(selected, zone, now) : null
+  // Another day is only for looking (D-20261112-01): its marks are not offered, a forgotten one is loaded by the ADMIN.
+  const options = selected && !date ? markOptions(selected, zone, now) : null
+  // Today's date chosen in the field is today, with its marks (D-20261112-01 speaks of a day that is not today): it goes back to
+  // the today view, which also keeps an overnight shift that started yesterday. With locals in several zones, only a date that
+  // is today in all of them counts as today.
+  function chooseDate(value: string) {
+    const zones = sites.length ? sites.map((site) => site.timeZone) : [zone]
+    setDate(value && zones.every((timeZone) => localCalendarDate(timeZone, new Date()) === value) ? '' : value)
+  }
 
   function openStep(next: MarkStep) { setStep(next); setStepFocus((count) => count + 1) }
 
@@ -147,6 +170,10 @@ export function EmployeeApp() {
     if (!locationNoticeSeen()) { openStep({ kind: 'location', action, text: LOCATION_NOTICE }); return }
     setStep(null)
     void mark(action)
+  }
+  function cancelStep() {
+    if (step) focusLater({ id: markButtonId(step.action) })
+    setStep(null)
   }
   function confirmStep() {
     if (!step) return
@@ -227,18 +254,31 @@ export function EmployeeApp() {
     if (failed && jornada) showArrivedMark(jornada, failed)
   }
 
-  function clearMotiveError(id: string) {
-    setMotiveErrors((current) => { if (!current[id]) return current; const next = { ...current }; delete next[id]; return next })
+  /** Removes the given errors of one motive form (all of them by default); the form's entry goes once it has none left. */
+  function clearMotiveError(id: string, fields: (keyof MotiveErrors)[] = ['category', 'text', 'form']) {
+    setMotiveErrors((current) => {
+      const entry = current[id]
+      if (!entry || !fields.some((field) => entry[field])) return current
+      const rest = { ...entry }
+      for (const field of fields) delete rest[field]
+      const next = { ...current }
+      if (rest.category || rest.text || rest.form) next[id] = rest; else delete next[id]
+      return next
+    })
   }
   function updateMotive(id: string, patch: Partial<MotiveValues>) {
     setMotiveValues((current) => ({ ...current, [id]: { category: current[id]?.category ?? '', text: current[id]?.text ?? '', ...patch } }))
-    clearMotiveError(id)
+    // Editing a field removes its own error and the server's answer; the other field keeps its error until the next submit.
+    clearMotiveError(id, [...(Object.keys(patch) as (keyof MotiveValues)[]), 'form'])
   }
   async function saveMotive(event: FormEvent, item: Deviation) {
     event.preventDefault()
     const values = motiveValues[item.id] ?? { category: '', text: '' }
-    if (!values.category) { setMotiveErrors((current) => ({ ...current, [item.id]: { field: 'category', message: 'Elegí una de las opciones.' } })); return }
-    if (!values.text.trim()) { setMotiveErrors((current) => ({ ...current, [item.id]: { field: 'text', message: 'Contá en pocas palabras qué pasó.' } })); return }
+    // Every field is checked at once, so both errors show together (design system 4.7).
+    const found: MotiveErrors = {}
+    if (!values.category) found.category = 'Elegí una de las opciones.'
+    if (!values.text.trim()) found.text = 'Contá en pocas palabras qué pasó.'
+    if (found.category || found.text) { setMotiveErrors((current) => ({ ...current, [item.id]: found })); focusProblem(motiveFormId(item.id)); return }
     setSavingMotive(item.id); setMotiveNotice(''); clearMotiveError(item.id)
     try {
       const updated = await api.put<Deviation>(`/deviations/${encodeURIComponent(item.id)}/motive`, { category: values.category, text: values.text.trim() })
@@ -247,9 +287,13 @@ export function EmployeeApp() {
       setEditingMotives((current) => current.filter((id) => id !== item.id))
       setMotiveValues((current) => { const next = { ...current }; delete next[item.id]; return next })
       setMotiveNotice('Lo enviamos. Tu encargado lo va a revisar.')
+      // A case of another day leaves the list with its form, and the focus with it (slice G2); one of this day keeps its row,
+      // whose button takes the focus back (MotivePanel).
+      if (!deviations.some((entry) => entry.id === updated.id)) focusLater({ id: MOTIVE_NOTICE_ID })
     } catch (reason) {
       // What the employee typed stays in the card.
-      setMotiveErrors((current) => ({ ...current, [item.id]: { field: 'form', message: motiveFailureMessage(reason) } }))
+      setMotiveErrors((current) => ({ ...current, [item.id]: { form: motiveFailureMessage(reason) } }))
+      focusProblem(motiveFormId(item.id))
     }
     finally { setSavingMotive('') }
   }
@@ -264,33 +308,36 @@ export function EmployeeApp() {
     setMotiveValues((current) => { const next = { ...current }; delete next[id]; return next })
     clearMotiveError(id)
   }
-  const motiveForms = [...pendingMotives, ...deviations.filter((item) => editingMotives.includes(item.id) && !pendingMotives.some((pending) => pending.id === item.id))]
   const name = session.displayName?.trim() || (session.dni ? `DNI ${session.dni}` : 'bienvenido')
   const sentence = loading || loadFailed ? ''
-    : date ? `Estás viendo el ${formatLocalDate(date)}.${jornadas.length ? '' : ' No hay turno cargado ese día.'}`
+    : date ? `Estás viendo el ${formatLocalDate(date)}.${jornadas.length ? '' : ' Ese día no tenés un día de trabajo cargado.'}`
     : daySentence(selected, zone, now)
+  const motivePanel = <MotivePanel key="motives" loading={loading} loadFailed={loadFailed} pendingError={pendingError} retrying={pendingRetrying} truncated={pendingTruncated}
+    limit={PENDING_MOTIVES_LIMIT} items={pendingMotives} deviations={deviations} notice={motiveNotice} jornadas={jornadas} sites={sites} values={motiveValues}
+    errors={motiveErrors} savingId={savingMotive} editingIds={editingMotives} onChange={updateMotive} onSubmit={(event, item) => void saveMotive(event, item)}
+    onCancel={cancelMotiveEdit} onRetry={() => void retryPendingMotives()} onEdit={startMotiveEdit} />
+  const marksPanel = selected && <DayMarksPanel key="marks" title={date ? `Tus marcas del ${formatLocalDate(date)}` : 'Tus marcas de hoy'} jornada={selected} site={selectedSite} />
+  // One keyed list, so «Para explicar» changes place without being mounted again (what is typed and the focus stay).
+  const sections = loading ? [<Loading key="loading" label="Cargando tu día…" />, motivePanel]
+    : loadFailed ? [<Panel key="failed" title="No pudimos cargar tu día"><LoadFailure message={loadError} primary onRetry={() => void load()} /></Panel>, motivePanel]
+    : [<NowBlock key="now" sentence={sentence} jornada={selected} site={selectedSite} options={options} busy={busy} step={step} stepRef={stepRef}
+      onMark={(action) => startMark(action)} onConfirmStep={confirmStep} onCancelStep={cancelStep} onToday={date ? () => setDate('') : undefined} />,
+    ...(motivesFirst ? [motivePanel, marksPanel] : [marksPanel, motivePanel])]
 
-  return <div className="app-frame employee-frame">
+  return <div className="app-frame">
+    {/* Before the top bar, which comes first on every visit (WCAG 2.4.1). */}
+    <SkipLink />
     <AppHeader companyName={active.companyName} name={session.displayName?.trim() || (session.dni ? `DNI ${session.dni}` : 'Empleado')} onSignOut={() => void signOut()}>
       <InstallControl audience="employee" />
       <CompanySwitcher memberships={session.memberships} activeCompanyId={active.companyId} onSelect={activateCompany} disabled={busy} />
     </AppHeader>
-    <main className="employee-main">
-      <DayHeading name={name} sentence={sentence} />
+    <main id={CONTENT_ID} tabIndex={-1} className="employee-main">
+      <DayHeading name={name} />
       {!loading && !loadFailed && jornadas.length > 1 && <JourneyPicker jornadas={jornadas} sites={sites} selectedId={selectedId} disabled={busy}
         onSelect={(id) => { setSelectedId(id); setPendingAttempt(null); setConfirmation(null); setStep(null) }} />}
-      <MarkFeedback feedbackRef={feedbackRef} error={markError} showRefresh={markFailed && !loading} onRefresh={() => void refreshAfterUnknown()} confirmation={confirmation} timeZone={zone} />
-      {loading ? <Loading label="Cargando tu día…" />
-        : loadFailed ? <Panel title="No pudimos cargar tu día"><PageMessage kind="error">{loadError}</PageMessage><button type="button" className="button button-primary" onClick={() => void load()}>Reintentar</button></Panel>
-        : selected && <>
-          {options && (options.primary || step) && <MarkPanel options={options} busy={busy} step={step} stepRef={stepRef} onMark={(action) => startMark(action)} onConfirmStep={confirmStep} onCancelStep={() => setStep(null)} />}
-          <DayMarksPanel title={date ? `Tus marcas del ${formatLocalDate(date)}` : 'Tus marcas de hoy'} jornada={selected} site={selectedSite} />
-        </>}
-      <MotivePanel loading={loading} loadFailed={loadFailed} pendingError={pendingError} retrying={pendingRetrying} truncated={pendingTruncated} limit={PENDING_MOTIVES_LIMIT}
-        items={motiveForms} notice={motiveNotice} jornadas={jornadas} sites={sites} values={motiveValues} errors={motiveErrors} savingId={savingMotive} editingIds={editingMotives}
-        onChange={updateMotive} onSubmit={(event, item) => void saveMotive(event, item)} onCancel={cancelMotiveEdit} onRetry={() => void retryPendingMotives()} />
-      <DeviationsPanel loading={loading} loadFailed={loadFailed} deviations={deviations} jornadas={jornadas} sites={sites} editingIds={editingMotives} onEdit={startMotiveEdit} />
-      <OtherDayPanel date={date} disabled={busy} onDate={setDate} onToday={() => setDate('')} />
+      <MarkFeedback feedbackRef={feedbackRef} sending={busy} error={markError} showRefresh={markFailed && !loading} onRefresh={() => void refreshAfterUnknown()} confirmation={confirmation} timeZone={zone} />
+      {sections}
+      <OtherDayPanel date={date} disabled={busy} loading={loading} onDate={chooseDate} onToday={() => setDate('')} />
     </main>
   </div>
 }

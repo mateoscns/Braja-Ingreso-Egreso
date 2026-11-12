@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { TemplatesView } from './AdminViews'
+import { SchedulesView } from './SchedulesView'
 import { deviceDate } from '../../shared/dateRange'
 
 const apiMocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn() }))
@@ -42,7 +42,7 @@ const form = () => within(screen.getByRole('region', { name: 'Crear un horario' 
 describe('Horarios: a schedule a shop owner understands', () => {
   it('names the screen Horarios and lists the horarios of this local without the Activa chip', async () => {
     serve({ templates: [manana, { ...manana, id: 't-2', name: 'Vieja', active: false }] })
-    render(<TemplatesView />)
+    render(<SchedulesView />)
     expect(screen.getByRole('heading', { level: 1, name: 'Horarios' })).toBeInTheDocument()
     const list = within(await screen.findByRole('region', { name: 'Horarios de este local' }))
     expect(await list.findByText('Mañana')).toBeInTheDocument()
@@ -53,16 +53,36 @@ describe('Horarios: a schedule a shop owner understands', () => {
 
   it('shows the empty state and hides Local when there is only one local', async () => {
     serve({ templates: [] })
-    render(<TemplatesView />)
+    render(<SchedulesView />)
     expect(await screen.findByText('Este local todavía no tiene horarios. Creá el primero.')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Local')).not.toBeInTheDocument()
+  })
+
+  // T12 (UX A-3): the Local select lived in the create form but also chose the list beside it, and it went away when the
+  // assignment step took the place of the form.
+  it('chooses the local at the top of «Horarios de este local», and keeps it while the assignment step replaces the form', async () => {
+    serve({ sites: [centro, norte] })
+    render(<SchedulesView />)
+    const list = within(await screen.findByRole('region', { name: 'Horarios de este local' }))
+    await list.findByText('Mañana')
+    const local = list.getByLabelText('Local')
+    expect(local).toHaveValue('s-1')
+    expect(comesBefore(local, list.getByText('Mañana'))).toBe(true)
+    // One control for one value: the form says the local it creates for, in words.
     expect(form().queryByLabelText('Local')).not.toBeInTheDocument()
+    expect(form().getByText('Local Centro')).toBeInTheDocument()
+
+    fireEvent.change(form().getByLabelText('Nombre del horario'), { target: { value: 'Corrido' } })
+    fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
+    await screen.findByRole('region', { name: '¿Quién trabaja con este horario?' })
+    expect(within(screen.getByRole('region', { name: 'Horarios de este local' })).getByLabelText('Local')).toHaveValue('s-1')
   })
 
   it('creates a cortado schedule from its card with the days computed and a live preview', async () => {
-    render(<TemplatesView />)
+    render(<SchedulesView />)
     await screen.findByText('Mañana')
-    fireEvent.click(form().getByRole('button', { name: /^Cortado/ }))
-    expect(form().getByRole('button', { name: /^Cortado/ })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(form().getByRole('radio', { name: /^Cortado/ }))
+    expect(form().getByRole('radio', { name: /^Cortado/ })).toBeChecked()
     expect(form().getByLabelText('Nombre del horario')).toHaveValue('Cortado')
     const tramo2 = within(form().getByRole('group', { name: 'Tramo 2' }))
     expect(tramo2.getByLabelText('Entra a las')).toHaveValue('17:00')
@@ -79,12 +99,19 @@ describe('Horarios: a schedule a shop owner understands', () => {
     expect(await screen.findByText('Horario «Cortado» creado.')).toBeInTheDocument()
   })
 
-  it('computes the next day for a night schedule and says it next to the field', async () => {
-    render(<TemplatesView />)
+  // Changed in T12: the hint is over the two times of the tramo, read with «Sale a las», no longer inside that field.
+  it('computes the next day for a night schedule and says it over the two times, read with the field it is about', async () => {
+    render(<SchedulesView />)
     await screen.findByText('Mañana')
-    fireEvent.click(form().getByRole('button', { name: /^De noche/ }))
+    fireEvent.click(form().getByRole('radio', { name: /^De noche/ }))
     const tramo1 = within(form().getByRole('group', { name: 'Tramo 1' }))
     expect(tramo1.getByLabelText('Sale a las')).toHaveAccessibleDescription('Sale al día siguiente (06:00).')
+    expect(tramo1.getByLabelText('Entra a las')).not.toHaveAccessibleDescription()
+    // T12: the hint sat inside «Sale a las», between its label and its box, so the two fields of the tramo were not level at
+    // 390 px. It is read before both fields now, and neither field holds a hint of its own.
+    const hint = tramo1.getByText('Sale al día siguiente (06:00).')
+    expect(hint.closest('.field')).toBeNull()
+    expect(comesBefore(hint, tramo1.getByLabelText('Entra a las'))).toBe(true)
     expect(form().queryByLabelText(/el día$/)).not.toBeInTheDocument()
     fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
     await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/templates', expect.objectContaining({
@@ -93,9 +120,9 @@ describe('Horarios: a schedule a shop owner understands', () => {
   })
 
   it('reports each mistake next to its tramo and sends nothing', async () => {
-    render(<TemplatesView />)
+    render(<SchedulesView />)
     await screen.findByText('Mañana')
-    fireEvent.click(form().getByRole('button', { name: /^Cortado/ }))
+    fireEvent.click(form().getByRole('radio', { name: /^Cortado/ }))
     const tramo2 = within(form().getByRole('group', { name: 'Tramo 2' }))
     fireEvent.change(tramo2.getByLabelText('Entra a las'), { target: { value: '12:00' } })
     fireEvent.change(form().getByLabelText('Nombre del horario'), { target: { value: '' } })
@@ -103,13 +130,14 @@ describe('Horarios: a schedule a shop owner understands', () => {
 
     expect(tramo2.getByLabelText('Entra a las')).toHaveAttribute('aria-invalid', 'true')
     expect(tramo2.getByLabelText('Entra a las')).toHaveAccessibleDescription('El tramo 2 empieza antes de que termine el 1.')
-    expect(form().getByLabelText('Nombre del horario')).toHaveAccessibleDescription('Escribí un nombre para el horario.')
+    // Changed in slice F2b: the error is the field's own, under the control, and the example stays as its hint.
+    expect(form().getByLabelText('Nombre del horario')).toHaveAccessibleDescription('Ej.: Mañana, Turno noche Escribí un nombre para el horario.')
     expect(screen.getByRole('alert')).toHaveTextContent('Revisá lo que está marcado debajo de cada campo.')
     expect(apiMocks.post).not.toHaveBeenCalled()
   })
 
   it('adds up to four tramos and removes one', async () => {
-    render(<TemplatesView />)
+    render(<SchedulesView />)
     await screen.findByText('Mañana')
     const add = form().getByRole('button', { name: 'Agregar otro tramo' })
     fireEvent.click(add); fireEvent.click(add); fireEvent.click(add)
@@ -120,24 +148,27 @@ describe('Horarios: a schedule a shop owner understands', () => {
   })
 
   it('explains the pause minutes, including what 0 means', async () => {
-    render(<TemplatesView />)
+    render(<SchedulesView />)
     await screen.findByText('Mañana')
-    expect(form().getByLabelText('Minutos para desayunar')).toHaveAccessibleDescription('Si la pausa dura más, te avisamos en la Bandeja. Con 0, te avisamos de cualquier pausa.')
-    expect(form().getByLabelText('Minutos para almorzar')).toHaveAccessibleDescription('Si la pausa dura más, te avisamos en la Bandeja. Con 0, te avisamos de cualquier pausa.')
+    expect(form().getByLabelText('Minutos para desayunar')).toHaveAccessibleDescription('Si la pausa dura más, te avisamos en Para revisar. Con 0, te avisamos de cualquier pausa.')
+    expect(form().getByLabelText('Minutos para almorzar')).toHaveAccessibleDescription('Si la pausa dura más, te avisamos en Para revisar. Con 0, te avisamos de cualquier pausa.')
     fireEvent.change(form().getByLabelText('Minutos para desayunar'), { target: { value: '300' } })
     fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
     expect(form().getByLabelText('Minutos para desayunar')).toHaveAccessibleDescription('Poné un número de 0 a 240.')
   })
 
+  // Changed in T12: the Local select is at the top of «Horarios de este local», no longer inside the create form.
   it('keeps the typed data when the Local changes and lists the horarios of the chosen local', async () => {
     serve({ sites: [centro, norte] })
-    render(<TemplatesView />)
+    render(<SchedulesView />)
     await screen.findByText('Mañana')
-    expect(form().getByLabelText('Local')).toHaveValue('s-1')
+    const local = () => within(screen.getByRole('region', { name: 'Horarios de este local' })).getByLabelText('Local')
+    expect(local()).toHaveValue('s-1')
     fireEvent.change(form().getByLabelText('Nombre del horario'), { target: { value: 'Tarde' } })
     fireEvent.change(within(form().getByRole('group', { name: 'Tramo 1' })).getByLabelText('Entra a las'), { target: { value: '13:00' } })
-    fireEvent.change(form().getByLabelText('Local'), { target: { value: 's-2' } })
+    fireEvent.change(local(), { target: { value: 's-2' } })
 
+    expect(form().getByText('Local Norte')).toBeInTheDocument()
     expect(form().getByLabelText('Nombre del horario')).toHaveValue('Tarde')
     expect(within(form().getByRole('group', { name: 'Tramo 1' })).getByLabelText('Entra a las')).toHaveValue('13:00')
     expect(await screen.findByText('Este local todavía no tiene horarios. Creá el primero.')).toBeInTheDocument()
@@ -146,9 +177,9 @@ describe('Horarios: a schedule a shop owner understands', () => {
   })
 
   it('changes a horario in place inside its card and warns that loaded days keep the old one', async () => {
-    render(<TemplatesView />)
+    render(<SchedulesView />)
     fireEvent.click(await screen.findByRole('button', { name: 'Cambiar horario Mañana' }))
-    const card = within(screen.getByRole('article', { name: 'Mañana' }))
+    const card = within(screen.getByRole('listitem', { name: 'Mañana' }))
     expect(card.getByText('Los días que ya cargaste mantienen el horario anterior.')).toBeInTheDocument()
     expect(card.getByLabelText('Nombre del horario')).toHaveValue('Mañana')
     fireEvent.change(card.getByLabelText('Sale a las'), { target: { value: '18:00' } })
@@ -159,7 +190,7 @@ describe('Horarios: a schedule a shop owner understands', () => {
       blocks: [{ startDayOffset: 0, start: '09:00', end: '18:00', endDayOffset: 0 }]
     }))
     expect(await screen.findByText('Horario «Mañana» actualizado.')).toBeInTheDocument()
-    expect(within(screen.getByRole('article', { name: 'Mañana' })).getByText('09:00–18:00')).toBeInTheDocument()
+    expect(within(screen.getByRole('listitem', { name: 'Mañana' })).getByText('09:00–18:00')).toBeInTheDocument()
   })
 
   it('keeps the hand-typed days of an old horario under Opciones avanzadas', async () => {
@@ -168,9 +199,9 @@ describe('Horarios: a schedule a shop owner understands', () => {
       { startDayOffset: 1 as const, start: '14:00:00', end: '18:00:00', endDayOffset: 1 as const }
     ] }
     serve({ templates: [legacy] })
-    render(<TemplatesView />)
+    render(<SchedulesView />)
     fireEvent.click(await screen.findByRole('button', { name: 'Cambiar horario Partido' }))
-    const card = within(screen.getByRole('article', { name: 'Partido' }))
+    const card = within(screen.getByRole('listitem', { name: 'Partido' }))
     expect(card.getByText('Opciones avanzadas')).toBeInTheDocument()
     expect(card.getByLabelText('Tramo 2: entra el día')).toHaveValue('1')
     fireEvent.click(card.getByRole('button', { name: 'Guardar cambios' }))
@@ -180,14 +211,14 @@ describe('Horarios: a schedule a shop owner understands', () => {
   })
 
   it('a horario the computation reproduces shows no day options', async () => {
-    render(<TemplatesView />)
+    render(<SchedulesView />)
     fireEvent.click(await screen.findByRole('button', { name: 'Cambiar horario Mañana' }))
-    expect(within(screen.getByRole('article', { name: 'Mañana' })).queryByText('Opciones avanzadas')).not.toBeInTheDocument()
+    expect(within(screen.getByRole('listitem', { name: 'Mañana' })).queryByText('Opciones avanzadas')).not.toBeInTheDocument()
   })
 
   describe('¿Quién trabaja con este horario? after saving', () => {
     async function createCorrido() {
-      render(<TemplatesView />)
+      render(<SchedulesView />)
       await screen.findByText('Mañana')
       fireEvent.change(form().getByLabelText('Nombre del horario'), { target: { value: 'Corrido' } })
       fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
@@ -203,7 +234,8 @@ describe('Horarios: a schedule a shop owner understands', () => {
       const step = await createCorrido()
       expect(step.getAllByRole('checkbox').map((box) => box.closest('label')?.textContent)).toEqual(['Ana', 'Juan', 'Pedro'])
       expect(step.getByLabelText('Desde el día')).toHaveValue(deviceDate())
-      expect(step.getByRole('button', { name: 'Asignar' })).toBeDisabled()
+      // Changed in slice F2b (finding F-09): «Asignar» is enabled; with nobody checked it says so on the people.
+      expect(step.getByRole('button', { name: 'Asignar' })).toBeEnabled()
       fireEvent.click(step.getByRole('checkbox', { name: 'Ana' }))
       fireEvent.click(step.getByRole('checkbox', { name: 'Juan' }))
       fireEvent.click(step.getByRole('checkbox', { name: 'Pedro' }))
@@ -225,11 +257,205 @@ describe('Horarios: a schedule a shop owner understands', () => {
     })
 
     it('opens inside the card after changing a horario', async () => {
-      render(<TemplatesView />)
+      render(<SchedulesView />)
       fireEvent.click(await screen.findByRole('button', { name: 'Cambiar horario Mañana' }))
-      fireEvent.click(within(screen.getByRole('article', { name: 'Mañana' })).getByRole('button', { name: 'Guardar cambios' }))
-      const card = within(await screen.findByRole('article', { name: 'Mañana' }))
+      fireEvent.click(within(screen.getByRole('listitem', { name: 'Mañana' })).getByRole('button', { name: 'Guardar cambios' }))
+      const card = within(await screen.findByRole('listitem', { name: 'Mañana' }))
       expect(await card.findByRole('region', { name: '¿Quién trabaja con este horario?' })).toBeInTheDocument()
+    })
+
+    it('shows the result of assigning inside its form, right above its buttons', async () => {
+      const step = await createCorrido()
+      fireEvent.click(step.getByRole('checkbox', { name: 'Ana' }))
+      fireEvent.click(step.getByRole('button', { name: 'Asignar' }))
+      const result = await step.findByText('Listo: asignado a Ana.')
+      expect(aboveTheButtons(result)).toContainElement(step.getByRole('button', { name: 'Asignar' }))
+    })
+  })
+
+  // Slice E5 (design system 4.5, 4.7, 4.12): the pieces of the system on «Horarios».
+  describe('built with the pieces of the design system', () => {
+    it('names the type of schedule as a group of option tiles, one chosen at a time', async () => {
+      render(<SchedulesView />)
+      await screen.findByText('Mañana')
+      const types = form().getByRole('group', { name: '¿Cómo es este horario?' })
+      const radios = within(types).getAllByRole('radio')
+
+      expect(radios.map((radio) => radio.closest('label')?.className)).toEqual(['choice', 'choice', 'choice'])
+      expect(within(types).getByRole('radio', { name: /^Corrido/ })).toBeChecked()
+      expect(within(types).getByRole('radio', { name: /^De noche/ })).toHaveAccessibleName('De noche: De 22:00 a 06:00 del día siguiente')
+      expect(types).toHaveAccessibleDescription('Elegí el que más se parece. Después podés cambiar las horas.')
+      fireEvent.click(within(types).getByRole('radio', { name: /^Cortado/ }))
+      expect(within(types).getByRole('radio', { name: /^Cortado/ })).toBeChecked()
+      expect(within(types).getByRole('radio', { name: /^Corrido/ })).not.toBeChecked()
+    })
+
+    it('lists each horario as a record whose action is a link under it', async () => {
+      serve({ templates: [manana, { ...manana, id: 't-2', name: 'Vieja', active: false }] })
+      render(<SchedulesView />)
+      const record = await screen.findByRole('listitem', { name: 'Mañana' })
+
+      expect(record).toHaveClass('record')
+      expect(record.parentElement).toHaveClass('record-list')
+      const change = within(record).getByRole('button', { name: 'Cambiar horario Mañana' })
+      expect(change).toHaveClass('button-link')
+      expect(change.parentElement).toHaveClass('record-actions')
+      expect(within(screen.getByRole('listitem', { name: 'Vieja' })).getByText('Inactivo')).toHaveClass('status-chip', 'status-wait')
+    })
+
+    it('shows the mistakes and the answer of the server inside the form, right above its buttons', async () => {
+      apiMocks.post.mockImplementation(() => Promise.reject(new Error('Ya hay un horario con ese nombre.')))
+      apiMocks.patch.mockImplementation(() => Promise.reject(new Error('No se pudo guardar el horario.')))
+      render(<SchedulesView />)
+      await screen.findByText('Mañana')
+      fireEvent.change(form().getByLabelText('Nombre del horario'), { target: { value: '' } })
+      // Changed in slice F2b: the summary is for two or more mistakes (design system 4.7), so two fields are left wrong.
+      fireEvent.change(form().getByLabelText('Minutos para almorzar'), { target: { value: '' } })
+      fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
+      expect(aboveTheButtons(form().getByRole('alert'))).toContainElement(form().getByRole('button', { name: 'Crear horario' }))
+
+      fireEvent.change(form().getByLabelText('Minutos para almorzar'), { target: { value: '60' } })
+      fireEvent.change(form().getByLabelText('Nombre del horario'), { target: { value: 'Tarde' } })
+      fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
+      expect(aboveTheButtons(await form().findByText('Ya hay un horario con ese nombre.'))).toContainElement(form().getByRole('button', { name: 'Crear horario' }))
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cambiar horario Mañana' }))
+      const record = within(screen.getByRole('listitem', { name: 'Mañana' }))
+      fireEvent.click(record.getByRole('button', { name: 'Guardar cambios' }))
+      expect(aboveTheButtons(await record.findByText('No se pudo guardar el horario.'))).toContainElement(record.getByRole('button', { name: 'Guardar cambios' }))
+    })
+
+    it('says a horario was saved where it was saved, not at the top of the page', async () => {
+      render(<SchedulesView />)
+      await screen.findByText('Mañana')
+      fireEvent.change(form().getByLabelText('Nombre del horario'), { target: { value: 'Corrido' } })
+      fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
+      const step = within(await screen.findByRole('region', { name: '¿Quién trabaja con este horario?' }))
+      // A success message writes its text one effect after it mounts (PageMessage): wait for it.
+      expect(await step.findByText('Horario «Corrido» creado.')).toBeInTheDocument()
+
+      fireEvent.click(step.getByRole('button', { name: 'Ahora no' }))
+      expect(aboveTheButtons(await form().findByText('Horario «Corrido» creado.'))).toContainElement(form().getByRole('button', { name: 'Crear horario' }))
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cambiar horario Mañana' }))
+      fireEvent.click(within(screen.getByRole('listitem', { name: 'Mañana' })).getByRole('button', { name: 'Guardar cambios' }))
+      const record = within(await screen.findByRole('listitem', { name: 'Mañana' }))
+      expect(await record.findByText('Horario «Mañana» actualizado.')).toBeInTheDocument()
+      expect(screen.queryByText('Horario «Corrido» creado.')).not.toBeInTheDocument()
+    })
+  })
+
+  // Slice F1 (WCAG 2.4.3; finding F-27, gap left by E5): a form that opens takes the focus, and the focus comes back to the
+  // button that opened it when it closes; a step that replaces a form takes the focus in its place.
+  describe('where the focus goes', () => {
+    const changeButton = () => screen.getByRole('button', { name: 'Cambiar horario Mañana' })
+    const step = () => within(screen.getByRole('region', { name: '¿Quién trabaja con este horario?' }))
+
+    it('«Cambiar horario» takes the focus to the name; «Cancelar» gives it back to «Cambiar horario»', async () => {
+      render(<SchedulesView />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Cambiar horario Mañana' }))
+      const card = within(screen.getByRole('listitem', { name: 'Mañana' }))
+
+      await waitFor(() => expect(card.getByLabelText('Nombre del horario')).toHaveFocus())
+      fireEvent.click(card.getByRole('button', { name: 'Cancelar' }))
+      await waitFor(() => expect(changeButton()).toHaveFocus())
+    })
+
+    it('saving a change takes the focus into the step that follows, and closing the step gives it back to «Cambiar horario»', async () => {
+      render(<SchedulesView />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Cambiar horario Mañana' }))
+      fireEvent.click(within(screen.getByRole('listitem', { name: 'Mañana' })).getByRole('button', { name: 'Guardar cambios' }))
+
+      await screen.findByRole('region', { name: '¿Quién trabaja con este horario?' })
+      await waitFor(() => expect(step().getByRole('checkbox', { name: 'Ana' })).toHaveFocus())
+      fireEvent.click(step().getByRole('button', { name: 'Ahora no' }))
+      await waitFor(() => expect(changeButton()).toHaveFocus())
+    })
+
+    it('creating a horario takes the focus into the step that replaces the form, and closing it takes it back to the form', async () => {
+      render(<SchedulesView />)
+      await screen.findByText('Mañana')
+      fireEvent.change(form().getByLabelText('Nombre del horario'), { target: { value: 'Corrido' } })
+      fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
+
+      await screen.findByRole('region', { name: '¿Quién trabaja con este horario?' })
+      await waitFor(() => expect(step().getByRole('checkbox', { name: 'Ana' })).toHaveFocus())
+      fireEvent.click(step().getByRole('button', { name: 'Ahora no' }))
+      // The first control of the form is the chosen type of horario.
+      await waitFor(() => expect(form().getByRole('radio', { name: /^Corrido/ })).toHaveFocus())
     })
   })
 })
+
+// Slice F2b (design system 4.3 and 4.7; finding F-09): the errors of a horario are the errors of their fields, under the control.
+describe('Horarios: one validation style', () => {
+  it('a failed save focuses the first field to fix, and each error is the error of its field', async () => {
+    render(<SchedulesView />)
+    await screen.findByText('Mañana')
+    fireEvent.change(form().getByLabelText('Nombre del horario'), { target: { value: '' } })
+    fireEvent.change(form().getByLabelText('Minutos para almorzar'), { target: { value: '999' } })
+    fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
+
+    const name = form().getByLabelText('Nombre del horario')
+    await waitFor(() => expect(name).toHaveFocus())
+    const nameField = name.closest('.field')!
+    expect(nameField).toHaveClass('field-invalid')
+    expect(nameField.querySelector('.field-error')).toHaveTextContent('Escribí un nombre para el horario.')
+    expect(nameField.querySelector('.field-hint-error')).toBeNull()
+    expect(form().getByLabelText('Minutos para almorzar').closest('.field')).toHaveClass('field-invalid')
+    expect(screen.getByRole('alert')).toHaveTextContent('Revisá lo que está marcado debajo de cada campo.')
+  })
+
+  it('one wrong field needs no summary: its own error says it', async () => {
+    render(<SchedulesView />)
+    await screen.findByText('Mañana')
+    fireEvent.change(form().getByLabelText('Nombre del horario'), { target: { value: 'Corrido' } })
+    fireEvent.change(form().getByLabelText('Minutos para desayunar'), { target: { value: '300' } })
+    fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
+
+    await waitFor(() => expect(form().getByLabelText('Minutos para desayunar')).toHaveFocus())
+    expect(screen.queryByText('Revisá lo que está marcado debajo de cada campo.')).not.toBeInTheDocument()
+  })
+
+  it('without a local, «Crear horario» says why it cannot be used, next to it', async () => {
+    serve({ sites: [], templates: [] })
+    render(<SchedulesView />)
+    const create = await form().findByRole('button', { name: 'Crear horario' })
+    await waitFor(() => expect(create).toHaveAccessibleDescription('Primero creá un local en Locales.'))
+    expect(create).toBeDisabled()
+  })
+
+  it('assigning nobody explains it on the people and keeps «Asignar» enabled', async () => {
+    render(<SchedulesView />)
+    await screen.findByText('Mañana')
+    fireEvent.change(form().getByLabelText('Nombre del horario'), { target: { value: 'Corrido' } })
+    fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
+    const step = within(await screen.findByRole('region', { name: '¿Quién trabaja con este horario?' }))
+    await waitFor(() => expect(step.getByRole('checkbox', { name: 'Ana' })).toHaveFocus())
+    const assign = step.getByRole('button', { name: 'Asignar' })
+    expect(assign).toBeEnabled()
+    expect(assign.closest('form')).toHaveAttribute('novalidate')
+    fireEvent.change(step.getByLabelText('Desde el día'), { target: { value: '' } })
+    // A click focuses the button it presses; fireEvent does not, so the test does it.
+    assign.focus()
+    fireEvent.click(assign)
+
+    const people = step.getByRole('group', { name: 'Empleados de este local' })
+    expect(people).toHaveAttribute('aria-invalid', 'true')
+    expect(people).toHaveAccessibleDescription('Elegí al menos una persona.')
+    expect(step.getByLabelText('Desde el día')).toHaveAccessibleDescription('Elegí desde qué día.')
+    await waitFor(() => expect(step.getByRole('checkbox', { name: 'Ana' })).toHaveFocus())
+    // Only the horario was sent: the assignment never left.
+    expect(apiMocks.post).toHaveBeenCalledTimes(1)
+  })
+})
+
+/** True when `first` comes before `second` in the document. */
+const comesBefore = (first: Element, second: Element) => Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
+
+/** The row of buttons right after the block that holds `element`, inside the same form; null when something else comes next. */
+function aboveTheButtons(element: HTMLElement) {
+  const result = element.closest('.form-result')
+  const next = result?.nextElementSibling
+  return next?.classList.contains('button-row') && next.closest('form') === result?.closest('form') ? next as HTMLElement : null
+}

@@ -107,9 +107,16 @@ en un estado:
   `ADMIN`.
 - **Registro de decisiones**: `docs/DECISIONES.md`, filas `ID
   (D-AAAAMMDD-NN) | fecha | decisión | propuesta por | estado | motivo`. Al
-  2026-11-09: 69 filas, todas adoptadas y 0 propuestas (16 del 2026-10-14, 6
+  2026-11-12: 76 filas, todas adoptadas y 0 propuestas (16 del 2026-10-14, 6
   del 10-15, 5 del 10-16, 1 del 10-18, 6 del 10-19, 2 del 10-23, 12 del 10-27,
-  1 del 10-29, 2 del 10-30, 15 del 11-02 y 3 del 11-09). Las 15 del 2026-11-02
+  1 del 10-29, 2 del 10-30, 15 del 11-02, 3 del 11-09, 3 del 11-11: el
+  vocabulario visible de la interfaz, D-20261111-01, con su ajuste de persona
+  gramatical para el empleado, D-20261111-03, y el menú del `ADMIN` en cuatro
+  destinos, D-20261111-02; y 4 del 11-12: de la revisión T12 del #114, otro
+  día del empleado solo para mirar, D-20261112-01, el aviso de sesión por
+  vencer del `ADMIN`, D-20261112-02, y el cambio de empresa con «Cambiar»,
+  D-20261112-03, y la excepción a la regla 38 para fusionar el rediseño en
+  `main`, D-20261112-04). Las 15 del 2026-11-02
   (D-20261102-01 a -15) son propuestas de la IA durante la campaña #72 que
   Mateo adoptó con su aprobación general de ese día al plan de producción
   (`odd/tasks/production-readiness.md`); cada una lo dice en su motivo.
@@ -127,7 +134,7 @@ en un estado:
 - **Reglas del dueño que no se discuten**: D-20261014-01 (sin atribución de
   IA), -02 (software propio, sin SaaS de terceros), -03 (alcance cerrado),
   -04 (altas solo por `ADMIN`, sin límite de empleados) y -09
-  (multi-empresa y multi-sede). Las otras 61 filas también rigen; las que
+  (multi-empresa y multi-sede). Las otras 67 filas también rigen; las que
   cambian una regla de §5 se citan ahí.
 - **Una decisión nueva** la propone quien la detecta (Mateo, Enrique o la
   IA) como fila `propuesta`; hasta que Mateo la adopte no se cita como
@@ -868,12 +875,24 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     `frontend/eslint.config.js`, `frontend/tsconfig.json`,
     `.github/workflows/ci.yml`).
 36. **Los componentes de render reciben datos y callbacks por props; el estado
-    remoto vive en contenedores.** En ADMIN, los contenedores viven en
-    `frontend/src/features/admin/AdminViews.tsx` y las vistas en
-    `frontend/src/features/admin/AdminViewsRender.tsx`.
-    `frontend/src/features/admin/AdminViews.test.tsx` cubre interacciones,
-    pero no existe una prueba que proteja esa separación arquitectónica
-    `[sin guarda: implementado, sin test]` (2026-10-20).
+    remoto vive en contenedores.** En ADMIN, cada sección tiene en
+    `frontend/src/features/admin/` su contenedor y su render:
+    `AdminInbox.tsx` y `AdminInboxRender.tsx`, `JourneysView.tsx` y
+    `JourneysViewRender.tsx`, `AdminHistory.tsx` y `AdminHistoryRender.tsx`,
+    `WorkDaysView.tsx` (con `WorkDaysPanel.tsx`) y `WorkDaysViewRender.tsx`
+    (con `WorkDaysForm.tsx`), `SitesView.tsx` y `SitesViewRender.tsx`,
+    `SchedulesView.tsx` y `ScheduleEditor.tsx`, `EmployeesView.tsx` y
+    `EmployeesViewRender.tsx`; `AdminApp.tsx` guarda lo común a todas las
+    secciones: la sección actual, el estado de la configuración y los avisos
+    (2026-11-12, issue #114: las tandas M1 y M2 partieron
+    `AdminViews.tsx` y `AdminViewsRender.tsx` por sección y la H1, PR #162,
+    borró esos dos archivos, que solo reexportaban). Al 2026-11-12 solo esos
+    contenedores y `AdminApp.tsx` importan `shared/api/client`
+    fuera de los tests
+    (`git grep -l "shared/api/client" -- frontend/src/features/admin ":!*.test.*"`).
+    `frontend/src/features/admin/AdminViews.test.tsx` y los tests de cada
+    sección cubren interacciones, pero no existe una prueba que proteja esa
+    separación arquitectónica `[sin guarda: implementado, sin test]`.
 37. **Toda llamada a la API pasa por `frontend/src/shared/api/client.ts`**
     (único `fetch`; el archivo anterior decía `frontend/src/api`). Guarda:
     `client.test.ts` prueba el cliente; que nadie más llame `fetch`

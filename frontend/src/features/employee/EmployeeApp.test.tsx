@@ -5,6 +5,8 @@ import type { Deviation, Jornada, Site } from '../../shared/api/types'
 import { ApiError, NetworkError, TimeoutError } from '../../shared/api/client'
 import { forgetLocationNotice, rememberLocationNotice } from './locationNotice'
 import { clearMarkInterrupted, markWasInterrupted } from '../auth/interruptedMark'
+import { LoadFailure } from '../../app/ui'
+import { expectSkipLinkToMain } from '../../app/testing/skipLink'
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
@@ -30,6 +32,11 @@ vi.mock('../../shared/api/client', async (importOriginal) => ({
 vi.mock('../../app/session', () => ({ useSession: mocks.useSession }))
 vi.mock('../../device/pwa/InstallControl', () => ({ InstallControl: () => null }))
 vi.mock('./markFlow', () => ({ createMarkAttempt: mocks.createMarkAttempt, submitMark: mocks.submitMark }))
+// The real LoadFailure, watched: a failed load must go through it (slice F3).
+vi.mock('../../app/ui', async (importOriginal) => {
+  const ui = await importOriginal<typeof import('../../app/ui')>()
+  return { ...ui, LoadFailure: vi.fn(ui.LoadFailure) }
+})
 
 const timeZone = 'America/Argentina/Buenos_Aires'
 /** 11:00 in Buenos Aires: two hours after the 09:00 entry and six before the 17:00 end of the shift. */
@@ -155,6 +162,14 @@ describe('EmployeeApp', () => {
     expect(await screen.findByRole('heading', { name: /Hola, DNI 30123456/ })).toBeInTheDocument()
   })
 
+  // Slice G1 (WCAG 2.4.1): the top bar comes before the day on every visit; «Ir al contenido» skips it.
+  it('lo primero que alcanza Tab es «Ir al contenido», que lleva al único main de la pantalla', async () => {
+    render(<EmployeeApp />)
+    await breakfastButton()
+
+    expectSkipLinkToMain()
+  })
+
   describe('pantalla principal', () => {
     it('ordena el estado del día, el panel de marcar, las marcas de hoy y al final Ver otros días', async () => {
       configureSingle(jornadas[0], [pendingDeviation])
@@ -162,7 +177,8 @@ describe('EmployeeApp', () => {
 
       expect(await screen.findByText('Estás trabajando desde las 09:00.')).toBeInTheDocument()
       const headings = [...container.querySelectorAll('h1, h2')].map((heading) => heading.textContent)
-      expect(headings).toEqual(['Hola, DNI 30123456', 'Marcar', 'Tus marcas de hoy', 'Para explicar', 'Desvíos del día', 'Ver otros días'])
+      // Slice D3: with something to explain, «Para explicar» comes before the marks, and the day has no section of its own.
+      expect(headings).toEqual(['Hola, DNI 30123456', 'Marcar', 'Para explicar', 'Tus marcas de hoy', 'Ver otros días'])
       const sentence = screen.getByText('Estás trabajando desde las 09:00.')
       expect(sentence.compareDocumentPosition(screen.getByRole('button', { name: 'Me voy a desayunar' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     })
@@ -172,15 +188,29 @@ describe('EmployeeApp', () => {
       render(<EmployeeApp />)
 
       const primary = await breakfastButton()
-      expect(primary).toHaveClass('button-primary', 'button-wide')
+      expect(primary).toHaveClass('button-primary', 'button-clock')
       const panel = screen.getByRole('region', { name: 'Marcar' })
       const buttons = within(panel).getAllByRole('button')
       expect(buttons).toHaveLength(3)
       expect(buttons[0]).toHaveAccessibleName('Me voy a desayunar')
       expect(buttons[1]).toHaveAccessibleName('Me voy a almorzar')
       expect(buttons[2]).toHaveAccessibleName('Marcar salida')
-      expect(buttons[2].closest('.employee-exit')).not.toBeNull()
+      expect(buttons[2].closest('.now-apart')).not.toBeNull()
       expect(panel).not.toHaveTextContent(/Enviar marca|servidor|secuencia|comprobante|día local/)
+    })
+
+    // Slice D1: the state of the day, the next mark and the schedule are one block, so the person reads how the day is and
+    // what to do next without looking for the schedule further down.
+    it('junta en el bloque Marcar el estado del día, la próxima marca y el horario', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+
+      const block = (await breakfastButton()).closest('.now')!
+      expect(block).toBe(screen.getByRole('region', { name: 'Marcar' }))
+      expect(block).toContainElement(screen.getByText('Estás trabajando desde las 09:00.'))
+      expect(block).toContainElement(screen.getByText('09:00 a 17:00'))
+      expect(block).toHaveTextContent('Local Centro · Tenés 5 minutos de tolerancia para entrar.')
+      expect(screen.getByRole('region', { name: 'Tus marcas de hoy' })).not.toHaveTextContent('Tu horario')
     })
 
     it('no deja texto técnico en la pantalla', async () => {
@@ -190,7 +220,7 @@ describe('EmployeeApp', () => {
       expect(container.textContent).not.toMatch(/servidor|secuencia|comprobante|día local|Registrar|Enviar marca/)
     })
 
-    it('dice que hoy no hay turno cargado y a quién avisar', async () => {
+    it('dice que hoy no hay un día de trabajo cargado y a quién avisar', async () => {
       mocks.apiGet.mockImplementation((path: string) => {
         if (path === '/sites') return Promise.resolve(sites)
         if (path.startsWith('/jornadas/mine?')) return Promise.resolve([])
@@ -198,7 +228,7 @@ describe('EmployeeApp', () => {
         throw new Error(`GET inesperado: ${path}`)
       })
       render(<EmployeeApp />)
-      expect(await screen.findByText('Hoy no tenés turno cargado. Si tenés que trabajar, avisale a tu encargado.')).toBeInTheDocument()
+      expect(await screen.findByText('Hoy no tenés un día de trabajo cargado. Si tenés que trabajar, avisale a tu encargado.')).toBeInTheDocument()
       expect(screen.queryByRole('region', { name: 'Marcar' })).not.toBeInTheDocument()
     })
 
@@ -227,6 +257,7 @@ describe('EmployeeApp', () => {
 
     const options = await screen.findAllByRole('button', { name: /Mañana/ })
     expect(options).toHaveLength(2)
+    expect(within(screen.getByRole('region', { name: 'Elegí tu turno' })).getByRole('group', { name: 'Turnos de este día' })).toContainElement(options[0])
     expect(options[0]).toHaveAccessibleName(/Local Centro/)
     expect(options[1]).toHaveAccessibleName(/Local Norte/)
     expect(options[0]).toHaveAttribute('aria-pressed', 'true')
@@ -258,6 +289,31 @@ describe('EmployeeApp', () => {
       expect(await screen.findByText('Listo: tu salida quedó registrada a las 10:05.')).toBeInTheDocument()
     })
 
+    // Slice F1 (WCAG 2.4.3; finding F-27, gap left by D1): the question replaces the buttons, so closing it would leave the
+    // focus on the page; it goes back to the button that asked.
+    it('la pregunta toma el foco y «No, seguir trabajando» lo devuelve al botón de la salida', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Marcar salida' }))
+
+      const question = (await screen.findByText('¿Terminás tu día ahora? Tu horario termina a las 17:00.')).closest('.now-step') as HTMLElement
+      await waitFor(() => expect(question).toHaveFocus())
+      fireEvent.click(screen.getByRole('button', { name: 'No, seguir trabajando' }))
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Marcar salida' })).toHaveFocus())
+    })
+
+    it('«Volver» del aviso de ubicación devuelve el foco al botón de la marca que lo abrió', async () => {
+      forgetLocationNotice()
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      fireEvent.click(await breakfastButton())
+
+      expect(await screen.findByText('Al marcar, el celular manda tu ubicación una sola vez para saber si estás en el local. Si no llega, la marca igual se registra.')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Volver' }))
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Me voy a desayunar' })).toHaveFocus())
+      expect(mocks.submitMark).not.toHaveBeenCalled()
+    })
+
     it('después del fin del horario marca sin preguntar y la sugiere como la próxima', async () => {
       vi.setSystemTime(new Date('2026-10-20T20:10:00Z'))
       configureSingle(jornadas[0])
@@ -277,14 +333,16 @@ describe('EmployeeApp', () => {
       render(<EmployeeApp />)
       fireEvent.click(await breakfastButton())
 
-      expect(await screen.findByText('Para marcar necesitamos saber que estás en el local. Solo se mira en el momento de marcar.')).toBeInTheDocument()
+      expect(await screen.findByText('Al marcar, el celular manda tu ubicación una sola vez para saber si estás en el local. Si no llega, la marca igual se registra.')).toBeInTheDocument()
+      // Rule 2 (T12, finding A-1): the location never blocks a mark, so the notice does not word it as a condition.
+      expect(screen.queryByText(/necesitamos|para marcar/i)).not.toBeInTheDocument()
       expect(mocks.submitMark).not.toHaveBeenCalled()
       fireEvent.click(screen.getByRole('button', { name: 'Continuar' }))
       await waitFor(() => expect(mocks.submitMark).toHaveBeenCalledTimes(1))
 
       fireEvent.click(await screen.findByRole('button', { name: 'Me voy a almorzar' }))
       await waitFor(() => expect(mocks.submitMark).toHaveBeenCalledTimes(2))
-      expect(screen.queryByText(/necesitamos saber que estás en el local/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/manda tu ubicación una sola vez/)).not.toBeInTheDocument()
     })
   })
 
@@ -308,8 +366,10 @@ describe('EmployeeApp', () => {
       const onLocation = mocks.submitMark.mock.calls[0][3] as (result: 'SENT' | 'MISSING') => void
       act(() => onLocation('SENT'))
       const box = screen.getByText(/Listo: tu salida a desayunar/).closest('[role="status"]')!
-      await waitFor(() => expect(box).toHaveTextContent('Ubicación enviada ✔'))
+      await waitFor(() => expect(box).toHaveTextContent('Ubicación enviada'))
       expect(box).not.toHaveTextContent('Enviando ubicación')
+      // Slice H1 (finding F-22): the pin icon says it; the decorative «✔» after the words went.
+      expect(box).not.toHaveTextContent('✔')
     })
 
     it('avisa cuando la ubicación no llegó', async () => {
@@ -320,6 +380,41 @@ describe('EmployeeApp', () => {
       const onLocation = mocks.submitMark.mock.calls[0][3] as (result: 'SENT' | 'MISSING') => void
       act(() => onLocation('MISSING'))
       expect(await screen.findByText('No llegó tu ubicación: puede figurar como fuera del local. Revisá que el celular tenga la ubicación activada.')).toBeInTheDocument()
+    })
+
+    // S8: the mark was saved, so the confirmation stays; only the line about the location is a warning, never a success.
+    it('la ubicación que no llegó es una advertencia dentro de la confirmación, no una línea de éxito', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      fireEvent.click(await breakfastButton())
+      const receipt = (await screen.findByText('Listo: tu salida a desayunar quedó registrada a las 10:05.')).closest('[role="status"]')!
+      const onLocation = mocks.submitMark.mock.calls[0][3] as (result: 'SENT' | 'MISSING') => void
+      act(() => onLocation('MISSING'))
+
+      const line = await screen.findByText('No llegó tu ubicación: puede figurar como fuera del local. Revisá que el celular tenga la ubicación activada.')
+      expect(receipt).toContainElement(line)
+      expect(line.closest('.message-success')).toBeNull()
+      expect(line.closest('.receipt-location')).toHaveClass('receipt-location-missing')
+    })
+
+    // S8, verbatim: «nunca indicar que una marca fue registrada si el servidor todavía no confirmó su aceptación».
+    it('mientras la marca está en camino nada dice que quedó registrada: el lugar de la confirmación dice que se está enviando', async () => {
+      let resolveMark!: (value: { id: string; acceptedAt: string }) => void
+      mocks.submitMark.mockReturnValueOnce(new Promise((resolve) => { resolveMark = resolve }))
+      configureSingle(jornadas[0])
+      const { container } = render(<EmployeeApp />)
+      fireEvent.click(await breakfastButton())
+
+      const sending = await screen.findByText('Enviando tu marca… esperá un momento.')
+      expect(sending.closest('.mark-feedback')).not.toBeNull()
+      expect(sending.closest('.message-info')).not.toBeNull()
+      expect(container).not.toHaveTextContent(/registrada/)
+      expect(container.querySelector('.receipt, .message-success')).toBeNull()
+      within(screen.getByRole('region', { name: 'Marcar' })).getAllByRole('button').forEach((button) => expect(button).toBeDisabled())
+
+      await act(async () => { resolveMark({ id: 'mark-new', acceptedAt: '2026-10-20T13:05:00Z' }) })
+      expect(await screen.findByText('Listo: tu salida a desayunar quedó registrada a las 10:05.')).toBeInTheDocument()
+      expect(screen.queryByText('Enviando tu marca… esperá un momento.')).not.toBeInTheDocument()
     })
   })
 
@@ -362,8 +457,32 @@ describe('EmployeeApp', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Servidor no disponible.')
     expect(screen.getByRole('heading', { name: 'No pudimos cargar tu día' })).toBeInTheDocument()
-    expect(screen.queryByText(/no tenés turno cargado/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/no tenés un día de trabajo cargado/)).not.toBeInTheDocument()
 
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
+
+    expect(await screen.findAllByRole('button', { name: /Mañana/ })).toHaveLength(2)
+    expect(siteRequests).toBe(2)
+  })
+
+  it('un día que no se pudo cargar usa la carga fallida compartida, bajo su título, y su Reintentar vuelve a pedir el día', async () => {
+    let siteRequests = 0
+    mocks.apiGet.mockImplementation((path: string) => {
+      if (path === '/sites') {
+        siteRequests += 1
+        return siteRequests === 1 ? Promise.reject(new Error('Servidor no disponible.')) : Promise.resolve(sites)
+      }
+      if (path.startsWith('/jornadas/mine?')) return Promise.resolve(jornadas)
+      if (path.startsWith('/deviations?')) return Promise.resolve([])
+      throw new Error(`GET inesperado: ${path}`)
+    })
+    render(<EmployeeApp />)
+
+    const alert = await screen.findByRole('alert')
+    expect(vi.mocked(LoadFailure).mock.lastCall?.[0]).toMatchObject({ message: 'Servidor no disponible.' })
+    expect(screen.getByRole('region', { name: 'No pudimos cargar tu día' })).toContainElement(alert)
+    // It is the only way out of the screen, so it stays the filled main button it was before LoadFailure.
+    expect(screen.getByRole('button', { name: 'Reintentar' })).toHaveClass('button-primary')
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
 
     expect(await screen.findAllByRole('button', { name: /Mañana/ })).toHaveLength(2)
@@ -458,6 +577,22 @@ describe('EmployeeApp', () => {
       expect(screen.queryByLabelText('Contá qué pasó')).not.toBeInTheDocument()
     })
 
+    // Slice G2 (keyboard pass on the built app, 2026-11-12): a case of another day leaves the list once sent, and the focus fell
+    // to the page with its form.
+    it('si el caso enviado era de otro día y sale de la lista, el foco va al mensaje de que lo enviamos', async () => {
+      const otherDay = { ...pendingDeviation, id: 'deviation-9', jornadaId: 'jornada-old' }
+      configureApi([], [otherDay])
+      mocks.apiPut.mockResolvedValueOnce({ ...otherDay, status: 'PENDIENTE_REVISION', category: 'OTRA', motiveText: 'Demora.' })
+      render(<EmployeeApp />)
+
+      fireEvent.click(await screen.findByRole('radio', { name: /Otra/ }))
+      fireEvent.change(screen.getByLabelText('Contá qué pasó'), { target: { value: 'Demora.' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Enviar motivo' }))
+
+      const sent = await screen.findByText('Lo enviamos. Tu encargado lo va a revisar.')
+      await waitFor(() => expect(sent.closest('.message')).toHaveFocus())
+    })
+
     it('si el envío falla, muestra el error en la tarjeta y conserva lo escrito', async () => {
       configureApi([pendingDeviation])
       mocks.apiPut.mockRejectedValueOnce(new Error('Tu encargado ya lo revisó: ya no se puede cambiar.'))
@@ -470,6 +605,8 @@ describe('EmployeeApp', () => {
 
       const card = motive.closest('form')!
       expect(await within(card).findByRole('alert')).toHaveTextContent('Tu encargado ya lo revisó: ya no se puede cambiar.')
+      // T12 (#114, 2026-11-12; WCAG 2.4.3): the button was disabled while it sent, so the focus was lost; it goes to the message.
+      await waitFor(() => expect(within(card).getByRole('alert')).toHaveFocus())
       expect(motive).toHaveValue('Paro de colectivos.')
       expect(screen.getByRole('radio', { name: /Transporte/ })).toBeChecked()
     })
@@ -482,7 +619,6 @@ describe('EmployeeApp', () => {
       const card = (await screen.findByLabelText('Contá qué pasó')).closest('form')!
       expect(card).toHaveTextContent('No marcaste tu salida.')
       expect(mocks.apiGet).toHaveBeenCalledWith('/deviations?status=MOTIVO_PENDIENTE&limit=100')
-      expect(screen.getByText('No hay desvíos este día.')).toBeInTheDocument()
 
       fireEvent.click(screen.getByRole('radio', { name: /Otra/ }))
       fireEvent.change(screen.getByLabelText('Contá qué pasó'), { target: { value: 'Me olvidé de marcar al salir.' } })
@@ -548,6 +684,158 @@ describe('EmployeeApp', () => {
     await waitFor(() => expect(mocks.apiPut).toHaveBeenCalledWith('/deviations/deviation-1/motive', { category: 'TRANSPORTE', text: 'Paro de colectivos.' }))
     expect(await screen.findByText(/Paro de colectivos\./)).toBeInTheDocument()
     expect(screen.queryByLabelText('Contá qué pasó')).not.toBeInTheDocument()
+  })
+
+  // Slice D3 (design system 4.5 and 4.7): what is left to explain and what was already sent are one section, «Para explicar»;
+  // a correction opens inside its own item, and the kinds of motive are option tiles. The owner, 2026-11-11: "Sí, arriba si hay
+  // algo pendiente (Recomendado)".
+  describe('Para explicar como una sola tarea', () => {
+    const underReview: Deviation = { ...pendingDeviation, status: 'PENDIENTE_REVISION', category: 'OTRA', motiveText: 'Texto anterior.' }
+    const isBefore = (first: Element, second: Element) => Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
+
+    it('lo pendiente y lo ya enviado del día están en una sola sección, sin otra sección para el día', async () => {
+      configureApi([pendingDeviation, { ...underReview, id: 'deviation-2', type: 'EXCESO_DESAYUNO' }])
+      const { container } = render(<EmployeeApp />)
+      const section = await screen.findByRole('region', { name: 'Para explicar' })
+
+      await within(section).findByLabelText('Contá qué pasó')
+      expect(within(section).getAllByRole('listitem')).toHaveLength(2)
+      expect(within(section).getByRole('button', { name: 'Corregir motivo' })).toBeInTheDocument()
+      expect([...container.querySelectorAll('h2')].map((heading) => heading.textContent)).not.toContain('Lo que pasó este día')
+    })
+
+    it('con algo pendiente va arriba de Tus marcas de hoy, justo después del bloque de marcar', async () => {
+      configureSingle(jornadas[0], [pendingDeviation])
+      render(<EmployeeApp />)
+      const section = await screen.findByRole('region', { name: 'Para explicar' })
+      await within(section).findByLabelText('Contá qué pasó')
+
+      expect(isBefore(screen.getByRole('region', { name: 'Marcar' }), section)).toBe(true)
+      expect(isBefore(section, screen.getByRole('region', { name: 'Tus marcas de hoy' }))).toBe(true)
+    })
+
+    it('sin nada pendiente va debajo de Tus marcas de hoy y es una sola oración', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      await breakfastButton()
+      const section = screen.getByRole('region', { name: 'Para explicar' })
+
+      expect(isBefore(screen.getByRole('region', { name: 'Tus marcas de hoy' }), section)).toBe(true)
+      expect(section).toHaveTextContent(/^Para explicar\s*No tenés nada para explicar\.$/)
+    })
+
+    it('los tipos de motivo son un grupo de opciones con nombre, una opción grande por tipo', async () => {
+      configureApi([pendingDeviation])
+      render(<EmployeeApp />)
+      const card = (await screen.findByLabelText('Contá qué pasó')).closest('form')!
+
+      const group = within(card).getByRole('group', { name: '¿Qué tipo de motivo es?' })
+      const radios = within(group).getAllByRole('radio')
+      expect(radios).toHaveLength(4)
+      radios.forEach((radio) => expect(radio.closest('label')).toHaveClass('choice'))
+      expect(within(group).getByRole('radio', { name: 'Salud: estuviste enfermo o en el médico' })).toBeInTheDocument()
+    })
+
+    it('el ejemplo es una ayuda unida al cuadro de texto, no un texto de relleno', async () => {
+      configureApi([pendingDeviation])
+      render(<EmployeeApp />)
+      const text = await screen.findByLabelText('Contá qué pasó')
+
+      expect(text).not.toHaveAttribute('placeholder')
+      expect(text).toHaveAccessibleDescription('Por ejemplo: hubo paro de colectivos.')
+    })
+
+    it('Corregir motivo abre su formulario en el mismo renglón y lleva el foco adentro; Cancelar lo devuelve al botón', async () => {
+      configureApi([underReview], [])
+      render(<EmployeeApp />)
+      const opener = await screen.findByRole('button', { name: 'Corregir motivo' })
+      const item = opener.closest('li')!
+
+      fireEvent.click(opener)
+
+      expect(item).toContainElement(screen.getByLabelText('Contá qué pasó'))
+      await waitFor(() => expect(within(item).getByRole('radio', { name: /Otra/ })).toHaveFocus())
+      fireEvent.click(within(item).getByRole('button', { name: 'Cancelar' }))
+
+      await waitFor(() => expect(within(item).getByRole('button', { name: 'Corregir motivo' })).toHaveFocus())
+      expect(screen.queryByLabelText('Contá qué pasó')).not.toBeInTheDocument()
+    })
+
+    it('al guardar la corrección el foco vuelve al botón que abrió el formulario', async () => {
+      configureApi([underReview], [])
+      mocks.apiPut.mockResolvedValueOnce({ ...underReview, category: 'TRANSPORTE', motiveText: 'Paro de colectivos.' })
+      render(<EmployeeApp />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Corregir motivo' }))
+      fireEvent.click(screen.getByRole('radio', { name: /Transporte/ }))
+      fireEvent.change(screen.getByLabelText('Contá qué pasó'), { target: { value: 'Paro de colectivos.' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Guardar corrección' }))
+
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Corregir motivo' })).toHaveFocus())
+    })
+
+    it('si falla el envío de una corrección, el formulario sigue abierto en su renglón con lo escrito', async () => {
+      configureApi([underReview], [])
+      mocks.apiPut.mockRejectedValueOnce(new NetworkError())
+      render(<EmployeeApp />)
+      const item = (await screen.findByRole('button', { name: 'Corregir motivo' })).closest('li')!
+      fireEvent.click(within(item).getByRole('button', { name: 'Corregir motivo' }))
+      fireEvent.click(within(item).getByRole('radio', { name: /Emergencia/ }))
+      fireEvent.change(within(item).getByLabelText('Contá qué pasó'), { target: { value: 'Se inundó la cocina.' } })
+      fireEvent.click(within(item).getByRole('button', { name: 'Guardar corrección' }))
+
+      expect(await within(item).findByRole('alert')).toHaveTextContent('No hay internet. Lo que escribiste sigue acá')
+      // T12 (#114, 2026-11-12; WCAG 2.4.3): the button was disabled while it sent, so the focus was lost; it goes to the message.
+      await waitFor(() => expect(within(item).getByRole('alert')).toHaveFocus())
+      expect(within(item).getByLabelText('Contá qué pasó')).toHaveValue('Se inundó la cocina.')
+      expect(within(item).getByRole('radio', { name: /Emergencia/ })).toBeChecked()
+    })
+  })
+
+  // Slice F2a (design system 4.3 and 4.7; WCAG 3.3.1): the motive is checked when it is sent, every missing field says so at
+  // once and the focus goes to the first one; the browser's own bubble never shows.
+  describe('una sola forma de validar el motivo', () => {
+    it('un envío vacío marca el tipo y el texto a la vez y lleva el foco a la primera opción', async () => {
+      configureApi([pendingDeviation])
+      render(<EmployeeApp />)
+      // Under the load of the full suite the first draw took longer than the default second once (L37).
+      const text = await screen.findByLabelText('Contá qué pasó', undefined, { timeout: 5000 })
+      const card = text.closest('form')!
+      const button = within(card).getByRole('button', { name: 'Enviar motivo' })
+      expect(card).toHaveAttribute('novalidate')
+      expect(button).toBeEnabled()
+
+      fireEvent.click(button)
+
+      const group = within(card).getByRole('group', { name: '¿Qué tipo de motivo es?' })
+      await waitFor(() => expect(group).toHaveAccessibleDescription('Elegí una de las opciones.'))
+      expect(group).toHaveAttribute('aria-invalid', 'true')
+      expect(text).toHaveAttribute('aria-invalid', 'true')
+      expect(text).toHaveAccessibleDescription('Por ejemplo: hubo paro de colectivos. Contá en pocas palabras qué pasó.')
+      await waitFor(() => expect(within(card).getByRole('radio', { name: /Salud/ })).toHaveFocus())
+      expect(mocks.apiPut).not.toHaveBeenCalled()
+    })
+
+    it('elegir un tipo borra solo su mensaje; enviar otra vez sin texto lleva el foco al cuadro de texto', async () => {
+      configureApi([pendingDeviation])
+      render(<EmployeeApp />)
+      const text = await screen.findByLabelText('Contá qué pasó')
+      const card = text.closest('form')!
+      fireEvent.click(within(card).getByRole('button', { name: 'Enviar motivo' }))
+      await waitFor(() => expect(text).toHaveAttribute('aria-invalid', 'true'))
+
+      fireEvent.click(within(card).getByRole('radio', { name: /Otra/ }))
+
+      const group = within(card).getByRole('group', { name: '¿Qué tipo de motivo es?' })
+      expect(group).not.toHaveAttribute('aria-invalid')
+      expect(group).toHaveAccessibleDescription('')
+      expect(text).toHaveAttribute('aria-invalid', 'true')
+      expect(text).not.toHaveFocus()
+
+      fireEvent.click(within(card).getByRole('button', { name: 'Enviar motivo' }))
+
+      await waitFor(() => expect(text).toHaveFocus())
+      expect(mocks.apiPut).not.toHaveBeenCalled()
+    })
   })
 
   it('no ofrece corregir un motivo ya clasificado, pero sí agregar el primero si se clasificó sin motivo', async () => {
@@ -644,7 +932,9 @@ describe('EmployeeApp', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Actualizar' }))
 
       expect(await screen.findByText('Listo: tu salida a desayunar quedó registrada a las 10:59.')).toBeInTheDocument()
-      expect(screen.getByText(/Listo: tu salida a desayunar/).closest('[role="status"]')).toHaveTextContent('Ubicación enviada ✔')
+      const receipt = screen.getByText(/Listo: tu salida a desayunar/).closest('[role="status"]')
+      expect(receipt).toHaveTextContent('Ubicación enviada')
+      expect(receipt).not.toHaveTextContent('✔')
       expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     })
 
@@ -753,6 +1043,54 @@ describe('EmployeeApp', () => {
 
       expect(within(otherDays).getByLabelText('Día')).toHaveValue('')
       expect(await screen.findByText('Estás trabajando desde las 09:00.')).toBeInTheDocument()
+    })
+    // T12 (#114, 2026-11-12, finding K-1): another day still offered the mark buttons of an open day. Mateo answered "Solo mirar
+    // (Recomendado)" (D-20261112-01): another day is only for looking; a forgotten mark is loaded by the ADMIN.
+    it('en otro día abierto no hay botones de marcar ni la tolerancia de hoy, y ofrece volver a hoy', async () => {
+      const pastOpen = { ...makeJornada('jornada-past', 'site-center'), localDate: '2026-10-15' }
+      configureSingle(jornadas[0])
+      const today = mocks.apiGet.getMockImplementation()!
+      mocks.apiGet.mockImplementation((path: string) => path === '/jornadas/mine?localDate=2026-10-15' ? Promise.resolve([pastOpen]) : today(path))
+      render(<EmployeeApp />)
+      await breakfastButton()
+      expect(screen.getByText(/minutos de tolerancia para entrar/)).toBeInTheDocument()
+
+      fireEvent.change(within(screen.getByRole('region', { name: 'Ver otros días' })).getByLabelText('Día'), { target: { value: '2026-10-15' } })
+
+      expect(await screen.findByText(/Estás viendo el 15 oct 2026/)).toBeInTheDocument()
+      expect(await screen.findByRole('region', { name: 'Tus marcas del 15 oct 2026' })).toBeInTheDocument()
+      const now = screen.getByText('Para marcar, volvé a hoy.').closest('section')!
+      expect(within(now).getAllByRole('button').map((button) => button.textContent)).toEqual(['Volver a hoy'])
+      for (const name of ['Me voy a desayunar', 'Me voy a almorzar', 'Marcar salida', 'Marcar entrada']) expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
+      expect(screen.queryByText(/tolerancia/)).not.toBeInTheDocument()
+      expect(screen.getByText(/Local Centro/)).toBeInTheDocument()
+
+      fireEvent.click(within(now).getByRole('button', { name: 'Volver a hoy' }))
+      expect(screen.getByLabelText('Día')).toHaveValue('')
+    })
+
+    // Review advisory of T12 (R3-other-day-truthy-date): choosing today's date in the field left today read-only.
+    it('elegir la fecha de hoy en «Ver otros días» deja la pantalla de hoy, con sus botones de marcar', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      await breakfastButton()
+
+      fireEvent.change(screen.getByLabelText('Día'), { target: { value: today } })
+
+      expect(screen.getByLabelText('Día')).toHaveValue('')
+      expect(screen.queryByText('Para marcar, volvé a hoy.')).not.toBeInTheDocument()
+      expect(await screen.findByRole('button', { name: 'Me voy a desayunar' })).toBeInTheDocument()
+    })
+
+    it('un día sin nada cargado también dice que para marcar hay que volver a hoy', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      await breakfastButton()
+      fireEvent.change(screen.getByLabelText('Día'), { target: { value: '2026-10-14' } })
+
+      expect(await screen.findByText(/Ese día no tenés un día de trabajo cargado/)).toBeInTheDocument()
+      expect(screen.getByText('Para marcar, volvé a hoy.')).toBeInTheDocument()
+      expect(screen.getAllByRole('button', { name: 'Volver a hoy' })).toHaveLength(2)
     })
   })
 

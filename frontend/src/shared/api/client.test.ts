@@ -51,7 +51,7 @@ describe('ApiClient', () => {
     const client = new ApiClient()
 
     await expect(client.get('/jornadas')).rejects.toMatchObject({
-      message: 'Todavía es temprano para marcar. La entrada se puede marcar desde 30 minutos antes de tu horario; las demás marcas, desde que empieza tu turno.'
+      message: 'Todavía es temprano para marcar. La entrada se puede marcar desde 30 minutos antes de tu horario; las demás marcas, desde que empieza tu día de trabajo.'
     })
   })
 
@@ -61,7 +61,7 @@ describe('ApiClient', () => {
 
     await expect(new ApiClient().get('/jornadas')).rejects.toMatchObject({
       status: 422, code: 'TEMPLATE_REQUIRED',
-      message: 'Esa persona no tiene un horario en ese local para ese día. Elegí un horario o asignale uno desde Empleados.'
+      message: 'Esa persona no tiene un horario en ese local para ese día. Elegí un horario o asignale uno desde Equipo.'
     })
   })
 
@@ -134,17 +134,17 @@ describe('ApiClient: códigos de error conocidos', () => {
   })
 
   it.each([
-    [409, 'INVALID_MARK_TRANSITION', 'El estado de la jornada cambió y esa marca ya no corresponde. Revisá el estado actualizado.'],
-    [409, 'INVALID_MARK_ORDER', 'El estado de la jornada cambió y esa marca ya no corresponde. Revisá el estado actualizado.'],
+    [409, 'INVALID_MARK_TRANSITION', 'El estado del día de trabajo cambió y esa marca ya no corresponde. Revisá el estado actualizado.'],
+    [409, 'INVALID_MARK_ORDER', 'El estado del día de trabajo cambió y esa marca ya no corresponde. Revisá el estado actualizado.'],
     [409, 'IDEMPOTENCY_CONFLICT', 'No se pudo registrar tu marca. Tocá Actualizar y volvé a marcar.'],
     [409, 'MOTIVE_LOCKED', 'Tu encargado ya lo revisó: ya no se puede cambiar.'],
     [409, 'JORNADA_EXISTS', 'Esa persona ya tiene ese día cargado en ese local.'],
     [409, 'MEMBERSHIP_EXISTS', 'Esa persona ya tiene un rol en esta empresa.'],
     [409, 'ACCOUNT_INACTIVE', 'La cuenta de ese DNI no está habilitada y no se puede agregar a la empresa.'],
-    [409, 'ACCOUNT_SHARED', 'Esta persona también tiene acceso en otra empresa o como ADMIN; su contraseña la restablece el operador.'],
+    [409, 'ACCOUNT_SHARED', 'Esta persona también tiene acceso en otra empresa o como ADMIN, así que su contraseña no se puede restablecer desde acá. Pedí ayuda al soporte de Fichaje Braja.'],
     [409, 'EMPLOYEE_INACTIVE', 'El empleado está dado de baja; reactivalo antes de restablecer la contraseña.'],
-    [409, 'JORNADA_HAS_MARKS', 'La jornada ya tiene marcas y no se puede cancelar. Corregí o anulá sus marcas.'],
-    [409, 'JORNADA_CANCELLED', 'Esta jornada fue cancelada por el administrador y no admite marcas.'],
+    [409, 'JORNADA_HAS_MARKS', 'El día de trabajo ya tiene marcas y no se puede cancelar. Corregí o anulá sus marcas.'],
+    [409, 'JORNADA_CANCELLED', 'Este día de trabajo fue cancelado por el administrador y no admite marcas.'],
     [409, 'MARK_VOIDED', 'Esa marca ya fue anulada y no se puede modificar.'],
     [403, 'PASSWORD_CHANGE_REQUIRED', 'Tenés que cambiar tu contraseña provisoria antes de continuar.']
   ])('un %i %s tiene un mensaje específico', async (status, code, message) => {
@@ -357,7 +357,7 @@ describe('ApiClient: codes of the production backend and proxy', () => {
     new Response(JSON.stringify({ status, code, detail: 'internal detail' }), { status, headers: { 'Content-Type': 'application/problem+json' } })
 
   it.each([
-    [409, 'EMPLOYEE_NOT_IN_SITE', 'Esa persona no trabaja en ese local. Agregale el local desde Empleados y volvé a intentar.'],
+    [409, 'EMPLOYEE_NOT_IN_SITE', 'Esa persona no trabaja en ese local. Agregale el local desde Equipo y volvé a intentar.'],
     [422, 'TEMPLATE_INVALID', 'Ese horario está desactivado y no se puede usar. Elegí otro o revisalo en Horarios.'],
     [409, 'TEMPLATE_IN_USE', 'Ese horario ya se usa, así que no puede pasar a otro local. Creá un horario nuevo para ese local.'],
     [422, 'PASSWORD_TOO_LONG', 'La contraseña es demasiado larga: puede tener hasta 72 caracteres, y las letras con tilde y la ñ cuentan como 2.'],
@@ -375,5 +375,64 @@ describe('ApiClient: codes of the production backend and proxy', () => {
   it('a 422 with an unknown code keeps the generic validation message', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(coded(422, 'VALIDATION_ERROR')))
     await expect(new ApiClient().get('/x')).rejects.toMatchObject({ message: 'Revisá los datos ingresados.' })
+  })
+})
+
+// T12 (#114): the warning before the ADMIN session expires restarts its clock on every answer the server gave (rule 23).
+describe('ApiClient: observer of answered requests', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  const ok = () => new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  const coded = (status: number) => new Response(JSON.stringify({ status, code: 'X' }), { status, headers: { 'Content-Type': 'application/problem+json' } })
+
+  it('tells every answer of a request with the session cookie, an error included, and changes neither the request nor its result', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(ok()).mockResolvedValueOnce(coded(409))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new ApiClient()
+    const listener = vi.fn()
+    const stop = client.onResponse(listener)
+
+    await expect(client.get('/session')).resolves.toEqual({ ok: true })
+    expect(listener).toHaveBeenCalledTimes(1)
+    await expect(client.get('/x')).rejects.toMatchObject({ status: 409 })
+    expect(listener).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'GET', credentials: 'include', cache: 'no-store', redirect: 'error' })
+
+    stop()
+    fetchMock.mockResolvedValueOnce(ok())
+    await client.get('/session')
+    expect(listener).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not tell a request that never got an answer nor one sent without the cookie', async () => {
+    const fetchMock = vi.fn().mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce(ok())
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new ApiClient()
+    const listener = vi.fn()
+    client.onResponse(listener)
+
+    await expect(client.get('/session')).rejects.toMatchObject({ name: 'NetworkError' })
+    await client.publicConfig()
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  // Verifier of T12: Caddy answers 503 under /api while the backend restarts, without reaching it, so a 5xx is no proof that the
+  // server saw the session; counting it hid «Seguir conectado» and the session still closed two minutes later.
+  it('does not tell a 5xx answer, which may come from the proxy without touching the session', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(coded(503)).mockResolvedValueOnce(coded(500))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new ApiClient()
+    const listener = vi.fn()
+    client.onResponse(listener)
+
+    await expect(client.get('/session')).rejects.toMatchObject({ status: 503 })
+    await expect(client.get('/x')).rejects.toMatchObject({ status: 500 })
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  it('a listener that throws does not break the request', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(ok()))
+    const client = new ApiClient()
+    client.onResponse(() => { throw new Error('listener') })
+    await expect(client.get('/session')).resolves.toEqual({ ok: true })
   })
 })

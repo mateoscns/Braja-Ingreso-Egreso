@@ -3,7 +3,9 @@ import { api } from '../../shared/api/client'
 import type { Employee, Site, Template } from '../../shared/api/types'
 import { deviceDate } from '../../shared/dateRange'
 import { Panel } from '../../app/ui'
-import { ScheduleAssignStep, ScheduleEditor, SchedulesViewRender, type AssignmentResult } from './ScheduleEditor'
+import { useFocusRequest } from '../../app/revealAndFocus'
+import { useFieldErrors, useProblemFocus } from '../../app/useFieldErrors'
+import { ScheduleAssignStep, ScheduleEditor, scheduleFocusIds, scheduleMessageKeys, SchedulesViewRender, type AssignmentResult } from './ScheduleEditor'
 import {
   addScheduleTramo, changeManualOffsets, changeScheduleTramo, emptyScheduleDraft, pickScheduleType, removeScheduleTramo,
   scheduleDraftFromTemplate, scheduleInput, type ScheduleDraft
@@ -40,6 +42,8 @@ export function SchedulesView() {
   const [employeesLoading, setEmployeesLoading] = useState(true)
   const [employeesError, setEmployeesError] = useState('')
   const [notice, setNotice] = useState('')
+  // The form whose result `notice` is (scheduleMessageKeys): it shows there, not at the top of the page.
+  const [noticeAt, setNoticeAt] = useState('')
   const [siteId, setSiteId] = useState('')
   const [draft, setDraft] = useState<ScheduleDraft>(emptyScheduleDraft)
   const [createError, setCreateError] = useState('')
@@ -47,6 +51,12 @@ export function SchedulesView() {
   const [edit, setEdit] = useState<Edit | null>(null)
   const [assign, setAssign] = useState<Assign | null>(null)
   const employeesRequest = useRef(0)
+  // A form or step that opens takes the focus, and what opened it gets the focus back when it closes (design system 4.7); the
+  // buttons are disabled while a save runs, so the move waits for it.
+  const focusLater = useFocusRequest(!busy)
+  // A failed save takes the focus to the first field to fix, or to the refusal of the server (design system 4.7).
+  const focusProblem = useProblemFocus()
+  const assignFields = useFieldErrors<'people' | 'validFrom'>()
 
   async function loadEmployees() {
     const requestId = ++employeesRequest.current
@@ -71,25 +81,37 @@ export function SchedulesView() {
   const assignTemplate = assign ? templates.find((template) => template.id === assign.templateId) : undefined
   const assignEmployees = assignTemplate ? employees.filter((person) => person.active && person.siteIds.includes(assignTemplate.siteId)) : []
 
+  /** The step replaces the form just saved, so the focus goes into it (finding F-27). */
   function openAssign(templateId: string, origin: Assign['origin']) {
-    setAssign({ templateId, origin, checked: [], validFrom: deviceDate(), busy: false, result: null })
+    setAssign({ templateId, origin, checked: [], validFrom: deviceDate(), busy: false, result: null }); assignFields.reset()
+    focusLater({ id: scheduleFocusIds.assignStep, into: true })
+  }
+  /** Closing the step gives the focus back to what it replaced: the record's «Cambiar horario», or the create form. */
+  function closeAssign() {
+    if (assign) focusLater(assign.origin === 'edit' ? { id: scheduleFocusIds.editButton(assign.templateId) } : { id: scheduleFocusIds.createForm, into: true })
+    setAssign(null)
   }
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setNotice(''); setCreateError('')
     const payload = scheduleInput(draft, siteId)
-    if (!payload) { setDraft((current) => ({ ...current, showErrors: true })); return }
+    if (!payload) { setDraft((current) => ({ ...current, showErrors: true })); focusProblem(scheduleFocusIds.createForm); return }
     setBusy(true)
     try {
       const saved = await api.post<Template>('/templates', payload)
       setTemplates((current) => [...current, saved]); setDraft(emptyScheduleDraft())
-      setNotice(`Horario «${saved.name}» creado.`); openAssign(saved.id, 'create')
-    } catch (reason) { setCreateError(errText(reason)) } finally { setBusy(false) }
+      setNotice(`Horario «${saved.name}» creado.`); setNoticeAt(scheduleMessageKeys.create); openAssign(saved.id, 'create')
+    } catch (reason) { setCreateError(errText(reason)); focusProblem(scheduleFocusIds.createForm) } finally { setBusy(false) }
   }
 
   function beginEdit(template: Template) {
     setEdit({ templateId: template.id, draft: scheduleDraftFromTemplate(template), error: '' }); setNotice('')
     if (assign?.origin === 'edit') setAssign(null)
+    focusLater({ id: scheduleFocusIds.editForm(template.id), into: true })
+  }
+  function cancelEdit() {
+    if (edit) focusLater({ id: scheduleFocusIds.editButton(edit.templateId) })
+    setEdit(null)
   }
   async function saveEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setNotice('')
@@ -98,18 +120,25 @@ export function SchedulesView() {
     if (!template) return
     // The local of a horario does not change here: a horario already used cannot move (409 TEMPLATE_IN_USE).
     const payload = scheduleInput(edit.draft, template.siteId)
-    if (!payload) { setEdit({ ...edit, draft: { ...edit.draft, showErrors: true } }); return }
+    const formId = scheduleFocusIds.editForm(template.id)
+    if (!payload) { setEdit({ ...edit, draft: { ...edit.draft, showErrors: true } }); focusProblem(formId); return }
     setBusy(true)
     try {
       const saved = await api.patch<Template>(`/templates/${encodeURIComponent(template.id)}`, payload)
       setTemplates((current) => current.map((entry) => entry.id === saved.id ? saved : entry)); setEdit(null)
-      setNotice(`Horario «${saved.name}» actualizado.`); openAssign(saved.id, 'edit')
-    } catch (reason) { setEdit((current) => current && { ...current, error: errText(reason) }) } finally { setBusy(false) }
+      setNotice(`Horario «${saved.name}» actualizado.`); setNoticeAt(scheduleMessageKeys.edit(saved.id)); openAssign(saved.id, 'edit')
+    } catch (reason) { setEdit((current) => current && { ...current, error: errText(reason) }); focusProblem(formId) } finally { setBusy(false) }
   }
 
   async function submitAssign(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!assign || !assign.checked.length || !assign.validFrom) return
+    if (!assign) return
+    // The same two conditions that kept «Asignar» disabled, now said under their fields.
+    const valid = assignFields.check(scheduleFocusIds.assignStep, {
+      people: assign.checked.length ? '' : 'Elegí al menos una persona.',
+      validFrom: assign.validFrom ? '' : 'Elegí desde qué día.'
+    })
+    if (!valid) return
     const { templateId, validFrom, checked } = assign
     setAssign({ ...assign, busy: true, result: null })
     const result: AssignmentResult = { assigned: [], existing: [], failed: [] }
@@ -128,26 +157,34 @@ export function SchedulesView() {
     setAssign((current) => current?.templateId === templateId ? { ...current, busy: false, result, checked: current.checked.filter((id) => !done.includes(id)) } : current)
   }
 
-  const updateDraft = (change: (current: ScheduleDraft) => ScheduleDraft) => setDraft(change)
+  // Writing a new horario is the next action: the result of the last one, shown above the same button, goes.
+  const updateDraft = (change: (current: ScheduleDraft) => ScheduleDraft) => {
+    setDraft(change)
+    if (noticeAt === scheduleMessageKeys.create) setNotice('')
+  }
   const updateEdit = (change: (current: ScheduleDraft) => ScheduleDraft) => setEdit((current) => current && { ...current, draft: change(current.draft) })
 
   const assignStep = assign && assignTemplate ? <ScheduleAssignStep templateName={assignTemplate.name} employees={assignEmployees} employeesLoading={employeesLoading} employeesError={employeesError}
     checked={assign.checked} validFrom={assign.validFrom} busy={assign.busy} result={assign.result} asPanel={assign.origin === 'create'}
-    onToggle={(id) => setAssign((current) => current && { ...current, checked: current.checked.includes(id) ? current.checked.filter((entry) => entry !== id) : [...current.checked, id] })}
-    onValidFromChange={(validFrom) => setAssign((current) => current && { ...current, validFrom })}
-    onSubmit={(event) => void submitAssign(event)} onRetryEmployees={() => void loadEmployees()} onClose={() => setAssign(null)} /> : null
+    notice={noticeAt === (assign.origin === 'create' ? scheduleMessageKeys.create : scheduleMessageKeys.edit(assign.templateId)) ? notice : ''} errors={assignFields.errors}
+    onToggle={(id) => { assignFields.clear('people'); setAssign((current) => current && { ...current, checked: current.checked.includes(id) ? current.checked.filter((entry) => entry !== id) : [...current.checked, id] }) }}
+    onValidFromChange={(validFrom) => { assignFields.clear('validFrom'); setAssign((current) => current && { ...current, validFrom }) }}
+    onSubmit={(event) => void submitAssign(event)} onRetryEmployees={() => void loadEmployees()} onClose={closeAssign} /> : null
 
   const editTemplate = edit ? templates.find((template) => template.id === edit.templateId) : undefined
   const openCardId = edit?.templateId ?? (assign?.origin === 'edit' ? assign.templateId : '')
-  const cardSlot = edit && editTemplate ? <div className="template-card-slot"><ScheduleEditor draft={edit.draft} busy={busy} error={edit.error} editing
+  const cardSlot = edit && editTemplate ? <ScheduleEditor id={scheduleFocusIds.editForm(editTemplate.id)} draft={edit.draft} busy={busy} error={edit.error} editing
     submitLabel="Guardar cambios" formLabel={`Cambiar horario ${editTemplate.name}`} {...editorCallbacks(updateEdit)}
-    onSubmit={(event) => void saveEdit(event)} onCancel={() => setEdit(null)} /></div> : assign?.origin === 'edit' ? assignStep : null
+    onSubmit={(event) => void saveEdit(event)} onCancel={cancelEdit} /> : assign?.origin === 'edit' ? assignStep : null
 
   const createPanel = assign?.origin === 'create' && assignStep ? assignStep : <Panel title="Crear un horario">
-    <ScheduleEditor draft={draft} busy={busy} disabled={loading || Boolean(loadError) || !siteId} error={createError} submitLabel="Crear horario" formLabel="Crear un horario"
-      sites={sites} siteId={siteId} onSiteChange={setSiteId} showTypes {...editorCallbacks(updateDraft)} onSubmit={(event) => void create(event)} />
+    {/* Without a local a horario has nowhere to go: the button says so next to it (finding F-09). While the locals load,
+        the list beside it shows «Cargando…». */}
+    <ScheduleEditor id={scheduleFocusIds.createForm} draft={draft} busy={busy} disabled={loading || Boolean(loadError) || !siteId}
+      disabledReason={loading ? '' : loadError ? 'Reintentá la carga antes de crear un horario.' : !siteId ? 'Primero creá un local en Locales.' : ''} error={createError} notice={noticeAt === scheduleMessageKeys.create ? notice : ''} submitLabel="Crear horario" formLabel="Crear un horario"
+      siteName={sites.length > 1 ? sites.find((site) => site.id === siteId)?.name : undefined} showTypes {...editorCallbacks(updateDraft)} onSubmit={(event) => void create(event)} />
   </Panel>
 
-  return <SchedulesViewRender sites={sites} siteId={siteId} siteTemplates={siteTemplates} loading={loading} loadError={loadError} notice={notice} busy={busy}
-    openCardId={openCardId} cardSlot={cardSlot} createPanel={createPanel} onReload={() => void load()} onBeginEdit={beginEdit} />
+  return <SchedulesViewRender sites={sites} siteId={siteId} siteTemplates={siteTemplates} loading={loading} loadError={loadError} notice={notice} messageAt={noticeAt} busy={busy}
+    openCardId={openCardId} cardSlot={cardSlot} createPanel={createPanel} onReload={() => void load()} onBeginEdit={beginEdit} onSiteChange={setSiteId} />
 }
