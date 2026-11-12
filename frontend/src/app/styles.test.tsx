@@ -65,11 +65,24 @@ describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {
     expect(rule(':root')).toMatch(/color-scheme:\s*light/)
   })
 
-  it('en el celular el menú del ADMIN muestra todas las secciones sin desplazamiento horizontal ni barra fija', () => {
-    const phone = media(520)
+  // Replaced in slice N4 (D-20261111-02): four destinations, a bar fixed at the bottom of the screen under 1024 px and a column on
+  // the left from there. A phone lying down (360 px tall) keeps the bar in the page instead of losing 72 px of its height to it.
+  // The four labels are whole at 320 px: equal shares that never get narrower than the longest word («Configuración»).
+  it('la navegación del ADMIN es una barra fija abajo hasta 1024 px, una columna a la izquierda desde ahí y entra entera en 320 px', () => {
+    const wide = media(1024, 'min')
+    const lying = mediaBlock('max-height: 480px')
 
-    expect(rule('.sidebar', phone)).toMatch(/position:\s*static/)
-    expect(rule('.sidebar nav', phone)).toMatch(/flex-wrap:\s*wrap/)
+    expect(rule('.nav')).toMatch(/position:\s*fixed/)
+    expect(rule('.nav')).toMatch(/(?<![\w-])bottom:\s*0\s*;/)
+    expect(rule('.nav', wide)).toMatch(/position:\s*static/)
+    expect(rule('.nav', lying)).toMatch(/position:\s*static/)
+    expect(/grid-template-columns:\s*([^;]+)/.exec(rule('.workspace', wide))?.[1].trim()).toBe('var(--rail-width) minmax(0, 1fr)')
+    expect(rule('.nav-list')).toMatch(/display:\s*flex/)
+    expect(rule('.nav-list > li')).toMatch(/flex:\s*1 1 0\s*;/)
+    expect(rule('.nav-list > li')).toMatch(/min-width:\s*min-content/)
+    // The parts of «Configuración» are listed on the rail only (the owner, 2026-11-11: "Sí, con sus partes").
+    expect(/display:\s*([^;]+)/.exec(rule('.nav-sub'))?.[1].trim()).toBe('none')
+    expect(/display:\s*([^;]+)/.exec(rule('.nav-sub', wide))?.[1].trim()).toBe('block')
   })
 
   // Rewritten in slice C1: the bar is a grid of three named areas (the brand and «Cerrar sesión» on the dark row, the company
@@ -107,9 +120,14 @@ describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {
     expect(css.indexOf('.auth-card > .auth-hint')).toBeGreaterThan(css.indexOf('.auth-card > .muted'))
   })
 
-  it('el botón de la barra de avisos no se parte en dos líneas en ningún ancho', () => {
-    expect(rule('.push-control .button')).toMatch(/white-space:\s*nowrap/)
-    expect(rule('.push-control .button')).toMatch(/flex-shrink:\s*0/)
+  // Replaced in slice N4: the alerts bar left the screen for the «Configuración» page. Nothing is fixed on screen but the bar of
+  // the navigation and the band under the iPhone's status bar, which is as tall as that area (0 elsewhere) and holds nothing.
+  it('nada queda fijo en la pantalla salvo la barra de navegación y la franja de la barra de estado del iPhone', () => {
+    const fixed = allRules().filter(({ declarations }) => /(?<![\w-])position\s*:\s*fixed/.test(declarations))
+
+    expect(selectorsOf(fixed)).toEqual(['body::before', '.nav'])
+    expect(rule('body::before')).toMatch(/(?<![\w-])height:\s*env\(safe-area-inset-top\)/)
+    expect(rule('body::before')).toMatch(/content:\s*""/)
   })
 
   // Rewritten in slice B2: ".button-small" is gone, every button has the size of the base rule (48 px on touch layouts, 44 px
@@ -132,28 +150,29 @@ describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {
     expect(rule('.template-card', media(520))).toMatch(/flex-wrap:\s*wrap/)
   })
 
-  it('deja lugar para que la barra de avisos fija no tape el foco (2.4.11)', () => {
-    const clearance = (declarations: string) => Number(/--alerts-bar-clearance:\s*(\d+)px/.exec(declarations)?.[1])
+  // Replaced in slice N4 (WCAG 2.4.11): the content ends above the bar and the scroll to a focused control leaves the bar clear,
+  // both counting the phone's bottom safe area, which the bar also keeps below its items. Where the bar is in the page (the rail,
+  // a phone lying down) nothing is reserved.
+  it('deja lugar para que la barra de navegación no tape el contenido ni el foco (2.4.11)', () => {
+    const value = (declarations: string, property: string) => new RegExp(`(?:^|[;\\s])${property}:\\s*([^;]+)`).exec(declarations)?.[1].trim()
+    const reserve = /^calc\(var\(--bottom-nav-height\) \+ env\(safe-area-inset-bottom\)/
 
-    expect(rule('html:has(.push-control)')).toMatch(/scroll-padding-bottom:\s*calc\(var\(--alerts-bar-clearance\)/)
-    expect(rule('.main-content')).toMatch(/calc\(var\(--alerts-bar-clearance\)/)
-    // Measured 2026-11-09 with headless Chrome: on wide screens the bar is 98 px tall with three lines of text (a long company
-    // name) and sits 18 px above the edge; at 760 px or less it shows a short status: 68 px tall, 18 px above the edge (64 px
-    // tall, 9 px above it, at 520 px or less). The clearance covers the bar plus that offset.
-    expect(clearance(rule(':root'))).toBeGreaterThanOrEqual(98 + 18)
-    expect(clearance(rule(':root', media(760)))).toBeGreaterThanOrEqual(68 + 18)
-    // No narrower breakpoint brings back a smaller clearance. Changed in slice C1: the 400 px block held only the old top bar and
-    // is gone, so the narrowest block is now the one of 359 px.
-    expect(media(520)).not.toMatch(/--alerts-bar-clearance/)
-    expect(media(359)).not.toMatch(/--alerts-bar-clearance/)
+    expect(value(rule('.main-content'), 'padding-bottom')).toMatch(reserve)
+    expect(value(rule('html:has(.nav)'), 'scroll-padding-bottom')).toMatch(reserve)
+    expect(value(rule('.nav'), 'padding-bottom')).toBe('env(safe-area-inset-bottom)')
+    for (const block of [media(1024, 'min'), mediaBlock('max-height: 480px')]) {
+      expect(value(rule('.main-content', block), 'padding-bottom')).toBe('var(--space-7)')
+      expect(value(rule('html:has(.nav)', block), 'scroll-padding-bottom')).toBe('0')
+    }
   })
 
-  it('en el celular y la tablet la barra de avisos muestra solo un estado corto al lado del botón', () => {
-    const tablet = media(760)
-
-    expect(rule('.push-title, .push-detail', tablet)).toMatch(/display:\s*none/)
-    expect(rule('.push-status-short', tablet)).toMatch(/display:\s*block/)
-    expect(rule('.push-status-short')).toMatch(/display:\s*none/)
+  // Replaced in slice N4: the alerts bar, its copy variants and the room kept for it are gone; the control is a row of the
+  // «Configuración» page (.setting-row), in the flow of the page at every width.
+  it('la barra de avisos fija se fue con sus variantes de texto y con el lugar que se le reservaba', () => {
+    expect(css).not.toMatch(/--alerts-bar-clearance/)
+    expect(selectorsOf(rulesNaming('push-control', 'push-copy', 'push-title', 'push-detail', 'push-status-short'))).toEqual([])
+    expect(selectorsOf(rulesNaming('sidebar', 'sidebar-caption', 'sidebar-footer', 'nav-link-active', 'nav-icon', 'nav-dot'))).toEqual([])
+    expect(rulesNaming('setting-row').length).toBeGreaterThan(0)
   })
 })
 
@@ -248,10 +267,11 @@ const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui',
 // Ceilings that only go down. Each one counts what the rules under the token block still write by hand, measured with the
 // pattern of its own test when the token block came in (2026-11-11). A slice that moves rules to tokens lowers the number in
 // the same commit; nobody raises one. Slice H1 turns the four into equalities with zero.
-const COLOR_LITERAL_CEILING = 42
-const UNTOKENED_FONT_SIZE_CEILING = 29
-const BOX_SHADOW_CEILING = 6
-const LEGACY_TOKEN_USE_CEILING = 48
+// Lowered in slice N4 (the old menu, the fixed alerts bar and their room went): 42 → 30, 29 → 20, 6 → 4, 48 → 31.
+const COLOR_LITERAL_CEILING = 30
+const UNTOKENED_FONT_SIZE_CEILING = 20
+const BOX_SHADOW_CEILING = 4
+const LEGACY_TOKEN_USE_CEILING = 31
 
 // The old names with the values they had before the token block. A name is deleted from the stylesheet once nothing uses it
 // and never gets a new value in the meantime: a half-migrated rule must look exactly as it did.
@@ -374,10 +394,17 @@ describe('base del documento: tipografía, enlaces, foco y placeholder', () => {
     expect(rule('body')).toMatch(/line-height:\s*var\(--line-height-body\)/)
   })
 
-  // Measured 2026-11-11 with headless Chrome at 1366 px: with the line height of body the bar grows from 98 to 107.5 px and
-  // the 124 px of --alerts-bar-clearance stop covering it plus its 18 px offset (2.4.11, the test of the fixed bar above).
-  it('la barra de avisos fija no hereda el interlineado del cuerpo: conserva el alto con el que se midió su lugar', () => {
-    expect(rule('.push-control')).toMatch(/line-height:\s*normal/)
+  // Replaced in slice N4: the fixed alerts bar whose line height this held is gone. The labels of the navigation: 14 px in 600
+  // on the bar, the place shown told by a bar of 4 px and the weight, never by the colour alone (1.4.1).
+  it('el lugar actual de la navegación se reconoce por una barra de 4 px y la negrita, no solo por el color (1.4.1)', () => {
+    const wide = media(1024, 'min')
+
+    expect(rule('.nav-link')).toMatch(/font-size:\s*var\(--font-size-meta\)/)
+    expect(rule('.nav-link')).toMatch(/font-weight:\s*var\(--font-weight-strong\)/)
+    expect(rule('.nav-link[aria-current]')).toMatch(/border-top-color:\s*var\(--brand\)/)
+    expect(rule('.nav-link[aria-current]')).toMatch(/font-weight:\s*var\(--font-weight-heavy\)/)
+    expect(rule('.nav-link[aria-current="page"]', wide)).toMatch(/border-left-color:\s*var\(--brand\)/)
+    expect(rule('.nav-link[aria-current="true"]', wide)).toMatch(/font-weight:\s*var\(--font-weight-heavy\)/)
   })
 
   it('los títulos usan la escala de los tokens, sin espaciado entre letras', () => {
@@ -533,10 +560,12 @@ describe('botones: variantes y estados', () => {
     expect(hoverOnTouch).toEqual([])
   })
 
-  // The bar was measured with a 44 px button: 68 px tall at 760 px or less, where its room is 90 px with an 18 px offset. With
-  // the 48 px of --target it would be 72 px and use the whole room. The bar and this rule go away in slice N4.
-  it('el botón de la barra de avisos fija conserva los 44 px con los que se midió el lugar de la barra (2.4.11)', () => {
-    expect(rule('.push-control .button')).toMatch(/min-height:\s*var\(--tap-target\)/)
+  // Replaced in slice N4: the button of the fixed alerts bar is gone. A destination of the bar is as tall as the bar (72 px)
+  // and at least 80 px wide at 320 px; a row of the rail is as tall as any control.
+  it('cada destino de la barra mide el alto de la barra y cada renglón de la columna el alto de toque (2.5.8)', () => {
+    expect(rule('.nav-link')).toMatch(/min-height:\s*var\(--bottom-nav-height\)/)
+    expect(rule('.nav-link', media(1024, 'min'))).toMatch(/min-height:\s*var\(--target\)/)
+    expect(Number(/--bottom-nav-height:\s*([\d.]+)rem/.exec(rule(':root'))?.[1])).toBeGreaterThanOrEqual(3)
   })
 })
 

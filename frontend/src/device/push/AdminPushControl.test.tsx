@@ -1,10 +1,20 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PublicConfig } from '../../shared/api/types'
 import { api } from '../../shared/api/client'
-import { AdminPushControl, AdminPushControlRender, type AdminPushControlRenderProps } from './AdminPushControl'
+import { AdminPushControlRender, type AdminPushControlRenderProps } from './AdminPushControl'
+import { useAdminPush } from './useAdminPush'
 
 vi.mock('../../shared/api/client', () => ({ api: { publicConfig: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() } }))
+
+/** The hook and its render wired as AdminApp wires them (the hook lives in AdminApp, the render on the «Configuración» page). */
+function AdminPushControl({ companyName }: { companyName: string }) {
+  const { activate, deactivate, retryConfig, ...state } = useAdminPush(companyName)
+  return <AdminPushControlRender {...state} companyName={companyName}
+    onActivate={() => void activate()} onDeactivate={() => void deactivate()} onRetryConfig={retryConfig} />
+}
+/** The short status the fixed bar showed on phones; the bar is gone (slice N4) and the row says the whole sentence. */
+const SHORT_STATUS = /^Avisos: /
 
 function browserSubscription(endpoint = 'https://fcm.googleapis.com/fcm/send/device-1') {
   return {
@@ -91,26 +101,27 @@ describe('AdminPushControl', () => {
     const { container } = render(<AdminPushControl companyName="Braja Centro" />)
     expect(await screen.findByText('Los avisos todavía no están habilitados en Fichaje.')).toBeInTheDocument()
     expect(container).not.toHaveTextContent(/servidor/)
-    expect(container.querySelector('.push-status-short')).toHaveTextContent('Avisos: no disponibles')
+    expect(screen.queryByText(SHORT_STATUS)).not.toBeInTheDocument()
   })
 
-  // 2026-11-09 (integrated check of PR #107): at 360 px the bar wrapped to four lines and took 127 px of the screen.
-  it('en el celular muestra un estado corto al lado del botón: "Avisos: desactivados" o "Avisos: activados"', async () => {
+  // Replaced in slice N4. 2026-11-09 (integrated check of PR #107): at 360 px the fixed bar wrapped to four lines and took 127 px
+  // of the screen, so phones got a short status. The control is now a row of the «Configuración» page, in the flow, at every width.
+  it('en todo ancho muestra su título y la frase completa, sin un estado corto aparte', async () => {
     useBrowserSubscription(browserSubscription())
     vi.mocked(api.publicConfig<PublicConfig>).mockResolvedValue({ pushEnabled: true, vapidPublicKey: 'public-vapid-key' })
     vi.mocked(api.post).mockResolvedValue({ subscribed: false })
-    const { container } = render(<AdminPushControl companyName="Braja Norte" />)
+    render(<AdminPushControl companyName="Braja Norte" />)
 
-    await screen.findByText(/Desactivados para Braja Norte/)
-    expect(container.querySelector('.push-status-short')).toHaveTextContent(/^Avisos: desactivados$/)
-    expect(container.querySelector('.push-title')).toHaveTextContent('Avisos en este dispositivo')
-    expect(container.querySelector('.push-detail')).toHaveTextContent(/Desactivados para Braja Norte/)
+    const control = screen.getByRole('region', { name: 'Avisos en este dispositivo' })
+    await within(control).findByText(/^Desactivados para Braja Norte;/)
+    expect(within(control).getByRole('heading', { name: 'Avisos en este dispositivo' })).toBeInTheDocument()
+    expect(screen.queryByText(SHORT_STATUS)).not.toBeInTheDocument()
 
     cleanup()
     vi.mocked(api.post).mockResolvedValue({ subscribed: true, id: 'sub-1' })
-    const enabled = render(<AdminPushControl companyName="Braja Centro" />)
-    await screen.findByText(/Activados para Braja Centro/)
-    expect(enabled.container.querySelector('.push-status-short')).toHaveTextContent(/^Avisos: activados$/)
+    render(<AdminPushControl companyName="Braja Centro" />)
+    await screen.findByText(/^Activados para Braja Centro\./)
+    expect(screen.queryByText(SHORT_STATUS)).not.toBeInTheDocument()
   })
 
   it('explica cómo habilitar los avisos cuando el permiso está bloqueado', async () => {
@@ -288,7 +299,7 @@ describe('AdminPushControlRender: lo que se lee y el botón que se ofrece en cad
   function show(overrides: Partial<typeof OFF> = {}) {
     const handlers = { onActivate: vi.fn(), onDeactivate: vi.fn(), onRetryConfig: vi.fn() }
     const view = render(<AdminPushControlRender {...OFF} {...overrides} {...handlers} />)
-    return { ...view, ...handlers, control: screen.getByRole('complementary', { name: 'Avisos de la aplicación' }) }
+    return { ...view, ...handlers, control: screen.getByRole('region', { name: 'Avisos en este dispositivo' }) }
   }
 
   it('mientras carga la configuración lo dice y no deja activar todavía', () => {
@@ -301,29 +312,29 @@ describe('AdminPushControlRender: lo que se lee y el botón que se ofrece en cad
   })
 
   it('si el navegador no admite avisos lo explica y no ofrece ningún botón', () => {
-    const { container } = show({ availability: 'unsupported' })
+    const { control } = show({ availability: 'unsupported' })
 
-    expect(container.querySelector('.push-title')).toHaveTextContent('Avisos en este dispositivo')
-    expect(container.querySelector('.push-detail')).toHaveTextContent(
-      'Este navegador no admite avisos. En iPhone, instalá la app desde Safari (Compartir, Agregar a pantalla de inicio) y abrila desde el ícono.')
-    expect(container.querySelector('.push-status-short')).toHaveTextContent(/^Avisos: no disponibles en este navegador$/)
+    expect(within(control).getByRole('heading', { name: 'Avisos en este dispositivo' })).toBeInTheDocument()
+    expect(within(control).getByText(
+      'Este navegador no admite avisos. En iPhone, instalá la app desde Safari (Compartir, Agregar a pantalla de inicio) y abrila desde el ícono.')).toBeInTheDocument()
+    expect(screen.queryByText(SHORT_STATUS)).not.toBeInTheDocument()
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 
   it('si los avisos no están habilitados en Fichaje lo explica y no ofrece ningún botón', () => {
-    const { container } = show({ availability: 'unconfigured' })
+    const { control } = show({ availability: 'unconfigured' })
 
-    expect(container.querySelector('.push-detail')).toHaveTextContent('Los avisos todavía no están habilitados en Fichaje.')
-    expect(container.querySelector('.push-status-short')).toHaveTextContent(/^Avisos: no disponibles$/)
+    expect(within(control).getByText('Los avisos todavía no están habilitados en Fichaje.')).toBeInTheDocument()
+    expect(screen.queryByText(SHORT_STATUS)).not.toBeInTheDocument()
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 
   it('si los avisos están bloqueados en el navegador explica cómo habilitarlos y no ofrece ningún botón', () => {
-    const { container } = show({ availability: 'blocked' })
+    const { control } = show({ availability: 'blocked' })
 
-    expect(container.querySelector('.push-detail')).toHaveTextContent(
-      'No podemos avisarte porque bloqueaste los avisos en este navegador. Habilitalos desde los permisos del sitio.')
-    expect(container.querySelector('.push-status-short')).toHaveTextContent(/^Avisos: bloqueados en este navegador$/)
+    expect(within(control).getByText(
+      'No podemos avisarte porque bloqueaste los avisos en este navegador. Habilitalos desde los permisos del sitio.')).toBeInTheDocument()
+    expect(screen.queryByText(SHORT_STATUS)).not.toBeInTheDocument()
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 
@@ -337,15 +348,17 @@ describe('AdminPushControlRender: lo que se lee y el botón que se ofrece en cad
   })
 
   it('con los avisos desactivados nombra la empresa y ofrece «Activar avisos»', () => {
-    const { container, control, onActivate, onDeactivate, onRetryConfig } = show({ companyName: 'Braja Norte' })
+    const { control, onActivate, onDeactivate, onRetryConfig } = show({ companyName: 'Braja Norte' })
 
-    expect(container.querySelector('.push-title')).toHaveTextContent('Avisos en este dispositivo')
-    expect(container.querySelector('.push-detail')).toHaveTextContent(
-      'Desactivados para Braja Norte; cada empresa se activa por separado. Solo avisan cuando alguien no marca la entrada o llega tarde.')
-    expect(container.querySelector('.push-status-short')).toHaveTextContent(/^Avisos: desactivados$/)
+    expect(within(control).getByRole('heading', { name: 'Avisos en este dispositivo' })).toBeInTheDocument()
+    expect(within(control).getByText(
+      'Desactivados para Braja Norte; cada empresa se activa por separado. Solo avisan cuando alguien no marca la entrada o llega tarde.')).toBeInTheDocument()
+    expect(screen.queryByText(SHORT_STATUS)).not.toBeInTheDocument()
     expect(control).toHaveAttribute('aria-busy', 'false')
     expect(screen.getAllByRole('button')).toHaveLength(1)
     expect(screen.getByRole('button', { name: 'Activar avisos' })).toBeEnabled()
+    // Design system 4.18: «Activar avisos» is a secondary button.
+    expect(screen.getByRole('button', { name: 'Activar avisos' })).toHaveClass('button', 'button-secondary')
 
     fireEvent.click(screen.getByRole('button', { name: 'Activar avisos' }))
     expect(onActivate).toHaveBeenCalledTimes(1)
@@ -354,12 +367,14 @@ describe('AdminPushControlRender: lo que se lee y el botón que se ofrece en cad
   })
 
   it('con los avisos activados nombra la empresa y ofrece «Desactivar»', () => {
-    const { container, onActivate, onDeactivate, onRetryConfig } = show({ enabled: true })
+    const { control, onActivate, onDeactivate, onRetryConfig } = show({ enabled: true })
 
-    expect(container.querySelector('.push-detail')).toHaveTextContent(/^Activados para Braja Centro\. Solo avisan cuando alguien no marca la entrada o llega tarde\.$/)
-    expect(container.querySelector('.push-status-short')).toHaveTextContent(/^Avisos: activados$/)
+    expect(within(control).getByText(/^Activados para Braja Centro\. Solo avisan cuando alguien no marca la entrada o llega tarde\.$/)).toBeInTheDocument()
+    expect(screen.queryByText(SHORT_STATUS)).not.toBeInTheDocument()
     expect(screen.getAllByRole('button')).toHaveLength(1)
     expect(screen.getByRole('button', { name: 'Desactivar' })).toBeEnabled()
+    // Design system 4.18: «Desactivar» turns something off without a domain word, so it is a link button.
+    expect(screen.getByRole('button', { name: 'Desactivar' })).toHaveClass('button', 'button-link')
 
     fireEvent.click(screen.getByRole('button', { name: 'Desactivar' }))
     expect(onDeactivate).toHaveBeenCalledTimes(1)
@@ -386,6 +401,8 @@ describe('AdminPushControlRender: lo que se lee y el botón que se ofrece en cad
 
     expect(screen.getByRole('alert')).toHaveTextContent('No se pudieron activar los avisos.')
     expect(screen.getByRole('button', { name: 'Activar avisos' })).toBeEnabled()
+    // Its messages are ordinary messages under the row (design system 4.18), no longer floating above a fixed bar.
+    expect(screen.getByRole('button', { name: 'Activar avisos' }).compareDocumentPosition(screen.getByRole('alert')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('si no se pudo consultar la configuración muestra el error y ofrece «Reintentar consulta»', () => {
@@ -393,6 +410,7 @@ describe('AdminPushControlRender: lo que se lee y el botón que se ofrece en cad
 
     expect(screen.getByRole('alert')).toHaveTextContent('No se pudo consultar la configuración de avisos.')
     expect(screen.getAllByRole('button')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Reintentar consulta' })).toHaveClass('button', 'button-secondary')
 
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar consulta' }))
     expect(onRetryConfig).toHaveBeenCalledTimes(1)

@@ -17,7 +17,13 @@ const adminSessionMocks = vi.hoisted(() => ({
 vi.mock('../../app/session', () => ({
   useSession: () => ({ ...adminSessionMocks, session: adminSessionMocks.session })
 }))
-vi.mock('../../device/push/AdminPushControl', () => ({ AdminPushControl: () => null }))
+// The avisos of this device are the hook's business (device/push); AdminApp mounts it on every screen since slice N4.
+vi.mock('../../device/push/useAdminPush', () => ({
+  useAdminPush: () => ({
+    availability: 'unsupported', enabled: false, busy: false, configLoading: false, configReady: false, configError: '', error: '', message: '',
+    activate: () => Promise.resolve(), deactivate: () => Promise.resolve(), retryConfig: () => undefined
+  })
+}))
 vi.mock('../../device/pwa/InstallControl', () => ({ InstallControl: () => null }))
 
 vi.mock('../../shared/api/client', () => ({
@@ -82,11 +88,12 @@ describe('administración de desvíos y marcas', () => {
       ? Promise.resolve([{ id: 'j-9', employeeId: 'e-1', siteId: 's-1', localDate: new URLSearchParams(path.split('?')[1]).get('from'), state: 'NO_INGRESO' }])
       : previousGet(path))
     const { container } = render(<AdminApp />)
-    const inbox = screen.getByRole('button', { name: 'Para revisar' })
+    // Changed in slice N4: the menu items are links to their address.
+    const inbox = screen.getByRole('link', { name: 'Para revisar' })
     await waitFor(() => expect(inbox).toHaveAttribute('aria-current', 'page'))
     expect(container.querySelector('.nav-dot')).not.toBeInTheDocument()
 
-    const employees = screen.getByRole('button', { name: 'Equipo' })
+    const employees = screen.getByRole('link', { name: 'Equipo' })
     fireEvent.click(employees)
     expect(employees).toHaveAttribute('aria-current', 'page')
     expect(inbox).not.toHaveAttribute('aria-current')
@@ -477,17 +484,24 @@ describe('administración de desvíos y marcas', () => {
     expect(apiMocks.post).not.toHaveBeenCalled()
   })
 
-  it('muestra "Conexión protegida" solo en un contexto seguro', () => {
+  // Changed in slice N4: the foot left the menu for the «Configuración» page, so the test opens that page.
+  it('muestra "Conexión protegida" solo en un contexto seguro', async () => {
     const original = Object.getOwnPropertyDescriptor(window, 'isSecureContext')
+    const openConfiguration = () => window.history.replaceState(null, '', '/admin#/configuracion')
     try {
       Object.defineProperty(window, 'isSecureContext', { configurable: true, value: false })
+      openConfiguration()
       const insecure = render(<AdminApp />)
+      expect(await screen.findByRole('heading', { name: 'Configuración', level: 1 })).toBeInTheDocument()
       expect(screen.queryByText('Conexión protegida')).not.toBeInTheDocument()
       insecure.unmount()
       Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
+      openConfiguration()
       render(<AdminApp />)
-      expect(screen.getByText('Conexión protegida')).toBeInTheDocument()
+      expect(await screen.findByText('Conexión protegida')).toBeInTheDocument()
     } finally {
+      cleanup()
+      window.history.replaceState(null, '', '/')
       if (original) Object.defineProperty(window, 'isSecureContext', original)
       else Reflect.deleteProperty(window, 'isSecureContext')
     }
@@ -1379,7 +1393,8 @@ describe('administración de desvíos y marcas', () => {
 
 describe('dirección de cada sección del ADMIN', () => {
   const openAt = (hash: string) => window.history.replaceState(null, '', `/admin${hash}`)
-  const menuButton = (name: string) => within(screen.getByRole('navigation', { name: 'Navegación principal' })).getByRole('button', { name })
+  // Changed in slice N4: the destinations and the parts of «Configuración» are links to their address, no longer buttons.
+  const menuLink = (name: string) => within(screen.getByRole('navigation', { name: 'Navegación principal' })).getByRole('link', { name })
   // Back and Forward fire hashchange as a task, after the history step.
   const hashSettles = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)))
   // A history step is waited for by its own hashchange: one tick is not enough under the load of the whole suite.
@@ -1390,7 +1405,7 @@ describe('dirección de cada sección del ADMIN', () => {
   // The default world misses step 5 (no days loaded from tomorrow on), so the start section is «Primeros pasos».
   const startsOnFirstSteps = async () => {
     expect(await screen.findByRole('heading', { name: 'Primeros pasos', level: 1 })).toBeInTheDocument()
-    expect(menuButton('Primeros pasos')).toHaveAttribute('aria-current', 'page')
+    expect(menuLink('Primeros pasos')).toHaveAttribute('aria-current', 'page')
   }
 
   beforeEach(() => openAt(''))
@@ -1403,16 +1418,17 @@ describe('dirección de cada sección del ADMIN', () => {
     ['#/configuracion/locales', 'Locales', 'Locales'],
     ['#/configuracion/horarios', 'Horarios', 'Horarios'],
     ['#/configuracion/equipo', 'Equipo', 'Equipo'],
-    ['#/configuracion/primeros-pasos', 'Primeros pasos', 'Primeros pasos']
+    ['#/configuracion/primeros-pasos', 'Primeros pasos', 'Primeros pasos'],
+    ['#/configuracion', 'Configuración', 'Configuración']
   ])('la dirección %s abre %s', async (hash, link, title) => {
     openAt(hash)
     render(<AdminApp />)
     expect(await screen.findByRole('heading', { name: title, level: 1 })).toBeInTheDocument()
-    expect(menuButton(link)).toHaveAttribute('aria-current', 'page')
+    expect(menuLink(link)).toHaveAttribute('aria-current', 'page')
     // A late setup status, which here says a step is missing, never moves the owner to «Primeros pasos».
     await waitFor(() => expect(apiMocks.get).toHaveBeenCalledWith('/employees/e-1/template-assignments'))
     await hashSettles()
-    expect(menuButton(link)).toHaveAttribute('aria-current', 'page')
+    expect(menuLink(link)).toHaveAttribute('aria-current', 'page')
     expect(window.location.hash).toBe(hash)
   })
 
@@ -1434,9 +1450,9 @@ describe('dirección de cada sección del ADMIN', () => {
   it('elegir una sección del menú escribe su dirección', async () => {
     render(<AdminApp />)
     await startsOnFirstSteps()
-    fireEvent.click(menuButton('Equipo'))
+    fireEvent.click(menuLink('Equipo'))
     expect(window.location.hash).toBe('#/configuracion/equipo')
-    fireEvent.click(menuButton('Hoy'))
+    fireEvent.click(menuLink('Hoy'))
     expect(window.location.hash).toBe('#/hoy')
   })
 
@@ -1449,7 +1465,7 @@ describe('dirección de cada sección del ADMIN', () => {
   it('volver atrás muestra la sección anterior', async () => {
     render(<AdminApp />)
     await startsOnFirstSteps()
-    fireEvent.click(menuButton('Locales'))
+    fireEvent.click(menuLink('Locales'))
     expect(await screen.findByRole('heading', { name: 'Locales', level: 1 })).toBeInTheDocument()
     await hashSettles()
     const sitesReads = () => apiMocks.get.mock.calls.filter(([path]) => path === '/sites').length
@@ -1457,7 +1473,7 @@ describe('dirección de cada sección del ADMIN', () => {
 
     await back()
     await startsOnFirstSteps()
-    expect(menuButton('Locales')).not.toHaveAttribute('aria-current')
+    expect(menuLink('Locales')).not.toHaveAttribute('aria-current')
     await waitFor(() => expect(window.location.hash).toBe('#/configuracion/primeros-pasos'))
     // The guide is read again, as when it is chosen from the menu.
     await waitFor(() => expect(sitesReads()).toBe(3))
@@ -1469,7 +1485,7 @@ describe('dirección de cada sección del ADMIN', () => {
     window.location.hash = '#/configuracion/horarios'
     await hashSettles()
     expect(await screen.findByRole('heading', { name: 'Horarios', level: 1 })).toBeInTheDocument()
-    expect(menuButton('Horarios')).toHaveAttribute('aria-current', 'page')
+    expect(menuLink('Horarios')).toHaveAttribute('aria-current', 'page')
   })
 
   // D-20261111-02, step 2: the daily work and the monthly load are two places.
@@ -1486,10 +1502,10 @@ describe('dirección de cada sección del ADMIN', () => {
       expect(monthlyLoad()).not.toBeInTheDocument()
       expect(singleDay()).not.toBeInTheDocument()
 
-      fireEvent.click(menuButton('Días de trabajo'))
+      fireEvent.click(menuLink('Días de trabajo'))
       expect(window.location.hash).toBe('#/dias-de-trabajo')
       expect(await screen.findByRole('heading', { name: 'Días de trabajo', level: 1 })).toBeInTheDocument()
-      expect(menuButton('Días de trabajo')).toHaveAttribute('aria-current', 'page')
+      expect(menuLink('Días de trabajo')).toHaveAttribute('aria-current', 'page')
       expect(monthlyLoad()).toBeInTheDocument()
       expect(singleDay()).toBeInTheDocument()
       expect(dayList()).not.toBeInTheDocument()
@@ -1537,7 +1553,7 @@ describe('dirección de cada sección del ADMIN', () => {
         expect(window.location.hash).toBe('#/configuracion/equipo')
         expect(await screen.findByRole('heading', { name: 'Equipo', level: 1 })).toBeInTheDocument()
 
-        fireEvent.click(menuButton('Días de trabajo'))
+        fireEvent.click(menuLink('Días de trabajo'))
         fireEvent.click((await load()).getByRole('button', { name: 'Revisar horarios' }))
         expect(window.location.hash).toBe('#/configuracion/horarios')
         expect(await screen.findByRole('heading', { name: 'Horarios', level: 1 })).toBeInTheDocument()
@@ -1555,7 +1571,7 @@ describe('dirección de cada sección del ADMIN', () => {
       render(<AdminApp />)
       expect(await screen.findByRole('heading', { name: 'Hoy', level: 1 })).toBeInTheDocument()
       const nav = screen.getByRole('navigation', { name: 'Navegación principal' })
-      expect(within(nav).queryByRole('button', { name: /Historial/ })).not.toBeInTheDocument()
+      expect(within(nav).queryByRole('link', { name: /Historial/ })).not.toBeInTheDocument()
       expect(fold()).not.toHaveAttribute('open')
       expect(within(daySearch()).getByRole('button', { name: 'Buscar' })).toBeInTheDocument()
     })
@@ -1565,7 +1581,7 @@ describe('dirección de cada sección del ADMIN', () => {
       const before = window.history.length
       render(<AdminApp />)
       expect(await screen.findByRole('heading', { name: 'Hoy', level: 1 })).toBeInTheDocument()
-      expect(menuButton('Hoy')).toHaveAttribute('aria-current', 'page')
+      expect(menuLink('Hoy')).toHaveAttribute('aria-current', 'page')
       expect(fold()).toHaveAttribute('open')
       await waitFor(() => expect(window.location.hash).toBe('#/hoy'))
       expect(window.history.length).toBe(before)
@@ -1578,7 +1594,7 @@ describe('dirección de cada sección del ADMIN', () => {
       window.location.hash = '#/historial'
       await hashSettles()
       expect(await screen.findByRole('heading', { name: 'Hoy', level: 1 })).toBeInTheDocument()
-      expect(menuButton('Hoy')).toHaveAttribute('aria-current', 'page')
+      expect(menuLink('Hoy')).toHaveAttribute('aria-current', 'page')
       expect(fold()).toHaveAttribute('open')
       await waitFor(() => expect(window.location.hash).toBe('#/hoy'))
     })
@@ -1614,7 +1630,7 @@ describe('dirección de cada sección del ADMIN', () => {
   it('al cambiar de empresa la nueva empieza por su inicio y no por la sección que tenía la anterior', async () => {
     const view = render(<AdminApp key="c-1" />)
     await startsOnFirstSteps()
-    fireEvent.click(menuButton('Equipo'))
+    fireEvent.click(menuLink('Equipo'))
     expect(window.location.hash).toBe('#/configuracion/equipo')
 
     // App.tsx keys AdminApp by company, so a switch mounts a new one.

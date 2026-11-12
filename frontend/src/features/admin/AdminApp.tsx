@@ -4,23 +4,19 @@ import { useSession } from '../../app/session'
 import { api } from '../../shared/api/client'
 import type { Deviation } from '../../shared/api/types'
 import { AdminInbox, EmployeesView, JourneysView, SitesView, TemplatesView, WorkDaysView, type OpenJornadaRequest } from './AdminViews'
+import { AdminNav } from './AdminNav'
+import { ConfigurationPage } from './ConfigurationPage'
 import { CoverageNoticeRender, FirstStepsRender } from './FirstSteps'
 import { coverageNotice, loadSetupData, readyTomorrow, setupComplete, setupSteps, type AdminSection, type SetupData } from './setupStatus'
 import { HISTORY_ADDRESS, SECTION_ADDRESSES, useAdminSection } from './useAdminSection'
-import { AdminPushControl } from '../../device/push/AdminPushControl'
+import { useAdminPush } from '../../device/push/useAdminPush'
 import { InstallControl } from '../../device/pwa/InstallControl'
 
-type NavLink = { id: AdminSection; label: string; icon: string }
-const SETUP_LINK: NavLink = { id: 'setup', label: 'Primeros pasos', icon: '✓' }
-// Daily work first, then the configuration in the order it is done. The search of earlier days is inside «Hoy».
-const DAILY_LINKS: NavLink[] = [
-  { id: 'inbox', label: 'Para revisar', icon: '◷' }, { id: 'jornadas', label: 'Hoy', icon: '▦' }, { id: 'workdays', label: 'Días de trabajo', icon: '▥' }
-]
-const CONFIGURATION_LINKS: NavLink[] = [
-  { id: 'sedes', label: 'Locales', icon: '⌖' }, { id: 'plantillas', label: 'Horarios', icon: '▤' }, { id: 'empleados', label: 'Equipo', icon: '♙' }
-]
-/** Sections whose content depends on the setup status (the guide and the notice of days loaded). */
-const STATUS_SECTIONS = new Set<AdminSection>(['setup', 'inbox', 'jornadas', 'workdays'])
+/**
+ * Sections whose content depends on the setup status: the guide, the notice of days loaded, and the «Configuración» page, which
+ * lists «Primeros pasos» only while a step is missing.
+ */
+const STATUS_SECTIONS = new Set<AdminSection>(['setup', 'inbox', 'jornadas', 'workdays', 'config'])
 
 export function AdminApp() {
   const { session, signOut, activateCompany } = useSession()
@@ -40,6 +36,9 @@ export function AdminApp() {
   const setupRequest = useRef(0)
   const active = session?.memberships.find((membership) => membership.companyId === session.activeCompanyId)
   const companyId = active?.companyId
+  // The avisos of this device live here, not on the page that shows them: the hook follows a subscription the browser renews
+  // on every screen (D-20261027-04). App.tsx mounts one AdminApp per company, which is the remount the hook asks for.
+  const { activate, deactivate, retryConfig, ...push } = useAdminPush(active?.companyName ?? '')
   async function refreshSetup() {
     const requestId = ++setupRequest.current
     setSetupLoading(true)
@@ -90,27 +89,16 @@ export function AdminApp() {
     form?.querySelector<HTMLElement>('select, input, button')?.focus()
   }
   const steps = setup ? setupSteps(setup) : null
-  const complete = steps ? setupComplete(steps) : false
+  // «Primeros pasos» is listed only while a step is known to be missing (D-20261111-02); an unread status lists nothing.
+  const setupMissing = steps ? !setupComplete(steps) : false
   const notice = setup ? coverageNotice(setup) : null
-  const renderLink = (link: NavLink) => {
-    const current = section === link.id
-    return <button key={link.id} type="button" aria-current={current ? 'page' : undefined} className={`nav-link ${current ? 'nav-link-active' : ''}`} onClick={() => navigate(link.id)}>
-      <span className="nav-icon" aria-hidden="true">{link.icon}</span>{link.label}
-    </button>
-  }
-  return <div className="app-frame">
+  return <div className="app-frame admin-frame">
     <AppHeader home={SECTION_ADDRESSES.inbox} companyName={active.companyName} name={session.displayName?.trim() || (session.dni ? `DNI ${session.dni}` : 'Administración')} onSignOut={() => void signOut()}>
       <InstallControl />
       <CompanySwitcher memberships={session.memberships} activeCompanyId={active.companyId} onSelect={activateCompany} />
     </AppHeader>
     <div className="workspace">
-      <aside className="sidebar"><div className="sidebar-caption">ADMINISTRACIÓN</div><nav aria-label="Navegación principal">
-        {!complete && renderLink(SETUP_LINK)}
-        {DAILY_LINKS.map(renderLink)}
-        <div className="sidebar-caption sidebar-caption-group">CONFIGURACIÓN</div>
-        {CONFIGURATION_LINKS.map(renderLink)}
-        {complete && renderLink(SETUP_LINK)}
-      </nav>{window.isSecureContext && <div className="sidebar-footer"><span className="live-dot" />Conexión protegida</div>}</aside>
+      <AdminNav section={section} setupMissing={setupMissing} onNavigate={navigate} />
       <main className="main-content">
         {section === null && <Loading label="Preparando tu panel…" />}
         {section === 'setup' && <FirstStepsRender steps={steps} loading={setupLoading} error={setupError} readyCount={setup ? readyTomorrow(setup) : 0} onGo={navigate} onRetry={() => void refreshSetup()} />}
@@ -123,8 +111,9 @@ export function AdminApp() {
         {section === 'empleados' && <EmployeesView />}
         {section === 'sedes' && <SitesView />}
         {section === 'plantillas' && <TemplatesView />}
+        {section === 'config' && <ConfigurationPage setupMissing={setupMissing} secure={window.isSecureContext} onNavigate={navigate}
+          push={{ ...push, companyName: active.companyName, onActivate: () => void activate(), onDeactivate: () => void deactivate(), onRetryConfig: retryConfig }} />}
       </main>
     </div>
-    <AdminPushControl key={active.companyId} companyName={active.companyName} />
   </div>
 }

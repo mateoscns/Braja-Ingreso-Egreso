@@ -33,12 +33,17 @@ describe('direcciones de las secciones', () => {
     expect(SECTION_ADDRESSES).toEqual({
       inbox: '#/para-revisar', jornadas: '#/hoy', workdays: '#/dias-de-trabajo',
       sedes: '#/configuracion/locales', plantillas: '#/configuracion/horarios', empleados: '#/configuracion/equipo',
-      setup: '#/configuracion/primeros-pasos'
+      setup: '#/configuracion/primeros-pasos', config: '#/configuracion'
     })
   })
 
-  it.each(['', '#', '#/', '#/no-existe', '#/HOY', '#/hoy/', '#inicio', '#/configuracion'])('%j no nombra ninguna sección', (hash) => {
+  // Changed in slice N4: '#/configuracion' is now the «Configuración» page (step 2); its trailing-slash form still names nothing.
+  it.each(['', '#', '#/', '#/no-existe', '#/HOY', '#/hoy/', '#inicio', '#/configuracion/'])('%j no nombra ninguna sección', (hash) => {
     expect(sectionFromHash(hash)).toBeNull()
+  })
+
+  it('#/configuracion es la página «Configuración», que lleva a sus partes', () => {
+    expect(sectionFromHash('#/configuracion')).toBe('config')
   })
 
   it('la dirección vieja de «Historial» nombra «Hoy», donde quedó su búsqueda', () => {

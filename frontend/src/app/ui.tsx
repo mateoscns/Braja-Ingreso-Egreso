@@ -27,9 +27,13 @@ export function LoadFailure({ message, onRetry }: { message: string; onRetry: ()
   return <div className="form-stack"><PageMessage kind="error">{message}</PageMessage><button type="button" className="button button-quiet" onClick={onRetry}>Reintentar</button></div>
 }
 
-/** The title of a page with the line above it and its lead; an optional action sits on the right and wraps under it on phones. */
-export function PageHeading({ eyebrow, title, subtitle, action }: { eyebrow: string; title: string; subtitle: string; action?: ReactNode }) {
-  return <div className="page-title-row"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p className="muted">{subtitle}</p></div>{action}</div>
+/**
+ * The title of a page with its lead; an optional action sits on the right and wraps under it on phones. The line in capitals above
+ * the title is optional: a new page («Configuración») has none, since the system writes no capitals (design system 7.1), and the
+ * old pages keep theirs until the owner decides on them.
+ */
+export function PageHeading({ eyebrow, title, subtitle, action }: { eyebrow?: string; title: string; subtitle: string; action?: ReactNode }) {
+  return <div className="page-title-row"><div>{eyebrow && <p className="eyebrow">{eyebrow}</p>}<h1>{title}</h1><p className="muted">{subtitle}</p></div>{action}</div>
 }
 
 /**
