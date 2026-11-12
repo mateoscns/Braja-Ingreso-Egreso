@@ -7,7 +7,7 @@ type SessionContextValue = {
   session: Session | null
   loading: boolean
   error: string
-  /** The first check of the session got no answer (no internet, a timeout, or a 5xx while the server restarts): there may be a session. */
+  /** The first check of the session got no answer (no internet, a timeout, or 502/503/504 while the server restarts): there may be a session. */
   unreachable: boolean
   /** Asks the server for the session again, after a check that got no answer. */
   retry: () => Promise<void>
@@ -37,7 +37,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } catch (reason) {
       // Issue #169: an answer that never came is not a closed session. The installed app opened without internet showed the
       // sign-in, and an employee with a 30-day session believed they had been signed out.
-      const noAnswer = reason instanceof NetworkError || reason instanceof TimeoutError || (reason instanceof ApiError && reason.status >= 500)
+      // 502, 503 and 504 are the proxy answering for a backend that is down or restarting; a 500 is an error of the application.
+      const noAnswer = reason instanceof NetworkError || reason instanceof TimeoutError || (reason instanceof ApiError && [502, 503, 504].includes(reason.status))
       unreachableRef.current = noAnswer
       setUnreachable(noAnswer)
       if (reason instanceof ApiError && reason.status === 401) setSession(null)

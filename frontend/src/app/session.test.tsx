@@ -51,6 +51,15 @@ describe('SessionProvider', () => {
     expect(await screen.findByText('sin conexión')).toBeInTheDocument()
   })
 
+  // Review advisory R3-001: a 500 is an error of the application, not a missing answer; it keeps the sign-in with its message.
+  it('un 500 al abrir la app no es falta de conexión: muestra el ingreso con el error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(problem(500, 'INTERNAL_ERROR')))
+    render(<SessionProvider><Probe /></SessionProvider>)
+    expect(await screen.findByText('sin sesión')).toBeInTheDocument()
+    expect(screen.getByTestId('unreachable')).toHaveTextContent('conectado')
+    expect(screen.getByTestId('error')).not.toHaveTextContent(/^$/)
+  })
+
   it('un 401 al abrir la app sigue siendo el ingreso, no la falta de conexión', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(problem(401, 'UNAUTHORIZED')))
     render(<SessionProvider><Probe /></SessionProvider>)
