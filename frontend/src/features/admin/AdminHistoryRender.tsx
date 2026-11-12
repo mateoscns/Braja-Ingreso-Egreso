@@ -1,17 +1,22 @@
 // The search of earlier days render, a fold of «Hoy» (it was the «Historial» page): the filters and the days found, with their
 // marks and cases; «Ver marcas» opens a day in the detail of «Hoy».
-import { Empty, FormField, LoadFailure, Loading, PageMessage, Panel } from '../../app/ui'
+import { Empty, FormField, LoadFailure, Loading, Panel } from '../../app/ui'
+import type { FieldErrors } from '../../app/useFieldErrors'
 import type { Employee, JornadaSummary, Site } from '../../shared/api/types'
 import { formatLocalDate } from '../../shared/format'
 import { adminCategoryName as categoryName, adminDeviationName as deviationName, adminDeviationStatusName as statusName, adminMarkLocationName as locationName, adminMarkName as actionName } from '../../shared/labels'
 import { dateTime, stateLabel } from './adminRenderShared'
 
 export type HistoryFilterValues = { employeeId: string; siteId: string; from: string; to: string }
+/** The filter form, where the focus goes when a filter is wrong. */
+export const HISTORY_FILTERS_ID = 'history-filters'
 
-export function AdminHistoryRender({ open, onOpenChange, employees, sites, loadingOptions, filters, filterError, rows, loading, error, opening, onFiltersChange, onSearch, onOpenDay }: {
+export function AdminHistoryRender({ open, onOpenChange, employees, sites, loadingOptions, filters, filterErrors = {}, rows, loading, error, opening, onFiltersChange, onSearch, onOpenDay }: {
   /** The fold is open; onOpenChange follows the owner opening or closing it. */
   open: boolean; onOpenChange: (open: boolean) => void
-  employees: Employee[]; sites: Site[]; loadingOptions: boolean; filters: HistoryFilterValues; filterError: string
+  employees: Employee[]; sites: Site[]; loadingOptions: boolean; filters: HistoryFilterValues
+  /** What is wrong, under its filter: «who» is the person or the local, shown under «Empleado», the first of the two. */
+  filterErrors?: FieldErrors<'who' | 'from' | 'to'>
   rows: JornadaSummary[] | null; loading: boolean; error: string
   /** A day is being read for the detail: «Ver marcas» waits. */
   opening: boolean
@@ -23,13 +28,13 @@ export function AdminHistoryRender({ open, onOpenChange, employees, sites, loadi
   return <section className="panel" aria-labelledby="day-search-title"><details className="fold" open={open} onToggle={(event) => onOpenChange(event.currentTarget.open)}>
     <summary><h2 id="day-search-title">Buscar días anteriores</h2></summary>
     <p className="muted">Días de trabajo, marcas y casos de un empleado o un local en un rango de fechas.</p>
-    <form className="filter-bar" aria-label="Filtros del historial" noValidate onSubmit={(event) => { event.preventDefault(); onSearch() }}>
-      <FormField label="Empleado"><select value={filters.employeeId} disabled={loadingOptions} onChange={(event) => onFiltersChange({ employeeId: event.target.value })}><option value="">Todos</option>{employees.map((person) => <option key={person.id} value={person.id}>{person.displayName}</option>)}</select></FormField>
+    {/* «Buscar» waits for the people and the locals as their lists do, while «Hoy» reads them («Cargando días…» above). */}
+    <form id={HISTORY_FILTERS_ID} className="filter-bar" aria-label="Filtros del historial" noValidate onSubmit={(event) => { event.preventDefault(); onSearch() }}>
+      <FormField label="Empleado" error={filterErrors.who}><select value={filters.employeeId} disabled={loadingOptions} onChange={(event) => onFiltersChange({ employeeId: event.target.value })}><option value="">Todos</option>{employees.map((person) => <option key={person.id} value={person.id}>{person.displayName}</option>)}</select></FormField>
       <FormField label="Local"><select value={filters.siteId} disabled={loadingOptions} onChange={(event) => onFiltersChange({ siteId: event.target.value })}><option value="">Todos</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></FormField>
-      <FormField label="Desde"><input type="date" value={filters.from} onChange={(event) => onFiltersChange({ from: event.target.value })} /></FormField>
-      <FormField label="Hasta"><input type="date" value={filters.to} onChange={(event) => onFiltersChange({ to: event.target.value })} /></FormField>
+      <FormField label="Desde" error={filterErrors.from}><input type="date" value={filters.from} onChange={(event) => onFiltersChange({ from: event.target.value })} /></FormField>
+      <FormField label="Hasta" error={filterErrors.to}><input type="date" value={filters.to} onChange={(event) => onFiltersChange({ to: event.target.value })} /></FormField>
       <div className="button-row filter-actions"><button className="button button-primary" disabled={loading || loadingOptions}>{loading ? 'Buscando…' : 'Buscar'}</button></div>
-      {filterError && <div className="filter-error"><PageMessage kind="error">{filterError}</PageMessage></div>}
     </form>
     <Panel title={rows && !loading && !error ? `Días encontrados (${rows.length})` : 'Días encontrados'}>
       {loading ? <Loading label="Consultando el historial…" /> : error ? <LoadFailure message={error} onRetry={onSearch} /> : rows === null ? <Empty>Elegí un empleado o un local y un rango de fechas, y tocá Buscar.</Empty> : rows.length === 0 ? <Empty>No hay días de trabajo para esos filtros en el rango elegido.</Empty> : <div className="history-list">{rows.map((row) => {

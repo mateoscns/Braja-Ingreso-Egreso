@@ -5,7 +5,8 @@ import type { Deviation, Employee, Site } from '../../shared/api/types'
 import { validateDateRange } from '../../shared/dateRange'
 import { useWideTable } from '../../app/useBreakpoint'
 import { revealAndFocus, useFocusRequest } from '../../app/revealAndFocus'
-import { AdminInboxRender, caseCorrectButtonId, caseCorrectionFormId, caseRowId, EMPTY_INBOX_FILTERS, type DeviationClassification, type FailedDecision, type InboxFilterValues } from './AdminInboxRender'
+import { dateRangeErrors, useFieldErrors } from '../../app/useFieldErrors'
+import { AdminInboxRender, caseCorrectButtonId, caseCorrectionFormId, caseRowId, EMPTY_INBOX_FILTERS, INBOX_FILTERS_ID, type DeviationClassification, type FailedDecision, type InboxFilterValues } from './AdminInboxRender'
 import { errText } from './adminShared'
 
 export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; onOpenJornada?: (item: Deviation) => void } = {}) {
@@ -15,7 +16,9 @@ export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; 
   const [employees, setEmployees] = useState<Employee[]>([])
   const [filters, setFilters] = useState<InboxFilterValues>(EMPTY_INBOX_FILTERS)
   const [appliedFilters, setAppliedFilters] = useState<InboxFilterValues>(EMPTY_INBOX_FILTERS)
-  const [filterError, setFilterError] = useState('')
+  // The dates of the filters and the reason of a correction are checked on submit, each under its field (design system 4.7).
+  const filterFields = useFieldErrors<'from' | 'to'>()
+  const correctionFields = useFieldErrors<'reason'>()
   const generation = useRef(0)
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -54,11 +57,16 @@ export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; 
   useEffect(() => { api.get<Employee[]>('/employees').then(setEmployees, () => setEmployees([])) }, [])
   function applyFilters() {
     const problem = validateDateRange(filters.from, filters.to)
-    if (problem) { setFilterError(problem); return }
-    setFilterError(''); setAppliedFilters(filters); void reload(filters)
+    if (!filterFields.check(INBOX_FILTERS_ID, dateRangeErrors(filters.from, filters.to, problem))) return
+    setAppliedFilters(filters); void reload(filters)
   }
   function clearFilters() {
-    setFilters(EMPTY_INBOX_FILTERS); setAppliedFilters(EMPTY_INBOX_FILTERS); setFilterError(''); void reload(EMPTY_INBOX_FILTERS)
+    setFilters(EMPTY_INBOX_FILTERS); setAppliedFilters(EMPTY_INBOX_FILTERS); filterFields.reset(); void reload(EMPTY_INBOX_FILTERS)
+  }
+  function changeFilters(patch: Partial<InboxFilterValues>) {
+    setFilters((current) => ({ ...current, ...patch }))
+    // A date edited loses the error of the range: it was about the two dates together.
+    if ('from' in patch || 'to' in patch) filterFields.clear('from', 'to')
   }
   // The case a notification opened comes into view and takes the focus once (design system 4.11): a later decision or page of
   // cases must not pull the focus back to it.
@@ -83,17 +91,28 @@ export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; 
       setCorrection(null); setCorrectionReason('')
       setNotice('Clasificación guardada.')
       focusLater({ id: caseCorrectButtonId(item.id) })
-    } catch (reason) { setFailedDecision({ deviationId: item.id, message: errText(reason) }) } finally { setBusy('') }
+    } catch (reason) {
+      setFailedDecision({ deviationId: item.id, message: errText(reason) })
+      // The pressed button was disabled while it waited and lost the focus: its refusal, in the row (and in the correction
+      // form when one is open), takes it (slice F1's note).
+      correctionFields.focusProblem(caseRowId(item.id))
+    } finally { setBusy('') }
   }
   function requestClassification(item: Deviation, classification: DeviationClassification) {
     if (item.status === 'JUSTIFICADO' || item.status === 'NO_JUSTIFICADO') {
-      setCorrection({ deviationId: item.id, classification }); setCorrectionReason('')
+      setCorrection({ deviationId: item.id, classification }); setCorrectionReason(''); correctionFields.reset()
       focusLater({ id: caseCorrectionFormId(item.id), into: true })
     } else void classify(item, classification)
   }
+  function submitCorrection(item: Deviation) {
+    if (!correction) return
+    // The same condition that kept «Guardar corrección» disabled, now said under the field.
+    if (!correctionFields.check(caseCorrectionFormId(item.id), { reason: correctionReason.trim() ? '' : 'Escribí el motivo de corrección.' })) return
+    void classify(item, correction.classification, correctionReason)
+  }
   function cancelCorrection() {
     if (correction) focusLater({ id: caseCorrectButtonId(correction.deviationId) })
-    setCorrection(null); setCorrectionReason('')
+    setCorrection(null); setCorrectionReason(''); correctionFields.reset()
   }
   async function loadMore() {
     if (!nextCursor) return
@@ -106,7 +125,9 @@ export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; 
     } catch (reason) { if (requestId === generation.current) setError(errText(reason)) } finally { setBusy('') }
   }
   const filtered = Object.values(appliedFilters).some(Boolean)
-  return <AdminInboxRender narrow={narrow} appliedFilters={appliedFilters} coverage={coverage} onOpenJornada={onOpenJornada} items={items} employees={employees} sites={sites} filters={filters} filterError={filterError} filtered={filtered} onFiltersChange={(patch) => setFilters((current) => ({ ...current, ...patch }))} onApplyFilters={applyFilters} onClearFilters={clearFilters} timeZones={timeZones} nextCursor={nextCursor} loading={loading} inboxLoadError={inboxLoadError} timeZoneLoadError={timeZoneLoadError} error={error} notice={notice} busy={busy} correction={correction} correctionReason={correctionReason} targetDeviation={targetDeviation} failedDecision={failedDecision}
-    onReload={() => void reload()} onClassify={requestClassification} onRetry={() => void reload()} onLoadMore={() => void loadMore()} onCorrectionReasonChange={setCorrectionReason}
-    onSubmitCorrection={(item) => void classify(item, correction!.classification, correctionReason)} onCancelCorrection={cancelCorrection} />
+  return <AdminInboxRender narrow={narrow} appliedFilters={appliedFilters} coverage={coverage} onOpenJornada={onOpenJornada} items={items} employees={employees} sites={sites} filters={filters} filterErrors={filterFields.errors} filtered={filtered} onFiltersChange={changeFilters} onApplyFilters={applyFilters} onClearFilters={clearFilters} timeZones={timeZones} nextCursor={nextCursor} loading={loading} inboxLoadError={inboxLoadError} timeZoneLoadError={timeZoneLoadError} error={error} notice={notice} busy={busy} correction={correction} correctionReason={correctionReason} targetDeviation={targetDeviation} failedDecision={failedDecision}
+    correctionError={correctionFields.errors.reason}
+    onReload={() => void reload()} onClassify={requestClassification} onRetry={() => void reload()} onLoadMore={() => void loadMore()}
+    onCorrectionReasonChange={(reason) => { setCorrectionReason(reason); correctionFields.clear('reason') }}
+    onSubmitCorrection={submitCorrection} onCancelCorrection={cancelCorrection} />
 }

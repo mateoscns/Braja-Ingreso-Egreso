@@ -7,7 +7,9 @@ import { captureSiteCoordinates, parseGeofenceRadiusMeters, SiteLocationError, t
 import { approximateDevicePosition, normalizePickedPoint, SEARCH_RESULT_ZOOM, siteMapInitialView } from './siteMap'
 import { GeocodeError, searchAddress, type GeocodeResult } from '../../shared/api/geocode'
 import { useFocusRequest } from '../../app/revealAndFocus'
-import { siteFocusIds, SitesViewRender, siteMessageKeys, type SiteLocationAuditResponse, type SiteLocationEditDraft, type SiteMapState } from './SitesViewRender'
+import { useFieldErrors, useProblemFocus } from '../../app/useFieldErrors'
+import { SITE_MAP_PANEL_ID } from './SiteMapPanel'
+import { siteFocusIds, SitesViewRender, siteMessageKeys, type SiteField, type SiteLocationAuditResponse, type SiteLocationEditDraft, type SiteMapState } from './SitesViewRender'
 import { errText } from './adminShared'
 
 type LocationCaptureTarget = { kind: 'create' } | { kind: 'edit'; siteId: string }
@@ -19,6 +21,21 @@ function validCoordinates(latitudeText: string, longitudeText: string): SiteCoor
   const longitude = Number(longitudeText)
   if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) return null
   return { latitude, longitude }
+}
+
+/** The distance a form asks for, or the words of parseGeofenceRadiusMeters when it is not one. */
+function radiusCheck(value: string): { meters: number | null; error: string } {
+  try { return { meters: parseGeofenceRadiusMeters(value), error: '' } }
+  catch (reason) { return { meters: null, error: reason instanceof Error ? reason.message : 'Revisá la distancia permitida para marcar.' } }
+}
+
+/** The point of a form: none (both coordinates empty), the coordinates, or the form's words for a missing half or a pair out of range. */
+function pointCheck(latitudeText: string, longitudeText: string, words: { pair: string; range: string }): { coordinates: SiteCoordinates | null; error: string } {
+  const hasLatitude = Boolean(latitudeText.trim())
+  if (hasLatitude !== Boolean(longitudeText.trim())) return { coordinates: null, error: words.pair }
+  if (!hasLatitude) return { coordinates: null, error: '' }
+  const coordinates = validCoordinates(latitudeText, longitudeText)
+  return { coordinates, error: coordinates ? '' : words.range }
 }
 
 export function SitesView() {
@@ -59,6 +76,11 @@ export function SitesView() {
   // «Cambiar ubicación» opens its form with the focus inside and gets the focus back when the form closes (design system 4.7);
   // the button is disabled while a save runs, so the move waits for it.
   const focusLater = useFocusRequest(!busy)
+  // Both forms are checked on submit, each problem under its field or in the location group (design system 4.7); the empty
+  // address search is the error of its field. A refusal of the server takes the focus to its message.
+  const createFields = useFieldErrors<SiteField>()
+  const editFields = useFieldErrors<SiteField>()
+  const mapFocus = useProblemFocus()
   useEffect(() => () => {
     locationCaptureController.current?.abort()
     locationCaptureController.current = null
@@ -78,6 +100,8 @@ export function SitesView() {
   async function captureLocationFor(target: LocationCaptureTarget) {
     cancelLocationCapture()
     if (siteMap) closeSiteMap()
+    // A new point is being taken: what was wrong with the old one does not apply to it.
+    if (target.kind === 'create') createFields.clear('coordinates', 'confirmation'); else editFields.clear('coordinates', 'confirmation')
     const controller = new AbortController()
     locationCaptureController.current = controller
     locationCaptureTarget.current = target
@@ -154,10 +178,11 @@ export function SitesView() {
     if (siteMap?.target.kind === 'create') closeSiteMap()
     setSiteLocation(null); setLocationStatus('idle'); setLocationMessage(''); setLocationErrorKind(null)
     setCreateLatitude(''); setCreateLongitude(''); setCreateLocationSource(null); setCreatePointFromMap(false)
-    setLocationAccuracyMeters(null); setLocationConfirmed(false)
+    setLocationAccuracyMeters(null); setLocationConfirmed(false); createFields.clear('coordinates', 'confirmation')
   }
   function updateCreateCoordinate(field: 'latitude' | 'longitude', value: string) {
     if (locationStatus === 'loading') return
+    createFields.clear('coordinates', 'confirmation')
     const nextLatitude = field === 'latitude' ? value : createLatitude
     const nextLongitude = field === 'longitude' ? value : createLongitude
     setCreateLatitude(nextLatitude); setCreateLongitude(nextLongitude)
@@ -180,17 +205,18 @@ export function SitesView() {
       locationStatus: site.latitude != null && site.longitude != null ? 'selected' : 'idle',
       locationMessage: '', locationErrorKind: null, locationAccuracyMeters: null, locationConfirmed: true, locationSource: null
     })
-    setError(''); setNotice('')
+    setError(''); setNotice(''); editFields.reset()
     focusLater({ id: siteFocusIds.locationForm(site.id), into: true })
   }
   function cancelLocationEdit() {
     cancelLocationCapture()
     if (siteMap?.target.kind === 'edit') closeSiteMap()
     if (locationEdit) focusLater({ id: siteFocusIds.locationButton(locationEdit.siteId) })
-    setLocationEdit(null); setError('')
+    setLocationEdit(null); setError(''); editFields.reset()
   }
   function clearEditLocation() {
     cancelLocationCapture()
+    editFields.clear('coordinates', 'confirmation')
     setLocationEdit((current) => current ? {
       ...current, latitude: '', longitude: '', locationStatus: 'idle',
       locationMessage: 'El centro quedará vacío cuando guardes los cambios.', locationErrorKind: null,
@@ -198,6 +224,9 @@ export function SitesView() {
     } : current)
   }
   function updateLocationEdit(patch: Partial<SiteLocationEditDraft>) {
+    if ('latitude' in patch || 'longitude' in patch) editFields.clear('coordinates', 'confirmation')
+    if ('locationConfirmed' in patch) editFields.clear('confirmation')
+    if ('geofenceRadiusMeters' in patch) editFields.clear('radius')
     setLocationEdit((current) => {
       if (!current) return current
       const updated = { ...current, ...patch }
@@ -251,7 +280,9 @@ export function SitesView() {
     if (!siteMap || !controller || mapSearchInFlight.current === controller) return
     const query = siteMap.query.trim()
     if (!query) {
-      setSiteMap((current) => current ? { ...current, searchStatus: 'error', searchMessage: 'Escribí la dirección del local para buscarla.', results: [] } : current)
+      // Nothing was asked to the search: the error is the field's, and the focus goes to it.
+      setSiteMap((current) => current ? { ...current, searchStatus: 'idle', searchMessage: '', queryError: 'Escribí la dirección del local para buscarla.', results: [] } : current)
+      mapFocus(SITE_MAP_PANEL_ID)
       return
     }
     // Nominatim's usage policy: at most one request per second and per explicit search, never while typing.
@@ -285,6 +316,7 @@ export function SitesView() {
     if (!siteMap?.point) return
     const { latitude, longitude } = siteMap.point
     const target = siteMap.target
+    if (target.kind === 'create') createFields.clear('coordinates', 'confirmation'); else editFields.clear('coordinates', 'confirmation')
     if (target.kind === 'create') {
       setCreateLatitude(String(latitude)); setCreateLongitude(String(longitude)); setCreateLocationSource('MANUAL'); setCreatePointFromMap(true)
       // "Confirmar ubicación" on the map is the owner's confirmation of the point (D-20261109-01): asking again with the
@@ -324,30 +356,19 @@ export function SitesView() {
   async function saveLocationEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!locationEdit) return
+    const formId = siteFocusIds.locationForm(locationEdit.siteId)
     setError(''); setNotice(''); setMessageAt(siteMessageKeys.edit(locationEdit.siteId))
-    let geofenceRadiusMeters: number
-    try { geofenceRadiusMeters = parseGeofenceRadiusMeters(locationEdit.geofenceRadiusMeters) }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Revisá la distancia permitida para marcar.'); return }
-    const hasLatitude = Boolean(locationEdit.latitude.trim())
-    const hasLongitude = Boolean(locationEdit.longitude.trim())
-    if (hasLatitude !== hasLongitude) {
-      setError('Ingresá latitud y longitud juntas, o dejá ambas vacías para quitar el centro guardado.')
-      return
-    }
-    let coordinates: SiteCoordinates | null = null
-    if (hasLatitude && hasLongitude) {
-      const latitude = Number(locationEdit.latitude)
-      const longitude = Number(locationEdit.longitude)
-      if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
-        setError('Ingresá una latitud entre -90 y 90 y una longitud entre -180 y 180; también podés capturar el punto o dejar el centro vacío.')
-        return
-      }
-      coordinates = { latitude, longitude }
-      if (locationEdit.locationSource !== null && !locationEdit.locationConfirmed) {
-        setError('Confirmá que el nuevo punto corresponde a este local antes de guardarlo.')
-        return
-      }
-    }
+    // The same checks in the same words: the distance under its field, the point in the location group.
+    const radius = radiusCheck(locationEdit.geofenceRadiusMeters)
+    const point = pointCheck(locationEdit.latitude, locationEdit.longitude, {
+      pair: 'Ingresá latitud y longitud juntas, o dejá ambas vacías para quitar el centro guardado.',
+      range: 'Ingresá una latitud entre -90 y 90 y una longitud entre -180 y 180; también podés capturar el punto o dejar el centro vacío.'
+    })
+    const confirmation = point.coordinates && locationEdit.locationSource !== null && !locationEdit.locationConfirmed
+      ? 'Confirmá que el nuevo punto corresponde a este local antes de guardarlo.' : ''
+    if (!editFields.check(formId, { radius: radius.error, coordinates: point.error, confirmation })) return
+    const geofenceRadiusMeters = radius.meters!
+    const coordinates = point.coordinates
     setBusy(true)
     try {
       const updated = await api.put<Site>(`/sites/${encodeURIComponent(locationEdit.siteId)}/location`, {
@@ -362,34 +383,26 @@ export function SitesView() {
       setNotice('Ubicación del local actualizada.')
       focusLater({ id: siteFocusIds.locationButton(updated.id) })
       closeSiteLocationAudit()
-    } catch (reason) { setError(errText(reason)) } finally { setBusy(false) }
+    } catch (reason) { setError(errText(reason)); editFields.focusProblem(formId) } finally { setBusy(false) }
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError(''); setNotice(''); setMessageAt(siteMessageKeys.create)
-    let geofenceRadiusMeters: number
-    try { geofenceRadiusMeters = parseGeofenceRadiusMeters(createRadiusMeters) }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Revisá la distancia permitida para marcar.'); return }
-    const hasLatitude = Boolean(createLatitude.trim())
-    const hasLongitude = Boolean(createLongitude.trim())
-    if (hasLatitude !== hasLongitude) {
-      setError('Ingresá latitud y longitud juntas, o dejá ambas vacías para crear el local sin centro.')
-      return
-    }
-    let coordinates: SiteCoordinates | null = null
-    if (hasLatitude && hasLongitude) {
-      const latitude = Number(createLatitude)
-      const longitude = Number(createLongitude)
-      if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
-        setError('Ingresá una latitud entre -90 y 90 y una longitud entre -180 y 180.')
-        return
-      }
-      coordinates = { latitude, longitude }
-      if (!locationConfirmed) {
-        setError('Revisá el punto en el mapa y confirmá que corresponde a este local antes de guardarlo.')
-        return
-      }
-    }
-    if (!isRegionTimeZone(timeZone)) { setError(REGION_TIME_ZONE_MESSAGE); return }
+    // The checks of before, in their words and all at once: the name the browser asked for, the distance, the point (in the
+    // location group) and its confirmation. The zone keeps its message above the button: its field (SiteZoneField) has no
+    // error of its own yet.
+    const radius = radiusCheck(createRadiusMeters)
+    const point = pointCheck(createLatitude, createLongitude, {
+      pair: 'Ingresá latitud y longitud juntas, o dejá ambas vacías para crear el local sin centro.',
+      range: 'Ingresá una latitud entre -90 y 90 y una longitud entre -180 y 180.'
+    })
+    const valid = createFields.check(siteFocusIds.createForm, {
+      name: name.trim() ? '' : 'Escribí el nombre del local.', radius: radius.error, coordinates: point.error,
+      confirmation: point.coordinates && !locationConfirmed ? 'Revisá el punto en el mapa y confirmá que corresponde a este local antes de guardarlo.' : ''
+    })
+    if (!valid) return
+    if (!isRegionTimeZone(timeZone)) { setError(REGION_TIME_ZONE_MESSAGE); createFields.focusProblem(siteFocusIds.createForm); return }
+    const geofenceRadiusMeters = radius.meters!
+    const coordinates = point.coordinates
     setBusy(true)
     try {
       const created = await api.post<Site>('/sites', {
@@ -401,22 +414,23 @@ export function SitesView() {
       })
       setSites((current) => [...current, created]); setLoadError(''); setName(''); setCreateRadiusMeters('100'); clearLocation(); setNotice('Local creado.')
     }
-    catch (reason) { setError(errText(reason)) } finally { setBusy(false) }
+    catch (reason) { setError(errText(reason)); createFields.focusProblem(siteFocusIds.createForm) } finally { setBusy(false) }
   }
   return <SitesViewRender sites={sites} loading={loading} loadError={loadError} error={error} notice={notice} messageAt={messageAt} name={name} timeZone={timeZone} busy={busy}
     createRadiusMeters={createRadiusMeters} createLatitude={createLatitude} createLongitude={createLongitude} createLocationSource={createLocationSource}
     siteMap={siteMap} createPointFromMap={createPointFromMap} onOpenMap={openSiteMap} onCloseMap={closeSiteMap} onMapPick={pickSiteMapPoint}
-    onMapQueryChange={(query) => setSiteMap((current) => current ? { ...current, query } : current)} onMapSearch={() => void searchSiteMap()}
+    onMapQueryChange={(query) => setSiteMap((current) => current ? { ...current, query, queryError: '' } : current)} onMapSearch={() => void searchSiteMap()}
     onChooseMapResult={chooseSiteMapResult} onConfirmMapPoint={confirmSiteMapPoint}
     locationEdit={locationEdit} siteLocationAuditFor={siteLocationAuditFor} siteLocationAudit={siteLocationAudit} siteLocationAuditLoading={siteLocationAuditLoading} siteLocationAuditError={siteLocationAuditError}
     siteLocation={siteLocation} locationStatus={locationStatus} locationMessage={locationMessage} locating={locationStatus === 'loading'}
     locationErrorKind={locationErrorKind} locationAccuracyMeters={locationAccuracyMeters} locationConfirmed={locationConfirmed}
-    onLocationConfirmedChange={setLocationConfirmed} onCancelLocationCapture={cancelLocationCapture}
+    createErrors={createFields.errors} editErrors={editFields.errors}
+    onLocationConfirmedChange={(confirmed) => { setLocationConfirmed(confirmed); createFields.clear('confirmation') }} onCancelLocationCapture={cancelLocationCapture}
     onCreateCoordinateChange={updateCreateCoordinate}
-    onCreateRadiusMetersChange={setCreateRadiusMeters} onBeginLocationEdit={beginLocationEdit} onCancelLocationEdit={cancelLocationEdit}
+    onCreateRadiusMetersChange={(value) => { setCreateRadiusMeters(value); createFields.clear('radius') }} onBeginLocationEdit={beginLocationEdit} onCancelLocationEdit={cancelLocationEdit}
     onCaptureEditLocation={(siteId) => void captureLocationFor({ kind: 'edit', siteId })} onClearEditLocation={clearEditLocation}
     onLocationEditChange={updateLocationEdit} onSaveLocationEdit={saveLocationEdit}
     onToggleSiteLocationAudit={toggleSiteLocationAudit} onRetrySiteLocationAudit={() => { if (siteLocationAuditFor) void loadSiteLocationAudit(siteLocationAuditFor) }}
     onCaptureLocation={() => void captureLocation()} onClearLocation={clearLocation}
-    onReload={() => void reload()} onSubmit={submit} onNameChange={setName} onTimeZoneChange={setTimeZone} />
+    onReload={() => void reload()} onSubmit={submit} onNameChange={(value) => { setName(value); createFields.clear('name') }} onTimeZoneChange={setTimeZone} />
 }

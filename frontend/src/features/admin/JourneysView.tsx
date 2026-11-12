@@ -7,6 +7,7 @@ import { api, queryString } from '../../shared/api/client'
 import type { Employee, Jornada, JornadaAudit, Mark, MarkAction, Site } from '../../shared/api/types'
 import { useWideTable } from '../../app/useBreakpoint'
 import { revealAndFocus } from '../../app/revealAndFocus'
+import { useFieldErrors } from '../../app/useFieldErrors'
 import { CANCEL_BUTTON_ID, CANCEL_FORM_ID, DETAIL_HEADING_ID, DETAIL_ID, FORGOTTEN_FORM_ID, JourneysViewRender, markButtonId, markFormId, markMessageKey, type JourneyRow } from './JourneysViewRender'
 import { errText } from './adminShared'
 import { AdminHistory } from './AdminHistory'
@@ -24,6 +25,8 @@ const MARK_ORDER_CODES = new Set(['INVALID_MARK_ORDER', 'INVALID_MARK_HISTORY', 
 const markFormErrText = (error: unknown) => MARK_ORDER_CODES.has((error as { code?: string } | null)?.code ?? '')
   ? 'La hora o la acción no encajan con las demás marcas del día. Revisá el orden.'
   : errText(error)
+/** Why a typed time cannot be sent: none was chosen, or the local's clock skips or repeats it. */
+const timeError = (value: string) => value ? 'Esa hora no existe en la zona horaria del local. Revisá la fecha y la hora.' : 'Elegí la fecha y la hora.'
 function dateTimeParts(value: string, timeZone: string) {
   const entries = new Intl.DateTimeFormat('en-CA', {
     timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
@@ -80,6 +83,12 @@ export function JourneysView({ openJornada, searchOpen = false }: { openJornada?
   // Cancelling a jornada (D-20261027-07) and voiding a mark (D-20261027-08) both ask for a reason in a second, confirming step.
   const [cancelOpen, setCancelOpen] = useState(false); const [cancelReason, setCancelReason] = useState('')
   const [voidingMarkId, setVoidingMarkId] = useState(''); const [voidReason, setVoidReason] = useState('')
+  // Each form of the day is checked on submit, its errors under their fields (design system 4.7); a refusal of the server takes
+  // the focus to its message, since the pressed button waited disabled.
+  const forgottenFields = useFieldErrors<'occurredAt' | 'reason'>()
+  const correctionFields = useFieldErrors<'occurredAt' | 'reason'>()
+  const voidFields = useFieldErrors<'reason'>()
+  const cancelFields = useFieldErrors<'reason'>()
   // Change history (issue #60): collapsed by default and loaded only when the ADMIN opens it; auditFor is the open jornada.
   const [auditFor, setAuditFor] = useState(''); const [audit, setAudit] = useState<JornadaAudit | null>(null); const [auditLoading, setAuditLoading] = useState(false); const [auditError, setAuditError] = useState('')
   const auditRequest = useRef(0)
@@ -161,6 +170,7 @@ export function JourneysView({ openJornada, searchOpen = false }: { openJornada?
     if (refreshAudit && auditFor === jornadaId) void loadAudit(jornadaId)
     else closeAudit()
     setDetail(null); setDetailFor(jornadaId); setCancelOpen(false); setCancelReason(''); setVoidingMarkId(''); setVoidReason('')
+    forgottenFields.reset(); cancelFields.reset(); voidFields.reset()
     setDetailLoading(true); setError('')
     try {
       const jornada = await api.get<Jornada>(`/jornadas/${encodeURIComponent(jornadaId)}`)
@@ -181,43 +191,52 @@ export function JourneysView({ openJornada, searchOpen = false }: { openJornada?
     event.preventDefault()
     if (!detail || !detailTimeZone) return
     const occurredAt = instantForSiteTime(forgotOccurredAt, detailTimeZone)
-    setMessageAt('forgotten')
-    if (!occurredAt) { setError('Esa hora no existe en la zona horaria del local. Revisá la fecha y la hora.'); return }
-    if (!forgotReason.trim()) { setError('Escribí por qué agregás la marca.'); return }
-    setMarkBusy('forgotten'); setError(''); setNotice('')
+    setMessageAt('forgotten'); setError(''); setNotice('')
+    const valid = forgottenFields.check(FORGOTTEN_FORM_ID, {
+      occurredAt: occurredAt ? '' : timeError(forgotOccurredAt),
+      reason: forgotReason.trim() ? '' : 'Escribí por qué agregás la marca.'
+    })
+    if (!valid || !occurredAt) return
+    setMarkBusy('forgotten')
     try {
       await api.post<Mark>(`/admin/jornadas/${encodeURIComponent(detail.id)}/forgotten-marks`, { action: forgotAction, occurredAt, auditReason: forgotReason.trim() })
       // The day is read again and its button reads «Guardando…» meanwhile: the focus goes back into the form afterwards.
       setForgotOccurredAt(''); setForgotReason(''); setNotice('Marca agregada.'); setReveal({ kind: 'form', id: FORGOTTEN_FORM_ID }); await showDetail(detail.id, true)
-    } catch (reason) { setError(markFormErrText(reason)) } finally { setMarkBusy('') }
+    } catch (reason) { setError(markFormErrText(reason)); forgottenFields.focusProblem(FORGOTTEN_FORM_ID) } finally { setMarkBusy('') }
   }
   function beginMarkCorrection(mark: Mark) {
     if (!detailTimeZone) return
     setVoidingMarkId(''); setEditingMarkId(mark.id); setCorrectedAction(mark.action); setCorrectedOccurredAt(siteTimeInput(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)); setCorrectionReason('')
+    correctionFields.reset()
     setReveal({ kind: 'form', id: markFormId('correct', mark.id) })
   }
   async function correctMark(event: FormEvent<HTMLFormElement>, mark: Mark) {
     event.preventDefault()
     if (!detail || !detailTimeZone) return
     const correctedAt = instantForSiteTime(correctedOccurredAt, detailTimeZone)
-    setMessageAt(markMessageKey('correct', mark.id))
-    if (!correctedAt) { setError('Esa hora no existe en la zona horaria del local. Revisá la fecha y la hora.'); return }
-    if (!correctionReason.trim()) { setError('Escribí el motivo de corrección.'); return }
-    setMarkBusy(mark.id); setError(''); setNotice('')
+    const formId = markFormId('correct', mark.id)
+    setMessageAt(markMessageKey('correct', mark.id)); setError(''); setNotice('')
+    const valid = correctionFields.check(formId, {
+      occurredAt: correctedAt ? '' : timeError(correctedOccurredAt),
+      reason: correctionReason.trim() ? '' : 'Escribí el motivo de corrección.'
+    })
+    if (!valid || !correctedAt) return
+    setMarkBusy(mark.id)
     try {
       await api.post<Mark>(`/admin/marks/${encodeURIComponent(mark.id)}/correction`, { correctedAction, correctedOccurredAt: correctedAt, auditReason: correctionReason.trim() })
       setEditingMarkId(''); setCorrectionReason(''); setNotice('Marca corregida.'); setReveal({ kind: 'trigger', id: markButtonId('correct', mark.id) }); await showDetail(detail.id, true)
-    } catch (reason) { setError(markFormErrText(reason)) } finally { setMarkBusy('') }
+    } catch (reason) { setError(markFormErrText(reason)); correctionFields.focusProblem(formId) } finally { setMarkBusy('') }
   }
-  function cancelMarkCorrection() { setReveal({ kind: 'trigger', id: markButtonId('correct', editingMarkId) }); setEditingMarkId('') }
-  function beginVoid(mark: Mark) { setEditingMarkId(''); setVoidingMarkId(mark.id); setVoidReason(''); setReveal({ kind: 'form', id: markFormId('void', mark.id) }) }
-  function abortVoid() { setReveal({ kind: 'trigger', id: markButtonId('void', voidingMarkId) }); setVoidingMarkId(''); setVoidReason('') }
+  function cancelMarkCorrection() { setReveal({ kind: 'trigger', id: markButtonId('correct', editingMarkId) }); setEditingMarkId(''); correctionFields.reset() }
+  function beginVoid(mark: Mark) { setEditingMarkId(''); setVoidingMarkId(mark.id); setVoidReason(''); voidFields.reset(); setReveal({ kind: 'form', id: markFormId('void', mark.id) }) }
+  function abortVoid() { setReveal({ kind: 'trigger', id: markButtonId('void', voidingMarkId) }); setVoidingMarkId(''); setVoidReason(''); voidFields.reset() }
   async function voidMark(event: FormEvent<HTMLFormElement>, mark: Mark) {
     event.preventDefault()
     if (!detail) return
-    setMessageAt(markMessageKey('void', mark.id))
-    if (!voidReason.trim()) { setError('Escribí el motivo de anulación.'); return }
-    setMarkBusy(mark.id); setError(''); setNotice('')
+    const formId = markFormId('void', mark.id)
+    setMessageAt(markMessageKey('void', mark.id)); setError(''); setNotice('')
+    if (!voidFields.check(formId, { reason: voidReason.trim() ? '' : 'Escribí el motivo de anulación.' })) return
+    setMarkBusy(mark.id)
     // On success the mark is voided and loses its buttons: the focus falls back to the day's title.
     const back: Reveal = { kind: 'trigger', id: markButtonId('void', mark.id) }
     try {
@@ -233,15 +252,16 @@ export function JourneysView({ openJornada, searchOpen = false }: { openJornada?
       setError((reason as { code?: string } | null)?.code === 'INVALID_MARK_HISTORY'
         ? 'No se puede anular esa marca: las marcas que quedan no forman un día válido (por ejemplo, una entrada con marcas posteriores). Anulá o corregí antes las posteriores.'
         : errText(reason))
+      voidFields.focusProblem(formId)
     } finally { setMarkBusy('') }
   }
   async function cancelJornada(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!detail) return
-    setMessageAt('cancel')
-    if (!cancelReason.trim()) { setError('Escribí el motivo de cancelación.'); return }
+    setMessageAt('cancel'); setError(''); setNotice('')
+    if (!cancelFields.check(CANCEL_FORM_ID, { reason: cancelReason.trim() ? '' : 'Escribí el motivo de cancelación.' })) return
     const jornadaId = detail.id
-    setMarkBusy('cancel'); setError(''); setNotice('')
+    setMarkBusy('cancel')
     // A cancelled day has no «Cancelar jornada» button: the focus falls back to the day's title.
     const back: Reveal = { kind: 'trigger', id: CANCEL_BUTTON_ID }
     try {
@@ -253,7 +273,7 @@ export function JourneysView({ openJornada, searchOpen = false }: { openJornada?
       if ((reason as { code?: string } | null)?.code === 'JORNADA_CANCELLED') {
         setCancelOpen(false); setCancelReason(''); setNotice('El día ya estaba cancelado.'); setReveal(back)
         await loadJourneys(date, true); await showDetail(jornadaId, true)
-      } else setError(errText(reason))
+      } else { setError(errText(reason)); cancelFields.focusProblem(CANCEL_FORM_ID) }
     } finally { setMarkBusy('') }
   }
   function changeDate(value: string) {
@@ -270,9 +290,12 @@ export function JourneysView({ openJornada, searchOpen = false }: { openJornada?
   const daySearch = <AdminHistory employees={employees} sites={sites} loadingOptions={loading} opening={detailLoading} openOnArrival={searchOpen} onOpenDay={(id) => void openDetail(id)} />
   return <JourneysViewRender daySearch={daySearch} narrow={narrow} sites={sites} jornadas={jornadas} loading={loading} journeysLoading={journeysLoading} journeysDate={journeysDate} journeysError={journeysError} dependencyError={dependencyError} error={error} notice={notice} messageAt={messageAt} detail={detail} detailFor={detailFor} detailLoading={detailLoading} markBusy={markBusy} date={date} peopleById={peopleById} dateError={dateError} detailSite={detailSite} detailTimeZone={detailTimeZone} forgotAction={forgotAction} forgotOccurredAt={forgotOccurredAt} forgotReason={forgotReason} editingMarkId={editingMarkId} correctedAction={correctedAction} correctedOccurredAt={correctedOccurredAt} correctionReason={correctionReason}
     cancelOpen={cancelOpen} cancelReason={cancelReason} voidingMarkId={voidingMarkId} voidReason={voidReason}
+    forgottenErrors={forgottenFields.errors} correctionErrors={correctionFields.errors} voidError={voidFields.errors.reason} cancelError={cancelFields.errors.reason}
     auditOpen={Boolean(detail) && auditFor === detail?.id} audit={audit} auditLoading={auditLoading} auditError={auditError} onToggleAudit={toggleAudit} onRetryAudit={() => { if (auditFor) void loadAudit(auditFor) }}
-    onBeginCancel={() => { setCancelOpen(true); setCancelReason(''); setReveal({ kind: 'form', id: CANCEL_FORM_ID }) }} onCancelReasonChange={setCancelReason} onConfirmCancel={(event) => void cancelJornada(event)} onAbortCancel={() => { setCancelOpen(false); setCancelReason(''); setReveal({ kind: 'trigger', id: CANCEL_BUTTON_ID }) }}
-    onBeginVoid={beginVoid} onVoidReasonChange={setVoidReason} onConfirmVoid={(event, mark) => void voidMark(event, mark)} onAbortVoid={abortVoid}
+    onBeginCancel={() => { setCancelOpen(true); setCancelReason(''); cancelFields.reset(); setReveal({ kind: 'form', id: CANCEL_FORM_ID }) }} onCancelReasonChange={(value) => { setCancelReason(value); cancelFields.clear('reason') }} onConfirmCancel={(event) => void cancelJornada(event)} onAbortCancel={() => { setCancelOpen(false); setCancelReason(''); cancelFields.reset(); setReveal({ kind: 'trigger', id: CANCEL_BUTTON_ID }) }}
+    onBeginVoid={beginVoid} onVoidReasonChange={(value) => { setVoidReason(value); voidFields.clear('reason') }} onConfirmVoid={(event, mark) => void voidMark(event, mark)} onAbortVoid={abortVoid}
     onDateChange={changeDate} onRetryDependencies={() => void loadDependencies(date)} onReloadJourneys={() => void loadJourneys(date)} onShowDetail={(id) => void openDetail(id)}
-    onForgotActionChange={setForgotAction} onForgotOccurredAtChange={setForgotOccurredAt} onForgotReasonChange={setForgotReason} onAddForgottenMark={(event) => void addForgottenMark(event)} onBeginMarkCorrection={beginMarkCorrection} onCorrectedActionChange={setCorrectedAction} onCorrectedOccurredAtChange={setCorrectedOccurredAt} onCorrectionReasonChange={setCorrectionReason} onCorrectMark={(event, mark) => void correctMark(event, mark)} onCancelMarkCorrection={cancelMarkCorrection} />
+    onForgotActionChange={setForgotAction} onForgotOccurredAtChange={(value) => { setForgotOccurredAt(value); forgottenFields.clear('occurredAt') }} onForgotReasonChange={(value) => { setForgotReason(value); forgottenFields.clear('reason') }} onAddForgottenMark={(event) => void addForgottenMark(event)}
+    onBeginMarkCorrection={beginMarkCorrection} onCorrectedActionChange={setCorrectedAction} onCorrectedOccurredAtChange={(value) => { setCorrectedOccurredAt(value); correctionFields.clear('occurredAt') }} onCorrectionReasonChange={(value) => { setCorrectionReason(value); correctionFields.clear('reason') }}
+    onCorrectMark={(event, mark) => void correctMark(event, mark)} onCancelMarkCorrection={cancelMarkCorrection} />
 }

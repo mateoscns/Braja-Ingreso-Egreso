@@ -280,12 +280,14 @@ describe('SitesView location administration API', () => {
     fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre del local' }), { target: { value: 'Local Centro' } })
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Latitud' }), { target: { value: '91' } })
     fireEvent.submit(screen.getByRole('button', { name: 'Crear local' }).closest('form')!)
-    expect(await screen.findByRole('alert')).toHaveTextContent('Ingresá latitud y longitud juntas')
+    // Changed in slice F2b: the problem is the error of the location group, read with it, not an alert of the form.
+    const group = screen.getByRole('group', { name: '¿Dónde queda el local?' })
+    expect(group).toHaveAccessibleDescription(/Ingresá latitud y longitud juntas/)
     expect(post).not.toHaveBeenCalled()
 
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Longitud' }), { target: { value: '181' } })
     fireEvent.submit(screen.getByRole('button', { name: 'Crear local' }).closest('form')!)
-    expect(await screen.findByRole('alert')).toHaveTextContent('latitud entre -90 y 90')
+    expect(group).toHaveAccessibleDescription(/latitud entre -90 y 90/)
     expect(post).not.toHaveBeenCalled()
   })
 
@@ -474,7 +476,8 @@ describe('SitesView location administration API', () => {
     expect(within(form).getByText('Precisión informada por el dispositivo: ±12.0 m (estimación; no garantiza exactitud).')).toBeInTheDocument()
 
     fireEvent.submit(form)
-    expect(await screen.findByRole('alert')).toHaveTextContent('Confirmá que el nuevo punto corresponde a este local')
+    // Changed in slice F2b: the problem is the error of the location group, read with it, not an alert of the form.
+    expect(within(form).getByRole('group', { name: '¿Dónde queda el local?' })).toHaveAccessibleDescription(/Confirmá que el nuevo punto corresponde a este local/)
     expect(put).not.toHaveBeenCalled()
 
     fireEvent.click(confirmation)
@@ -872,5 +875,87 @@ describe('SitesView: where the focus goes when the location form opens and close
 
     expect(await within(screen.getByRole('listitem', { name: 'Local Centro' })).findByText('Ubicación del local actualizada.')).toBeInTheDocument()
     await vi.waitFor(() => expect(opener()).toHaveFocus())
+  })
+})
+
+// Slice F2b (design system 4.3 and 4.7; finding F-09): the forms of «Locales» are checked on submit, each error under its field.
+describe('SitesView: one validation style', () => {
+  const createButton = () => screen.getByRole('button', { name: 'Crear local' })
+
+  it('an add form without a name or with a wrong radius explains each field, sums it up and focuses the name', async () => {
+    vi.spyOn(api, 'get').mockResolvedValue([] as never)
+    const post = vi.spyOn(api, 'post')
+    render(<SitesView />)
+    const name = await screen.findByRole('textbox', { name: 'Nombre del local' })
+    const form = createButton().closest('form')!
+    expect(form).toHaveAttribute('novalidate')
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Distancia permitida para marcar (metros)' }), { target: { value: '20' } })
+    fireEvent.submit(form)
+
+    expect(name).toHaveAttribute('aria-invalid', 'true')
+    expect(name).toHaveAccessibleDescription('Ej. Local Centro Escribí el nombre del local.')
+    expect(screen.getByRole('spinbutton', { name: 'Distancia permitida para marcar (metros)' })).toHaveAccessibleDescription(expect.stringContaining('La distancia permitida para marcar debe ser un número entero entre 50 y 500 metros.'))
+    expect(within(form).getByRole('alert')).toHaveTextContent('Revisá lo que está marcado debajo de cada campo.')
+    await vi.waitFor(() => expect(name).toHaveFocus())
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('a wrong point is the error of the location group, with the focus on the coordinate to fix', async () => {
+    vi.spyOn(api, 'get').mockResolvedValue([] as never)
+    render(<SitesView />)
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre del local' }), { target: { value: 'Local Centro' } })
+    // The coordinates are typed in their fold, open as the person opened it.
+    screen.getByText('Escribir las coordenadas a mano').closest('details')!.open = true
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Latitud' }), { target: { value: '91' } })
+    fireEvent.submit(createButton().closest('form')!)
+
+    const group = screen.getByRole('group', { name: '¿Dónde queda el local?' })
+    expect(group).toHaveAttribute('aria-invalid', 'true')
+    expect(group).toHaveClass('field-invalid')
+    expect(group).toHaveAccessibleDescription(/Ingresá latitud y longitud juntas, o dejá ambas vacías para crear el local sin centro\.$/)
+    await vi.waitFor(() => expect(screen.getByRole('spinbutton', { name: 'Latitud' })).toHaveFocus())
+  })
+
+  it('an unconfirmed point of a location change is the error of the group, with the focus on the confirmation', async () => {
+    const existing: Site = { id: 'site-1', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: -34.6, longitude: -58.38, geofenceRadiusMeters: 100 }
+    vi.spyOn(api, 'get').mockResolvedValue([existing] as never)
+    const put = vi.spyOn(api, 'put')
+    render(<SitesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Cambiar ubicación de Local Centro' }))
+    const form = screen.getByRole('form', { name: 'Cambiar ubicación de Local Centro' })
+    expect(form).toHaveAttribute('novalidate')
+    fireEvent.change(within(form).getByRole('spinbutton', { name: 'Latitud' }), { target: { value: '-34.61' } })
+    fireEvent.submit(form)
+
+    expect(within(form).getByRole('group', { name: '¿Dónde queda el local?' })).toHaveAccessibleDescription(/Confirmá que el nuevo punto corresponde a este local antes de guardarlo\.$/)
+    await vi.waitFor(() => expect(within(form).getByRole('checkbox', { name: 'Confirmo que este punto corresponde al local.' })).toHaveFocus())
+    expect(put).not.toHaveBeenCalled()
+  })
+
+  it('an empty address search is the error of the search field, with the focus on it', async () => {
+    vi.spyOn(api, 'get').mockResolvedValue([] as never)
+    render(<SitesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Elegir en el mapa' }))
+    await screen.findByTestId('site-map')
+    fireEvent.click(screen.getByRole('button', { name: 'Buscar' }))
+
+    const query = screen.getByRole('textbox', { name: 'Buscá la dirección del local' })
+    expect(query).toHaveAttribute('aria-invalid', 'true')
+    expect(query).toHaveAccessibleDescription('Calle y número Escribí la dirección del local para buscarla.')
+    await vi.waitFor(() => expect(query).toHaveFocus())
+    fireEvent.change(query, { target: { value: 'Corrientes 1234' } })
+    expect(query).not.toHaveAttribute('aria-invalid')
+  })
+
+  it('«Confirmar ubicación» waits for a point and says so', () => {
+    const siteMap: SiteMapState = {
+      target: { kind: 'create' }, view: { latitude: -34.6, longitude: -58.38, zoom: 12 }, point: null,
+      query: '', searchStatus: 'idle', searchMessage: '', results: []
+    }
+    renderSitesView(null, false, vi.fn(), { siteMap })
+
+    const confirm = screen.getByRole('button', { name: 'Confirmar ubicación' })
+    expect(confirm).toBeDisabled()
+    expect(confirm).toHaveAccessibleDescription('Tocá en el mapa la puerta del local.')
   })
 })

@@ -228,3 +228,31 @@ export function FormField({ label, children, hint, error }: { label: string; chi
     {control}
     {error && <span className="field-error" id={errorId}><Icon name="alert" />{error}</span>}</div>
 }
+
+/**
+ * A group of controls that is one field (checks, quick choices, the location of a local): a fieldset named by its legend, with
+ * the hint after it and the error at its end, as FormField. Both describe the group; the error marks it `aria-invalid` and
+ * `field-invalid`. `errorId` names the error for a control inside that also points to it (the dates of a period).
+ */
+export function Fieldset({ legend, hint, error, errorId, className, children }: {
+  legend: ReactNode; hint?: ReactNode; error?: ReactNode; errorId?: string; className?: string; children: ReactNode
+}) {
+  const hintId = useId()
+  const ownErrorId = useId()
+  const shownErrorId = errorId ?? ownErrorId
+  const describedBy = [hint ? hintId : '', error ? shownErrorId : ''].filter(Boolean).join(' ') || undefined
+  return <fieldset className={['field', className, error ? 'field-invalid' : ''].filter(Boolean).join(' ')} aria-describedby={describedBy} aria-invalid={error ? true : undefined}>
+    <legend className="field-label">{legend}</legend>
+    {hint && <span className="field-hint" id={hintId}>{hint}</span>}
+    {children}
+    {error && <span className="field-error" id={shownErrorId}><Icon name="alert" />{error}</span>}
+  </fieldset>
+}
+
+/** The sentence over the buttons of a long form when more than one of its fields is wrong (design system 4.7). */
+export const FIELDS_SUMMARY = 'Revisá lo que está marcado debajo de cada campo.'
+
+/** The summary of a long form: an alert, so it is read as it appears, shown only while two or more fields are invalid. */
+export function FieldsSummary({ count }: { count: number }) {
+  return count > 1 ? <PageMessage kind="error">{FIELDS_SUMMARY}</PageMessage> : null
+}
