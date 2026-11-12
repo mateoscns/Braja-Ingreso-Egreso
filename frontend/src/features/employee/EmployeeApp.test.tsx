@@ -161,6 +161,22 @@ describe('EmployeeApp', () => {
     expect(await screen.findByRole('heading', { name: /Hola, DNI 30123456/ })).toBeInTheDocument()
   })
 
+  // Slice G1 (WCAG 2.4.1): the top bar comes before the day on every visit; «Ir al contenido» skips it.
+  it('lo primero que alcanza Tab es «Ir al contenido», que lleva al único main de la pantalla', async () => {
+    render(<EmployeeApp />)
+    await breakfastButton()
+    const focusable = document.querySelector<HTMLElement>('a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')
+    const main = document.querySelector('main')
+
+    expect(focusable).toBe(screen.getByRole('link', { name: 'Ir al contenido' }))
+    expect(focusable).toHaveAttribute('href', '#contenido')
+    expect(document.querySelectorAll('main')).toHaveLength(1)
+    expect(main).toHaveAttribute('id', 'contenido')
+    expect(main).toHaveAttribute('tabindex', '-1')
+    fireEvent.click(focusable!)
+    expect(main).toHaveFocus()
+  })
+
   describe('pantalla principal', () => {
     it('ordena el estado del día, el panel de marcar, las marcas de hoy y al final Ver otros días', async () => {
       configureSingle(jornadas[0], [pendingDeviation])

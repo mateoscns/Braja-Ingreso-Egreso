@@ -176,6 +176,22 @@ describe('«Equipo» with the pieces of the system', () => {
     expect(within(form).getByRole('textbox', { name: 'Nombre del empleado con DNI 30123456' })).toHaveValue('Lucía Pérez')
   })
 
+  // Slice G1 (WCAG 2.1.1): a table wider than its room scrolls inside its box, which the keyboard reaches by its name.
+  it('a table wider than its room is a region named by its section that takes the focus', async () => {
+    const scrollWidth = vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockReturnValue(900)
+    const clientWidth = vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(600)
+    try {
+      render(<EmployeesView />)
+      const table = await screen.findByRole('table', { name: 'Empleados (1)' })
+      const box = table.parentElement!
+
+      expect(box).toHaveClass('table-scroll')
+      // The box is measured right after the table is drawn.
+      await waitFor(() => expect(screen.getAllByRole('region', { name: 'Empleados (1)' })).toContain(box))
+      expect(box).toHaveAttribute('tabindex', '0')
+    } finally { scrollWidth.mockRestore(); clientWidth.mockRestore() }
+  })
+
   it('editing opens an inline form under the record of the list on a phone', async () => {
     narrow = true
     render(<EmployeesView />)

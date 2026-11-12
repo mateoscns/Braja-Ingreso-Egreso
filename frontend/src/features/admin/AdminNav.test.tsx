@@ -200,4 +200,23 @@ describe('navegación del ADMIN dentro de la aplicación', () => {
     expect(apiMocks.publicConfig).toHaveBeenCalledTimes(1)
     await hashSettles()
   })
+
+  // Slice G1 (WCAG 2.4.1): the top bar and the navigation come before the section on every screen; «Ir al contenido» skips them.
+  it('lo primero que alcanza Tab es «Ir al contenido», que lleva al único main sin cambiar la sección de la dirección', async () => {
+    openAt('#/hoy')
+    render(<AdminApp />)
+    await waitFor(() => expect(link('Hoy')).toHaveAttribute('aria-current', 'page'))
+    const focusable = document.querySelector<HTMLElement>('a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')
+    const main = document.querySelector('main')
+
+    expect(focusable).toBe(screen.getByRole('link', { name: 'Ir al contenido' }))
+    expect(focusable).toHaveAttribute('href', '#contenido')
+    expect(document.querySelectorAll('main')).toHaveLength(1)
+    expect(main).toHaveAttribute('id', 'contenido')
+    expect(main).toHaveAttribute('tabindex', '-1')
+    fireEvent.click(focusable!)
+    expect(main).toHaveFocus()
+    expect(window.location.hash).toBe('#/hoy')
+    await hashSettles()
+  })
 })

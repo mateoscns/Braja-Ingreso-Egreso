@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { AppHeader, CompanySwitcher, Loading, pageTitle, useDocumentTitle } from '../../app/ui'
+import { AppHeader, CompanySwitcher, CONTENT_ID, Loading, pageTitle, SkipLink, useDocumentTitle } from '../../app/ui'
 import { revealAndFocus } from '../../app/revealAndFocus'
 import { useSession } from '../../app/session'
 import { api } from '../../shared/api/client'
@@ -116,13 +116,15 @@ export function AdminApp() {
   const setupMissing = steps ? !setupComplete(steps) : false
   const notice = setup ? coverageNotice(setup) : null
   return <div className="app-frame admin-frame">
+    {/* Before the top bar and the navigation, which come first on every section (WCAG 2.4.1). */}
+    <SkipLink />
     <AppHeader home={SECTION_ADDRESSES.inbox} companyName={active.companyName} name={session.displayName?.trim() || (session.dni ? `DNI ${session.dni}` : 'Administración')} onSignOut={() => void signOut()}>
       <InstallControl />
       <CompanySwitcher memberships={session.memberships} activeCompanyId={active.companyId} onSelect={activateCompany} />
     </AppHeader>
     <div className="workspace">
       <AdminNav section={section} setupMissing={setupMissing} onNavigate={navigate} />
-      <main className="main-content" ref={main}>
+      <main id={CONTENT_ID} tabIndex={-1} className="main-content" ref={main}>
         {section === null && <Loading label="Preparando tu panel…" />}
         {section === 'setup' && <FirstStepsRender steps={steps} loading={setupLoading} error={setupError} readyCount={setup ? readyTomorrow(setup) : 0} onGo={navigate} onRetry={() => void refreshSetup()} />}
         {section === 'inbox' && <AdminInbox onOpenJornada={openDeviationJornada}

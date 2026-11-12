@@ -186,7 +186,8 @@ h3 { font-size: var(--font-size-body-lg); line-height: var(--line-height-heading
 .form-stack > .button-link { align-self: flex-start; }
 /* Right after a field it acts on that field («Mostrar contraseña»): it moves up to it, still 4 px clear of the box. */
 .form-stack > .field + .button-link { margin-top: calc(-1 * var(--space-3)); }
-.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+/* One column on a phone; two from 600 px (below, after .field-wide). */
+.form-grid { display: grid; grid-template-columns: 1fr; gap: var(--space-4); }
 /* One field (FormField in app/ui.tsx): label, hint, control, error, in that order. The hint is read before typing and the
    keyboard of a phone does not cover it; the error sits under the control it is about. */
 .field { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
@@ -261,7 +262,11 @@ fieldset.field > .message, .site-map-panel > .message { margin: 0; }
 .field :is(input:not([type=checkbox], [type=radio]), select, textarea):disabled, .company-switch:disabled {
   color: var(--text-muted); background: var(--surface-tint); opacity: 1;
 }
-.field-wide { grid-column: 1 / -1; }
+/* Two columns where each field gets about 270 px; a wide field takes the whole row of the two (in one column it needs nothing). */
+@media (min-width: 600px) {
+  .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .field-wide { grid-column: 1 / -1; }
+}
 
 /* ===== Focus ===== */
 /* One ring for everything that takes focus: 3 px, 2 px away from the control, so it is read against the surface in the gap. */
@@ -391,6 +396,18 @@ fieldset.field > .message, .site-map-panel > .message { margin: 0; }
 
 /* ===== Frame: top bar, ADMIN menu, page heading, panel, filters, change list ===== */
 .app-frame { min-height: 100vh; min-height: 100dvh; }
+/* «Ir al contenido» (SkipLink in app/ui.tsx, WCAG 2.4.1): the first stop of Tab on every screen. Out of sight until it has the
+   focus, then a white tab over the brand on the top bar, under the phone's status bar: on top of the page, so nothing moves. */
+.skip-link {
+  position: absolute; z-index: 30; top: calc(env(safe-area-inset-top) + var(--space-2)); left: max(var(--gutter), env(safe-area-inset-left));
+  display: inline-flex; align-items: center; min-height: var(--target); padding: var(--space-1) var(--space-4);
+  border: var(--border-width) solid var(--border); border-radius: var(--radius); color: var(--brand); background: var(--surface);
+  font-weight: var(--font-weight-strong);
+}
+/* As .visually-hidden: still in the accessibility tree and in the order of Tab. */
+.skip-link:not(:focus) { width: 1px; height: 1px; min-height: 0; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* Around it is the dark bar: its ring is the bar's. */
+.skip-link:focus-visible { outline-color: var(--lime); }
 /* The top bar (AppHeader in app/ui.tsx), the only dark surface of the app. Three areas: the brand and «Cerrar sesión» on the dark
    row, and the context (company, person, this device's controls) as a strip under it on phones and tablets; one dark row from
    1024 px. It scrolls away with the page and has no fixed height: a larger text or a long company name makes it taller, never
@@ -471,7 +488,11 @@ fieldset.field > .message, .site-map-panel > .message { margin: 0; }
 /* The parts of «Configuración» are listed on the rail only; on a phone its page leads to them. */
 .nav-sub { display: none; }
 /* WCAG 2.4.11: the end of the content, and a control scrolled into view, stay above the bar. */
-.main-content { min-width: 0; padding: 38px clamp(22px, 4vw, 64px); padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + var(--space-5)); }
+.main-content { min-width: 0; padding: 26px 16px; padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + var(--space-5)); }
+/* More room around the content from a tablet. Longhands: the bottom padding is the room of the bar, above and below. */
+@media (min-width: 768px) {
+  .main-content { padding-top: 38px; padding-right: clamp(22px, 4vw, 64px); padding-left: clamp(22px, 4vw, 64px); }
+}
 html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + var(--space-2)); }
 /* From 1024 px the same list is a column on the left, in the page: the four destinations and, under «Configuración», its parts
    (the owner, 2026-11-11: "Sí, con sus partes"). Each row is as tall as a control, its icon beside its name. The frame becomes a
@@ -506,10 +527,19 @@ html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-height) + env(safe
   .main-content { padding-bottom: var(--space-7); }
   html:has(.nav) { scroll-padding-bottom: 0; }
 }
-.page-title-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 27px; }
+/* The title and an action beside it («Actualizar»): the action goes under the title on a phone, beside it from 600 px, and at the
+   foot of the title and its lead from 768 px. */
+.page-title-row { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 27px; }
 /* The lead under the page title (PageHeading in app/ui.tsx): muted, at the base size, no longer than a readable line. */
 .page-title-row .muted { max-width: var(--measure); font-size: var(--font-size-body); }
-.page-title-row > .field { min-width: 170px; }
+.page-title-row .field { min-width: 130px; }
+@media (min-width: 600px) {
+  .page-title-row { flex-wrap: nowrap; }
+}
+@media (min-width: 768px) {
+  .page-title-row { align-items: flex-end; }
+  .page-title-row > .field { min-width: 170px; }
+}
 /* A section (Panel in app/ui.tsx) is flat: content on white, named by its title, which carries a rule of ink under it. No box,
    fill or shadow (principle 1); the space above it separates it from what comes before. An optional tag or button sits at the
    right of the title and wraps under it when there is no room. */
@@ -517,18 +547,27 @@ html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-height) + env(safe
 .panel-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-4); padding-bottom: var(--space-2); border-bottom: var(--border-width-strong) solid var(--text); }
 /* Nothing to show: one or two sentences in the muted colour, at the start of the line, without a box; a button may follow. */
 .empty-state { max-width: var(--measure); padding: var(--space-2) 0; color: var(--text-muted); text-align: left; font-size: var(--font-size-body); }
-/* Two sections side by side: the space above goes to the grid (it collapses with the heading's), not to each section. */
-.content-grid { display: grid; grid-template-columns: minmax(0, .9fr) minmax(360px, 1.1fr); gap: 19px; align-items: start; margin-top: var(--space-6); }
+/* Two sections, one under the other and side by side from 1024 px: the space above goes to the grid (it collapses with the
+   heading's), not to each section. */
+.content-grid { display: grid; grid-template-columns: 1fr; gap: 19px; align-items: start; margin-top: var(--space-6); }
 .content-grid > .panel { margin-top: 0; }
+@media (min-width: 1024px) {
+  .content-grid { grid-template-columns: minmax(0, .9fr) minmax(360px, 1.1fr); }
+}
 /* The date of «Hoy»: under the title of its section, where the eye goes next, as wide as a date needs and never wider than the
    screen. */
 .toolbar { display: flex; margin: 0 0 var(--space-4); }
 .toolbar .field { width: min(18rem, 100%); }
 /* The filters of «Para revisar»: a band of fields on the page, not a box (principle 3). Each field takes at least 10 rem; the
    two buttons keep their width and go to the next line together (at 768 px they stood one under the other in a column of 10 rem). */
-.filter-bar { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: flex-end; margin-bottom: var(--space-4); }
+.filter-bar { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: flex-end; margin-bottom: var(--space-4); container-type: inline-size; }
 .filter-bar > .field { flex: 1 1 10rem; }
 .filter-bar > .button-row { flex: 0 0 auto; }
+/* An error under a field makes it taller: aligned at the foot, its box would stand higher than the others. With an error the
+   fields align at the top; the buttons stay at the foot of their line, which is right when they have a line of their own. */
+.filter-bar:has(.field-error) { align-items: flex-start; }
+.filter-bar:has(.field-error) > .button-row { align-self: flex-end; }
+/* Where they share the line of the fields, they move down to the boxes: in «Para revisar», after the list of cases. */
 /* ===== Records: lists of days, marks, people, locals, schedules and search results ===== */
 /* A record is a row of its list, never a card (principle 3): no box, fill or corners; a hairline under each row separates
    it from the next, so the rows sit one under the other without a gap. Under 768 px the lists that become tables are drawn
@@ -676,6 +715,11 @@ td .button-row { gap: var(--space-2); }
   .case > :not(.case-body, .case-actions) { grid-column: 1 / -1; }
   .case-actions { justify-items: end; }
 }
+/* The filters with an error (above, .filter-bar): where the four fields and the buttons fit in one line, by the bar's own width as
+   the cases do, the buttons move down by a label and the gap of a field, so they start where the boxes start. */
+@container (min-width: 56rem) {
+  .filter-bar:has(.field-error) > .button-row { align-self: flex-start; margin-top: calc(var(--font-size-body) * var(--line-height-body) + var(--space-1)); }
+}
 /* An inline form opens in place, under the row or the button that opened it (design system 4.7): a bar on its left, no box.
    Inside a wrapping row (a mark of the phone list) it takes a line of its own. */
 .inline-form { display: grid; gap: var(--space-4); flex-basis: 100%; width: 100%; margin-top: var(--space-4); padding-left: var(--space-4); border-left: var(--bar-width) solid var(--border); }
@@ -793,21 +837,6 @@ td .button-row { gap: var(--space-2); }
 .connection-note { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-6) 0 0; color: var(--text-muted); }
 .connection-note > .icon { color: var(--ok); }
 
-@media (max-width: 1050px) {
-  .content-grid { grid-template-columns: 1fr; }
-}
-@media (max-width: 760px) {
-  /* The bottom padding is the room of the navigation bar, above. */
-  .main-content { padding-top: 26px; padding-right: 16px; padding-left: 16px; }
-  .page-title-row { align-items: flex-start; }
-  .page-title-row .field { min-width: 130px; }
-}
-@media (max-width: 520px) {
-  .page-title-row { flex-wrap: wrap; }
-  .form-grid { grid-template-columns: 1fr; }
-  .field-wide { grid-column: auto; }
-}
-
 /* ===== Reduced motion and forced colours ===== */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -821,11 +850,27 @@ td .button-row { gap: var(--space-2); }
 @media (forced-colors: active) {
   :focus-visible { outline-color: Highlight !important; }
   .spinner { border-color: CanvasText; border-top-color: Highlight; }
+  /* Forced colours drop fills and box shadows, so the fill and the second pixel of a chosen edge are gone, and borders take the
+     text colour. A chosen toggle (a button or a tile with aria-pressed) takes the system colours of a selected item, untouched by
+     the browser: it would paint the page's colour behind the words, and HighlightText on it does not read (2026-11-12, emulated
+     in Chrome). A chosen radio tile keeps its radio, the cue that does not depend on colour, and gets the edge of that colour. */
+  .button[aria-pressed="true"], .choice[aria-pressed="true"], .journey-option[aria-pressed="true"] { forced-color-adjust: none; border-color: Highlight; color: HighlightText; background: Highlight; }
+  .choice[aria-pressed="true"] small, .journey-option[aria-pressed="true"] small { color: HighlightText; }
+  .choice:has(input:checked) { border-color: Highlight; }
+  /* The bar of a destination is a border: transparent ones would show in the text colour, so every bar takes the page's colour
+     and only the current place's is drawn, in the colour of a selected item (on top on the bottom bar, on the left on the rail). */
+  .nav-link { border-top-color: Canvas; border-left-color: Canvas; }
+  .nav-link[aria-current] { border-top-color: Highlight; }
+  .nav-link[aria-current="page"] { border-left-color: Highlight; }
 }
 /* ===== Later additions: small modifiers of the regions above (folds, work days, first steps) ===== */
 /* The result of a mark and the question before one take focus by script: no ring after a tap or a click, the global ring when
    the keyboard is in use. */
 .mark-feedback:focus:not(:focus-visible), .now-step:focus:not(:focus-visible) { outline: none; }
+/* The same for everything else the code gives the focus to (tabindex -1): a section title after a change of section, an opened
+   day, the case of a notification, a message of a failed check, the main after «Ir al contenido». Some Safari versions drew a
+   ring there after a click (slice F1). */
+[tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
 /* A new version (ServiceWorkerUpdate): an info message across the top of the page, above the top bar and in its flow, so it is
    first on screen and first for the keyboard. «Actualizar» goes under the words when they need the row. While it is empty the
    .message:empty rule leaves it no room. */

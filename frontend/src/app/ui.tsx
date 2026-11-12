@@ -1,7 +1,8 @@
-import { cloneElement, createContext, isValidElement, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { cloneElement, createContext, isValidElement, useContext, useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { Membership, Session } from '../shared/api/types'
 import { BrandMark, Icon, type IconName } from './icons'
+import { revealAndFocus } from './revealAndFocus'
 
 export type MessageKind = 'info' | 'success' | 'warning' | 'error'
 
@@ -130,6 +131,47 @@ export function Empty({ children }: { children: ReactNode }) {
 export function Brand({ home }: { home?: string }) {
   const lockup = <><BrandMark /><span>{'Fichaje '}<span className="brand-light">Braja</span></span></>
   return home ? <a className="brand" href={home} aria-label="Fichaje Braja, inicio">{lockup}</a> : <span className="brand">{lockup}</span>
+}
+
+/** The id of the one `main` of every screen: the target of «Ir al contenido». The main also takes tabIndex -1 to receive the focus. */
+export const CONTENT_ID = 'contenido'
+
+/**
+ * «Ir al contenido» (WCAG 2.4.1; the owner's words, 2026-11-12): the first thing Tab reaches on every screen, out of sight until it
+ * has the focus. It moves the focus to the main by script instead of following its link: the ADMIN keeps its section in the
+ * address (#/hoy), which a jump to #contenido would replace.
+ */
+export function SkipLink() {
+  function skip(event: MouseEvent<HTMLAnchorElement>) {
+    const main = document.getElementById(CONTENT_ID)
+    if (!main) return
+    event.preventDefault()
+    revealAndFocus(main, main, 'start')
+  }
+  return <a className="skip-link" href={`#${CONTENT_ID}`} onClick={skip}>Ir al contenido</a>
+}
+
+/**
+ * The box of a table wider than its room: it scrolls sideways inside it, never the page (styles.css). While it does, the box is
+ * a region named by the title that names the table and a stop of Tab, so the keyboard can scroll it too (WCAG 2.1.1); a table
+ * that fits adds no stop. It is measured again when the box or the table changes size, and when the window does.
+ */
+export function TableScroll({ labelledBy, children }: { labelledBy: string; children: ReactNode }) {
+  const box = useRef<HTMLDivElement>(null)
+  const [scrolls, setScrolls] = useState(false)
+  useEffect(() => {
+    const element = box.current
+    if (!element) return
+    const measure = () => setScrolls(element.scrollWidth > element.clientWidth)
+    measure()
+    window.addEventListener('resize', measure)
+    // A day opened inside a row widens the table without a change of the window.
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null
+    observer?.observe(element)
+    if (element.firstElementChild) observer?.observe(element.firstElementChild)
+    return () => { window.removeEventListener('resize', measure); observer?.disconnect() }
+  }, [])
+  return <div ref={box} className="table-scroll" role={scrolls ? 'region' : undefined} tabIndex={scrolls ? 0 : undefined} aria-labelledby={scrolls ? labelledBy : undefined}>{children}</div>
 }
 
 /** The area under the top bar where its controls put their messages; null outside a top bar. */

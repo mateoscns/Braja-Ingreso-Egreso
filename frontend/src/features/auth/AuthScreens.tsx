@@ -1,5 +1,5 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react'
-import { Brand, PageMessage, FormField, Status } from '../../app/ui'
+import { Brand, CONTENT_ID, PageMessage, FormField, SkipLink, Status } from '../../app/ui'
 import { Icon } from '../../app/icons'
 import { useFieldErrors } from '../../app/useFieldErrors'
 import type { Session } from '../../shared/api/types'
@@ -10,12 +10,14 @@ import { clearMarkInterrupted, INTERRUPTED_MARK_MESSAGE, markWasInterrupted } fr
 
 /**
  * The frame of the three screens before the app: the top bar of the app with the brand only (as text: there is nowhere to go
- * yet), then one column on the white page with the title, its lead and the rest. No card (design system, principle 1).
+ * yet), then one column on the white page with the title, its lead and the rest. No card (design system, principle 1). «Ir al
+ * contenido» comes first, as on the screens of the app.
  */
 function AuthFrame({ title, lead, children }: { title: string; lead: ReactNode; children: ReactNode }) {
   return <div className="app-frame">
+    <SkipLink />
     <header className="topbar"><Brand /></header>
-    <main className="auth-page"><h1>{title}</h1><p className="auth-lead">{lead}</p>{children}</main>
+    <main id={CONTENT_ID} tabIndex={-1} className="auth-page"><h1>{title}</h1><p className="auth-lead">{lead}</p>{children}</main>
   </div>
 }
 

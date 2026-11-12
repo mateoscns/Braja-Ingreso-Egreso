@@ -33,6 +33,27 @@ const twoCompanies = { accountId: 'a', memberships: [
   { companyId: 'c-2', companyName: 'Otra empresa', role: 'EMPLOYEE' as const }
 ], activeCompanyId: null, mustChangePassword: false }
 
+// Slice G1 (WCAG 2.4.1): the three screens start with «Ir al contenido», as the apps do, and keep one main as its target.
+describe('el salto al contenido de las pantallas de acceso', () => {
+  it.each([
+    ['ingreso', () => <LoginScreen onSignIn={vi.fn()} />],
+    ['elegir empresa', () => <CompanyScreen session={twoCompanies} onSelect={vi.fn()} onSignOut={vi.fn()} />],
+    ['cambiar la contraseña', () => <PasswordChangeScreen onChange={vi.fn()} onSignOut={vi.fn()} />]
+  ])('en la pantalla de %s lo primero que alcanza Tab es «Ir al contenido», que lleva al único main', (_name, screenOf) => {
+    render(screenOf())
+    const focusable = document.querySelector<HTMLElement>('a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')
+    const main = document.querySelector('main')
+
+    expect(focusable).toBe(screen.getByRole('link', { name: 'Ir al contenido' }))
+    expect(focusable).toHaveAttribute('href', '#contenido')
+    expect(document.querySelectorAll('main')).toHaveLength(1)
+    expect(main).toHaveAttribute('id', 'contenido')
+    expect(main).toHaveAttribute('tabindex', '-1')
+    fireEvent.click(focusable!)
+    expect(main).toHaveFocus()
+  })
+})
+
 describe('las esperas de las pantallas de acceso se anuncian: su región está antes que su texto', () => {
   it('al ingresar', async () => {
     render(<LoginScreen onSignIn={() => new Promise<void>(() => {})} />)

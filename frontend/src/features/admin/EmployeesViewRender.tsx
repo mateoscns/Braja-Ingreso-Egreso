@@ -1,5 +1,5 @@
 import { Fragment, type FormEvent, type ReactNode } from 'react'
-import { Empty, Fieldset, FieldsSummary, FormField, Loading, PageMessage, Panel, StatusTag } from '../../app/ui'
+import { Empty, Fieldset, FieldsSummary, FormField, Loading, PageMessage, Panel, StatusTag, TableScroll } from '../../app/ui'
 import type { FieldErrors } from '../../app/useFieldErrors'
 import type { Employee, Site, Template, TemplateAssignment } from '../../shared/api/types'
 import { formatLocalDate } from '../../shared/format'
@@ -119,13 +119,13 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
   // While a record's own form is open its buttons give way to the form's.
   const formOpen = (saved: Employee) => draft?.id === saved.id || resetTarget === saved.id
 
-  const table = <div className="table-scroll"><table aria-labelledby={LIST_HEADING_ID}><thead><tr><th scope="col">Nombre</th><th scope="col">DNI</th><th scope="col">Locales</th><th scope="col">{TOLERANCE_LABEL}</th><th scope="col">Estado</th><th scope="col">Acciones</th></tr></thead><tbody>{employees.map((saved) => {
+  const table = <TableScroll labelledBy={LIST_HEADING_ID}><table aria-labelledby={LIST_HEADING_ID}><thead><tr><th scope="col">Nombre</th><th scope="col">DNI</th><th scope="col">Locales</th><th scope="col">{TOLERANCE_LABEL}</th><th scope="col">Estado</th><th scope="col">Acciones</th></tr></thead><tbody>{employees.map((saved) => {
     const open = under(saved)
     return <Fragment key={saved.id}><tr>
       <td>{saved.displayName}</td><td>{saved.dni ?? '—'}</td><td>{siteNames(saved)}</td><td>{`${saved.toleranceMinutes} min`}</td>
       <td><PersonStateTag active={saved.active} /></td><td>{!formOpen(saved) && rowActions(saved, 'button-row')}</td>
     </tr>{open && <tr><td colSpan={6}>{open}</td></tr>}</Fragment>
-  })}</tbody></table></div>
+  })}</tbody></table></TableScroll>
 
   const recordList = <ul className="record-list" aria-labelledby={LIST_HEADING_ID}>{employees.map((saved) => <li className="record" key={saved.id} aria-labelledby={`employee-${saved.id}-name`}>
     <p className="record-title"><strong id={`employee-${saved.id}-name`}>{saved.displayName}</strong><PersonStateTag active={saved.active} /></p>

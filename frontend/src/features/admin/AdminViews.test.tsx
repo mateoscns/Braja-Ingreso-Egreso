@@ -1345,6 +1345,29 @@ describe('administración de desvíos y marcas', () => {
       expect(within(marks).getByRole('columnheader', { name: 'Ubicación' })).toHaveAttribute('scope', 'col')
     })
 
+    // Slice G1 (WCAG 2.1.1): a table wider than its room scrolls inside its box, which the keyboard reaches by its name.
+    it('una tabla más ancha que su lugar es una región con el nombre de su sección que toma el foco, la de los días y la de las marcas', async () => {
+      const scrollWidth = vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockReturnValue(900)
+      const clientWidth = vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(600)
+      try {
+        const { container } = render(<JourneysView />)
+        const days = await screen.findByRole('table', { name: /^Días de trabajo del/ })
+        fireEvent.click(within(days).getByRole('button', { name: 'Ver marcas de Lucía Pérez' }))
+        const marks = await screen.findByRole('table', { name: 'Marcas de Lucía Pérez' })
+        const boxes = [...container.querySelectorAll<HTMLElement>('.table-scroll')]
+
+        expect(boxes).toEqual([days.parentElement, marks.parentElement])
+        // Each box is measured right after its table is drawn.
+        await waitFor(() => { for (const box of boxes) expect(box).toHaveAttribute('role', 'region') })
+        for (const box of boxes) {
+          expect(box).toHaveAttribute('tabindex', '0')
+          // Named by the title that names its table.
+          expect(box).toHaveAttribute('aria-labelledby', box.querySelector('table')!.getAttribute('aria-labelledby'))
+        }
+        expect(screen.getAllByRole('region', { name: 'Marcas de Lucía Pérez' })).toContain(marks.parentElement)
+      } finally { scrollWidth.mockRestore(); clientWidth.mockRestore() }
+    })
+
     it('el estado de cada día es una etiqueta con su ícono, en la tabla y en la lista del teléfono', async () => {
       render(<JourneysView />)
       expectNeutralTag(await screen.findByRole('row', { name: /^Lucía Pérez/ }), formatJornadaState('EN_CURSO'))

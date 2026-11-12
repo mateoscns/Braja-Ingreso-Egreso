@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Icon, type IconName } from './icons'
-import { AppHeader, Brand, CompanySwitcher, Fieldset, FieldsSummary, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel, Status, StatusTag } from './ui'
+import { AppHeader, Brand, CompanySwitcher, CONTENT_ID, Fieldset, FieldsSummary, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel, SkipLink, Status, StatusTag, TableScroll } from './ui'
 
 afterEach(cleanup)
 
@@ -340,5 +340,80 @@ describe('componentes compartidos de interfaz', () => {
     await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(2))
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     await waitFor(() => expect(select).toBeEnabled())
+  })
+})
+
+// Slice G1 (WCAG 2.4.1): every screen starts with «Ir al contenido» (the owner, 2026-11-12: "«Ir al contenido» (Recomendado)"),
+// which takes the focus to the screen's one main.
+describe('el salto al contenido', () => {
+  it('lleva el foco al main de la pantalla sin cambiar la dirección, que en el ADMIN es la sección', () => {
+    window.history.replaceState(null, '', '/admin#/hoy')
+    render(<><SkipLink /><header><button type="button">Cerrar sesión</button></header><main id={CONTENT_ID} tabIndex={-1}><h1>Hoy</h1></main></>)
+    const link = screen.getByRole('link', { name: 'Ir al contenido' })
+
+    expect(link).toHaveAttribute('href', '#contenido')
+    expect(fireEvent.click(link)).toBe(false)
+    expect(screen.getByRole('main')).toHaveFocus()
+    expect(window.location.hash).toBe('#/hoy')
+    window.history.replaceState(null, '', '/')
+  })
+})
+
+// Slice G1 (WCAG 2.1.1): a table wider than its room scrolls inside its box; the keyboard reaches that box only while it scrolls.
+describe('una tabla que se desplaza', () => {
+  type NodeFs = { readFileSync(path: string, encoding: 'utf8'): string; readdirSync(path: string, options: { recursive: true }): string[] }
+  const fs = (globalThis as unknown as { process: { getBuiltinModule(id: 'node:fs'): NodeFs } }).process.getBuiltinModule('node:fs')
+
+  /** jsdom lays nothing out: the box reports the widths given (the content's, then its own). */
+  function widths(scroll: () => number, client: number) {
+    const scrollWidth = vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockImplementation(scroll)
+    const clientWidth = vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(client)
+    return () => { scrollWidth.mockRestore(); clientWidth.mockRestore() }
+  }
+  const table = <><h2 id="employees-title">Empleados (2)</h2><TableScroll labelledBy="employees-title"><table aria-labelledby="employees-title"><tbody><tr><td>Lucía</td></tr></tbody></table></TableScroll></>
+
+  it('mientras la tabla no entra, su caja es una región con el nombre del título que toma el foco', () => {
+    const restore = widths(() => 900, 600)
+    try {
+      const { container } = render(table)
+      const box = container.querySelector('.table-scroll')
+
+      expect(screen.getByRole('region', { name: 'Empleados (2)' })).toBe(box)
+      expect(box).toHaveAttribute('tabindex', '0')
+    } finally { restore() }
+  })
+
+  it('si la tabla entra, la caja no es una región ni una parada de Tab', () => {
+    const restore = widths(() => 600, 600)
+    try {
+      const { container } = render(table)
+      const box = container.querySelector('.table-scroll')
+
+      expect(screen.queryByRole('region')).not.toBeInTheDocument()
+      expect(box).not.toHaveAttribute('tabindex')
+      expect(box).not.toHaveAttribute('aria-labelledby')
+    } finally { restore() }
+  })
+
+  it('al cambiar el ancho de la ventana la caja vuelve a medirse', () => {
+    let content = 600
+    const restore = widths(() => content, 600)
+    try {
+      render(table)
+      expect(screen.queryByRole('region')).not.toBeInTheDocument()
+
+      content = 900
+      fireEvent(window, new Event('resize'))
+      expect(screen.getByRole('region', { name: 'Empleados (2)' })).toHaveAttribute('tabindex', '0')
+    } finally { restore() }
+  })
+
+  it('ninguna pantalla escribe la caja a mano: toda tabla que se desplaza pasa por TableScroll', () => {
+    const screens = fs.readdirSync('src', { recursive: true })
+      .map((path) => path.replace(/\\/g, '/'))
+      .filter((path) => path.endsWith('.tsx') && !path.endsWith('.test.tsx') && path !== 'app/ui.tsx')
+      .filter((path) => fs.readFileSync(`src/${path}`, 'utf8').includes('table-scroll'))
+
+    expect(screens).toEqual([])
   })
 })
