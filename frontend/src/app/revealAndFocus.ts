@@ -33,7 +33,8 @@ const CONTROLS = 'input:not([type="hidden"]), select, textarea, button'
  */
 export function firstControl(container: HTMLElement): HTMLElement | null {
   for (const control of container.querySelectorAll<HTMLElement>(CONTROLS)) {
-    if ((control as HTMLInputElement | HTMLButtonElement).disabled) continue
+    // :disabled also covers a control inside a disabled fieldset, whose own disabled property stays false.
+    if (control.matches(':disabled')) continue
     const fold = control.closest('details')
     if (fold && !fold.open) continue
     if (control instanceof HTMLInputElement && control.type === 'radio' && control.name && !control.checked) {

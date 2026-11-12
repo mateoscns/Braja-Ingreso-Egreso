@@ -855,7 +855,8 @@ describe('administración de desvíos y marcas', () => {
       await screen.findByRole('listitem', { name: 'Lucía Pérez' })
       Object.entries(values).forEach(([label, value]) => pick(label, value))
       fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
-      expect(await screen.findByRole('alert')).toHaveTextContent(message)
+      // Changed in slice F2b: the problem is the error of the date to change («Hasta» in these three), not an alert of the bar.
+      await waitFor(() => expect(screen.getByLabelText('Hasta')).toHaveAccessibleDescription(message))
       expect(inboxCalls()).toEqual(['/inbox?limit=50'])
     })
 
@@ -1025,7 +1026,9 @@ describe('administración de desvíos y marcas', () => {
       fireEvent.click(await screen.findByRole('button', { name: 'Cancelar el día' }))
 
       const confirm = screen.getByRole('button', { name: 'Confirmar cancelación' })
-      expect(confirm).toBeDisabled()
+      // Changed in slice F2b (finding F-09): the button is not disabled any more; without a reason it sends nothing.
+      fireEvent.click(confirm)
+      expect(apiMocks.post).not.toHaveBeenCalled()
       fireEvent.change(screen.getByLabelText('Motivo de cancelación'), { target: { value: '  Feriado nacional ' } })
       fireEvent.click(confirm)
 
@@ -1075,7 +1078,9 @@ describe('administración de desvíos y marcas', () => {
       fireEvent.click(within(markRow).getByRole('button', { name: /^Anular marca Entrada de/ }))
 
       const confirm = screen.getByRole('button', { name: 'Confirmar anulación' })
-      expect(confirm).toBeDisabled()
+      // Changed in slice F2b (finding F-09): the button is not disabled any more; without a reason it sends nothing.
+      fireEvent.click(confirm)
+      expect(apiMocks.post).not.toHaveBeenCalled()
       fireEvent.change(screen.getByLabelText('Motivo de anulación'), { target: { value: 'Tocó por error.' } })
       fireEvent.click(confirm)
 
@@ -1364,7 +1369,8 @@ describe('administración de desvíos y marcas', () => {
       const history = await screen.findByRole('list', { name: 'Historial de horarios de Lucía Pérez' })
       expect(history).toHaveTextContent(`Mañana · Local Centro · desde ${formatLocalDate('2026-11-01')}`)
       const assign = screen.getByRole('button', { name: 'Asignar horario' })
-      expect(assign).toBeDisabled()
+      // Changed in slice F2b (finding F-09): «Asignar horario» is enabled and a submit without a horario says so under it.
+      expect(assign).toBeEnabled()
       fireEvent.change(screen.getByLabelText('Horario'), { target: { value: 't-1' } })
       fireEvent.change(screen.getByLabelText('Desde el día'), { target: { value: '2026-11-10' } })
       fireEvent.click(assign)
@@ -1917,5 +1923,213 @@ describe('dirección de cada sección del ADMIN', () => {
     view.unmount()
     expect(window.location.hash).toBe('')
     expect(window.location.pathname).toBe('/admin')
+  })
+})
+
+// Slice F2b (design system 4.3 and 4.7; WCAG 3.3.1, 3.3.3, 1.3.1, 4.1.2; finding F-09): every ADMIN form is checked on submit,
+// in our words and under the field they are about; no bubble of the browser; a submit button is disabled only while it sends.
+describe('un solo estilo de validación en los formularios del ADMIN', () => {
+  const pending = { ...deviation, status: 'PENDIENTE_REVISION' as const }
+  function withCases(items: object[]) {
+    const previousGet = apiMocks.get.getMockImplementation()!
+    apiMocks.get.mockImplementation((path: string) => path.startsWith('/inbox') ? Promise.resolve({ items, nextCursor: null }) : previousGet(path))
+  }
+  const openDay = async () => {
+    fireEvent.click(await screen.findByRole('button', { name: 'Ver marcas de Lucía Pérez' }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: /^Marcas de / })).toHaveFocus())
+  }
+
+  it('el motivo de corrección vacío se explica debajo del campo, con el foco ahí, y no se envía', async () => {
+    render(<AdminInbox />)
+    const row = await screen.findByRole('listitem', { name: 'Lucía Pérez' })
+    fireEvent.click(within(row).getByRole('button', { name: 'Corregir a no justificado' }))
+    const save = within(row).getByRole('button', { name: 'Guardar corrección' })
+    expect(save).toBeEnabled()
+    expect(save.closest('form')).toHaveAttribute('novalidate')
+    fireEvent.click(save)
+
+    const reason = within(row).getByLabelText('Motivo de corrección')
+    expect(reason).toHaveAttribute('aria-invalid', 'true')
+    expect(reason).toHaveAccessibleDescription('Escribí el motivo de corrección.')
+    await waitFor(() => expect(reason).toHaveFocus())
+    expect(apiMocks.put).not.toHaveBeenCalled()
+    fireEvent.change(reason, { target: { value: 'Se equivocó de día.' } })
+    expect(reason).not.toHaveAttribute('aria-invalid')
+  })
+
+  it('una corrección rechazada deja su mensaje dentro del formulario y le lleva el foco', async () => {
+    apiMocks.put.mockReset()
+    apiMocks.put.mockRejectedValueOnce(new Error('No se pudo guardar la clasificación.'))
+    render(<AdminInbox />)
+    const row = await screen.findByRole('listitem', { name: 'Lucía Pérez' })
+    fireEvent.click(within(row).getByRole('button', { name: 'Corregir a no justificado' }))
+    fireEvent.change(within(row).getByLabelText('Motivo de corrección'), { target: { value: 'Se equivocó de día.' } })
+    const form = within(row).getByLabelText('Motivo de corrección').closest('form')!
+    fireEvent.click(within(form).getByRole('button', { name: 'Guardar corrección' }))
+
+    const failure = await within(form).findByRole('alert')
+    expect(failure).toHaveTextContent('No se pudo guardar la clasificación.')
+    await waitFor(() => expect(failure).toHaveFocus())
+  })
+
+  it('una decisión que falla lleva el foco a su mensaje, dentro de la fila', async () => {
+    withCases([pending])
+    apiMocks.put.mockReset()
+    apiMocks.put.mockRejectedValueOnce(new Error('No se pudo guardar la clasificación.'))
+    render(<AdminInbox />)
+    const row = await screen.findByRole('listitem', { name: 'Lucía Pérez' })
+    fireEvent.click(within(row).getByRole('button', { name: 'Justificado' }))
+
+    const failure = await within(row).findByRole('alert')
+    await waitFor(() => expect(failure).toHaveFocus())
+  })
+
+  it('las fechas de los filtros de «Para revisar» se explican debajo de la fecha que hay que cambiar', async () => {
+    render(<AdminInbox />)
+    await screen.findByRole('listitem', { name: 'Lucía Pérez' })
+    fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-10-01' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
+
+    const to = screen.getByLabelText('Hasta')
+    await waitFor(() => expect(to).toHaveAccessibleDescription('Completá las dos fechas: desde y hasta.'))
+    expect(to).toHaveAttribute('aria-invalid', 'true')
+    await waitFor(() => expect(to).toHaveFocus())
+  })
+
+  it('agregar una marca sin hora ni motivo explica cada campo, con el foco en la hora, y no se envía', async () => {
+    render(<JourneysView />)
+    await openDay()
+    const form = screen.getByRole('heading', { name: 'Agregar una marca que faltó' }).closest('form')!
+    const add = within(form).getByRole('button', { name: 'Agregar marca' })
+    expect(form).toHaveAttribute('novalidate')
+    expect(add).toBeEnabled()
+    fireEvent.click(add)
+
+    const time = within(form).getByLabelText('Hora (Local Centro)')
+    expect(time).toHaveAccessibleDescription('Elegí la fecha y la hora.')
+    expect(within(form).getByLabelText('¿Por qué la agregás?')).toHaveAccessibleDescription('Escribí por qué agregás la marca.')
+    expect(within(form).getByLabelText('¿Por qué la agregás?')).toHaveAttribute('aria-invalid', 'true')
+    await waitFor(() => expect(time).toHaveFocus())
+    expect(apiMocks.post).not.toHaveBeenCalled()
+  })
+
+  it('una hora que no existe en el local se explica debajo de la hora', async () => {
+    const originalGet = apiMocks.get.getMockImplementation()!
+    apiMocks.get.mockImplementation((path: string) => path === '/sites' ? Promise.resolve([{ ...site, timeZone: 'America/New_York' }]) : originalGet(path))
+    render(<JourneysView />)
+    await openDay()
+    fireEvent.change(screen.getByLabelText('Hora (Local Centro)'), { target: { value: '2026-03-08T02:30' } })
+    fireEvent.change(screen.getByLabelText('¿Por qué la agregás?'), { target: { value: 'Marca olvidada.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Agregar marca' }))
+
+    expect(screen.getByLabelText('Hora (Local Centro)')).toHaveAccessibleDescription('Esa hora no existe en la zona horaria del local. Revisá la fecha y la hora.')
+    expect(apiMocks.post).not.toHaveBeenCalled()
+  })
+
+  it('corregir y anular sin motivo lo explican debajo del motivo, con los botones habilitados', async () => {
+    render(<JourneysView />)
+    await openDay()
+    fireEvent.click(within(screen.getByRole('row', { name: /^Entrada/ })).getByRole('button', { name: /^Corregir marca Entrada/ }))
+    const correction = screen.getByRole('form', { name: /^Corregir la marca Entrada/ })
+    expect(correction).toHaveAttribute('novalidate')
+    fireEvent.click(within(correction).getByRole('button', { name: 'Guardar corrección de marca' }))
+    const correctionReason = within(correction).getByLabelText('Motivo de corrección de marca')
+    expect(correctionReason).toHaveAccessibleDescription('Escribí el motivo de corrección.')
+    await waitFor(() => expect(correctionReason).toHaveFocus())
+    fireEvent.click(within(correction).getByRole('button', { name: 'Cancelar' }))
+
+    fireEvent.click(within(screen.getByRole('row', { name: /^Entrada/ })).getByRole('button', { name: /^Anular marca Entrada/ }))
+    const voiding = screen.getByRole('form', { name: /^Anular la marca Entrada/ })
+    expect(voiding).toHaveAttribute('novalidate')
+    const confirmVoid = within(voiding).getByRole('button', { name: 'Confirmar anulación' })
+    expect(confirmVoid).toBeEnabled()
+    fireEvent.click(confirmVoid)
+    expect(within(voiding).getByLabelText('Motivo de anulación')).toHaveAccessibleDescription(expect.stringContaining('Escribí el motivo de anulación.'))
+    expect(within(voiding).getByLabelText('Motivo de anulación')).toHaveAttribute('aria-invalid', 'true')
+    expect(apiMocks.post).not.toHaveBeenCalled()
+  })
+
+  it('cancelar el día sin motivo lo explica debajo del motivo', async () => {
+    const previousGet = apiMocks.get.getMockImplementation()!
+    apiMocks.get.mockImplementation((path: string) => path === '/jornadas/j-1' ? Promise.resolve({ ...jornada, state: 'NO_INGRESO', marks: [] }) : previousGet(path))
+    render(<JourneysView />)
+    await openDay()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar el día' }))
+    const confirm = screen.getByRole('button', { name: 'Confirmar cancelación' })
+    expect(confirm).toBeEnabled()
+    expect(confirm.closest('form')).toHaveAttribute('novalidate')
+    fireEvent.click(confirm)
+
+    expect(screen.getByLabelText('Motivo de cancelación')).toHaveAccessibleDescription(expect.stringContaining('Escribí el motivo de cancelación.'))
+    expect(apiMocks.post).not.toHaveBeenCalled()
+  })
+
+  it('sin la zona horaria del local, «Agregar marca» dice por qué no se puede usar', async () => {
+    const previous = apiMocks.get.getMockImplementation()!
+    apiMocks.get.mockImplementation((path: string) => path === '/sites' ? Promise.reject(new Error('Servidor no disponible.')) : previous(path))
+    render(<JourneysView />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
+    await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
+
+    expect(screen.getByRole('button', { name: 'Agregar marca' })).toHaveAccessibleDescription('No se pudo cargar la zona horaria del local. Reintentá los datos del día antes de incorporar o corregir marcas.')
+  })
+
+  it('asignar un horario sin elegirlo lo explica debajo del horario, con el botón habilitado', async () => {
+    render(<EmployeesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Horarios de Lucía Pérez' }))
+    await screen.findByRole('list', { name: 'Historial de horarios de Lucía Pérez' })
+    const assign = screen.getByRole('button', { name: 'Asignar horario' })
+    expect(assign).toBeEnabled()
+    expect(assign.closest('form')).toHaveAttribute('novalidate')
+    fireEvent.change(screen.getByLabelText('Desde el día'), { target: { value: '' } })
+    fireEvent.click(assign)
+
+    const schedule = screen.getByLabelText('Horario')
+    expect(schedule).toHaveAccessibleDescription('Elegí un horario.')
+    expect(screen.getByLabelText('Desde el día')).toHaveAccessibleDescription('Elegí desde qué día.')
+    await waitFor(() => expect(schedule).toHaveFocus())
+    expect(apiMocks.post).not.toHaveBeenCalled()
+  })
+
+  it('un solo día sin fecha lo explica debajo del día, sin la burbuja del navegador', async () => {
+    render(<WorkDaysView />)
+    await screen.findByRole('option', { name: 'Lucía Pérez' })
+    const single = within(screen.getByRole('region', { name: 'Cargar o cambiar un solo día' }))
+    const load = single.getByRole('button', { name: 'Cargar este día' })
+    expect(load.closest('form')).toHaveAttribute('novalidate')
+    fireEvent.change(single.getByLabelText('Día'), { target: { value: '' } })
+    expect(load).toBeEnabled()
+    fireEvent.click(load)
+
+    expect(single.getByLabelText('Día')).toHaveAccessibleDescription('Elegí el día.')
+    await waitFor(() => expect(single.getByLabelText('Día')).toHaveFocus())
+    expect(apiMocks.post).not.toHaveBeenCalled()
+  })
+
+  it('la carga de días sin personas lo explica en el grupo «¿Quiénes?», con el foco en su primera casilla', async () => {
+    render(<WorkDaysView />)
+    const panel = within(await screen.findByRole('region', { name: 'Cargar días de trabajo' }))
+    fireEvent.click(await panel.findByRole('checkbox', { name: 'Seleccionar todos' }))
+    fireEvent.click(panel.getByRole('button', { name: 'Cargar días' }))
+
+    const people = panel.getByRole('group', { name: /^¿Quiénes\?/ })
+    expect(people).toHaveAttribute('aria-invalid', 'true')
+    expect(people).toHaveClass('field-invalid')
+    expect(people).toHaveAccessibleDescription('Elegí al menos una persona.')
+    await waitFor(() => expect(panel.getByRole('checkbox', { name: 'Seleccionar todos' })).toHaveFocus())
+    expect(panel.getByRole('group', { name: '¿Qué días trabajan?' })).not.toHaveAttribute('aria-invalid')
+  })
+
+  it('el resultado de la carga de días queda dentro del formulario, encima de su botón', async () => {
+    apiMocks.post.mockResolvedValueOnce({ created: [], skipped: [] })
+    render(<WorkDaysView />)
+    const panel = within(await screen.findByRole('region', { name: 'Cargar días de trabajo' }))
+    await panel.findByRole('checkbox', { name: 'Lucía Pérez' })
+    const button = panel.getByRole('button', { name: 'Cargar días' })
+    fireEvent.click(button)
+
+    const outcome = await panel.findByText('No se cargó ningún día.')
+    expect(button.closest('form')).toContainElement(outcome)
+    expect(outcome.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })

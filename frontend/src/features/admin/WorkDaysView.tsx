@@ -6,7 +6,8 @@ import type { Employee, Site, Template } from '../../shared/api/types'
 import { declarationFailureMessage } from './bulkDeclaration'
 import type { AdminSection } from './setupStatus'
 import { WorkDaysPanel } from './WorkDaysPanel'
-import { WorkDaysViewRender } from './WorkDaysViewRender'
+import { SINGLE_DAY_FORM_ID, WorkDaysViewRender } from './WorkDaysViewRender'
+import { useFieldErrors } from '../../app/useFieldErrors'
 import { errText } from './adminShared'
 
 const dateInBrowserZone = () => {
@@ -37,14 +38,19 @@ export function WorkDaysView({ coverage, onNavigate, onDaysLoaded }: {
   // on that date (D-20261015-02), as the hint says. Choosing a site clears a template of another site.
   const eligibleEmployees = useMemo(() => employees.filter((person) => person.active && person.siteIds.includes(siteId)), [employees, siteId])
   useEffect(() => { setEmployeeId((current) => eligibleEmployees.some((person) => person.id === current) ? current : eligibleEmployees[0]?.id ?? '') }, [eligibleEmployees])
+  // The two conditions that kept «Cargar este día» disabled, now said under their fields on submit (finding F-09).
+  const singleFields = useFieldErrors<'employeeId' | 'singleDate'>()
   async function declare(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setSingleError(''); setSingleNotice(''); setBusy(true)
+    event.preventDefault(); setSingleError(''); setSingleNotice('')
+    const valid = singleFields.check(SINGLE_DAY_FORM_ID, { employeeId: employeeId ? '' : 'Elegí un empleado.', singleDate: singleDate ? '' : 'Elegí el día.' })
+    if (!valid) return
+    setBusy(true)
     try {
       await api.post('/jornadas', { employeeId, siteId, localDate: singleDate, ...(templateId ? { templateId } : {}) })
       setSingleNotice('Día cargado.')
       onDaysLoaded?.()
     }
-    catch (reason) { setSingleError(declarationFailureMessage(reason, 'single') ?? errText(reason)) } finally { setBusy(false) }
+    catch (reason) { setSingleError(declarationFailureMessage(reason, 'single') ?? errText(reason)); singleFields.focusProblem(SINGLE_DAY_FORM_ID) } finally { setBusy(false) }
   }
   const siteTemplates = templates.filter((template) => template.siteId === siteId)
   const workDaysPanel = <WorkDaysPanel sites={sites} employees={employees} templates={templates} disabled={loading}
@@ -52,7 +58,9 @@ export function WorkDaysView({ coverage, onNavigate, onDaysLoaded }: {
     onAssignSchedules={() => onNavigate?.('empleados')} onReviewSchedules={() => onNavigate?.('plantillas')} />
   return <WorkDaysViewRender workDaysPanel={workDaysPanel} coverage={coverage} sites={sites} eligibleEmployees={eligibleEmployees} siteTemplates={siteTemplates}
     loading={loading} dependencyError={dependencyError} busy={busy} employeeId={employeeId} siteId={siteId} templateId={templateId}
-    singleDate={singleDate} singleError={singleError} singleNotice={singleNotice} onSingleDateChange={setSingleDate}
-    onEmployeeChange={setEmployeeId} onSiteChange={(id) => { setSiteId(id); setTemplateId('') }} onTemplateChange={setTemplateId} onDeclare={declare}
+    singleDate={singleDate} singleError={singleError} singleNotice={singleNotice} singleErrors={singleFields.errors}
+    onSingleDateChange={(value) => { setSingleDate(value); singleFields.clear('singleDate') }}
+    onEmployeeChange={(id) => { setEmployeeId(id); singleFields.clear('employeeId') }}
+    onSiteChange={(id) => { setSiteId(id); setTemplateId(''); singleFields.clear('employeeId') }} onTemplateChange={setTemplateId} onDeclare={declare}
     onRetryDependencies={() => void loadDependencies()} />
 }
