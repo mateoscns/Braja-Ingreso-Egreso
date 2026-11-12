@@ -1,12 +1,12 @@
-import { useId, type FormEvent, type RefObject } from 'react'
+import { Fragment, useId, type FormEvent, type RefObject } from 'react'
 import { Icon, type IconName } from '../../app/icons'
-import { Empty, FormField, Loading, PageMessage, Panel } from '../../app/ui'
+import { Empty, FormField, Loading, PageMessage, Panel, StatusTag } from '../../app/ui'
 import type { Deviation, Jornada, MarkAction, Site } from '../../shared/api/types'
 import { formatBlock, formatDateTime, formatLocalDate, jornadaStateLabel } from '../../shared/format'
 import { forEmployee } from '../../shared/labels'
 import {
-  actionLabel, confirmationText, describeDeviation, deviationName, formatTime, locationOutcomeText, markInstant, markLocationLabel, markName,
-  type LocationOutcome, type MarkOptions
+  actionLabel, confirmationText, daySlots, describeDeviation, deviationName, locationOutcomeText,
+  type DaySlotNote, type LocationOutcome, type MarkOptions
 } from './employeeDay'
 
 /** Render components of the employee screen (rule 36): data and callbacks by props, no state of their own beyond ids. */
@@ -117,16 +117,34 @@ export function NowBlock({ sentence, jornada, site, options, busy, step, stepRef
   </section>
 }
 
+/** The icon of a row's note: the location as the receipt draws it; a mark the ADMIN loaded has none. */
+const NOTE_ICONS: Record<DaySlotNote['kind'], IconName | null> = { sent: 'pin', missing: 'pinoff', pending: 'waiting', loaded: null }
+
+/**
+ * The day sheet (design system 4.14): four fixed rows, so what is done and what is missing reads at a glance. An empty row is a
+ * dash for the eye and «sin marcar» for a screen reader; a voided mark gets a row of its own under its row, struck.
+ */
 export function DayMarksPanel({ title, jornada, site }: { title: string; jornada: Jornada; site?: Site }) {
   return <Panel title={title} action={<span className={`status-chip status-${jornada.state.toLowerCase()}`}>{jornadaStateLabel(jornada.state)}</span>}>
-    <div className="mark-timeline">{jornada.marks.length ? jornada.marks.map((mark) => {
-      const location = mark.voided ? '' : markLocationLabel(mark.locationStatus)
-      return <div className={`mark-row ${mark.voided ? 'mark-row-voided' : ''}`} key={mark.id}><span className="timeline-point" aria-hidden="true" />
-        <strong>{mark.voided ? <s>{markName[mark.action]}</s> : markName[mark.action]}</strong><time>{formatTime(markInstant(mark), site?.timeZone)}</time>
-        {mark.voided && <span className="status-chip">Anulada</span>}
-        {location && <small className="mark-row-location">{location}</small>}
-      </div>
-    }) : <p className="muted">Todavía no marcaste nada.</p>}</div>
+    <table className="day-sheet">
+      <caption className="visually-hidden">Marcas del día</caption>
+      <tbody>{daySlots(jornada, site?.timeZone).map((slot) => <Fragment key={slot.kind}>
+        <tr>
+          <th scope="row">{slot.name}</th>
+          <td><div className="day-sheet-cell">
+            {slot.times.length ? <span className="day-sheet-times">{slot.times.map((time, index) => <span className="day-sheet-time" key={index}>{time}</span>)}</span>
+              : <span className="day-sheet-time day-sheet-empty"><span aria-hidden="true">—</span><span className="visually-hidden">sin marcar</span></span>}
+            {slot.note && <span className="day-sheet-note">{NOTE_ICONS[slot.note.kind] && <Icon name={NOTE_ICONS[slot.note.kind]!} />}{slot.note.text}</span>}
+          </div></td>
+        </tr>
+        {slot.voided.map((time, index) => <tr className="day-sheet-voided" key={`voided-${index}`}>
+          <th scope="row"><span className="visually-hidden">{slot.name}</span></th>
+          <td><div className="day-sheet-cell"><s className="day-sheet-time">{time}</s><StatusTag tone="neutral" icon="ban">Anulada</StatusTag></div></td>
+        </tr>)}
+      </Fragment>)}</tbody>
+    </table>
+    {/* «Todavía» would tell a cancelled day to mark; the "now" block already says there is nothing to mark. */}
+    {!jornada.marks.length && jornada.state !== 'CANCELADA' && <p className="muted">Todavía no marcaste nada.</p>}
   </Panel>
 }
 

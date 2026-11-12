@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Jornada, Site } from '../../shared/api/types'
 import { DayMarksPanel } from './EmployeeViews'
@@ -36,5 +36,67 @@ describe('DayMarksPanel', () => {
     render(<DayMarksPanel title="Tus marcas" jornada={jornada} site={site} />)
 
     expect(screen.getByText('08:02')).toBeInTheDocument()
+  })
+
+  // Slice D2 (design system 4.14): the marks are a sheet of four fixed rows, read row by row by a screen reader too.
+  describe('planilla del día', () => {
+    const day = (state: Jornada['state'], marks: Jornada['marks']): Jornada => ({
+      id: 'j-1', employeeId: 'e-1', siteId: site.id, localDate: '2026-11-09', state, toleranceMinutes: 5, sequence: 1, marks,
+      scheduleSnapshot: { siteId: site.id, name: 'Mañana', blocks: [{ startDayOffset: 0, start: '08:00', end: '16:00', endDayOffset: 0 }], breakfastLimitMinutes: 15, lunchLimitMinutes: 45 }
+    })
+    const entry = { id: 'm-1', jornadaId: 'j-1', action: 'INGRESO' as const, sequence: 1, acceptedAt: '2026-11-09T11:02:00Z', locationStatus: 'RECIBIDA' as const }
+
+    it('es una tabla con título y una fila con encabezado por cada momento del día', () => {
+      render(<DayMarksPanel title="Tus marcas de hoy" jornada={day('EN_CURSO', [entry])} site={site} />)
+
+      const sheet = screen.getByRole('table', { name: 'Marcas del día' })
+      expect(within(sheet).getAllByRole('rowheader').map((header) => header.textContent)).toEqual(['Entrada', 'Desayuno', 'Almuerzo', 'Salida'])
+      const entryRow = within(sheet).getByRole('row', { name: /Entrada/ })
+      expect(entryRow).toHaveTextContent('08:02')
+      expect(entryRow).toHaveTextContent('Ubicación enviada')
+    })
+
+    it('una fila sin marca muestra una raya y le dice al lector de pantalla que está sin marcar', () => {
+      render(<DayMarksPanel title="Tus marcas de hoy" jornada={day('EN_CURSO', [entry])} site={site} />)
+
+      const breakfast = screen.getByRole('row', { name: /Desayuno/ })
+      expect(within(breakfast).getByText('—')).toHaveAttribute('aria-hidden', 'true')
+      expect(within(breakfast).getByText('sin marcar')).toHaveClass('visually-hidden')
+      expect(within(screen.getByRole('row', { name: /Entrada/ })).queryByText('sin marcar')).not.toBeInTheDocument()
+    })
+
+    it('una marca anulada no llena su fila: va tachada debajo, con la etiqueta Anulada', () => {
+      render(<DayMarksPanel title="Tus marcas de hoy" jornada={day('NO_INGRESO', [{ ...entry, voided: true }])} site={site} />)
+
+      const rows = within(screen.getByRole('table', { name: 'Marcas del día' })).getAllByRole('row')
+      expect(rows).toHaveLength(5)
+      expect(within(rows[0]).getByText('sin marcar')).toBeInTheDocument()
+      // The extra row repeats the name of its row as hidden text, so it is not read without context.
+      expect(within(rows[1]).getByRole('rowheader')).toHaveTextContent('Entrada')
+      expect(within(rows[1]).getByRole('rowheader').firstElementChild).toHaveClass('visually-hidden')
+      expect(within(rows[1]).getByText('08:02').closest('s')).not.toBeNull()
+      expect(within(rows[1]).getByText('Anulada')).toBeInTheDocument()
+      expect(within(rows[2]).getByRole('rowheader')).toHaveTextContent('Desayuno')
+    })
+
+    it('un día sin marcas dice que todavía no marcaste nada, salvo que tu encargado lo haya cancelado', () => {
+      const { unmount } = render(<DayMarksPanel title="Tus marcas de hoy" jornada={day('NO_INGRESO', [])} site={site} />)
+      expect(screen.getByText('Todavía no marcaste nada.')).toBeInTheDocument()
+      unmount()
+
+      render(<DayMarksPanel title="Tus marcas de hoy" jornada={day('CANCELADA', [])} site={site} />)
+      expect(screen.getAllByRole('rowheader')).toHaveLength(4)
+      expect(screen.queryByText('Todavía no marcaste nada.')).not.toBeInTheDocument()
+    })
+
+    it('una marca que cargó tu encargado dice quién la cargó en lugar de la ubicación', () => {
+      const loaded = { ...entry, acceptedAt: '2026-11-10T00:15:00Z', occurredAt: '2026-11-09T11:00:00Z', locationStatus: 'NO_APLICA' as const }
+      render(<DayMarksPanel title="Tus marcas de hoy" jornada={day('EN_CURSO', [loaded])} site={site} />)
+
+      const entryRow = screen.getByRole('row', { name: /Entrada/ })
+      expect(entryRow).toHaveTextContent('08:00')
+      expect(entryRow).toHaveTextContent('Cargada por tu encargado')
+      expect(entryRow).not.toHaveTextContent('Ubicación')
+    })
   })
 })

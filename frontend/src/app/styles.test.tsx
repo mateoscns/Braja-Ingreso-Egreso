@@ -248,10 +248,10 @@ const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui',
 // Ceilings that only go down. Each one counts what the rules under the token block still write by hand, measured with the
 // pattern of its own test when the token block came in (2026-11-11). A slice that moves rules to tokens lowers the number in
 // the same commit; nobody raises one. Slice H1 turns the four into equalities with zero.
-const COLOR_LITERAL_CEILING = 46
-const UNTOKENED_FONT_SIZE_CEILING = 33
+const COLOR_LITERAL_CEILING = 42
+const UNTOKENED_FONT_SIZE_CEILING = 29
 const BOX_SHADOW_CEILING = 6
-const LEGACY_TOKEN_USE_CEILING = 51
+const LEGACY_TOKEN_USE_CEILING = 48
 
 // The old names with the values they had before the token block. A name is deleted from the stylesheet once nothing uses it
 // and never gets a new value in the meantime: a half-migrated rule must look exactly as it did.
@@ -928,6 +928,38 @@ describe('pantalla del empleado: el bloque de ahora y la confirmación de una ma
     expect(missing).toMatch(/border-top:\s*var\(--border-width\) solid var\(--ok\)/)
     expect(missing).toMatch(/(?<![\w-])color:\s*var\(--text\)/)
     expect(rule('.receipt-location-missing > .icon')).toMatch(/(?<![\w-])color:\s*var\(--warn\)/)
+  })
+
+  // Slice D2 (design system 4.14): the marks of the day are a sheet of four fixed rows, not a timeline.
+  it('la planilla del día: nombre de la fila en 600, hora grande con cifras de ancho fijo y la nota al lado desde 600 px', () => {
+    const header = rule('.day-sheet th')
+    const time = rule('.day-sheet-time')
+    const voided = rule('.day-sheet-voided .day-sheet-time')
+    const note = rule('.day-sheet-note')
+
+    expect(rule('.day-sheet')).toMatch(/border-bottom:\s*var\(--border-width\) solid var\(--rule\)/)
+    // A hairline above each row, the last one closed by the table's own line.
+    for (const cell of ['.day-sheet th', '.day-sheet td']) expect(ruleListing(cell).declarations, cell).toMatch(/border-top:\s*var\(--border-width\) solid var\(--rule\)/)
+    expect(/(?<![\w-])width:\s*([^;]+)/.exec(header)?.[1].trim()).toBe('32%')
+    expect(header).toMatch(/font-weight:\s*var\(--font-weight-strong\)/)
+    expect(header).toMatch(/(?<![\w-])color:\s*var\(--text\)/)
+    expect(time).toMatch(/font-size:\s*var\(--font-size-title\)/)
+    expect(time).toMatch(/font-weight:\s*var\(--font-weight-heavy\)/)
+    expect(time).toMatch(/font-variant-numeric:\s*tabular-nums/)
+    expect(note).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
+    expect(note).toMatch(/font-size:\s*var\(--font-size-body\)/)
+    // A voided mark: its time struck in 16 px of the muted colour, never as large as one that counts.
+    expect(voided).toMatch(/font-size:\s*var\(--font-size-body\)/)
+    expect(voided).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
+    // Under the time on a phone, beside it from 600 px.
+    expect(/flex-direction:\s*([^;]+)/.exec(rule('.day-sheet-cell'))?.[1].trim()).toBe('column')
+    expect(/flex-direction:\s*([^;]+)/.exec(rule('.day-sheet-cell', media(600, 'min')))?.[1].trim()).toBe('row')
+  })
+
+  it('las reglas de la línea de tiempo de las marcas se fueron con su marcado', () => {
+    const gone = /\.(?:mark-timeline|mark-row|mark-row-location|mark-row-voided|timeline-point|timeline-title|employee-title)(?![\w-])/
+
+    expect(allSelectors().filter((selector) => gone.test(selector))).toEqual([])
   })
 
   it('las reglas del panel Marcar y del horario que había en las marcas del día se fueron con su marcado', () => {
