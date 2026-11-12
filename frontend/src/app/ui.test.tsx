@@ -253,14 +253,15 @@ describe('componentes compartidos de interfaz', () => {
     expect(screen.getByRole('button', { name: 'Reintentar datos del día' })).toBeDisabled()
   })
 
-  it('el encabezado de página tiene el título como h1, su texto de arriba y su bajada, y una acción opcional', () => {
-    const { rerender } = render(<PageHeading eyebrow="EQUIPO" title="Empleados" subtitle="Cada persona entra con su DNI." />)
+  it('el encabezado de página tiene el título como h1 y su bajada, sin línea de arriba, y una acción opcional', () => {
+    const { container, rerender } = render(<PageHeading title="Empleados" subtitle="Cada persona entra con su DNI." />)
 
     expect(screen.getByRole('heading', { level: 1, name: 'Empleados' })).toBeInTheDocument()
-    expect(screen.getByText('EQUIPO')).toHaveClass('eyebrow')
+    // The owner removed the eyebrows (2026-11-11): the title is the first line.
+    expect(container.querySelector('.eyebrow')).toBeNull()
     expect(screen.getByText('Cada persona entra con su DNI.')).toBeInTheDocument()
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
-    rerender(<PageHeading eyebrow="EQUIPO" title="Empleados" subtitle="Cada persona entra con su DNI." action={<button type="button">Actualizar</button>} />)
+    rerender(<PageHeading title="Empleados" subtitle="Cada persona entra con su DNI." action={<button type="button">Actualizar</button>} />)
     expect(screen.getByRole('button', { name: 'Actualizar' }).closest('.page-title-row')).not.toBeNull()
   })
 

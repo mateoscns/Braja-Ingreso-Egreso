@@ -15,7 +15,7 @@ export function WorkDaysViewRender({ workDaysPanel, coverage, sites, eligibleEmp
   onDeclare: (event: FormEvent<HTMLFormElement>) => void; onRetryDependencies: () => void
 }) {
   return <>
-    <PageHeading eyebrow="DÍAS DE TRABAJO" title="Días de trabajo" subtitle="Cargá los días que trabaja cada persona. Cada día sigue el calendario de su local." />
+    <PageHeading title="Días de trabajo" subtitle="Cargá los días que trabaja cada persona. Cada día sigue el calendario de su local." />
     {dependencyError && <LoadFailure message={dependencyError} retryLabel="Reintentar datos del día" disabled={loading} onRetry={onRetryDependencies} />}
     {coverage}
     {workDaysPanel}

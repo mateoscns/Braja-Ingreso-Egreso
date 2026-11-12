@@ -146,7 +146,7 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
     </section>
   }
   return <>
-    <PageHeading eyebrow="DÍA A DÍA" title="Hoy" subtitle="Revisá las marcas de cada día y corregí lo que haga falta. Cada día sigue el calendario de su local." />
+    <PageHeading title="Hoy" subtitle="Revisá las marcas de cada día y corregí lo que haga falta. Cada día sigue el calendario de su local." />
     {dependencyError && <div className="form-stack"><PageMessage kind="error">{dependencyError}</PageMessage><button type="button" className="button button-secondary" disabled={loading || journeysLoading} onClick={onRetryDependencies}>Reintentar datos del día</button></div>}
     {/* Written out instead of Panel: its title names the table, or the list on a phone. */}
     <section className="panel" aria-labelledby={LIST_HEADING_ID}>

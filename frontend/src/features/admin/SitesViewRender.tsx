@@ -62,7 +62,7 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, name
             kind === 'invalid-position' ? 'Datos de ubicación inválidos' :
               kind === 'request-failed' ? 'No se pudo iniciar la captura' : 'No se pudo determinar la ubicación'
   return <>
-    <PageHeading eyebrow="ORGANIZACIÓN" title="Locales" subtitle="Cada local define su zona horaria y sus horarios." />
+    <PageHeading title="Locales" subtitle="Cada local define su zona horaria y sus horarios." />
     {error && <PageMessage kind="error">{error}</PageMessage>}
     {notice && <PageMessage kind="success">{notice}</PageMessage>}
     <div className="content-grid"><Panel title="Locales registrados">{loading ? <Loading /> : loadError ? <LoadFailure message={loadError} onRetry={onReload} /> : sites.length ? <div className="simple-list">{sites.map((site) => <article key={site.id} className="form-stack">
