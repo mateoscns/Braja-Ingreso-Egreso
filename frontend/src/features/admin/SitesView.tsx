@@ -6,7 +6,8 @@ import { isRegionTimeZone, REGION_TIME_ZONE_MESSAGE } from './siteZone'
 import { captureSiteCoordinates, parseGeofenceRadiusMeters, SiteLocationError, type SiteLocationErrorKind } from './siteLocation'
 import { approximateDevicePosition, normalizePickedPoint, SEARCH_RESULT_ZOOM, siteMapInitialView } from './siteMap'
 import { GeocodeError, searchAddress, type GeocodeResult } from '../../shared/api/geocode'
-import { SitesViewRender, siteMessageKeys, type SiteLocationAuditResponse, type SiteLocationEditDraft, type SiteMapState } from './SitesViewRender'
+import { useFocusRequest } from '../../app/revealAndFocus'
+import { siteFocusIds, SitesViewRender, siteMessageKeys, type SiteLocationAuditResponse, type SiteLocationEditDraft, type SiteMapState } from './SitesViewRender'
 import { errText } from './adminShared'
 
 type LocationCaptureTarget = { kind: 'create' } | { kind: 'edit'; siteId: string }
@@ -55,6 +56,9 @@ export function SitesView() {
   const lastMapSearchAt = useRef<number | null>(null)
   const mapSearchInFlight = useRef<AbortController | null>(null)
   const [busy, setBusy] = useState(false)
+  // «Cambiar ubicación» opens its form with the focus inside and gets the focus back when the form closes (design system 4.7);
+  // the button is disabled while a save runs, so the move waits for it.
+  const focusLater = useFocusRequest(!busy)
   useEffect(() => () => {
     locationCaptureController.current?.abort()
     locationCaptureController.current = null
@@ -177,10 +181,12 @@ export function SitesView() {
       locationMessage: '', locationErrorKind: null, locationAccuracyMeters: null, locationConfirmed: true, locationSource: null
     })
     setError(''); setNotice('')
+    focusLater({ id: siteFocusIds.locationForm(site.id), into: true })
   }
   function cancelLocationEdit() {
     cancelLocationCapture()
     if (siteMap?.target.kind === 'edit') closeSiteMap()
+    if (locationEdit) focusLater({ id: siteFocusIds.locationButton(locationEdit.siteId) })
     setLocationEdit(null); setError('')
   }
   function clearEditLocation() {
@@ -354,6 +360,7 @@ export function SitesView() {
       if (siteMap?.target.kind === 'edit') closeSiteMap()
       setLocationEdit(null)
       setNotice('Ubicación del local actualizada.')
+      focusLater({ id: siteFocusIds.locationButton(updated.id) })
       closeSiteLocationAudit()
     } catch (reason) { setError(errText(reason)) } finally { setBusy(false) }
   }

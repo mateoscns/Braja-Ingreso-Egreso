@@ -12,6 +12,17 @@ export const EDIT_WARNING = 'Los días que ya cargaste mantienen el horario ante
 /** Where the result of saving a horario shows: the form that created it, or the record of the one that changed. */
 export const scheduleMessageKeys = { create: 'create', edit: (templateId: string) => `edit:${templateId}` }
 
+/**
+ * Where the container moves the focus (slice F1): into a form or the assignment step when they open, and back to what opened
+ * them when they close. Only one assignment step is open at a time.
+ */
+export const scheduleFocusIds = {
+  createForm: 'schedule-create-form',
+  assignStep: 'schedule-assign-step',
+  editButton: (templateId: string) => `schedule-${templateId}-edit`,
+  editForm: (templateId: string) => `schedule-${templateId}-edit-form`
+}
+
 /** A field hint that turns into the field's error; FormField links it to the control with aria-describedby. */
 function hintOrError(error: string | undefined, hint?: string): ReactNode {
   if (error) return <span className="field-hint-error">{error}</span>
@@ -28,6 +39,8 @@ export function ScheduleParts({ parts, blockCount, label }: { parts: string[]; b
 
 export type ScheduleEditorProps = {
   draft: ScheduleDraft; busy: boolean; disabled?: boolean; error: string; submitLabel: string; formLabel: string
+  /** The id of the form, by which the container moves the focus into it (scheduleFocusIds). */
+  id?: string
   /** What the last save of this form did («Horario … creado.»): a result of the form, above its buttons. */
   notice?: string
   /** The Local field, first in the form; it is hidden with a single local (create only). */
@@ -43,7 +56,7 @@ export type ScheduleEditorProps = {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void; onCancel?: () => void
 }
 
-export function ScheduleEditor({ draft, busy, disabled = false, error, submitLabel, formLabel, notice = '', sites = [], siteId = '', onSiteChange, showTypes = false, editing = false,
+export function ScheduleEditor({ draft, busy, disabled = false, error, submitLabel, formLabel, id, notice = '', sites = [], siteId = '', onSiteChange, showTypes = false, editing = false,
   onNameChange, onPickType, onTramoChange, onAddTramo, onRemoveTramo, onBreakfastChange, onLunchChange, onManualOffsetChange, onUseComputedDays, onSubmit, onCancel }: ScheduleEditorProps) {
   const ids = useId()
   const pauseHintId = `${ids}-pause`
@@ -53,7 +66,7 @@ export function ScheduleEditor({ draft, busy, disabled = false, error, submitLab
   const { blocks, errors } = check.computation
   const preview = check.computation.valid ? scheduleChips(blocks, check.breakfastMinutes, check.lunchMinutes) : []
   const summary = show && !check.valid
-  return <form className={editing ? 'inline-form' : 'form-stack'} aria-label={formLabel} noValidate onSubmit={onSubmit}>
+  return <form id={id} className={editing ? 'inline-form' : 'form-stack'} aria-label={formLabel} noValidate onSubmit={onSubmit}>
     {editing && <PageMessage>{EDIT_WARNING}</PageMessage>}
     {onSiteChange && sites.length > 1 && <FormField label="Local" hint="Tus datos se mantienen si cambiás de local.">
       <select value={siteId} disabled={busy} onChange={(event) => onSiteChange(event.target.value)}>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select>
@@ -158,8 +171,8 @@ export function ScheduleAssignStep({ templateName, employees, employeesLoading, 
       </form>}
   </>
   // The parts of the step are spaced by one gap, in a panel as in the inline form.
-  if (asPanel) return <Panel title={TITLE}><div className="schedule-step">{body}</div></Panel>
-  return <section className="inline-form" aria-labelledby={headingId}><h3 id={headingId}>{TITLE}</h3>{body}</section>
+  if (asPanel) return <Panel title={TITLE}><div className="schedule-step" id={scheduleFocusIds.assignStep}>{body}</div></Panel>
+  return <section className="inline-form" id={scheduleFocusIds.assignStep} aria-labelledby={headingId}><h3 id={headingId}>{TITLE}</h3>{body}</section>
 }
 
 export function SchedulesViewRender({ sites, siteId, siteTemplates, loading, loadError, notice, messageAt = '', busy, openCardId, cardSlot, createPanel, onReload, onBeginEdit }: {
@@ -189,7 +202,7 @@ export function SchedulesViewRender({ sites, siteId, siteTemplates, loading, loa
             <p className="record-title"><strong id={nameId}>{template.name}</strong>{!template.active && <StatusTag tone="wait" icon="ban">Inactivo</StatusTag>}</p>
             <ScheduleParts parts={scheduleChips(template.blocks, template.breakfastLimitMinutes, template.lunchLimitMinutes)} blockCount={template.blocks.length} label={`Horario ${template.name}`} />
             {/* A link button: it opens the form under the record; the filled button belongs to that form. */}
-            {!open && <div className="record-actions"><button type="button" className="button button-link" aria-label={`Cambiar horario ${template.name}`} disabled={busy} onClick={() => onBeginEdit(template)}>Cambiar horario</button></div>}
+            {!open && <div className="record-actions"><button type="button" id={scheduleFocusIds.editButton(template.id)} className="button button-link" aria-label={`Cambiar horario ${template.name}`} disabled={busy} onClick={() => onBeginEdit(template)}>Cambiar horario</button></div>}
             {/* The open form or step, or the result of the change that just closed, where it was made. */}
             {open ? cardSlot : notice && messageAt === scheduleMessageKeys.edit(template.id) ? <PageMessage kind="success">{notice}</PageMessage> : null}
           </li>

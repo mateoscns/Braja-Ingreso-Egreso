@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { AppHeader, CompanySwitcher, Loading } from '../../app/ui'
+import { AppHeader, CompanySwitcher, Loading, pageTitle, useDocumentTitle } from '../../app/ui'
+import { revealAndFocus } from '../../app/revealAndFocus'
 import { useSession } from '../../app/session'
 import { api } from '../../shared/api/client'
 import type { Deviation } from '../../shared/api/types'
 import { AdminInbox, EmployeesView, JourneysView, SitesView, TemplatesView, WorkDaysView, type OpenJornadaRequest } from './AdminViews'
-import { AdminNav } from './AdminNav'
+import { AdminNav, CONFIGURATION_PARTS, DESTINATIONS, SETUP_PART } from './AdminNav'
 import { ConfigurationPage } from './ConfigurationPage'
 import { CoverageNoticeRender, FirstStepsRender } from './FirstSteps'
 import { coverageNotice, loadSetupData, readyTomorrow, setupComplete, setupSteps, type AdminSection, type SetupData } from './setupStatus'
@@ -17,6 +18,20 @@ import { InstallControl } from '../../device/pwa/InstallControl'
  * lists «Primeros pasos» only while a step is missing.
  */
 const STATUS_SECTIONS = new Set<AdminSection>(['setup', 'inbox', 'jornadas', 'workdays', 'config'])
+
+/** The name of each section is the word of its menu item (design system 7.2: one name per thing), so the tab says it too. */
+const SECTION_NAMES = Object.fromEntries([...DESTINATIONS, SETUP_PART, ...CONFIGURATION_PARTS].map((item) => [item.section, item.label])) as Record<AdminSection, string>
+
+/**
+ * Moves the focus to the title of the section just shown. A title not drawn by PageHeading (the guide's) gets the tabIndex -1
+ * it needs to take the focus; Tab still does not stop on it.
+ */
+function focusSectionTitle(main: HTMLElement | null) {
+  const title = main?.querySelector<HTMLElement>('h1')
+  if (!title) return
+  if (!title.hasAttribute('tabindex')) title.tabIndex = -1
+  revealAndFocus(title, title, 'start')
+}
 
 export function AdminApp() {
   const { session, signOut, activateCompany } = useSession()
@@ -62,11 +77,19 @@ export function AdminApp() {
   // choice does, so a guide reached with Back does not show a step just done as missing.
   const shown = useRef<AdminSection | null>(null)
   const navigated = useRef(false)
+  const main = useRef<HTMLElement>(null)
+  // The tab names the section shown (WCAG 2.4.2), with the word of its menu item; «Fichaje Braja» while none is decided.
+  useDocumentTitle(pageTitle(section ? SECTION_NAMES[section] : undefined))
   useEffect(() => {
     const previous = shown.current
     const followed = !navigated.current
     shown.current = section; navigated.current = false
-    if (followed && previous !== null && section !== null && section !== previous && STATUS_SECTIONS.has(section)) void refreshSetup()
+    const changed = previous !== null && section !== null && section !== previous
+    // A change of section the owner made (menu, a button of the content, Back, Forward, a typed address) takes the focus to
+    // the new section's title (WCAG 2.4.3): the button pressed may be gone with the old section. The first section is not a
+    // change. A section that moves the focus on its own later (a day opened from a case) still does.
+    if (changed) focusSectionTitle(main.current)
+    if (followed && changed && section !== null && STATUS_SECTIONS.has(section)) void refreshSetup()
   }, [section])
   if (!session || !active) return null
   function navigate(next: AdminSection) {
@@ -85,8 +108,8 @@ export function AdminApp() {
   function showWorkDaysForm() {
     if (section !== 'workdays') { navigate('workdays'); return }
     const form = document.getElementById('work-days')
-    if (form && typeof form.scrollIntoView === 'function') form.scrollIntoView({ block: 'start' })
-    form?.querySelector<HTMLElement>('select, input, button')?.focus()
+    const control = form?.querySelector<HTMLElement>('select, input, button')
+    if (form && control) revealAndFocus(form, control, 'start')
   }
   const steps = setup ? setupSteps(setup) : null
   // «Primeros pasos» is listed only while a step is known to be missing (D-20261111-02); an unread status lists nothing.
@@ -99,7 +122,7 @@ export function AdminApp() {
     </AppHeader>
     <div className="workspace">
       <AdminNav section={section} setupMissing={setupMissing} onNavigate={navigate} />
-      <main className="main-content">
+      <main className="main-content" ref={main}>
         {section === null && <Loading label="Preparando tu panel…" />}
         {section === 'setup' && <FirstStepsRender steps={steps} loading={setupLoading} error={setupError} readyCount={setup ? readyTomorrow(setup) : 0} onGo={navigate} onRetry={() => void refreshSetup()} />}
         {section === 'inbox' && <AdminInbox onOpenJornada={openDeviationJornada}

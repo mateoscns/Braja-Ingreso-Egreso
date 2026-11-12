@@ -18,6 +18,12 @@ type Correction = { deviationId: string; classification: DeviationClassification
 /** A decision the server refused: its message goes inside the row of that case, not at the top of the page. */
 export type FailedDecision = { deviationId: string; message: string } | null
 
+/** The row of a case, which takes the focus when a notification opens it; the container moves the focus by these ids. */
+export const caseRowId = (deviationId: string) => `deviation-${deviationId}`
+/** The «Corregir a …» button of a decided case: it opens the correction form and gets the focus back when it closes. */
+export const caseCorrectButtonId = (deviationId: string) => `deviation-${deviationId}-correct`
+export const caseCorrectionFormId = (deviationId: string) => `deviation-${deviationId}-correction`
+
 // The tag and the state bar of a case say whose turn it is. For the ADMIN a missing motive waits for the employee (wait) and a
 // motive to review waits for him (todo): the opposite tone of the employee's screen, with the same icons (design system 4.10).
 const CASE_TAGS: Record<Deviation['status'], { tone: StatusTone; icon: IconName }> = {
@@ -57,7 +63,7 @@ export function AdminInboxRender({ narrow = false, appliedFilters = EMPTY_INBOX_
     {filterError && <div className="filter-error"><PageMessage kind="error">{filterError}</PageMessage></div>}
   </form>
   return <>
-    <div className="page-title-row"><div><h1>Para revisar</h1><p className="muted">Revisá motivos y resolvé cada caso. Los avisos no incluyen datos privados.</p></div><button className="button button-secondary" disabled={loading} onClick={onReload}>{loading ? 'Actualizando…' : 'Actualizar'}</button></div>
+    <div className="page-title-row"><div><h1 tabIndex={-1}>Para revisar</h1><p className="muted">Revisá motivos y resolvé cada caso. Los avisos no incluyen datos privados.</p></div><button className="button button-secondary" disabled={loading} onClick={onReload}>{loading ? 'Actualizando…' : 'Actualizar'}</button></div>
     {error && <PageMessage kind="error">{error}</PageMessage>}
     {notice && <PageMessage kind="success">{notice}</PageMessage>}
     {timeZoneLoadError && <PageMessage kind="error">No se pudieron cargar las zonas horarias de los locales: {timeZoneLoadError} Las horas se muestran en la zona horaria de este dispositivo.</PageMessage>}
@@ -89,9 +95,11 @@ function DeviationList({ items, onOpenJornada, filtered, loading, busy, onClassi
     const correcting = correction?.deviationId === item.id
     const failure = failedDecision?.deviationId === item.id ? <PageMessage kind="error">{failedDecision.message}</PageMessage> : null
     // Nothing in a row at rest is filled: the two decisions weigh the same, and the only filled button is the save of an open form.
-    const decide = (classification: DeviationClassification, label: string, icon?: IconName) =>
-      <button type="button" className="button button-secondary" disabled={saving} onClick={() => onClassify(item, classification)}>{saving ? 'Guardando…' : <>{icon && <Icon name={icon} />}{label}</>}</button>
-    return <li className={`case case-${tag.tone}${targetId === item.id ? ' case-target' : ''}`} key={item.id} id={`deviation-${item.id}`} aria-labelledby={`deviation-${item.id}-person`}>
+    const decide = (classification: DeviationClassification, label: string, icon?: IconName, id?: string) =>
+      <button type="button" id={id} className="button button-secondary" disabled={saving} onClick={() => onClassify(item, classification)}>{saving ? 'Guardando…' : <>{icon && <Icon name={icon} />}{label}</>}</button>
+    const target = targetId === item.id
+    // tabIndex -1 on the case a notification opened: it takes the focus once, by script (design system 4.11).
+    return <li className={`case case-${tag.tone}${target ? ' case-target' : ''}`} key={item.id} id={caseRowId(item.id)} tabIndex={target ? -1 : undefined} aria-labelledby={`deviation-${item.id}-person`}>
       <div className="case-body">
         <div className="case-head">
           <p className="case-person" id={`deviation-${item.id}-person`}>{named || 'Registro del día de trabajo'}</p>
@@ -102,11 +110,11 @@ function DeviationList({ items, onOpenJornada, filtered, loading, busy, onClassi
         {item.category && <p className="motive-said"><b>Motivo:</b> {categoryName(item.category)}{item.motiveText ? ` · ${item.motiveText}` : ''}</p>}
       </div>
       <div className="case-actions">
-        {item.status === 'JUSTIFICADO' ? decide('NO_JUSTIFICADO', 'Corregir a no justificado') :
-          item.status === 'NO_JUSTIFICADO' ? decide('JUSTIFICADO', 'Corregir a justificado') :
+        {item.status === 'JUSTIFICADO' ? decide('NO_JUSTIFICADO', 'Corregir a no justificado', undefined, caseCorrectButtonId(item.id)) :
+          item.status === 'NO_JUSTIFICADO' ? decide('JUSTIFICADO', 'Corregir a justificado', undefined, caseCorrectButtonId(item.id)) :
             <div className="button-pair" role="group" aria-label={`Decidir el caso de ${named || 'la persona'}`}>{decide('JUSTIFICADO', 'Justificado', 'check')}{decide('NO_JUSTIFICADO', 'No justificado', 'x')}</div>}
       </div>
-      {correcting && <form className="inline-form" onSubmit={(event) => { event.preventDefault(); onSubmitCorrection(item) }}>
+      {correcting && <form id={caseCorrectionFormId(item.id)} className="inline-form" onSubmit={(event) => { event.preventDefault(); onSubmitCorrection(item) }}>
         <FormField label="Motivo de corrección"><textarea required maxLength={2000} value={correctionReason} onChange={(event) => onCorrectionReasonChange(event.target.value)} /></FormField>
         {failure}
         <div className="button-row"><button className="button button-primary" disabled={saving || !correctionReason.trim()}>{saving ? 'Guardando…' : 'Guardar corrección'}</button><button type="button" className="button button-link" disabled={saving} onClick={onCancelCorrection}>Cancelar</button></div>

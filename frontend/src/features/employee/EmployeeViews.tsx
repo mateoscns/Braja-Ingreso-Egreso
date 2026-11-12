@@ -84,9 +84,12 @@ function MarkReceipt({ confirmation, timeZone }: { confirmation: MarkConfirmatio
   </div>
 }
 
+/** The button of a mark in the "now" block: a question that it opened gives the focus back to it when it closes. */
+export const markButtonId = (action: MarkAction) => `now-mark-${action}`
+
 /** The next mark is the one filled button, 80 px tall; every other mark is a secondary button of 56 px. All full width. */
 function MarkButton({ action, next = false, busy, onMark }: { action: MarkAction; next?: boolean; busy: boolean; onMark: (action: MarkAction) => void }) {
-  return <button type="button" className={next ? 'button button-primary button-block button-clock' : 'button button-secondary button-block button-large'}
+  return <button type="button" id={markButtonId(action)} className={next ? 'button button-primary button-block button-clock' : 'button button-secondary button-block button-large'}
     disabled={busy} onClick={() => onMark(action)}><Icon name={MARK_ICONS[action]} />{actionLabel[action]}</button>
 }
 

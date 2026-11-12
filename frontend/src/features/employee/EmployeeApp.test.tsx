@@ -280,6 +280,31 @@ describe('EmployeeApp', () => {
       expect(await screen.findByText('Listo: tu salida quedó registrada a las 10:05.')).toBeInTheDocument()
     })
 
+    // Slice F1 (WCAG 2.4.3; finding F-27, gap left by D1): the question replaces the buttons, so closing it would leave the
+    // focus on the page; it goes back to the button that asked.
+    it('la pregunta toma el foco y «No, seguir trabajando» lo devuelve al botón de la salida', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Marcar salida' }))
+
+      const question = (await screen.findByText('¿Terminás tu día ahora? Tu horario termina a las 17:00.')).closest('.now-step') as HTMLElement
+      await waitFor(() => expect(question).toHaveFocus())
+      fireEvent.click(screen.getByRole('button', { name: 'No, seguir trabajando' }))
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Marcar salida' })).toHaveFocus())
+    })
+
+    it('«Volver» del aviso de ubicación devuelve el foco al botón de la marca que lo abrió', async () => {
+      forgetLocationNotice()
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      fireEvent.click(await breakfastButton())
+
+      expect(await screen.findByText('Para marcar necesitamos saber que estás en el local. Solo se mira en el momento de marcar.')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Volver' }))
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Me voy a desayunar' })).toHaveFocus())
+      expect(mocks.submitMark).not.toHaveBeenCalled()
+    })
+
     it('después del fin del horario marca sin preguntar y la sugiere como la próxima', async () => {
       vi.setSystemTime(new Date('2026-10-20T20:10:00Z'))
       configureSingle(jornadas[0])

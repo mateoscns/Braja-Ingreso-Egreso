@@ -11,8 +11,9 @@ import { daySentence, exitConfirmation, markOptions, type LocationOutcome } from
 import { loadFailureMessage, markFailureMessage, motiveFailureMessage } from './employeeMessages'
 import { LOCATION_NOTICE, locationNoticeSeen, rememberLocationNotice, skipNoticeIfLocationGranted } from './locationNotice'
 import { noteMarkInterrupted } from '../auth/interruptedMark'
+import { useFocusRequest } from '../../app/revealAndFocus'
 import {
-  DayHeading, DayMarksPanel, JourneyPicker, MarkFeedback, MotivePanel, NowBlock, OtherDayPanel,
+  DayHeading, DayMarksPanel, JourneyPicker, markButtonId, MarkFeedback, MotivePanel, NowBlock, OtherDayPanel,
   type MarkConfirmation, type MarkStep, type MotiveErrors, type MotiveValues
 } from './EmployeeViews'
 
@@ -74,6 +75,9 @@ export function EmployeeApp() {
   // Buttons are disabled while a mark is in flight, so focus moves to the outcome once it is known.
   useEffect(() => { if (feedbackFocus) feedbackRef.current?.focus() }, [feedbackFocus])
   useEffect(() => { if (stepFocus) stepRef.current?.focus() }, [stepFocus])
+  // The question replaces the mark buttons: «No, seguir trabajando» or «Volver» bring them back, and the focus goes to the one
+  // that asked (finding F-27), not to the page.
+  const focusLater = useFocusRequest(!busy)
   useEffect(() => { skipNoticeIfLocationGranted() }, [])
   // A 401 while a mark is being sent means it was not saved; the login screen says so (the session listener unmounts this view).
   useEffect(() => api.onSessionExpired(() => { if (markInFlight.current) noteMarkInterrupted() }), [])
@@ -154,6 +158,10 @@ export function EmployeeApp() {
     if (!locationNoticeSeen()) { openStep({ kind: 'location', action, text: LOCATION_NOTICE }); return }
     setStep(null)
     void mark(action)
+  }
+  function cancelStep() {
+    if (step) focusLater({ id: markButtonId(step.action) })
+    setStep(null)
   }
   function confirmStep() {
     if (!step) return
@@ -297,7 +305,7 @@ export function EmployeeApp() {
   const sections = loading ? [<Loading key="loading" label="Cargando tu día…" />, motivePanel]
     : loadFailed ? [<Panel key="failed" title="No pudimos cargar tu día"><LoadFailure message={loadError} primary onRetry={() => void load()} /></Panel>, motivePanel]
     : [<NowBlock key="now" sentence={sentence} jornada={selected} site={selectedSite} options={options} busy={busy} step={step} stepRef={stepRef}
-      onMark={(action) => startMark(action)} onConfirmStep={confirmStep} onCancelStep={() => setStep(null)} />,
+      onMark={(action) => startMark(action)} onConfirmStep={confirmStep} onCancelStep={cancelStep} />,
     ...(motivesFirst ? [motivePanel, marksPanel] : [marksPanel, motivePanel])]
 
   return <div className="app-frame employee-frame">

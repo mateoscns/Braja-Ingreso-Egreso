@@ -300,3 +300,99 @@ describe('«Equipo» with the pieces of the system', () => {
     expect(follows(notice, assign)).toBe(true)
   })
 })
+
+// Slice F1 (WCAG 2.4.3; finding F-27, gap left by E6): a form of a record takes the focus when it opens, and gives it back to
+// the button that opened it when it closes. That button is hidden while its form is open, so the focus waits for it to return.
+describe('«Equipo»: where the focus goes when a form of a person opens and closes', () => {
+  beforeEach(() => { apiMocks.post.mockReset(); apiMocks.patch.mockReset() })
+  const editButton = () => screen.getByRole('button', { name: 'Editar empleado Lucía Pérez' })
+  const resetButton = () => screen.getByRole('button', { name: 'Restablecer contraseña de Lucía Pérez' })
+
+  it('«Editar» takes the focus to the name; «Cancelar» gives it back to «Editar»', async () => {
+    render(<EmployeesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Editar empleado Lucía Pérez' }))
+    const form = screen.getByRole('form', { name: 'Editar empleado Lucía Pérez' })
+
+    await waitFor(() => expect(within(form).getByRole('textbox', { name: 'Nombre del empleado con DNI 30123456' })).toHaveFocus())
+    fireEvent.click(within(form).getByRole('button', { name: 'Cancelar' }))
+    await waitFor(() => expect(editButton()).toHaveFocus())
+  })
+
+  it('a saved edit gives the focus back to «Editar»; a failed one keeps the form open', async () => {
+    apiMocks.patch.mockRejectedValueOnce(new Error('No se pudo guardar.')).mockResolvedValueOnce({ ...lucia, toleranceMinutes: 10 })
+    render(<EmployeesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Editar empleado Lucía Pérez' }))
+    const form = screen.getByRole('form', { name: 'Editar empleado Lucía Pérez' })
+    fireEvent.click(within(form).getByRole('button', { name: 'Guardar' }))
+    expect(await within(form).findByRole('alert')).toHaveTextContent('No se pudo guardar.')
+    expect(screen.queryByRole('button', { name: 'Editar empleado Lucía Pérez' })).not.toBeInTheDocument()
+
+    fireEvent.click(within(form).getByRole('button', { name: 'Guardar' }))
+    await waitFor(() => expect(editButton()).toHaveFocus())
+  })
+
+  it('«Restablecer contraseña» takes the focus to what the reset does, never to the button that confirms it; «Cancelar» gives it back', async () => {
+    narrow = true
+    render(<EmployeesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Restablecer contraseña de Lucía Pérez' }))
+
+    const explanation = screen.getByText('Se cierran todas sus sesiones y se genera una contraseña provisoria.')
+    await waitFor(() => expect(explanation).toHaveFocus())
+    expect(screen.getByRole('button', { name: 'Confirmar restablecimiento' })).not.toHaveFocus()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar restablecimiento' }))
+    await waitFor(() => expect(resetButton()).toHaveFocus())
+  })
+
+  it('a refused reset gives the focus back to «Restablecer contraseña», next to its message', async () => {
+    apiMocks.post.mockRejectedValueOnce(new Error('Esta persona también tiene acceso en otra empresa o como ADMIN; su contraseña la restablece el operador.'))
+    render(<EmployeesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Restablecer contraseña de Lucía Pérez' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar restablecimiento' }))
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    await waitFor(() => expect(resetButton()).toHaveFocus())
+  })
+
+  it('once the password of a reset is handed over, the focus goes back to «Restablecer contraseña»', async () => {
+    apiMocks.post.mockResolvedValueOnce({ temporaryPassword: 'Abcd-Efgh-Jkmn-Pqrs' })
+    render(<EmployeesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Restablecer contraseña de Lucía Pérez' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar restablecimiento' }))
+    const region = await screen.findByRole('region', { name: 'Contraseña provisoria de Lucía Pérez' })
+    await waitFor(() => expect(region).toHaveFocus())
+
+    fireEvent.click(within(region).getByRole('button', { name: 'Listo, ya la entregué' }))
+    await waitFor(() => expect(resetButton()).toHaveFocus())
+  })
+
+  it('once the password of a new employee is handed over, the focus goes back to the first field of the add form', async () => {
+    apiMocks.post.mockImplementation((_path: string, body: Record<string, unknown>) => Promise.resolve({ id: 'e-9', displayName: body.displayName, dni: body.dni, siteIds: body.siteIds, toleranceMinutes: 5, active: true, mustChangePassword: true }))
+    render(<EmployeesView />)
+    fireEvent.change(await screen.findByLabelText('Nombre y apellido'), { target: { value: 'Ana Gómez' } })
+    fireEvent.change(screen.getByLabelText('DNI'), { target: { value: '30111222' } })
+    await waitFor(async () => expect(await screen.findByRole('checkbox', { name: 'Local Centro' })).toBeChecked())
+    fireEvent.click(screen.getByRole('button', { name: 'Generar contraseña' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Crear empleado' }))
+    const region = await screen.findByRole('region', { name: 'Contraseña provisoria de Ana Gómez' })
+
+    fireEvent.click(within(region).getByRole('button', { name: 'Listo, ya la entregué' }))
+    await waitFor(() => expect(screen.getByLabelText('Nombre y apellido')).toHaveFocus())
+  })
+
+  it('«Cerrar» of the horarios gives the focus back to «Horarios», which opened them', async () => {
+    render(<EmployeesView />)
+    const opener = await screen.findByRole('button', { name: 'Horarios de Lucía Pérez' })
+    opener.focus()
+    fireEvent.click(opener)
+    const panel = await screen.findByRole('region', { name: 'Horarios de Lucía Pérez' })
+    // A disclosure: the focus stays on its button while the horarios come into view.
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled())
+    expect(opener).toHaveFocus()
+
+    // A click focuses the button it presses; fireEvent does not, so the test does it.
+    const close = within(panel).getByRole('button', { name: 'Cerrar' })
+    close.focus()
+    fireEvent.click(close)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Horarios de Lucía Pérez' })).toHaveFocus())
+  })
+})

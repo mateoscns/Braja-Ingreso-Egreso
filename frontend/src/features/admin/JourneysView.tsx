@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { api, queryString } from '../../shared/api/client'
 import type { Employee, Jornada, JornadaAudit, Mark, MarkAction, Site } from '../../shared/api/types'
 import { useWideTable } from '../../app/useBreakpoint'
+import { revealAndFocus } from '../../app/revealAndFocus'
 import { CANCEL_BUTTON_ID, CANCEL_FORM_ID, DETAIL_HEADING_ID, DETAIL_ID, FORGOTTEN_FORM_ID, JourneysViewRender, markButtonId, markFormId, markMessageKey, type JourneyRow } from './JourneysViewRender'
 import { errText } from './adminShared'
 import { AdminHistory } from './AdminHistory'
@@ -13,14 +14,6 @@ import { AdminHistory } from './AdminHistory'
 /** What takes the focus once the screen shows it: the day just opened (its title), a form just opened (its first field), or
     the button that opened a form that closed. */
 type Reveal = { kind: 'detail' } | { kind: 'form'; id: string } | { kind: 'trigger'; id: string }
-
-/** Brings an opened part into view and moves the focus into it. Kept to this screen: slice F1 makes one for the whole app. */
-function revealAndFocus(part: HTMLElement, focusTarget: HTMLElement, block: ScrollLogicalPosition = 'nearest') {
-  const reduced = typeof window.matchMedia === 'function' && Boolean(window.matchMedia('(prefers-reduced-motion: reduce)')?.matches)
-  if (typeof part.scrollIntoView === 'function') part.scrollIntoView({ block, behavior: reduced ? 'auto' : 'smooth' })
-  // The scroll above already placed the part; letting focus scroll too would cut a smooth scroll short.
-  focusTarget.focus({ preventScroll: true })
-}
 
 const dateInBrowserZone = () => {
   const now = new Date()

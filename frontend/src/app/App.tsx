@@ -1,5 +1,5 @@
 import { registerSW } from 'virtual:pwa-register'
-import { Loading } from './ui'
+import { ENTRY_TITLES, entryScreen, Loading, useDocumentTitle } from './ui'
 import { SessionProvider, useSession } from './session'
 import { LoginScreen, CompanyScreen, PasswordChangeScreen } from '../features/auth/AuthScreens'
 import { AdminApp } from '../features/admin/AdminApp'
@@ -15,9 +15,12 @@ export function App() {
 
 function Application() {
   const { session, loading, error, signIn, signOut, activateCompany, changePassword } = useSession()
-  if (loading) return <main className="boot-screen"><Loading label="Preparando Fichaje Braja…" /></main>
+  const screen = entryScreen(loading, session)
+  // Each screen names the browser tab (WCAG 2.4.2); the ADMIN's sections do it themselves (AdminApp).
+  useDocumentTitle(ENTRY_TITLES[screen])
+  if (screen === 'boot') return <main className="boot-screen"><Loading label="Preparando Fichaje Braja…" /></main>
   if (!session) return <LoginScreen onSignIn={signIn} error={error} />
-  if (session.mustChangePassword) return <PasswordChangeScreen onChange={changePassword} onSignOut={() => void signOut()} />
+  if (screen === 'password') return <PasswordChangeScreen onChange={changePassword} onSignOut={() => void signOut()} />
   const active = session.memberships.find((membership) => membership.companyId === session.activeCompanyId)
   if (!active) return <CompanyScreen session={session} onSelect={activateCompany} onSignOut={() => void signOut()} />
   return active.role === 'ADMIN' ? <AdminApp key={active.companyId} /> : <EmployeeApp key={active.companyId} />
