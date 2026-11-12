@@ -1,6 +1,6 @@
-import { Fragment, useId, type FormEvent, type RefObject } from 'react'
+import { Fragment, useEffect, useId, useRef, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { Icon, type IconName } from '../../app/icons'
-import { Empty, FormField, LoadFailure, Loading, PageMessage, Panel, Status, StatusTag } from '../../app/ui'
+import { Empty, FormField, LoadFailure, Loading, PageMessage, Panel, Status, StatusTag, type StatusTone } from '../../app/ui'
 import type { Deviation, Jornada, MarkAction, Site } from '../../shared/api/types'
 import { formatBlock, formatDateTime, formatLocalDate, jornadaStateLabel } from '../../shared/format'
 import { forEmployee } from '../../shared/labels'
@@ -9,7 +9,10 @@ import {
   type DaySlotNote, type LocationOutcome, type MarkOptions
 } from './employeeDay'
 
-/** Render components of the employee screen (rule 36): data and callbacks by props, no state of their own beyond ids. */
+/**
+ * Render components of the employee screen (rule 36): data and callbacks by props, no state of their own beyond ids and the
+ * refs that move the focus of an inline form.
+ */
 
 export type MarkConfirmation = { markId: string; action: MarkAction; acceptedAt: string; location: LocationOutcome | null }
 export type MarkStep = { kind: 'exit' | 'location'; action: MarkAction; text: string }
@@ -153,78 +156,122 @@ function siteZone(item: Deviation, jornadas: Jornada[], sites: Site[]) {
   return sites.find((site) => site.id === siteId)?.timeZone
 }
 
-export type MotivePanelProps = {
-  loading: boolean; loadFailed: boolean; pendingError: string; retrying: boolean; truncated: boolean; limit: number
-  items: Deviation[]; notice: string; jornadas: Jornada[]; sites: Site[]
-  values: Record<string, MotiveValues>; errors: Record<string, MotiveError>; savingId: string; editingIds: string[]
-  onChange: (id: string, patch: Partial<MotiveValues>) => void; onSubmit: (event: FormEvent, item: Deviation) => void
-  onCancel: (id: string) => void; onRetry: () => void
+/** The state of a case as the employee reads it: amber while it waits for him, dashed while it waits for his encargado (4.10). */
+const STATUS_TAGS: Record<Deviation['status'], { tone: StatusTone; icon: IconName }> = {
+  MOTIVO_PENDIENTE: { tone: 'todo', icon: 'bubble' }, PENDIENTE_REVISION: { tone: 'wait', icon: 'eye' },
+  JUSTIFICADO: { tone: 'ok', icon: 'check' }, NO_JUSTIFICADO: { tone: 'bad', icon: 'x' }
 }
 
+/** D-20261027-02: a case classified without a motive still takes its first one. */
+const canAddFirstMotive = (item: Deviation) => (item.status === 'JUSTIFICADO' || item.status === 'NO_JUSTIFICADO') && !item.category
+
+export type MotivePanelProps = {
+  loading: boolean; loadFailed: boolean; pendingError: string; retrying: boolean; truncated: boolean; limit: number
+  /** The cases of any date still waiting for a motive: each one is an open form. */
+  items: Deviation[]
+  /** The cases of the day on screen: those not pending are records with what was sent and a button to correct it. */
+  deviations: Deviation[]
+  notice: string; jornadas: Jornada[]; sites: Site[]
+  values: Record<string, MotiveValues>; errors: Record<string, MotiveError>; savingId: string; editingIds: string[]
+  onChange: (id: string, patch: Partial<MotiveValues>) => void; onSubmit: (event: FormEvent, item: Deviation) => void
+  onCancel: (id: string) => void; onRetry: () => void; onEdit: (item: Deviation) => void
+}
+
+/**
+ * «Para explicar» as one task (slice D3): what is left to explain and what was already sent, in one list. The employee is given
+ * no noun for a deviation (D-20261111-01). With nothing in it the section is one sentence.
+ */
 export function MotivePanel(props: MotivePanelProps) {
-  const { loading, loadFailed, pendingError, retrying, truncated, limit, items, notice } = props
-  return <Panel title="Para explicar"><p className="muted small-copy">Contale a tu encargado qué pasó. Podés cambiarlo hasta que lo revise. Lo que escribas solo lo ven vos y tu encargado.</p>
-    {notice && <PageMessage kind="success">{notice}</PageMessage>}
-    {!loading && !loadFailed && pendingError && <LoadFailure message={`No pudimos cargar lo que tenés para explicar. ${pendingError}`} onRetry={props.onRetry} />}
-    {!loading && !loadFailed && !retrying && truncated && <p className="muted small-copy">Te mostramos los {limit} más recientes. Cuando los completes vas a ver los anteriores.</p>}
-    {loading || retrying ? <Loading label="Cargando…" /> : loadFailed ? <Empty>No pudimos cargar lo que tenés para explicar.</Empty>
-      : items.length === 0 ? (pendingError ? null : <Empty>No tenés nada para explicar.</Empty>)
-      : <div className="motive-list">{items.map((item) => <MotiveCard key={item.id} item={item} {...props} />)}</div>}
+  const { loading, loadFailed, pendingError, retrying, truncated, limit, items, deviations, notice } = props
+  // A case of the day that still waits for its motive is among the pending ones too: it is listed once, as a form. One list
+  // keyed by case, so a case that is sent stays the same row and its button can take the focus back.
+  const rows = [
+    ...(retrying ? [] : items.map((item) => ({ item, pending: true }))),
+    ...deviations.filter((item) => !items.some((pending) => pending.id === item.id)).map((item) => ({ item, pending: false }))
+  ]
+  // The lead invites to write: it is left out when every case listed is already decided.
+  const writable = rows.some(({ item, pending }) => pending || item.status === 'PENDIENTE_REVISION' || canAddFirstMotive(item))
+  const success = notice && <PageMessage kind="success">{notice}</PageMessage>
+  return <Panel title="Para explicar">
+    {loading ? <Loading label="Cargando…" /> : loadFailed ? <Empty>No pudimos cargar lo que tenés para explicar.</Empty>
+      : !rows.length && !pendingError && !retrying ? <>{success}<Empty>No tenés nada para explicar.</Empty></>
+      : <>
+        {writable && <p className="muted small-copy">Contale a tu encargado qué pasó. Podés cambiarlo hasta que lo revise. Lo que escribas solo lo ven vos y tu encargado.</p>}
+        {success}
+        {pendingError && !retrying && <LoadFailure message={`No pudimos cargar lo que tenés para explicar. ${pendingError}`} onRetry={props.onRetry} />}
+        {retrying && <Loading label="Cargando…" />}
+        {truncated && !retrying && <p className="muted small-copy">Te mostramos los {limit} más recientes. Cuando los completes vas a ver los anteriores.</p>}
+        {rows.length > 0 && <ul className="record-list">{rows.map(({ item, pending }) => <MotiveRecord key={item.id} {...props} item={item} pending={pending} />)}</ul>}
+      </>}
   </Panel>
 }
 
-function MotiveCard({ item, jornadas, sites, values, errors, savingId, editingIds, onChange, onSubmit, onCancel }: MotivePanelProps & { item: Deviation }) {
+/** One case: its name and state, when, what happened; then the form when it is pending or opened, or what was sent. */
+function MotiveRecord(props: MotivePanelProps & { item: Deviation; pending: boolean }) {
+  const { item, pending, jornadas, sites, editingIds, onEdit } = props
+  const open = pending || editingIds.includes(item.id)
+  const zone = siteZone(item, jornadas, sites)
+  const openerRef = useRef<HTMLButtonElement>(null)
+  const formRef = useRef<HTMLFormElement>(null)
+  const wasOpen = useRef(open)
+  // An inline form takes the focus in its first field when it opens and gives it back to its button when it closes (4.7). A
+  // pending form is open from the start, so it never steals the focus; once sent it closes like an opened one.
+  useEffect(() => {
+    if (open && !wasOpen.current) (formRef.current?.querySelector<HTMLInputElement>('input:checked') ?? formRef.current?.querySelector('input'))?.focus()
+    if (!open && wasOpen.current) openerRef.current?.focus()
+    wasOpen.current = open
+  }, [open])
+  const opener = item.status === 'PENDIENTE_REVISION' ? 'Corregir motivo' : canAddFirstMotive(item) ? 'Agregar motivo' : ''
+  const summary = <div className="motive-summary">
+    <p className="record-title"><strong>{deviationName[item.type]}</strong><StatusTag {...STATUS_TAGS[item.status]}>{statusName[item.status]}</StatusTag></p>
+    <p className="record-meta">{formatDateTime(item.occurredAt ?? item.createdAt, zone)}</p>
+    <p className="motive-fact">{describeDeviation(item, jornadas.find((jornada) => jornada.id === item.jornadaId), zone)}{pending ? ' ¿Qué pasó?' : ''}</p>
+  </div>
+  if (pending) return <li className="record"><MotiveForm {...props} formRef={formRef} todo>{summary}</MotiveForm></li>
+  return <li className="record">
+    {summary}
+    {item.category && <p className="motive-said"><b>Tu explicación:</b> {categoryLabel(item.category)}{item.motiveText ? ` · ${item.motiveText}` : ''}</p>}
+    {open ? <MotiveForm {...props} formRef={formRef} />
+      : opener && <div className="record-actions"><button ref={openerRef} type="button" className="button button-secondary" onClick={() => onEdit(item)}>{opener}</button></div>}
+  </li>
+}
+
+function MotiveForm({ item, todo = false, formRef, children, values, errors, savingId, editingIds, onChange, onSubmit, onCancel }: MotivePanelProps & {
+  item: Deviation; todo?: boolean; formRef: RefObject<HTMLFormElement | null>; children?: ReactNode
+}) {
   const ids = useId()
   const value = values[item.id] ?? { category: '', text: '' }
   const error = errors[item.id]
   const saving = savingId === item.id
-  const zone = siteZone(item, jornadas, sites)
   const categoryErrorId = `${ids}-category-error`
   const textErrorId = `${ids}-text-error`
-  return <form className="motive-card" noValidate aria-busy={saving} onSubmit={(event) => onSubmit(event, item)}>
-    <div><strong>{deviationName[item.type]}</strong><span className="status-chip">{formatDateTime(item.occurredAt ?? item.createdAt, zone)}</span></div>
-    <p className="employee-motive-question">{describeDeviation(item, jornadas.find((jornada) => jornada.id === item.jornadaId), zone)} ¿Qué pasó?</p>
-    <fieldset className="field fieldset-plain" aria-describedby={error?.field === 'category' ? categoryErrorId : undefined}>
+  return <form ref={formRef} className={todo ? 'inline-form inline-form-todo' : 'inline-form'} noValidate aria-busy={saving} onSubmit={(event) => onSubmit(event, item)}>
+    {children}
+    <fieldset className="field" aria-describedby={error?.field === 'category' ? categoryErrorId : undefined}>
       <legend className="field-label">¿Qué tipo de motivo es?</legend>
-      <div className="employee-category-list">{CATEGORIES.map((category) =>
-        <label key={category.value} className="employee-category-option">
+      <div className="choice-list">{CATEGORIES.map((category) =>
+        <label key={category.value} className="choice">
           <input type="radio" name={`${ids}-category`} value={category.value} checked={value.category === category.value} onChange={() => onChange(item.id, { category: category.value })} />
-          <span><strong>{category.label}</strong>: {category.help}</span>
+          {/* The colon is only heard: the tile shows the word over its help, and its name still reads «Salud: estuviste…». */}
+          <span className="choice-text"><strong>{category.label}<span className="visually-hidden">:</span></strong> <small>{category.help}</small></span>
         </label>)}</div>
       {error?.field === 'category' && <p className="employee-field-error" id={categoryErrorId} role="alert">{error.message}</p>}
     </fieldset>
-    <FormField label="Contá qué pasó"><textarea maxLength={4000} rows={3} value={value.text} aria-invalid={error?.field === 'text' || undefined}
-      aria-describedby={error?.field === 'text' ? textErrorId : undefined} onChange={(event) => onChange(item.id, { text: event.target.value })} placeholder="Por ejemplo: hubo paro de colectivos." /></FormField>
+    <FormField label="Contá qué pasó" hint="Por ejemplo: hubo paro de colectivos."><textarea maxLength={4000} rows={3} value={value.text} aria-invalid={error?.field === 'text' || undefined}
+      aria-describedby={error?.field === 'text' ? textErrorId : undefined} onChange={(event) => onChange(item.id, { text: event.target.value })} /></FormField>
     {error?.field === 'text' && <p className="employee-field-error" id={textErrorId} role="alert">{error.message}</p>}
     {error?.field === 'form' && <PageMessage kind="error">{error.message}</PageMessage>}
     <div className="button-row">
-      <button className="button button-primary button-small" disabled={saving}>{saving ? 'Enviando…' : item.status === 'PENDIENTE_REVISION' ? 'Guardar corrección' : 'Enviar motivo'}</button>
-      {editingIds.includes(item.id) && <button type="button" className="button button-quiet button-small" disabled={saving} onClick={() => onCancel(item.id)}>Cancelar</button>}
+      <button className="button button-primary" disabled={saving}>{saving ? 'Enviando…' : item.status === 'PENDIENTE_REVISION' ? 'Guardar corrección' : 'Enviar motivo'}</button>
+      {editingIds.includes(item.id) && <button type="button" className="button button-link" disabled={saving} onClick={() => onCancel(item.id)}>Cancelar</button>}
     </div>
     {saving && <Status className="muted small-copy">Enviando lo que escribiste…</Status>}
   </form>
 }
 
-export function DeviationsPanel({ loading, loadFailed, deviations, jornadas, sites, editingIds, onEdit }: {
-  loading: boolean; loadFailed: boolean; deviations: Deviation[]; jornadas: Jornada[]; sites: Site[]; editingIds: string[]; onEdit: (item: Deviation) => void
-}) {
-  const canAddFirstMotive = (item: Deviation) => (item.status === 'JUSTIFICADO' || item.status === 'NO_JUSTIFICADO') && !item.category
-  // The employee is given no noun for a deviation (D-20261111-01). «Para explicar» is the panel above; slice D3 makes them one.
-  return <Panel title="Lo que pasó este día">{loading ? <Loading label="Cargando…" /> : loadFailed ? <Empty>No pudimos mostrar lo que pasó este día.</Empty> : deviations.length ? <div className="deviation-list">{deviations.map((item) => {
-    const zone = siteZone(item, jornadas, sites)
-    return <article className="deviation-card" key={item.id}><div className="deviation-symbol" aria-hidden="true">!</div><div className="deviation-main">
-      <div className="deviation-title"><strong>{deviationName[item.type]}</strong><span className={`status-chip status-${item.status.toLowerCase()}`}>{statusName[item.status]}</span></div>
-      <p>{describeDeviation(item, jornadas.find((jornada) => jornada.id === item.jornadaId), zone)}</p>
-      {item.category && <p className="reason-line"><b>Tu explicación:</b> {categoryLabel(item.category)}{item.motiveText ? ` · ${item.motiveText}` : ''}</p>}
-      {!editingIds.includes(item.id) && item.status === 'PENDIENTE_REVISION' && <button type="button" className="button button-quiet button-small" onClick={() => onEdit(item)}>Corregir motivo</button>}
-      {!editingIds.includes(item.id) && canAddFirstMotive(item) && <button type="button" className="button button-quiet button-small" onClick={() => onEdit(item)}>Agregar motivo</button>}
-    </div></article>
-  })}</div> : <Empty>Este día no hubo nada para explicar.</Empty>}</Panel>
-}
-
 export function OtherDayPanel({ date, disabled, onDate, onToday }: { date: string; disabled: boolean; onDate: (date: string) => void; onToday: () => void }) {
   return <Panel title="Ver otros días">
     <FormField label="Día" hint="Elegí un día para ver sus marcas."><input type="date" value={date} disabled={disabled} onChange={(event) => onDate(event.target.value)} /></FormField>
-    {date && <button type="button" className="button button-outline button-wide employee-today-button" disabled={disabled} onClick={onToday}>Volver a hoy</button>}
+    {date && <button type="button" className="button button-secondary button-wide employee-today-button" disabled={disabled} onClick={onToday}>Volver a hoy</button>}
   </Panel>
 }

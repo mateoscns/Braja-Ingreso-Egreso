@@ -269,10 +269,11 @@ const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui',
 // the same commit; nobody raises one. Slice H1 turns the four into equalities with zero.
 // Lowered in slice N4 (the old menu, the fixed alerts bar and their room went): 42 → 30, 29 → 20, 6 → 4, 48 → 31.
 // Lowered in slice E2 (the coordinates of a mark take the tokens): font sizes 20 → 19, old names 31 → 30.
-const COLOR_LITERAL_CEILING = 30
-const UNTOKENED_FONT_SIZE_CEILING = 19
+// Lowered in slice D3 (the motive cards and their question went): colours 30 → 29, font sizes 19 → 18, old names 30 → 29.
+const COLOR_LITERAL_CEILING = 29
+const UNTOKENED_FONT_SIZE_CEILING = 18
 const BOX_SHADOW_CEILING = 4
-const LEGACY_TOKEN_USE_CEILING = 30
+const LEGACY_TOKEN_USE_CEILING = 29
 
 // The old names with the values they had before the token block. A name is deleted from the stylesheet once nothing uses it
 // and never gets a new value in the meantime: a half-migrated rule must look exactly as it did.
@@ -667,7 +668,7 @@ describe('campos, casillas y opciones: una sola forma', () => {
 
     expect(chosen.selectors).toEqual([
       '.button[aria-pressed="true"]', '.choice[aria-pressed="true"]', '.choice:has(input:checked)',
-      '.journey-option[aria-pressed="true"]', '.employee-category-option:has(input:checked)'
+      '.journey-option[aria-pressed="true"]'
     ])
     expect(chosen.declarations).toMatch(/border-color:\s*var\(--brand\)/)
     expect(chosen.declarations).toMatch(/box-shadow:\s*inset 0 0 0 var\(--border-width\) var\(--brand\)/)
@@ -679,7 +680,8 @@ describe('campos, casillas y opciones: una sola forma', () => {
   it('una opción es un control con el borde, las esquinas y el alto de los tokens', () => {
     const tile = ruleListing('.choice')
 
-    expect(tile.selectors).toEqual(['.choice', '.journey-option', '.employee-category-option', '.company-choice'])
+    // Slice D3: the kinds of motive are .choice tiles, so their old name left the rule.
+    expect(tile.selectors).toEqual(['.choice', '.journey-option', '.company-choice'])
     expect(tile.declarations).toMatch(/border:\s*var\(--border-width\) solid var\(--border\)/)
     expect(tile.declarations).toMatch(/border-radius:\s*var\(--radius\)/)
     expect(tile.declarations).toMatch(/min-height:\s*var\(--target-large\)/)
@@ -702,7 +704,7 @@ describe('campos, casillas y opciones: una sola forma', () => {
   })
 
   it('las opciones van en una columna y en dos desde 600 px', () => {
-    const list = '.choice-list, .journey-picker, .employee-category-list'
+    const list = '.choice-list, .journey-picker'
 
     expect(rule(list)).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/)
     expect(rule(list, media(600, 'min'))).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
@@ -782,8 +784,9 @@ describe('mensajes, etiquetas de estado, secciones, plegables, vacío y carga', 
     const tone = (name: string) => ruleListing(`.status-${name}`)
 
     expect(tone('neutral').selectors).toEqual(['.status-neutral', '.status-no_ingreso', '.status-en_curso', '.status-pausa_abierta', '.status-egresada', '.status-cancelada'])
-    expect(tone('wait').selectors).toEqual(['.status-wait', '.status-motivo_pendiente', '.status-inactivo', '.employee-frame .status-pendiente_revision'])
-    expect(tone('todo').selectors).toEqual(['.status-todo', '.status-pendiente_revision', '.employee-frame .status-motivo_pendiente', '.first-step .status-motivo_pendiente'])
+    // Slice D3: the employee's tags are StatusTag with the employee's tone, so the two rules of his screen went.
+    expect(tone('wait').selectors).toEqual(['.status-wait', '.status-motivo_pendiente', '.status-inactivo'])
+    expect(tone('todo').selectors).toEqual(['.status-todo', '.status-pendiente_revision', '.first-step .status-motivo_pendiente'])
     expect(tone('ok').selectors).toEqual(['.status-ok', '.status-justificado'])
     expect(tone('bad').selectors).toEqual(['.status-bad', '.status-no_justificado'])
     const colours = { neutral: ['text', 'surface', 'border'], wait: ['text-muted', 'surface', 'border'], todo: ['warn', 'warn-surface', 'warn'], ok: ['ok', 'ok-surface', 'ok'], bad: ['bad', 'bad-surface', 'bad'] }
@@ -867,8 +870,8 @@ describe('listas de registros y tablas: filas separadas por una línea, nunca ta
 
   it('las filas van una debajo de la otra sin hueco: las separa su línea, no el espacio entre tarjetas', () => {
     for (const list of ['.history-list', '.simple-list', '.template-list']) expect(ruleListing(list).declarations, list).not.toMatch(/(?<![\w-])gap\s*:/)
-    // The inbox and the motives of the employee are their own slices (E1, D3): they keep their space for now.
-    expect(rule('.deviation-list, .motive-list')).toMatch(/gap:\s*10px/)
+    // The inbox is its own slice (E1): it keeps its space for now. The employee's motives are records since slice D3.
+    expect(rule('.deviation-list')).toMatch(/gap:\s*10px/)
   })
 
   it('una lista de marcas o de cambios suelta separa sus filas con la línea; dentro de un registro sus renglones van sin línea', () => {
@@ -1033,6 +1036,30 @@ describe('pantalla del empleado: el bloque de ahora y la confirmación de una ma
 
   it('las reglas del panel Marcar y del horario que había en las marcas del día se fueron con su marcado', () => {
     const gone = /\.(?:schedule-summary|schedule-icon|employee-day-state|employee-next-action|employee-more-actions|employee-exit|employee-sending|employee-step-text|employee-confirmation|employee-location-note|mark-actions)(?![\w-])/
+
+    expect(allSelectors().filter((selector) => gone.test(selector))).toEqual([])
+  })
+})
+
+// Slice D3 (design system 4.5 and 4.7): «Para explicar» is a list of records; a motive still to write is an inline form with the
+// amber bar of a task that waits for the person reading, and the kinds of motive are the option tiles of the system.
+describe('pantalla del empleado: Para explicar', () => {
+  it('un motivo por escribir lleva la barra ámbar del formulario en su lugar y ocupa todo su renglón', () => {
+    expect(rule('.inline-form-todo')).toMatch(/border-left-color:\s*var\(--warn\)/)
+    expect(rule('.record > .inline-form:first-child')).toMatch(/margin-top:\s*0/)
+    // What was sent hangs from a hairline, not from a tinted box.
+    const said = rule('.motive-said')
+    expect(said).toMatch(/border-left:\s*var\(--border-width-strong\) solid var\(--rule\)/)
+    expect(said).not.toMatch(/background|border-radius/)
+  })
+
+  it('el título y la ayuda de una opción van uno debajo del otro, la ayuda en el color apagado', () => {
+    expect(rule('.choice-text')).toMatch(/display:\s*grid/)
+    expect(rule('.choice small, .journey-option small')).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
+  })
+
+  it('las tarjetas de motivos, sus opciones propias y su pregunta se fueron con su marcado', () => {
+    const gone = /\.(?:motive-card|motive-list|employee-motive-question|employee-category-option|employee-category-list)(?![\w-])/
 
     expect(allSelectors().filter((selector) => gone.test(selector))).toEqual([])
   })
