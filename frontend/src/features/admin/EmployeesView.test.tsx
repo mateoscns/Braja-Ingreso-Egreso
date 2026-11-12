@@ -396,3 +396,81 @@ describe('«Equipo»: where the focus goes when a form of a person opens and clo
     await waitFor(() => expect(screen.getByRole('button', { name: 'Horarios de Lucía Pérez' })).toHaveFocus())
   })
 })
+
+// Slice F2b (design system 4.3 and 4.7; finding F-09): the forms of «Equipo» are checked on submit, each error under its field.
+describe('Empleados: one validation style', () => {
+  const norte = { id: 's-2', name: 'Local Norte', timeZone: 'America/Argentina/Buenos_Aires' }
+  const createButton = () => screen.getByRole('button', { name: 'Crear empleado' })
+
+  it('an empty add form explains each field, sums it up above the button and focuses the first field', async () => {
+    const previous = apiMocks.get.getMockImplementation()!
+    apiMocks.get.mockImplementation((path: string) => path === '/sites' ? Promise.resolve([site, norte]) : previous(path))
+    render(<EmployeesView />)
+    await screen.findByRole('checkbox', { name: 'Local Norte' })
+    const form = createButton().closest('form')!
+    expect(form).toHaveAttribute('novalidate')
+    expect(createButton()).toBeEnabled()
+    fireEvent.click(createButton())
+
+    const name = screen.getByLabelText('Nombre y apellido')
+    expect(name).toHaveAttribute('aria-invalid', 'true')
+    expect(name).toHaveAccessibleDescription('Escribí el nombre y apellido.')
+    expect(screen.getByLabelText('DNI')).toHaveAccessibleDescription('Escribí el DNI.')
+    const sites = screen.getByRole('group', { name: 'Locales donde trabaja' })
+    expect(sites).toHaveAttribute('aria-invalid', 'true')
+    expect(sites).toHaveAccessibleDescription('Marcá al menos un local para crear el empleado.')
+    const summary = within(form).getByRole('alert')
+    expect(summary).toHaveTextContent('Revisá lo que está marcado debajo de cada campo.')
+    expect(summary.compareDocumentPosition(createButton()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    await waitFor(() => expect(name).toHaveFocus())
+    expect(apiMocks.post).not.toHaveBeenCalled()
+  })
+
+  it('checks the DNI length, the tolerance and a short temporary password before sending', async () => {
+    render(<EmployeesView />)
+    await waitFor(async () => expect(await screen.findByRole('checkbox', { name: 'Local Centro' })).toBeChecked())
+    fireEvent.change(screen.getByLabelText('Nombre y apellido'), { target: { value: 'Ana Gómez' } })
+    fireEvent.change(screen.getByLabelText('DNI'), { target: { value: '301' } })
+    fireEvent.change(screen.getByLabelText('Minutos de tolerancia'), { target: { value: '300' } })
+    fireEvent.change(screen.getByLabelText(/Contraseña provisoria/), { target: { value: 'corta' } })
+    fireEvent.click(createButton())
+
+    const dni = screen.getByLabelText('DNI')
+    expect(dni).toHaveAccessibleDescription('El DNI tiene que tener de 7 a 12 números.')
+    expect(screen.getByLabelText('Minutos de tolerancia')).toHaveAccessibleDescription(expect.stringContaining('Poné un número de 0 a 240.'))
+    expect(screen.getByLabelText(/Contraseña provisoria/)).toHaveAccessibleDescription(expect.stringContaining('La contraseña provisoria tiene que tener al menos 12 caracteres.'))
+    await waitFor(() => expect(dni).toHaveFocus())
+    expect(apiMocks.post).not.toHaveBeenCalled()
+  })
+
+  it('a refused add shows the server message inside the form, above its button, and takes the focus there', async () => {
+    apiMocks.post.mockReset()
+    apiMocks.post.mockRejectedValueOnce(new Error('Ese DNI ya está en esta empresa.'))
+    render(<EmployeesView />)
+    await waitFor(async () => expect(await screen.findByRole('checkbox', { name: 'Local Centro' })).toBeChecked())
+    fireEvent.change(screen.getByLabelText('Nombre y apellido'), { target: { value: 'Ana Gómez' } })
+    fireEvent.change(screen.getByLabelText('DNI'), { target: { value: '30111222' } })
+    // Taken before the click: the button reads «Guardando…» while the request runs.
+    const form = createButton().closest('form')!
+    fireEvent.click(createButton())
+
+    const failure = await within(form).findByRole('alert')
+    expect(failure).toHaveTextContent('Ese DNI ya está en esta empresa.')
+    await waitFor(() => expect(failure).toHaveFocus())
+  })
+
+  it('an edit without locals explains it on the group and keeps «Guardar» enabled', async () => {
+    render(<EmployeesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Editar empleado Lucía Pérez' }))
+    const form = screen.getByRole('form', { name: 'Editar empleado Lucía Pérez' })
+    fireEvent.click(within(form).getByRole('checkbox', { name: 'Local Centro (DNI 30123456)' }))
+    const save = within(form).getByRole('button', { name: 'Guardar' })
+    expect(save).toBeEnabled()
+    fireEvent.click(save)
+
+    const sites = within(form).getByRole('group', { name: 'Locales donde trabaja' })
+    expect(sites).toHaveAccessibleDescription('Marcá al menos un local.')
+    await waitFor(() => expect(within(form).getByRole('checkbox', { name: 'Local Centro (DNI 30123456)' })).toHaveFocus())
+    expect(apiMocks.patch).not.toHaveBeenCalled()
+  })
+})

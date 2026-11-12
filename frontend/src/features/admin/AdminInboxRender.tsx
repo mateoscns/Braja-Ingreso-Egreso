@@ -4,6 +4,7 @@
 import { type ReactNode } from 'react'
 import { Icon, type IconName } from '../../app/icons'
 import { Empty, FormField, LoadFailure, Loading, PageMessage, Panel, StatusTag, type StatusTone } from '../../app/ui'
+import type { FieldErrors } from '../../app/useFieldErrors'
 import type { Deviation, Employee, Site } from '../../shared/api/types'
 import { formatLocalDate } from '../../shared/format'
 import { adminCategoryName as categoryName, adminDeviationName as deviationName, adminDeviationStatusName as statusName, adminMarkName as actionName } from '../../shared/labels'
@@ -13,6 +14,8 @@ export type DeviationClassification = 'JUSTIFICADO' | 'NO_JUSTIFICADO'
 
 export type InboxFilterValues = { employeeId: string; siteId: string; from: string; to: string }
 export const EMPTY_INBOX_FILTERS: InboxFilterValues = { employeeId: '', siteId: '', from: '', to: '' }
+/** The filter form, where the focus goes when its dates are wrong. */
+export const INBOX_FILTERS_ID = 'inbox-filters'
 
 type Correction = { deviationId: string; classification: DeviationClassification } | null
 /** A decision the server refused: its message goes inside the row of that case, not at the top of the page. */
@@ -42,25 +45,28 @@ function inboxFilterSummary(applied: InboxFilterValues, employees: Employee[], s
   return `Filtros: ${parts.length ? parts.join(' · ') : 'todos'}`
 }
 
-export function AdminInboxRender({ narrow = false, appliedFilters = EMPTY_INBOX_FILTERS, coverage, onOpenJornada, items, employees, sites, filters, filterError, filtered, onFiltersChange, onApplyFilters, onClearFilters, timeZones, nextCursor, loading, inboxLoadError, timeZoneLoadError, error, notice, busy, correction, correctionReason, targetDeviation, failedDecision = null, onReload, onClassify, onRetry, onLoadMore, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
+export function AdminInboxRender({ narrow = false, appliedFilters = EMPTY_INBOX_FILTERS, coverage, onOpenJornada, items, employees, sites, filters, filterErrors = {}, filtered, onFiltersChange, onApplyFilters, onClearFilters, timeZones, nextCursor, loading, inboxLoadError, timeZoneLoadError, error, notice, busy, correction, correctionReason, correctionError, targetDeviation, failedDecision = null, onReload, onClassify, onRetry, onLoadMore, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
   /** Phone width: the filters fold under one line that says which ones are applied, so the first case is in sight. */
   narrow?: boolean; appliedFilters?: InboxFilterValues
   /** The notice of days loaded (CoverageNotice) and the way to a deviation's jornada, both given by AdminApp. */
   coverage?: ReactNode; onOpenJornada?: (item: Deviation) => void
-  items: Deviation[]; employees: Employee[]; sites: Site[]; filters: InboxFilterValues; filterError: string; filtered: boolean
+  items: Deviation[]; employees: Employee[]; sites: Site[]; filters: InboxFilterValues; filtered: boolean
+  /** A wrong range of dates, under the date to change (dateRangeErrors). */
+  filterErrors?: FieldErrors<'from' | 'to'>
+  /** The reason of a correction sent empty. */
+  correctionError?: string
   onFiltersChange: (patch: Partial<InboxFilterValues>) => void; onApplyFilters: () => void; onClearFilters: () => void
   timeZones: Map<string, string>; nextCursor: string | null; loading: boolean; inboxLoadError: string; timeZoneLoadError: string
   error: string; notice: string; busy: string; correction: Correction; correctionReason: string; targetDeviation: string; failedDecision?: FailedDecision
   onReload: () => void; onClassify: (item: Deviation, classification: DeviationClassification) => void; onRetry: () => void; onLoadMore: () => void
   onCorrectionReasonChange: (reason: string) => void; onSubmitCorrection: (item: Deviation) => void; onCancelCorrection: () => void
 }) {
-  const filterForm = <form className="filter-bar" aria-label="Filtros de los casos" noValidate onSubmit={(event) => { event.preventDefault(); onApplyFilters() }}>
+  const filterForm = <form id={INBOX_FILTERS_ID} className="filter-bar" aria-label="Filtros de los casos" noValidate onSubmit={(event) => { event.preventDefault(); onApplyFilters() }}>
     <FormField label="Empleado"><select value={filters.employeeId} onChange={(event) => onFiltersChange({ employeeId: event.target.value })}><option value="">Todos</option>{employees.map((person) => <option key={person.id} value={person.id}>{person.displayName}</option>)}</select></FormField>
     <FormField label="Local"><select value={filters.siteId} onChange={(event) => onFiltersChange({ siteId: event.target.value })}><option value="">Todos</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></FormField>
-    <FormField label="Desde"><input type="date" value={filters.from} onChange={(event) => onFiltersChange({ from: event.target.value })} /></FormField>
-    <FormField label="Hasta"><input type="date" value={filters.to} onChange={(event) => onFiltersChange({ to: event.target.value })} /></FormField>
+    <FormField label="Desde" error={filterErrors.from}><input type="date" value={filters.from} onChange={(event) => onFiltersChange({ from: event.target.value })} /></FormField>
+    <FormField label="Hasta" error={filterErrors.to}><input type="date" value={filters.to} onChange={(event) => onFiltersChange({ to: event.target.value })} /></FormField>
     <div className="button-row"><button className="button button-primary" disabled={loading}>Aplicar</button><button type="button" className="button button-secondary" disabled={loading} onClick={onClearFilters}>Limpiar</button></div>
-    {filterError && <div className="filter-error"><PageMessage kind="error">{filterError}</PageMessage></div>}
   </form>
   return <>
     <div className="page-title-row"><div><h1 tabIndex={-1}>Para revisar</h1><p className="muted">Revisá motivos y resolvé cada caso. Los avisos no incluyen datos privados.</p></div><button className="button button-secondary" disabled={loading} onClick={onReload}>{loading ? 'Actualizando…' : 'Actualizar'}</button></div>
@@ -72,7 +78,7 @@ export function AdminInboxRender({ narrow = false, appliedFilters = EMPTY_INBOX_
     {narrow ? <details className="fold filter-fold"><summary>{inboxFilterSummary(appliedFilters, employees, sites)}</summary>{filterForm}</details> : filterForm}
     <Panel title="Casos recientes">{inboxLoadError ? <LoadFailure message={inboxLoadError} onRetry={onRetry} /> : <>
       <DeviationList items={items} onOpenJornada={onOpenJornada} filtered={filtered} loading={loading} busy={busy} onClassify={onClassify} targetId={targetDeviation} timeZones={timeZones}
-        correction={correction} correctionReason={correctionReason} failedDecision={failedDecision} onCorrectionReasonChange={onCorrectionReasonChange}
+        correction={correction} correctionReason={correctionReason} correctionError={correctionError} failedDecision={failedDecision} onCorrectionReasonChange={onCorrectionReasonChange}
         onSubmitCorrection={onSubmitCorrection} onCancelCorrection={onCancelCorrection} />
       {nextCursor && <div className="button-row case-more"><button className="button button-secondary" disabled={busy === 'page'} onClick={onLoadMore}>{busy === 'page' ? 'Cargando…' : 'Cargar anteriores'}</button></div>}
     </>}
@@ -80,9 +86,9 @@ export function AdminInboxRender({ narrow = false, appliedFilters = EMPTY_INBOX_
   </>
 }
 
-function DeviationList({ items, onOpenJornada, filtered, loading, busy, onClassify, targetId, timeZones, correction, correctionReason, failedDecision, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
+function DeviationList({ items, onOpenJornada, filtered, loading, busy, onClassify, targetId, timeZones, correction, correctionReason, correctionError, failedDecision, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
   items: Deviation[]; onOpenJornada?: (item: Deviation) => void; filtered: boolean; loading: boolean; busy: string; onClassify: (item: Deviation, classification: DeviationClassification) => void
-  targetId: string; timeZones: Map<string, string>; correction: Correction; correctionReason: string; failedDecision: FailedDecision
+  targetId: string; timeZones: Map<string, string>; correction: Correction; correctionReason: string; correctionError?: string; failedDecision: FailedDecision
   onCorrectionReasonChange: (reason: string) => void; onSubmitCorrection: (item: Deviation) => void; onCancelCorrection: () => void
 }) {
   if (loading) return <Loading label="Cargando casos…" />
@@ -114,10 +120,10 @@ function DeviationList({ items, onOpenJornada, filtered, loading, busy, onClassi
           item.status === 'NO_JUSTIFICADO' ? decide('JUSTIFICADO', 'Corregir a justificado', undefined, caseCorrectButtonId(item.id)) :
             <div className="button-pair" role="group" aria-label={`Decidir el caso de ${named || 'la persona'}`}>{decide('JUSTIFICADO', 'Justificado', 'check')}{decide('NO_JUSTIFICADO', 'No justificado', 'x')}</div>}
       </div>
-      {correcting && <form id={caseCorrectionFormId(item.id)} className="inline-form" onSubmit={(event) => { event.preventDefault(); onSubmitCorrection(item) }}>
-        <FormField label="Motivo de corrección"><textarea required maxLength={2000} value={correctionReason} onChange={(event) => onCorrectionReasonChange(event.target.value)} /></FormField>
+      {correcting && <form id={caseCorrectionFormId(item.id)} className="inline-form" noValidate onSubmit={(event) => { event.preventDefault(); onSubmitCorrection(item) }}>
+        <FormField label="Motivo de corrección" error={correctionError}><textarea required maxLength={2000} value={correctionReason} onChange={(event) => onCorrectionReasonChange(event.target.value)} /></FormField>
         {failure}
-        <div className="button-row"><button className="button button-primary" disabled={saving || !correctionReason.trim()}>{saving ? 'Guardando…' : 'Guardar corrección'}</button><button type="button" className="button button-link" disabled={saving} onClick={onCancelCorrection}>Cancelar</button></div>
+        <div className="button-row"><button className="button button-primary" disabled={saving}>{saving ? 'Guardando…' : 'Guardar corrección'}</button><button type="button" className="button button-link" disabled={saving} onClick={onCancelCorrection}>Cancelar</button></div>
       </form>}
       {!correcting && failure}
     </li>

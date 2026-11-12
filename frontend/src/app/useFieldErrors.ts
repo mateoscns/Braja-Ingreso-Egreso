@@ -10,7 +10,8 @@ export type FieldErrors<Field extends string> = Partial<Record<Field, string>>
 
 /** A control that Tab reaches now: not disabled and not inside a closed fold. */
 function usable(control: HTMLElement): boolean {
-  return !(control as HTMLInputElement).disabled && !control.closest('details:not([open])')
+  // :disabled also covers a control inside a disabled fieldset, whose own disabled property stays false.
+  return !control.matches(':disabled') && !control.closest('details:not([open])')
 }
 
 /**

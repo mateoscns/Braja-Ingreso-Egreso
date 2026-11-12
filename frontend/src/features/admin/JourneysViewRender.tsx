@@ -5,6 +5,7 @@
 import { Fragment, type FormEvent, type ReactNode } from 'react'
 import { Icon, type IconName } from '../../app/icons'
 import { Empty, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel, StatusTag } from '../../app/ui'
+import type { FieldErrors } from '../../app/useFieldErrors'
 import type { Deviation, Jornada, JornadaAudit, JornadaAuditEntry, JornadaStatus, Mark, MarkAction, Site } from '../../shared/api/types'
 import { adminCategoryName as categoryName, adminDeviationName as deviationName, adminDeviationStatusName as statusName, adminMarkLocationName as locationName, adminMarkName as actionName } from '../../shared/labels'
 import { dateTime, stateLabel } from './adminRenderShared'
@@ -20,6 +21,8 @@ export const DETAIL_HEADING_ID = 'jornada-detail-title'
 export const FORGOTTEN_FORM_ID = 'jornada-forgotten-mark-form'
 export const CANCEL_FORM_ID = 'jornada-cancel-form'
 export const CANCEL_BUTTON_ID = 'jornada-cancel-button'
+/** The message that the local's zone could not be read: it is the reason of the buttons that need a typed time. */
+const ZONE_MISSING_ID = 'jornada-zone-missing'
 export type MarkFormKind = 'correct' | 'void'
 export const markFormId = (kind: MarkFormKind, markId: string) => `mark-${markId}-${kind}-form`
 export const markButtonId = (kind: MarkFormKind, markId: string) => `mark-${markId}-${kind}-button`
@@ -46,7 +49,7 @@ function journeysTitle(date: string) {
   return `Días de trabajo del ${formattedDate}`
 }
 
-export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas, loading, journeysLoading, journeysDate, journeysError, dependencyError, error, notice, messageAt, detail, detailFor, detailLoading, markBusy, date, dateError, peopleById, detailSite, detailTimeZone, forgotAction, forgotOccurredAt, forgotReason, editingMarkId, correctedAction, correctedOccurredAt, correctionReason, cancelOpen, cancelReason, voidingMarkId, voidReason, auditOpen, audit, auditLoading, auditError, onToggleAudit, onRetryAudit, onDateChange, onRetryDependencies, onReloadJourneys, onShowDetail, onForgotActionChange, onForgotOccurredAtChange, onForgotReasonChange, onAddForgottenMark, onBeginMarkCorrection, onCorrectedActionChange, onCorrectedOccurredAtChange, onCorrectionReasonChange, onCorrectMark, onCancelMarkCorrection, onBeginCancel, onCancelReasonChange, onConfirmCancel, onAbortCancel, onBeginVoid, onVoidReasonChange, onConfirmVoid, onAbortVoid }: {
+export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas, loading, journeysLoading, journeysDate, journeysError, dependencyError, error, notice, messageAt, detail, detailFor, detailLoading, markBusy, date, dateError, peopleById, detailSite, detailTimeZone, forgotAction, forgotOccurredAt, forgotReason, editingMarkId, correctedAction, correctedOccurredAt, correctionReason, cancelOpen, cancelReason, voidingMarkId, voidReason, forgottenErrors = {}, correctionErrors = {}, voidError, cancelError, auditOpen, audit, auditLoading, auditError, onToggleAudit, onRetryAudit, onDateChange, onRetryDependencies, onReloadJourneys, onShowDetail, onForgotActionChange, onForgotOccurredAtChange, onForgotReasonChange, onAddForgottenMark, onBeginMarkCorrection, onCorrectedActionChange, onCorrectedOccurredAtChange, onCorrectionReasonChange, onCorrectMark, onCancelMarkCorrection, onBeginCancel, onCancelReasonChange, onConfirmCancel, onAbortCancel, onBeginVoid, onVoidReasonChange, onConfirmVoid, onAbortVoid }: {
   /** The search of earlier days (AdminHistory), a fold under the list of the date. */
   daySearch?: ReactNode
   /** Under 768 px: the days and the marks of a day are lists instead of tables. */
@@ -65,6 +68,8 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
   onBeginMarkCorrection: (mark: Mark) => void; onCorrectedActionChange: (value: MarkAction) => void; onCorrectedOccurredAtChange: (value: string) => void; onCorrectionReasonChange: (value: string) => void
   onCorrectMark: (event: FormEvent<HTMLFormElement>, mark: Mark) => void; onCancelMarkCorrection: () => void
   cancelOpen: boolean; cancelReason: string; voidingMarkId: string; voidReason: string
+  /** What each form found wrong on submit, under its field. */
+  forgottenErrors?: FieldErrors<'occurredAt' | 'reason'>; correctionErrors?: FieldErrors<'occurredAt' | 'reason'>; voidError?: string; cancelError?: string
   onBeginCancel: () => void; onCancelReasonChange: (value: string) => void; onConfirmCancel: (event: FormEvent<HTMLFormElement>) => void; onAbortCancel: () => void
   onBeginVoid: (mark: Mark) => void; onVoidReasonChange: (value: string) => void; onConfirmVoid: (event: FormEvent<HTMLFormElement>, mark: Mark) => void; onAbortVoid: () => void
   auditOpen: boolean; audit: JornadaAudit | null; auditLoading: boolean; auditError: string; onToggleAudit: () => void; onRetryAudit: () => void
@@ -76,20 +81,22 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
   const recordedTime = (mark: Mark) => dateTime(mark.recordedAt ?? mark.acceptedAt, detailTimeZone)
   const markLocation = (mark: Mark) => <>{locationName(mark.locationStatus)}{typeof mark.latitude === 'number' && typeof mark.longitude === 'number' && <span className="mark-coordinates">{`${mark.latitude.toFixed(5)}, ${mark.longitude.toFixed(5)}`}</span>}</>
   // Correcting changes the mark (secondary); voiding takes it out of the day (the one danger style, outlined).
-  const markButtons = (mark: Mark, className: string) => <div className={className}><button id={markButtonId('correct', mark.id)} className="button button-secondary" aria-label={`Corregir marca ${actionName(mark.action)} de ${markTime(mark)}`} disabled={markBusy !== '' || !detailTimeZone} onClick={() => onBeginMarkCorrection(mark)}>Corregir</button><button id={markButtonId('void', mark.id)} className="button button-danger" aria-label={`Anular marca ${actionName(mark.action)} de ${markTime(mark)}`} disabled={markBusy !== ''} onClick={() => onBeginVoid(mark)}>Anular</button></div>
+  // Without the local's zone a time cannot be typed: the buttons that need one say why, with the message above the marks.
+  const zoneReason = detailTimeZone ? undefined : ZONE_MISSING_ID
+  const markButtons = (mark: Mark, className: string) => <div className={className}><button id={markButtonId('correct', mark.id)} className="button button-secondary" aria-label={`Corregir marca ${actionName(mark.action)} de ${markTime(mark)}`} aria-describedby={zoneReason} disabled={markBusy !== '' || !detailTimeZone} onClick={() => onBeginMarkCorrection(mark)}>Corregir</button><button id={markButtonId('void', mark.id)} className="button button-danger" aria-label={`Anular marca ${actionName(mark.action)} de ${markTime(mark)}`} disabled={markBusy !== ''} onClick={() => onBeginVoid(mark)}>Anular</button></div>
   const voidedNote = (mark: Mark) => `${mark.voidedAt ? `Anulada el ${dateTime(mark.voidedAt, detailTimeZone)}` : 'Anulada'}${mark.voidReason ? ` · ${mark.voidReason}` : ''}`
   // Backing out of a form is a link button: it never borrows the look, or the word, of the action it backs out of.
-  const voidForm = (mark: Mark) => <form id={markFormId('void', mark.id)} className="inline-form" aria-label={`Anular la marca ${actionName(mark.action)} de ${markTime(mark)}`} onSubmit={(event) => onConfirmVoid(event, mark)}>
-    <FormField label="Motivo de anulación" hint={`La marca no se borra: queda visible como anulada, con tu nombre, la hora y este motivo, y deja de contar para el día y los casos. ${HEALTH_DATA_HINT}`}><textarea required maxLength={2000} value={voidReason} onChange={(event) => onVoidReasonChange(event.target.value)} /></FormField>
+  const voidForm = (mark: Mark) => <form id={markFormId('void', mark.id)} className="inline-form" aria-label={`Anular la marca ${actionName(mark.action)} de ${markTime(mark)}`} noValidate onSubmit={(event) => onConfirmVoid(event, mark)}>
+    <FormField label="Motivo de anulación" hint={`La marca no se borra: queda visible como anulada, con tu nombre, la hora y este motivo, y deja de contar para el día y los casos. ${HEALTH_DATA_HINT}`} error={voidError}><textarea required maxLength={2000} value={voidReason} onChange={(event) => onVoidReasonChange(event.target.value)} /></FormField>
     {messagesAt(markMessageKey('void', mark.id))}
-    <div className="button-row"><button className="button button-danger" disabled={markBusy === mark.id || !voidReason.trim()}>{markBusy === mark.id ? 'Anulando…' : 'Confirmar anulación'}</button><button type="button" className="button button-link" disabled={markBusy === mark.id} onClick={onAbortVoid}>Volver</button></div>
+    <div className="button-row"><button className="button button-danger" disabled={markBusy === mark.id}>{markBusy === mark.id ? 'Anulando…' : 'Confirmar anulación'}</button><button type="button" className="button button-link" disabled={markBusy === mark.id} onClick={onAbortVoid}>Volver</button></div>
   </form>
-  const correctionForm = (mark: Mark) => <form id={markFormId('correct', mark.id)} className="inline-form" aria-label={`Corregir la marca ${actionName(mark.action)} de ${markTime(mark)}`} onSubmit={(event) => onCorrectMark(event, mark)}>
+  const correctionForm = (mark: Mark) => <form id={markFormId('correct', mark.id)} className="inline-form" aria-label={`Corregir la marca ${actionName(mark.action)} de ${markTime(mark)}`} noValidate onSubmit={(event) => onCorrectMark(event, mark)}>
     <FormField label="Tipo de marca corregida"><select value={correctedAction} onChange={(event) => onCorrectedActionChange(event.target.value as MarkAction)}>{MARK_ACTIONS.map((action) => <option key={action} value={action}>{actionName(action)}</option>)}</select></FormField>
-    <FormField label={`Hora corregida (${detailSite?.name ?? 'zona horaria del local'})`}><input type="datetime-local" required value={correctedOccurredAt} onChange={(event) => onCorrectedOccurredAtChange(event.target.value)} /></FormField>
-    <FormField label="Motivo de corrección de marca"><textarea required maxLength={2000} value={correctionReason} onChange={(event) => onCorrectionReasonChange(event.target.value)} /></FormField>
+    <FormField label={`Hora corregida (${detailSite?.name ?? 'zona horaria del local'})`} error={correctionErrors.occurredAt}><input type="datetime-local" required value={correctedOccurredAt} onChange={(event) => onCorrectedOccurredAtChange(event.target.value)} /></FormField>
+    <FormField label="Motivo de corrección de marca" error={correctionErrors.reason}><textarea required maxLength={2000} value={correctionReason} onChange={(event) => onCorrectionReasonChange(event.target.value)} /></FormField>
     {messagesAt(markMessageKey('correct', mark.id))}
-    <div className="button-row"><button className="button button-primary" disabled={markBusy === mark.id || !correctionReason.trim()}>{markBusy === mark.id ? 'Guardando…' : 'Guardar corrección de marca'}</button><button type="button" className="button button-link" disabled={markBusy === mark.id} onClick={onCancelMarkCorrection}>Cancelar</button></div>
+    <div className="button-row"><button className="button button-primary" disabled={markBusy === mark.id}>{markBusy === mark.id ? 'Guardando…' : 'Guardar corrección de marca'}</button><button type="button" className="button button-link" disabled={markBusy === mark.id} onClick={onCancelMarkCorrection}>Cancelar</button></div>
   </form>
   /** What opens under a mark: its open form, or else the result of the form that closed on it. */
   const underMark = (mark: Mark) => mark.voided ? messagesAt(markMessageKey('void', mark.id))
@@ -110,12 +117,12 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
     return <section id={DETAIL_ID} className="panel day-detail" aria-labelledby={DETAIL_HEADING_ID}>
       <div className="panel-heading"><h2 id={DETAIL_HEADING_ID} tabIndex={-1}>{`Marcas de ${peopleById.get(detail.employeeId) ?? 'empleado'}`}</h2></div>
       <p className="muted">Horario asignado: {detail.scheduleSnapshot.name} · tolerancia {detail.toleranceMinutes} min</p>
-      {!detailTimeZone && <PageMessage kind="error">No se pudo cargar la zona horaria del local. Reintentá los datos del día antes de incorporar o corregir marcas.</PageMessage>}
+      {!detailTimeZone && <div id={ZONE_MISSING_ID}><PageMessage kind="error">No se pudo cargar la zona horaria del local. Reintentá los datos del día antes de incorporar o corregir marcas.</PageMessage></div>}
       {detail.state === 'CANCELADA' && <PageMessage>Día cancelado el {dateTime(detail.cancelledAt ?? '', detailTimeZone)}.{detail.cancelReason ? ` Motivo: ${detail.cancelReason}` : ''}</PageMessage>}
-      {cancellable && cancelOpen ? <form id={CANCEL_FORM_ID} className="inline-form" onSubmit={onConfirmCancel}>
-        <FormField label="Motivo de cancelación" hint={`El día queda cancelado con tu nombre, la hora y este motivo; sus casos se cierran y podés volver a cargarlo. ${HEALTH_DATA_HINT}`}><textarea required maxLength={2000} value={cancelReason} onChange={(event) => onCancelReasonChange(event.target.value)} /></FormField>
+      {cancellable && cancelOpen ? <form id={CANCEL_FORM_ID} className="inline-form" noValidate onSubmit={onConfirmCancel}>
+        <FormField label="Motivo de cancelación" hint={`El día queda cancelado con tu nombre, la hora y este motivo; sus casos se cierran y podés volver a cargarlo. ${HEALTH_DATA_HINT}`} error={cancelError}><textarea required maxLength={2000} value={cancelReason} onChange={(event) => onCancelReasonChange(event.target.value)} /></FormField>
         {messagesAt('cancel')}
-        <div className="button-row"><button className="button button-danger" disabled={markBusy !== '' || !cancelReason.trim()}>{markBusy === 'cancel' ? 'Cancelando…' : 'Confirmar cancelación'}</button><button type="button" className="button button-link" disabled={markBusy === 'cancel'} onClick={onAbortCancel}>Volver</button></div>
+        <div className="button-row"><button className="button button-danger" disabled={markBusy !== ''}>{markBusy === 'cancel' ? 'Cancelando…' : 'Confirmar cancelación'}</button><button type="button" className="button button-link" disabled={markBusy === 'cancel'} onClick={onAbortCancel}>Volver</button></div>
       </form> : <>{messagesAt('cancel')}{cancellable && <div className="button-row"><button id={CANCEL_BUTTON_ID} type="button" className="button button-danger" disabled={markBusy !== ''} onClick={onBeginCancel}>Cancelar el día</button></div>}</>}
       {!detail.marks.length ? <Empty>{detail.state === 'CANCELADA' ? 'Este día fue cancelado y no tiene marcas.' : 'Este día todavía no tiene marcas.'}</Empty>
         : narrow ? <ul className="record-list" aria-label="Marcas del día">{detail.marks.map((mark) => <li key={mark.id} className={mark.voided ? 'record record-voided' : 'record'}>
@@ -134,13 +141,13 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
             {/* The form of a mark, or its result, in a full-width row right under it (design system 4.12). */}
             {under && <tr><td colSpan={5}>{under}</td></tr>}</Fragment>
         })}</tbody></table></div>}
-      {detail.state !== 'CANCELADA' && <form id={FORGOTTEN_FORM_ID} className="inline-form" onSubmit={onAddForgottenMark}><fieldset className="form-grid fieldset-plain" disabled={!detailTimeZone}>
+      {detail.state !== 'CANCELADA' && <form id={FORGOTTEN_FORM_ID} className="inline-form" noValidate onSubmit={onAddForgottenMark}><fieldset className="form-grid fieldset-plain" disabled={!detailTimeZone}>
         <div className="field-wide"><h3>Agregar una marca que faltó</h3><p className="field-hint">Escribí la hora de {detailSite?.name ?? 'el local'}. Queda guardado que la agregaste vos y por qué.</p></div>
         <FormField label="¿Qué marca faltó?"><select value={forgotAction} onChange={(event) => onForgotActionChange(event.target.value as MarkAction)}>{MARK_ACTIONS.map((action) => <option key={action} value={action}>{actionName(action)}</option>)}</select></FormField>
-        <FormField label={`Hora (${detailSite?.name ?? 'local'})`}><input type="datetime-local" required value={forgotOccurredAt} onChange={(event) => onForgotOccurredAtChange(event.target.value)} /></FormField>
-        <FormField label="¿Por qué la agregás?"><textarea required maxLength={2000} value={forgotReason} onChange={(event) => onForgotReasonChange(event.target.value)} /></FormField>
+        <FormField label={`Hora (${detailSite?.name ?? 'local'})`} error={forgottenErrors.occurredAt}><input type="datetime-local" required value={forgotOccurredAt} onChange={(event) => onForgotOccurredAtChange(event.target.value)} /></FormField>
+        <FormField label="¿Por qué la agregás?" error={forgottenErrors.reason}><textarea required maxLength={2000} value={forgotReason} onChange={(event) => onForgotReasonChange(event.target.value)} /></FormField>
         {forgottenMessages && <div className="field-wide">{forgottenMessages}</div>}
-        <div className="field-wide"><button className="button button-primary" disabled={markBusy !== '' || !forgotReason.trim()}>{markBusy === 'forgotten' ? 'Guardando…' : 'Agregar marca'}</button></div>
+        <div className="field-wide"><button className="button button-primary" aria-describedby={zoneReason} disabled={markBusy !== ''}>{markBusy === 'forgotten' ? 'Guardando…' : 'Agregar marca'}</button></div>
       </fieldset></form>}
       <JornadaAuditSection open={auditOpen} audit={audit} loading={auditLoading} error={auditError} onToggle={onToggleAudit} onRetry={onRetryAudit} />
     </section>
@@ -151,7 +158,7 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
     {/* Written out instead of Panel: its title names the table, or the list on a phone. */}
     <section className="panel" aria-labelledby={LIST_HEADING_ID}>
       <div className="panel-heading"><h2 id={LIST_HEADING_ID}>{journeysTitle(date)}</h2><button className="button button-secondary" disabled={journeysLoading} onClick={onReloadJourneys}><Icon name="refresh" />{journeysLoading ? 'Actualizando…' : 'Actualizar'}</button></div>
-      <div className="toolbar"><FormField label="Fecha" hint={dateError || undefined}><input type="date" required aria-invalid={Boolean(dateError)} disabled={loading} value={date} onChange={(event) => onDateChange(event.target.value)} /></FormField></div>
+      <div className="toolbar"><FormField label="Fecha" error={dateError}><input type="date" required disabled={loading} value={date} onChange={(event) => onDateChange(event.target.value)} /></FormField></div>
       {!date ? <Empty>{dateError}</Empty> : loading || journeysLoading || journeysDate !== date ? <Loading label={loading || !journeysDate ? 'Cargando días…' : 'Actualizando días…'} /> : journeysError ? <LoadFailure message={journeysError} onRetry={onReloadJourneys} /> : jornadas.length ? narrow ? <ul className="record-list" aria-labelledby={LIST_HEADING_ID}>{jornadas.map((jornada) => {
         // Phones: one row per day loaded, so "Ver marcas" is in sight without swiping a table sideways.
         const person = peopleById.get(jornada.employeeId) ?? 'Empleado'

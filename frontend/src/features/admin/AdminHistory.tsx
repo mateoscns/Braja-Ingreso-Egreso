@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from 'react'
 import { api, queryString } from '../../shared/api/client'
 import type { Employee, JornadaSummary, Site } from '../../shared/api/types'
 import { deviceDate, validateDateRange, DATE_PAIR_MESSAGE } from '../../shared/dateRange'
-import { AdminHistoryRender, type HistoryFilterValues } from './AdminHistoryRender'
+import { dateRangeErrors, useFieldErrors } from '../../app/useFieldErrors'
+import { AdminHistoryRender, HISTORY_FILTERS_ID, type HistoryFilterValues } from './AdminHistoryRender'
 import { errText } from './adminShared'
 
 export function AdminHistory({ employees, sites, loadingOptions, opening, openOnArrival = false, onOpenDay }: {
@@ -22,16 +23,21 @@ export function AdminHistory({ employees, sites, loadingOptions, opening, openOn
   // Also when «Hoy» is already on screen and the old address is followed again.
   useEffect(() => { if (openOnArrival) setOpen(true) }, [openOnArrival])
   const [filters, setFilters] = useState<HistoryFilterValues>(() => ({ employeeId: '', siteId: '', from: deviceDate(6), to: deviceDate() }))
-  const [filterError, setFilterError] = useState('')
+  // The same checks as before, each under the filter it is about and all at once (design system 4.7).
+  const fields = useFieldErrors<'who' | 'from' | 'to'>()
   const [rows, setRows] = useState<JornadaSummary[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const request = useRef(0)
   async function search() {
-    const problem = !filters.employeeId && !filters.siteId ? 'Elegí un empleado o un local.' : !filters.from || !filters.to ? DATE_PAIR_MESSAGE : validateDateRange(filters.from, filters.to)
-    if (problem) { setFilterError(problem); return }
+    const range = !filters.from || !filters.to ? DATE_PAIR_MESSAGE : validateDateRange(filters.from, filters.to)
+    const valid = fields.check(HISTORY_FILTERS_ID, {
+      who: !filters.employeeId && !filters.siteId ? 'Elegí un empleado o un local.' : '',
+      ...dateRangeErrors(filters.from, filters.to, range)
+    })
+    if (!valid) return
     const requestId = ++request.current
-    setFilterError(''); setError(''); setLoading(true)
+    setError(''); setLoading(true)
     try {
       const result = await api.get<JornadaSummary[]>(`/jornadas${queryString({ from: filters.from, to: filters.to, employeeId: filters.employeeId, siteId: filters.siteId, includeDetail: 'true' })}`)
       if (requestId === request.current) setRows(result)
@@ -43,6 +49,12 @@ export function AdminHistory({ employees, sites, loadingOptions, opening, openOn
         : errText(reason))
     } finally { if (requestId === request.current) setLoading(false) }
   }
-  return <AdminHistoryRender open={open} onOpenChange={setOpen} employees={employees} sites={sites} loadingOptions={loadingOptions} filters={filters} filterError={filterError} rows={rows} loading={loading} error={error} opening={opening}
-    onFiltersChange={(patch) => setFilters((current) => ({ ...current, ...patch }))} onSearch={() => void search()} onOpenDay={onOpenDay} />
+  function changeFilters(patch: Partial<HistoryFilterValues>) {
+    setFilters((current) => ({ ...current, ...patch }))
+    // A person or a local answers «un empleado o un local»; a date edited, the range it was part of.
+    if ('employeeId' in patch || 'siteId' in patch) fields.clear('who')
+    if ('from' in patch || 'to' in patch) fields.clear('from', 'to')
+  }
+  return <AdminHistoryRender open={open} onOpenChange={setOpen} employees={employees} sites={sites} loadingOptions={loadingOptions} filters={filters} filterErrors={fields.errors} rows={rows} loading={loading} error={error} opening={opening}
+    onFiltersChange={changeFilters} onSearch={() => void search()} onOpenDay={onOpenDay} />
 }

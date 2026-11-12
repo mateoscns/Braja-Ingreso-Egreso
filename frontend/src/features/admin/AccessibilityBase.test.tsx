@@ -26,11 +26,11 @@ describe('accesibilidad de base en las pantallas existentes', () => {
     expect(screen.getByRole('columnheader', { name: 'Acciones' })).toBeInTheDocument()
   })
 
-  it('explica por qué no se puede crear el empleado sin sede ni restablecer la contraseña de alguien inactivo', () => {
+  // Changed in slice F2b: «Crear empleado» stays enabled and a missing local is the error of the locals group after a submit.
+  it('crear un empleado sin local se puede intentar, y restablecer la contraseña de alguien inactivo explica por qué no', () => {
     renderEmployees()
 
-    expect(screen.getByRole('button', { name: 'Crear empleado' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Crear empleado' })).toHaveAccessibleDescription('Marcá al menos un local para crear el empleado.')
+    expect(screen.getByRole('button', { name: 'Crear empleado' })).toBeEnabled()
     const reset = screen.getByRole('button', { name: 'Restablecer contraseña de Ana Pérez' })
     expect(reset).toBeDisabled()
     expect(reset).toHaveAccessibleDescription('Está inactivo: activalo para restablecer su contraseña.')
@@ -53,7 +53,7 @@ describe('accesibilidad de base en las pantallas existentes', () => {
 
   it('los símbolos decorativos de la bandeja y de las sedes no se leen', () => {
     const deviation: Deviation = { id: 'd-1', jornadaId: 'j-1', siteId: 's-1', type: 'SIN_INGRESO', status: 'MOTIVO_PENDIENTE', createdAt: '2026-11-09T12:00:00Z', pushEligible: false }
-    const { container } = render(<AdminInboxRender items={[deviation]} employees={[]} sites={[site]} filters={EMPTY_INBOX_FILTERS} filterError="" filtered={false}
+    const { container } = render(<AdminInboxRender items={[deviation]} employees={[]} sites={[site]} filters={EMPTY_INBOX_FILTERS} filtered={false}
       onFiltersChange={noop} onApplyFilters={noop} onClearFilters={noop} timeZones={new Map()} nextCursor={null} loading={false} inboxLoadError=""
       timeZoneLoadError="" error="" notice="" busy="" correction={null} correctionReason="" targetDeviation="" onReload={noop} onClassify={noop}
       onRetry={noop} onLoadMore={noop} onCorrectionReasonChange={noop} onSubmitCorrection={noop} onCancelCorrection={noop} />)

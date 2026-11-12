@@ -1,6 +1,7 @@
 import { useId, type FormEvent, type ReactNode } from 'react'
 import { Icon } from '../../app/icons'
-import { Empty, FormField, Loading, PageMessage, Panel, StatusTag } from '../../app/ui'
+import { Empty, Fieldset, FieldsSummary, FormField, Loading, PageMessage, Panel, StatusTag } from '../../app/ui'
+import type { FieldErrors } from '../../app/useFieldErrors'
 import type { Employee, Site, Template } from '../../shared/api/types'
 import { LoadFailure, PageHeading } from './AdminViewsRender'
 import { checkScheduleDraft, type ScheduleDraft } from './scheduleDraft'
@@ -23,12 +24,6 @@ export const scheduleFocusIds = {
   editForm: (templateId: string) => `schedule-${templateId}-edit-form`
 }
 
-/** A field hint that turns into the field's error; FormField links it to the control with aria-describedby. */
-function hintOrError(error: string | undefined, hint?: string): ReactNode {
-  if (error) return <span className="field-hint-error">{error}</span>
-  return hint
-}
-
 /**
  * A horario in words: its tramos first, in the text colour, then its pause limits, muted. `blockCount` says how many of the
  * parts are tramos (scheduleChips puts them first).
@@ -39,6 +34,8 @@ export function ScheduleParts({ parts, blockCount, label }: { parts: string[]; b
 
 export type ScheduleEditorProps = {
   draft: ScheduleDraft; busy: boolean; disabled?: boolean; error: string; submitLabel: string; formLabel: string
+  /** Why the button is disabled while nothing is sent (no local, a failed load): shown next to it and read with it. */
+  disabledReason?: string
   /** The id of the form, by which the container moves the focus into it (scheduleFocusIds). */
   id?: string
   /** What the last save of this form did («Horario … creado.»): a result of the form, above its buttons. */
@@ -56,16 +53,19 @@ export type ScheduleEditorProps = {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void; onCancel?: () => void
 }
 
-export function ScheduleEditor({ draft, busy, disabled = false, error, submitLabel, formLabel, id, notice = '', sites = [], siteId = '', onSiteChange, showTypes = false, editing = false,
+export function ScheduleEditor({ draft, busy, disabled = false, disabledReason = '', error, submitLabel, formLabel, id, notice = '', sites = [], siteId = '', onSiteChange, showTypes = false, editing = false,
   onNameChange, onPickType, onTramoChange, onAddTramo, onRemoveTramo, onBreakfastChange, onLunchChange, onManualOffsetChange, onUseComputedDays, onSubmit, onCancel }: ScheduleEditorProps) {
   const ids = useId()
   const pauseHintId = `${ids}-pause`
   const typesHintId = `${ids}-types`
+  const reasonId = `${ids}-disabled`
   const check = checkScheduleDraft(draft)
   const show = draft.showErrors
   const { blocks, errors } = check.computation
   const preview = check.computation.valid ? scheduleChips(blocks, check.breakfastMinutes, check.lunchMinutes) : []
-  const summary = show && !check.valid
+  // Errors show once the owner tried to save, then live; the summary waits for two of them (design system 4.7).
+  const invalidFields = show ? [check.nameError, check.breakfastError, check.lunchError, ...errors.flatMap((entry) => [entry.start, entry.end])].filter(Boolean).length : 0
+  const reason = disabled && !busy ? disabledReason : ''
   return <form id={id} className={editing ? 'inline-form' : 'form-stack'} aria-label={formLabel} noValidate onSubmit={onSubmit}>
     {editing && <PageMessage>{EDIT_WARNING}</PageMessage>}
     {onSiteChange && sites.length > 1 && <FormField label="Local" hint="Tus datos se mantienen si cambiás de local.">
@@ -81,24 +81,25 @@ export function ScheduleEditor({ draft, busy, disabled = false, error, submitLab
         <span className="choice-text"><strong>{type.title}<span className="visually-hidden">:</span></strong> <small>{type.description}</small></span>
       </label>)}</div>
     </fieldset>}
-    <FormField label="Nombre del horario" hint={hintOrError(show ? check.nameError : '', 'Ej.: Mañana, Turno noche')}>
-      <input maxLength={120} value={draft.name} aria-invalid={show && Boolean(check.nameError)} onChange={(event) => onNameChange(event.target.value)} />
+    <FormField label="Nombre del horario" hint="Ej.: Mañana, Turno noche" error={show ? check.nameError : ''}>
+      <input maxLength={120} value={draft.name} onChange={(event) => onNameChange(event.target.value)} />
     </FormField>
     <div className="subsection-head"><h3>¿A qué hora entran y salen?</h3><span className="field-hint">{draft.tramos.length} de {MAX_TRAMOS} tramos</span></div>
     {draft.tramos.map((tramo, index) => {
       const tramoErrors = show ? errors[index] ?? {} : {}
       const hints = blocks[index] && !errors[index]?.start && !errors[index]?.end ? tramoHints(blocks[index]) : {}
       return <fieldset className="field-group tramo" key={index}><legend>Tramo {index + 1}</legend><div className="tramo-fields">
-        <FormField label="Entra a las" hint={hintOrError(tramoErrors.start, hints.start)}><input type="time" value={tramo.start} aria-invalid={Boolean(tramoErrors.start)} disabled={busy} onChange={(event) => onTramoChange(index, { start: event.target.value })} /></FormField>
-        <FormField label="Sale a las" hint={hintOrError(tramoErrors.end, hints.end)}><input type="time" value={tramo.end} aria-invalid={Boolean(tramoErrors.end)} disabled={busy} onChange={(event) => onTramoChange(index, { end: event.target.value })} /></FormField>
+        <FormField label="Entra a las" hint={hints.start} error={tramoErrors.start}><input type="time" value={tramo.start} disabled={busy} onChange={(event) => onTramoChange(index, { start: event.target.value })} /></FormField>
+        <FormField label="Sale a las" hint={hints.end} error={tramoErrors.end}><input type="time" value={tramo.end} disabled={busy} onChange={(event) => onTramoChange(index, { end: event.target.value })} /></FormField>
         {/* A light edit of the draft, undone with «Agregar otro tramo»: a link, not a red button per tramo. */}
         {draft.tramos.length > 1 && <button type="button" className="button button-link" disabled={busy} onClick={() => onRemoveTramo(index)}>Quitar este tramo</button>}
       </div></fieldset>
     })}
     <div><button type="button" className="button button-secondary" disabled={busy || draft.tramos.length >= MAX_TRAMOS} onClick={onAddTramo}><Icon name="plus" />Agregar otro tramo</button></div>
     <div className="form-grid">
-      <FormField label="Minutos para desayunar" hint={hintOrError(show ? check.breakfastError : '')}><input type="number" inputMode="numeric" min="0" max="240" value={draft.breakfast} aria-invalid={show && Boolean(check.breakfastError)} aria-describedby={show && check.breakfastError ? undefined : pauseHintId} disabled={busy} onChange={(event) => onBreakfastChange(event.target.value)} /></FormField>
-      <FormField label="Minutos para almorzar" hint={hintOrError(show ? check.lunchError : '')}><input type="number" inputMode="numeric" min="0" max="240" value={draft.lunch} aria-invalid={show && Boolean(check.lunchError)} aria-describedby={show && check.lunchError ? undefined : pauseHintId} disabled={busy} onChange={(event) => onLunchChange(event.target.value)} /></FormField>
+      {/* With an error the shared hint gives way to it, as before: the error says what to type. */}
+      <FormField label="Minutos para desayunar" error={show ? check.breakfastError : ''}><input type="number" inputMode="numeric" min="0" max="240" value={draft.breakfast} aria-describedby={show && check.breakfastError ? undefined : pauseHintId} disabled={busy} onChange={(event) => onBreakfastChange(event.target.value)} /></FormField>
+      <FormField label="Minutos para almorzar" error={show ? check.lunchError : ''}><input type="number" inputMode="numeric" min="0" max="240" value={draft.lunch} aria-describedby={show && check.lunchError ? undefined : pauseHintId} disabled={busy} onChange={(event) => onLunchChange(event.target.value)} /></FormField>
       <span id={pauseHintId} className="field-hint field-wide">{PAUSE_HINT}</span>
     </div>
     <div className="field"><span className="field-label">Así queda</span>
@@ -116,25 +117,29 @@ export function ScheduleEditor({ draft, busy, disabled = false, error, submitLab
       </div>
     </details>}
     {/* The result of saving, right above the buttons (design system 4.7). */}
-    {(summary || error || notice) && <div className="form-result">
-      {summary && <PageMessage kind="error">Revisá lo que está marcado debajo de cada campo.</PageMessage>}
+    {(invalidFields > 1 || error || notice) && <div className="form-result">
+      <FieldsSummary count={invalidFields} />
       {error && <PageMessage kind="error">{error}</PageMessage>}
       {notice && <PageMessage kind="success">{notice}</PageMessage>}
     </div>}
     <div className="button-row">
-      <button className="button button-primary" disabled={busy || disabled}>{busy ? 'Guardando…' : submitLabel}</button>
+      <button className="button button-primary" aria-describedby={reason ? reasonId : undefined} disabled={busy || disabled}>{busy ? 'Guardando…' : submitLabel}</button>
       {onCancel && <button type="button" className="button button-link" disabled={busy} onClick={onCancel}>Cancelar</button>}
+      {reason && <span className="field-hint" id={reasonId}>{reason}</span>}
     </div>
   </form>
 }
 
 export type AssignmentResult = { assigned: string[]; existing: string[]; failed: { name: string; message: string }[] }
+export type AssignErrors = FieldErrors<'people' | 'validFrom'>
 
 export type ScheduleAssignStepProps = {
   templateName: string; employees: Employee[]; employeesLoading: boolean; employeesError: string; checked: string[]; validFrom: string; busy: boolean
   result: AssignmentResult | null; asPanel?: boolean
   /** What saving the horario did («… creado.», «… actualizado.»): this step follows from it, so it opens with it. */
   notice?: string
+  /** The errors of the last «Asignar», by field (the container checks them on submit). */
+  errors?: AssignErrors
   onToggle: (employeeId: string) => void; onValidFromChange: (value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onRetryEmployees: () => void; onClose: () => void
 }
@@ -145,7 +150,7 @@ const TITLE = '¿Quién trabaja con este horario?'
  * After saving a horario: assign it to the active employees of its local from a day, or skip. It opens where the horario was
  * saved: in place of the create form, or under the record of the horario that changed.
  */
-export function ScheduleAssignStep({ templateName, employees, employeesLoading, employeesError, checked, validFrom, busy, result, asPanel = false, notice = '', onToggle, onValidFromChange, onSubmit, onRetryEmployees, onClose }: ScheduleAssignStepProps) {
+export function ScheduleAssignStep({ templateName, employees, employeesLoading, employeesError, checked, validFrom, busy, result, asPanel = false, notice = '', errors = {}, onToggle, onValidFromChange, onSubmit, onRetryEmployees, onClose }: ScheduleAssignStepProps) {
   const headingId = useId()
   const results = result && (result.assigned.length || result.existing.length || result.failed.length) ? <div className="form-result">
     {result.assigned.length ? <PageMessage kind="success">{`Listo: asignado a ${joinNames(result.assigned)}.`}</PageMessage> : null}
@@ -158,14 +163,14 @@ export function ScheduleAssignStep({ templateName, employees, employeesLoading, 
     {employeesLoading ? <Loading label="Cargando empleados…" /> : employeesError ? <LoadFailure message={employeesError} onRetry={onRetryEmployees} /> : employees.length === 0
       ? <><Empty>Este local todavía no tiene empleados activos. Los podés agregar en Equipo.</Empty><div className="button-row"><button type="button" className="button button-secondary" onClick={onClose}>Listo</button></div></>
       : <form className="form-stack" noValidate onSubmit={onSubmit}>
-        <fieldset className="field"><legend className="field-label">Empleados de este local</legend>
+        <Fieldset legend="Empleados de este local" error={errors.people}>
           <div className="check-list">{employees.map((person) => <label key={person.id} className="check"><input type="checkbox" checked={checked.includes(person.id)} disabled={busy} onChange={() => onToggle(person.id)} />{person.displayName}</label>)}</div>
-        </fieldset>
-        <FormField label="Desde el día"><input type="date" required value={validFrom} disabled={busy} onChange={(event) => onValidFromChange(event.target.value)} /></FormField>
+        </Fieldset>
+        <FormField label="Desde el día" error={errors.validFrom}><input type="date" required value={validFrom} disabled={busy} onChange={(event) => onValidFromChange(event.target.value)} /></FormField>
         {/* The result of assigning, right above the buttons (design system 4.7). */}
         {results}
         <div className="button-row">
-          <button className="button button-primary" disabled={busy || checked.length === 0 || !validFrom}>{busy ? 'Asignando…' : 'Asignar'}</button>
+          <button className="button button-primary" disabled={busy}>{busy ? 'Asignando…' : 'Asignar'}</button>
           <button type="button" className="button button-link" disabled={busy} onClick={onClose}>{result ? 'Listo' : 'Ahora no'}</button>
         </div>
       </form>}

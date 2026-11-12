@@ -192,19 +192,12 @@ h3 { font-size: var(--font-size-body-lg); line-height: var(--line-height-heading
 .field { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
 .field-label { color: var(--text); font-size: var(--font-size-body); font-weight: var(--font-weight-strong); }
 .field-hint { color: var(--text-muted); font-size: var(--font-size-body); }
-/* The text of an error. The two old names are this text until the markup leaves them; slice H1 removes them. */
-.field-error, .field-hint-error, .employee-field-error { color: var(--bad); font-weight: var(--font-weight-strong); }
-/* The employee's motive form writes its errors as paragraphs. */
-.employee-field-error { margin: 0; }
-/* FormField puts a triangle before its error, so it is not told by its colour alone; the triangle sits on the first line of
-   the text: (1.5 line height - 1.25em icon) / 2. */
-.field-error { display: flex; align-items: flex-start; gap: var(--space-1); }
+/* The text of an error, under the control (FormField) or at the end of a group (Fieldset). A triangle comes before it, so it is
+   not told by its colour alone; the triangle sits on the first line of the text: (1.5 line height - 1.25em icon) / 2. */
+.field-error { display: flex; align-items: flex-start; gap: var(--space-1); color: var(--bad); font-weight: var(--font-weight-strong); }
 .field-error > .icon { margin-top: .125em; }
 /* A field with an error has a bar on its left edge, besides the edge of its control and the text: never the colour alone. */
 .field-invalid { padding-left: var(--space-3); border-left: var(--bar-width) solid var(--bad); }
-/* The schedule editor still passes its errors as the hint of the field, and its summary says «debajo de cada campo»: they stay
-   under the control. Slice F2b gives them to the error of the field and deletes this rule. */
-.field-hint:has(> .field-hint-error) { order: 1; }
 /* Fields that belong together: a fieldset without the box of the browser, named by its legend. The old ways to write it share
    the rule until slice H1. */
 .field-group, fieldset.field, .fieldset-plain { min-width: 0; margin: 0; border: 0; padding: 0; }
@@ -214,6 +207,8 @@ h3 { font-size: var(--font-size-body-lg); line-height: var(--line-height-heading
 /* A group written as a field holds whole controls (a row of quick choices, a list of checks, two dates), not the parts of one:
    they sit a step further apart than a label and its control. */
 fieldset.field { gap: var(--space-2); }
+/* The rule above clears the box of the browser, and with it the bar of an invalid field: an invalid group gets it back. */
+fieldset.field-invalid { padding-left: var(--space-3); border-left: var(--bar-width) solid var(--bad); }
 /* ===== «Locales»: the location of a local (slice E4, design system 4.20) ===== */
 /* A message inside the location group or the map is one more step of it, spaced by their gap and not by a margin. */
 fieldset.field > .message, .site-map-panel > .message { margin: 0; }
@@ -534,7 +529,6 @@ html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-height) + env(safe
 .filter-bar { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: flex-end; margin-bottom: var(--space-4); }
 .filter-bar > .field { flex: 1 1 10rem; }
 .filter-bar > .button-row { flex: 0 0 auto; }
-.filter-error { flex-basis: 100%; }
 /* ===== Records: lists of days, marks, people, locals, schedules and search results ===== */
 /* A record is a row of its list, never a card (principle 3): no box, fill or corners; a hairline under each row separates
    it from the next, so the rows sit one under the other without a gap. Under 768 px the lists that become tables are drawn
@@ -617,6 +611,9 @@ td .button-row { gap: var(--space-2); }
 .tramo > legend { float: left; width: 100%; }
 .tramo-fields { clear: both; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: var(--space-2) var(--space-4); }
 .tramo-fields > .button-link { grid-column: 1 / -1; justify-self: start; }
+/* A tramo with an error shows no hints (ScheduleEditor), and its error goes under the control: the two boxes stay level only
+   when they align at the top. */
+.tramo-fields:has(.field-error) { align-items: start; }
 /* The step after creating a horario, in place of the create form: what was saved, the lead and the form, spaced by one gap as
    the same step is under a record (.inline-form). */
 .schedule-step { display: grid; gap: var(--space-4); min-width: 0; }

@@ -103,7 +103,8 @@ describe('Horarios: a schedule a shop owner understands', () => {
 
     expect(tramo2.getByLabelText('Entra a las')).toHaveAttribute('aria-invalid', 'true')
     expect(tramo2.getByLabelText('Entra a las')).toHaveAccessibleDescription('El tramo 2 empieza antes de que termine el 1.')
-    expect(form().getByLabelText('Nombre del horario')).toHaveAccessibleDescription('Escribí un nombre para el horario.')
+    // Changed in slice F2b: the error is the field's own, under the control, and the example stays as its hint.
+    expect(form().getByLabelText('Nombre del horario')).toHaveAccessibleDescription('Ej.: Mañana, Turno noche Escribí un nombre para el horario.')
     expect(screen.getByRole('alert')).toHaveTextContent('Revisá lo que está marcado debajo de cada campo.')
     expect(apiMocks.post).not.toHaveBeenCalled()
   })
@@ -203,7 +204,8 @@ describe('Horarios: a schedule a shop owner understands', () => {
       const step = await createCorrido()
       expect(step.getAllByRole('checkbox').map((box) => box.closest('label')?.textContent)).toEqual(['Ana', 'Juan', 'Pedro'])
       expect(step.getByLabelText('Desde el día')).toHaveValue(deviceDate())
-      expect(step.getByRole('button', { name: 'Asignar' })).toBeDisabled()
+      // Changed in slice F2b (finding F-09): «Asignar» is enabled; with nobody checked it says so on the people.
+      expect(step.getByRole('button', { name: 'Asignar' })).toBeEnabled()
       fireEvent.click(step.getByRole('checkbox', { name: 'Ana' }))
       fireEvent.click(step.getByRole('checkbox', { name: 'Juan' }))
       fireEvent.click(step.getByRole('checkbox', { name: 'Pedro' }))
@@ -277,9 +279,12 @@ describe('Horarios: a schedule a shop owner understands', () => {
       render(<TemplatesView />)
       await screen.findByText('Mañana')
       fireEvent.change(form().getByLabelText('Nombre del horario'), { target: { value: '' } })
+      // Changed in slice F2b: the summary is for two or more mistakes (design system 4.7), so two fields are left wrong.
+      fireEvent.change(form().getByLabelText('Minutos para almorzar'), { target: { value: '' } })
       fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
       expect(aboveTheButtons(form().getByRole('alert'))).toContainElement(form().getByRole('button', { name: 'Crear horario' }))
 
+      fireEvent.change(form().getByLabelText('Minutos para almorzar'), { target: { value: '60' } })
       fireEvent.change(form().getByLabelText('Nombre del horario'), { target: { value: 'Tarde' } })
       fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
       expect(aboveTheButtons(await form().findByText('Ya hay un horario con ese nombre.'))).toContainElement(form().getByRole('button', { name: 'Crear horario' }))
@@ -349,6 +354,69 @@ describe('Horarios: a schedule a shop owner understands', () => {
       // The first control of the form is the chosen type of horario.
       await waitFor(() => expect(form().getByRole('radio', { name: /^Corrido/ })).toHaveFocus())
     })
+  })
+})
+
+// Slice F2b (design system 4.3 and 4.7; finding F-09): the errors of a horario are the errors of their fields, under the control.
+describe('Horarios: one validation style', () => {
+  it('a failed save focuses the first field to fix, and each error is the error of its field', async () => {
+    render(<TemplatesView />)
+    await screen.findByText('Mañana')
+    fireEvent.change(form().getByLabelText('Nombre del horario'), { target: { value: '' } })
+    fireEvent.change(form().getByLabelText('Minutos para almorzar'), { target: { value: '999' } })
+    fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
+
+    const name = form().getByLabelText('Nombre del horario')
+    await waitFor(() => expect(name).toHaveFocus())
+    const nameField = name.closest('.field')!
+    expect(nameField).toHaveClass('field-invalid')
+    expect(nameField.querySelector('.field-error')).toHaveTextContent('Escribí un nombre para el horario.')
+    expect(nameField.querySelector('.field-hint-error')).toBeNull()
+    expect(form().getByLabelText('Minutos para almorzar').closest('.field')).toHaveClass('field-invalid')
+    expect(screen.getByRole('alert')).toHaveTextContent('Revisá lo que está marcado debajo de cada campo.')
+  })
+
+  it('one wrong field needs no summary: its own error says it', async () => {
+    render(<TemplatesView />)
+    await screen.findByText('Mañana')
+    fireEvent.change(form().getByLabelText('Nombre del horario'), { target: { value: 'Corrido' } })
+    fireEvent.change(form().getByLabelText('Minutos para desayunar'), { target: { value: '300' } })
+    fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
+
+    await waitFor(() => expect(form().getByLabelText('Minutos para desayunar')).toHaveFocus())
+    expect(screen.queryByText('Revisá lo que está marcado debajo de cada campo.')).not.toBeInTheDocument()
+  })
+
+  it('without a local, «Crear horario» says why it cannot be used, next to it', async () => {
+    serve({ sites: [], templates: [] })
+    render(<TemplatesView />)
+    const create = await form().findByRole('button', { name: 'Crear horario' })
+    await waitFor(() => expect(create).toHaveAccessibleDescription('Primero creá un local en Locales.'))
+    expect(create).toBeDisabled()
+  })
+
+  it('assigning nobody explains it on the people and keeps «Asignar» enabled', async () => {
+    render(<TemplatesView />)
+    await screen.findByText('Mañana')
+    fireEvent.change(form().getByLabelText('Nombre del horario'), { target: { value: 'Corrido' } })
+    fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
+    const step = within(await screen.findByRole('region', { name: '¿Quién trabaja con este horario?' }))
+    await waitFor(() => expect(step.getByRole('checkbox', { name: 'Ana' })).toHaveFocus())
+    const assign = step.getByRole('button', { name: 'Asignar' })
+    expect(assign).toBeEnabled()
+    expect(assign.closest('form')).toHaveAttribute('novalidate')
+    fireEvent.change(step.getByLabelText('Desde el día'), { target: { value: '' } })
+    // A click focuses the button it presses; fireEvent does not, so the test does it.
+    assign.focus()
+    fireEvent.click(assign)
+
+    const people = step.getByRole('group', { name: 'Empleados de este local' })
+    expect(people).toHaveAttribute('aria-invalid', 'true')
+    expect(people).toHaveAccessibleDescription('Elegí al menos una persona.')
+    expect(step.getByLabelText('Desde el día')).toHaveAccessibleDescription('Elegí desde qué día.')
+    await waitFor(() => expect(step.getByRole('checkbox', { name: 'Ana' })).toHaveFocus())
+    // Only the horario was sent: the assignment never left.
+    expect(apiMocks.post).toHaveBeenCalledTimes(1)
   })
 })
 

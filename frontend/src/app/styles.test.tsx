@@ -640,16 +640,29 @@ describe('campos, casillas y opciones: una sola forma', () => {
     expect(invalidBox).toMatch(/box-shadow:\s*inset 0 0 0 var\(--border-width\) var\(--bad\)/)
     expect(error.declarations).toMatch(/(?<![\w-])color:\s*var\(--bad\)/)
     expect(error.declarations).toMatch(/font-weight:\s*var\(--font-weight-strong\)/)
-    // One rule for the error text: the three old names share it until the markup leaves them.
-    // Slice E4: the error of a location capture is a message of the system, so its old name left the rule.
-    expect(error.selectors).toEqual(['.field-error', '.field-hint-error', '.employee-field-error'])
-    expect(allSelectors().filter((selector) => selector === '.field-hint-error')).toHaveLength(1)
+    // One rule for the error text. Slice E4: the error of a location capture is a message of the system, so its old name left
+    // the rule. Slice F2b: the schedule editor and the employee's motive write their errors as FormField does, so the last two
+    // old names left too.
+    expect(error.selectors).toEqual(['.field-error'])
+    expect(css).not.toMatch(/\.field-hint-error|\.employee-field-error/)
   })
 
-  // The schedule editor passes its errors as the hint of the field (hintOrError), and its summary says «debajo de cada campo».
-  // With the hint above the control those errors would jump over it; slice F2b gives them to the error prop and removes this.
-  it('un error que todavía llega como ayuda sigue mostrándose debajo del control', () => {
-    expect(rule('.field-hint:has(> .field-hint-error)')).toMatch(/order:\s*1/)
+  // Slice F2b: a group written as a field (a fieldset) loses the padding and border of the browser, which also took away the
+  // bar of an invalid field; an invalid group gets it back.
+  it('un grupo de controles inválido tiene la misma barra que un campo inválido', () => {
+    const invalidGroup = rule('fieldset.field-invalid')
+
+    expect(invalidGroup).toMatch(/border-left:\s*var\(--bar-width\) solid var\(--bad\)/)
+    expect(invalidGroup).toMatch(/padding-left:\s*var\(--space-3\)/)
+    // It comes after the rule that clears the fieldset, so it wins at the same specificity.
+    expect(css.indexOf('fieldset.field-invalid {')).toBeGreaterThan(css.indexOf('.field-group, fieldset.field, .fieldset-plain {'))
+  })
+
+  // The two times of a tramo align at their foot, so a hint over one of them does not lift it; an error goes under the control,
+  // so a tramo with an error aligns at the top (it shows no hints then).
+  it('las dos horas de un tramo quedan a la misma altura con o sin error', () => {
+    expect(rule('.tramo-fields')).toMatch(/align-items:\s*end/)
+    expect(rule('.tramo-fields:has(.field-error)')).toMatch(/align-items:\s*start/)
   })
 
   it('un campo deshabilitado se sigue leyendo: texto y fondo de los tokens, sin transparencia', () => {

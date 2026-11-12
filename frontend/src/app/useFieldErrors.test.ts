@@ -32,6 +32,11 @@ describe('dónde va el foco cuando un formulario falla', () => {
     // A control marked inside a closed fold cannot take the focus: the group's first control does.
     const folded = part('<fieldset aria-invalid="true"><button id="map" type="button">Mapa</button><details><summary>A mano</summary><input id="latitude" aria-invalid="true"></details></fieldset>')
     expect(firstProblem(folded)?.id).toBe('map')
+    folded.remove()
+
+    // Review advisory (F2b): a control inside a disabled fieldset reports disabled=false but cannot take the focus.
+    const inherited = part('<fieldset aria-invalid="true"><fieldset disabled><button id="locked" type="button">Mapa</button></fieldset><input id="free"></fieldset>')
+    expect(firstProblem(inherited)?.id).toBe('free')
   })
 
   it('sin campos inválidos va al mensaje de error del formulario, que puede tomar el foco', () => {

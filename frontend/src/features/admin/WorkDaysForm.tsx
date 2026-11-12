@@ -1,6 +1,7 @@
 import { useId, type FormEvent } from 'react'
 import { Icon } from '../../app/icons'
-import { FormField, PageMessage, Panel } from '../../app/ui'
+import { Fieldset, FieldsSummary, FormField, PageMessage, Panel } from '../../app/ui'
+import type { FieldErrors } from '../../app/useFieldErrors'
 import type { Employee, Site, Template } from '../../shared/api/types'
 import { EVERY_DAY, MONDAY_TO_FRIDAY, MONDAY_TO_SATURDAY, sameDays, type BulkResultSummary, type WorkPeriod } from './workDays'
 
@@ -21,6 +22,10 @@ export type WorkDaysFormValues = {
   siteId: string; weekdays: number[]; period: WorkPeriod; from: string; to: string
   selectedIds: string[]; templateId: string
 }
+/** The groups of the form a problem can be about. */
+export type WorkDaysField = 'weekdays' | 'period' | 'people'
+/** The form, where the focus goes when it fails. */
+export const WORK_DAYS_FORM_ID = 'work-days'
 
 function listNames(names: string[]) { return names.length > 6 ? `${names.slice(0, 5).join(', ')} y ${names.length - 5} más` : names.join(', ') }
 
@@ -28,29 +33,32 @@ function listNames(names: string[]) { return names.length > 6 ? `${names.slice(0
  * D-20261027-11 in the owner's words: which weekdays, for which period (at most 31 days), for whom. Each day is created once;
  * no weekly rule is stored (D-20261015-01). The request is the same POST /jornadas/bulk as before.
  */
-export function WorkDaysFormRender({ sites, employees, templates, values, preview, busy, disabled, error, dateError, result, onSiteChange, onWeekdaysChange, onPeriodChange, onFromChange, onToChange, onToggleEmployee, onToggleAll, onTemplateChange, onSubmit, onAssignSchedules, onReviewSchedules }: {
+export function WorkDaysFormRender({ sites, employees, templates, values, preview, busy, disabled, error, fieldErrors = {}, result, onSiteChange, onWeekdaysChange, onPeriodChange, onFromChange, onToChange, onToggleEmployee, onToggleAll, onTemplateChange, onSubmit, onAssignSchedules, onReviewSchedules }: {
   sites: Site[]; employees: Employee[]; templates: Template[]; values: WorkDaysFormValues; preview: string
-  busy: boolean; disabled: boolean; error: string; dateError: boolean; result: BulkResultSummary | null
+  /** `disabled`: the page still reads its locals and people, so the local cannot be chosen yet. `error`: the refusal of the server. */
+  busy: boolean; disabled: boolean; error: string; result: BulkResultSummary | null
+  /** What a submit found wrong, under the group it is about. */
+  fieldErrors?: FieldErrors<WorkDaysField>
   onSiteChange: (value: string) => void; onWeekdaysChange: (days: number[]) => void; onPeriodChange: (period: WorkPeriod) => void
   onFromChange: (value: string) => void; onToChange: (value: string) => void; onToggleEmployee: (id: string) => void; onToggleAll: () => void
   onTemplateChange: (value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onAssignSchedules: () => void; onReviewSchedules: () => void
 }) {
-  const errorId = useId()
+  const periodErrorId = useId()
   const rangeHintId = useId()
-  const dateDescription = dateError ? `${rangeHintId} ${errorId}` : rangeHintId
+  // A problem of the period is about its two dates when they are on screen: they are marked and read it too.
+  const dateError = values.period === 'custom' && Boolean(fieldErrors.period)
+  const dateDescription = dateError ? `${rangeHintId} ${periodErrorId}` : rangeHintId
   const allSelected = employees.length > 0 && employees.every((person) => values.selectedIds.includes(person.id))
   const toggleDay = (day: number) => onWeekdaysChange(values.weekdays.includes(day) ? values.weekdays.filter((entry) => entry !== day) : [...values.weekdays, day].sort((a, b) => a - b))
-  return <Panel title="Cargar días de trabajo"><form id="work-days" className="form-stack work-days-form" noValidate onSubmit={onSubmit}>
+  return <Panel title="Cargar días de trabajo"><form id={WORK_DAYS_FORM_ID} className="form-stack work-days-form" noValidate onSubmit={onSubmit}>
     <p className="muted">Elegí el local, qué días trabajan y para qué período. Cada persona usa el horario que tiene asignado.</p>
     <FormField label="Local"><select value={values.siteId} disabled={disabled} onChange={(event) => onSiteChange(event.target.value)}>{sites.map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}</select></FormField>
-    <fieldset className="field">
-      <legend className="field-label">¿Qué días trabajan?</legend>
+    <Fieldset legend="¿Qué días trabajan?" error={fieldErrors.weekdays}>
       <div className="button-row">{WEEKDAY_PRESETS.map((preset) => <QuickChoice key={preset.label} label={preset.label} pressed={sameDays(values.weekdays, preset.days)} onClick={() => onWeekdaysChange(preset.days)} />)}</div>
       <div className="check-list">{WEEKDAYS.map((day) => <label className="check" key={day.value}><input type="checkbox" checked={values.weekdays.includes(day.value)} onChange={() => toggleDay(day.value)} />{day.label}</label>)}</div>
-    </fieldset>
-    <fieldset className="field">
-      <legend className="field-label">¿Para qué período?</legend>
+    </Fieldset>
+    <Fieldset legend="¿Para qué período?" error={fieldErrors.period} errorId={periodErrorId}>
       <div className="button-row">{PERIODS.map((period) => <QuickChoice key={period.value} label={period.label} pressed={values.period === period.value} onClick={() => onPeriodChange(period.value)} />)}</div>
       {/* The limit is about the range: one hint before both dates, which also keeps the two boxes level side by side. */}
       {values.period === 'custom' && <>
@@ -60,14 +68,13 @@ export function WorkDaysFormRender({ sites, employees, templates, values, previe
           <FormField label="Último día"><input type="date" value={values.to} aria-invalid={dateError || undefined} aria-describedby={dateDescription} onChange={(event) => onToChange(event.target.value)} /></FormField>
         </div>
       </>}
-    </fieldset>
-    <fieldset className="field">
-      <legend className="field-label">¿Quiénes? ({values.selectedIds.length} de {employees.length})</legend>
+    </Fieldset>
+    <Fieldset legend={<>¿Quiénes? ({values.selectedIds.length} de {employees.length})</>} error={fieldErrors.people}>
       {employees.length ? <>
         <div className="check-list"><label className="check"><input type="checkbox" checked={allSelected} onChange={onToggleAll} /><strong>Seleccionar todos</strong></label></div>
         <div className="check-list">{employees.map((person) => <label className="check" key={person.id}><input type="checkbox" checked={values.selectedIds.includes(person.id)} onChange={() => onToggleEmployee(person.id)} />{person.displayName}</label>)}</div>
       </> : <span className="field-hint">No hay personas activas en este local. Dalas de alta en Equipo.</span>}
-    </fieldset>
+    </Fieldset>
     <details className="fold">
       <summary>Usar otro horario para todos</summary>
       <FormField label="Horario para todos" hint="Si no elegís uno, cada persona usa el horario que tiene asignado."><select value={values.templateId} onChange={(event) => onTemplateChange(event.target.value)}><option value="">El que tiene asignado cada persona</option>{templates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>)}</select></FormField>
@@ -81,8 +88,9 @@ export function WorkDaysFormRender({ sites, employees, templates, values, previe
         <p className="field-hint">{ONCE_NOTE}</p>
       </div>
     </div>
-    {error && <div id={errorId}><PageMessage kind="error">{error}</PageMessage></div>}
-    <div className="button-row"><button className="button button-primary" disabled={busy || disabled}>{busy ? 'Cargando…' : 'Cargar días'}</button></div>
+    {/* The answer to a submit, inside the form and right above its button (design system 4.7). */}
+    <FieldsSummary count={Object.keys(fieldErrors).length} />
+    {error && <PageMessage kind="error">{error}</PageMessage>}
     {result && <div aria-label="Resultado de la carga" role="group">
       {/* The reasons sit inside the result message as records, each group with the people it names and the way to fix it. */}
       <PageMessage kind={result.created > 0 ? 'success' : 'info'}>
@@ -97,6 +105,7 @@ export function WorkDaysFormRender({ sites, employees, templates, values, previe
         </ul>}
       </PageMessage>
     </div>}
+    <div className="button-row"><button className="button button-primary" disabled={busy}>{busy ? 'Cargando…' : 'Cargar días'}</button></div>
   </form></Panel>
 }
 

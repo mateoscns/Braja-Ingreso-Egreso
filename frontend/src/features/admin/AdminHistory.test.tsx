@@ -113,7 +113,8 @@ describe('búsqueda de días anteriores en «Hoy» (antes Historial)', () => {
     render(<JourneysView />)
     await searchReady()
     fireEvent.click(searchButton())
-    expect(await within(search()).findByRole('alert')).toHaveTextContent('Elegí un empleado o un local.')
+    // Changed in slice F2b: each problem is the error of its filter, read with it, not an alert of the bar.
+    await waitFor(() => expect(within(search()).getByLabelText('Empleado')).toHaveAccessibleDescription('Elegí un empleado o un local.'))
     expect(historyCalls()).toEqual([])
   })
 
@@ -122,10 +123,11 @@ describe('búsqueda de días anteriores en «Hoy» (antes Historial)', () => {
     await searchReady()
     pick('Empleado', 'e-1'); pick('Desde', '2025-01-01')
     fireEvent.click(searchButton())
-    expect(await within(search()).findByRole('alert')).toHaveTextContent('El rango no puede superar los 366 días.')
+    // Changed in slice F2b: the problem of the range is the error of the date to change.
+    await waitFor(() => expect(within(search()).getByLabelText('Hasta')).toHaveAccessibleDescription('El rango no puede superar los 366 días.'))
     pick('Desde', '')
     fireEvent.click(searchButton())
-    expect(await within(search()).findByRole('alert')).toHaveTextContent('Completá las dos fechas: desde y hasta.')
+    await waitFor(() => expect(within(search()).getByLabelText('Desde')).toHaveAccessibleDescription('Completá las dos fechas: desde y hasta.'))
     expect(historyCalls()).toEqual([])
   })
 
@@ -181,5 +183,24 @@ describe('búsqueda de días anteriores en «Hoy» (antes Historial)', () => {
     fireEvent.change(within(detail).getByLabelText('Motivo de anulación'), { target: { value: 'Marca duplicada' } })
     fireEvent.click(within(detail).getByRole('button', { name: 'Confirmar anulación' }))
     await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/admin/marks/m-1/void', { reason: 'Marca duplicada' }))
+  })
+
+  // Slice F2b (design system 4.3 and 4.7): the search is checked on submit, each problem under the filter it is about.
+  it('cada problema de la búsqueda se explica debajo de su filtro, sin la burbuja del navegador, con el foco ahí', async () => {
+    render(<JourneysView />)
+    await searchReady()
+    expect(searchButton().closest('form')).toHaveAttribute('novalidate')
+    pick('Desde', '')
+    fireEvent.click(searchButton())
+
+    const person = within(search()).getByLabelText('Empleado')
+    expect(person).toHaveAttribute('aria-invalid', 'true')
+    expect(person).toHaveAccessibleDescription('Elegí un empleado o un local.')
+    expect(within(search()).getByLabelText('Desde')).toHaveAccessibleDescription('Completá las dos fechas: desde y hasta.')
+    await waitFor(() => expect(person).toHaveFocus())
+    // Choosing a local answers «un empleado o un local» too.
+    pick('Local', 's-1')
+    expect(person).not.toHaveAttribute('aria-invalid')
+    expect(historyCalls()).toEqual([])
   })
 })
