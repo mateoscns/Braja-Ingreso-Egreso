@@ -1,7 +1,7 @@
 // The «Hoy» render (section 'jornadas'): the list of a date, the detail of a day inside its own row with each mark form under
-// the mark it changes, and the change history of a day. The monthly load and the single day are «Días de trabajo»
-// (WorkDaysViewRender, D-20261111-02 step 2).
-import { Fragment, type FormEvent } from 'react'
+// the mark it changes, and the change history of a day, then the search of earlier days (AdminHistory). The monthly load and
+// the single day are «Días de trabajo» (WorkDaysViewRender, D-20261111-02 step 2).
+import { Fragment, type FormEvent, type ReactNode } from 'react'
 import { Empty, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel } from '../../app/ui'
 import type { Deviation, Jornada, JornadaAudit, JornadaAuditEntry, Mark, MarkAction, Site } from '../../shared/api/types'
 import { adminCategoryName as categoryName, adminDeviationName as deviationName, adminDeviationStatusName as statusName, adminMarkLocationName as locationName, adminMarkName as actionName } from '../../shared/labels'
@@ -25,15 +25,18 @@ export const markButtonId = (kind: MarkFormKind, markId: string) => `mark-${mark
     places are 'forgotten', 'cancel' and 'detail' (a day that could not be read). */
 export const markMessageKey = (kind: MarkFormKind, markId: string) => `${kind}:${markId}`
 
+// Without a date the title is plain «Días»: «Días de trabajo» is the name of another section now.
 function journeysTitle(date: string) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return 'Días de trabajo'
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return 'Días'
   const parsedDate = new Date(`${date}T12:00:00Z`)
-  if (!Number.isFinite(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== date) return 'Días de trabajo'
+  if (!Number.isFinite(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== date) return 'Días'
   const formattedDate = new Intl.DateTimeFormat('es-AR', { dateStyle: 'full', timeZone: 'UTC' }).format(parsedDate)
   return `Días de trabajo del ${formattedDate}`
 }
 
-export function JourneysViewRender({ narrow = false, sites, jornadas, loading, journeysLoading, journeysDate, journeysError, dependencyError, error, notice, messageAt, detail, detailFor, detailLoading, markBusy, date, dateError, peopleById, detailSite, detailTimeZone, forgotAction, forgotOccurredAt, forgotReason, editingMarkId, correctedAction, correctedOccurredAt, correctionReason, cancelOpen, cancelReason, voidingMarkId, voidReason, auditOpen, audit, auditLoading, auditError, onToggleAudit, onRetryAudit, onDateChange, onRetryDependencies, onReloadJourneys, onShowDetail, onForgotActionChange, onForgotOccurredAtChange, onForgotReasonChange, onAddForgottenMark, onBeginMarkCorrection, onCorrectedActionChange, onCorrectedOccurredAtChange, onCorrectionReasonChange, onCorrectMark, onCancelMarkCorrection, onBeginCancel, onCancelReasonChange, onConfirmCancel, onAbortCancel, onBeginVoid, onVoidReasonChange, onConfirmVoid, onAbortVoid }: {
+export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas, loading, journeysLoading, journeysDate, journeysError, dependencyError, error, notice, messageAt, detail, detailFor, detailLoading, markBusy, date, dateError, peopleById, detailSite, detailTimeZone, forgotAction, forgotOccurredAt, forgotReason, editingMarkId, correctedAction, correctedOccurredAt, correctionReason, cancelOpen, cancelReason, voidingMarkId, voidReason, auditOpen, audit, auditLoading, auditError, onToggleAudit, onRetryAudit, onDateChange, onRetryDependencies, onReloadJourneys, onShowDetail, onForgotActionChange, onForgotOccurredAtChange, onForgotReasonChange, onAddForgottenMark, onBeginMarkCorrection, onCorrectedActionChange, onCorrectedOccurredAtChange, onCorrectionReasonChange, onCorrectMark, onCancelMarkCorrection, onBeginCancel, onCancelReasonChange, onConfirmCancel, onAbortCancel, onBeginVoid, onVoidReasonChange, onConfirmVoid, onAbortVoid }: {
+  /** The search of earlier days (AdminHistory), a fold under the list of the date. */
+  daySearch?: ReactNode
   /** Under 768 px: the days and the marks of a day are lists instead of tables. */
   narrow?: boolean
   sites: Site[]; jornadas: JourneyRow[]
@@ -148,6 +151,9 @@ export function JourneysViewRender({ narrow = false, sites, jornadas, loading, j
           {open && <tr aria-labelledby={detail && !detailLoading ? DETAIL_HEADING_ID : undefined}><td colSpan={4}>{open}</td></tr>}</Fragment>
       })}</tbody></table></div> : <Empty>No hay días cargados para esta fecha.</Empty>}
     </Panel>
+    {daySearch}
+    {/* A day that is not a row of the list (one found by the search, or the list could not show it) opens here, right
+        under the search that found it. */}
     {!detailInRow && detailBlock}
   </>
 }
