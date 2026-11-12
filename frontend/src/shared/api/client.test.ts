@@ -415,6 +415,20 @@ describe('ApiClient: observer of answered requests', () => {
     expect(listener).not.toHaveBeenCalled()
   })
 
+  // Verifier of T12: Caddy answers 503 under /api while the backend restarts, without reaching it, so a 5xx is no proof that the
+  // server saw the session; counting it hid «Seguir conectado» and the session still closed two minutes later.
+  it('does not tell a 5xx answer, which may come from the proxy without touching the session', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(coded(503)).mockResolvedValueOnce(coded(500))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new ApiClient()
+    const listener = vi.fn()
+    client.onResponse(listener)
+
+    await expect(client.get('/session')).rejects.toMatchObject({ status: 503 })
+    await expect(client.get('/x')).rejects.toMatchObject({ status: 500 })
+    expect(listener).not.toHaveBeenCalled()
+  })
+
   it('a listener that throws does not break the request', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(ok()))
     const client = new ApiClient()
