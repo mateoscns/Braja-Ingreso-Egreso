@@ -19,18 +19,19 @@ export function WorkDaysViewRender({ workDaysPanel, coverage, sites, eligibleEmp
     {dependencyError && <LoadFailure message={dependencyError} retryLabel="Reintentar datos del día" disabled={loading} onRetry={onRetryDependencies} />}
     {coverage}
     {workDaysPanel}
+    {/* The summary text names the fold and its section: a heading inside a summary breaks it (design system 4.15, F-30). */}
     <section className="panel" aria-labelledby="single-day-title"><details className="fold">
-      <summary><h2 id="single-day-title">Cargar o cambiar un solo día</h2></summary>
+      <summary id="single-day-title">Cargar o cambiar un solo día</summary>
       {/* The list of a date is in another section now, so the hint names it. */}
       <p className="muted">Para una excepción: un día suelto o un horario distinto. Para cambiar un día ya cargado, abrilo en «Hoy», cancelalo y cargalo de nuevo.</p>
-      <form className="form-grid" onSubmit={onDeclare}>
+      <form className="form-grid work-days-form" onSubmit={onDeclare}>
         <FormField label="Local"><select required value={siteId} onChange={(event) => onSiteChange(event.target.value)}>{sites.map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}</select></FormField>
         <FormField label="Empleado" hint={eligibleEmployees.length === 0 ? 'No hay personas activas en este local.' : undefined}><select required value={employeeId} onChange={(event) => onEmployeeChange(event.target.value)}>{eligibleEmployees.map((person) => <option value={person.id} key={person.id}>{person.displayName}</option>)}</select></FormField>
         <FormField label="Día"><input type="date" required disabled={loading} value={singleDate} onChange={(event) => onSingleDateChange(event.target.value)} /></FormField>
         <FormField label="Horario" hint="Si no elegís otro, se usa el horario que la persona tiene asignado para ese día."><select value={templateId} onChange={(event) => onTemplateChange(event.target.value)}><option value="">El que tiene asignado</option>{siteTemplates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>)}</select></FormField>
         {singleError && <div className="field-wide"><PageMessage kind="error">{singleError}</PageMessage></div>}
         {singleNotice && <div className="field-wide"><PageMessage kind="success">{singleNotice}</PageMessage></div>}
-        <div className="field-wide"><button className="button button-primary" disabled={busy || loading || !singleDate || !employeeId}>{busy ? 'Guardando…' : 'Cargar este día'}</button></div>
+        <div className="field-wide button-row"><button className="button button-primary" disabled={busy || loading || !singleDate || !employeeId}>{busy ? 'Guardando…' : 'Cargar este día'}</button></div>
       </form>
     </details></section>
   </>

@@ -365,6 +365,12 @@ fieldset.field { gap: var(--space-2); }
 /* On the first line of the text: (1.5 line height - 1.25em icon) / 2. */
 .message > .icon { margin-top: .125em; }
 .message-body { flex: 1 1 0; min-width: 0; max-width: var(--measure); overflow-wrap: anywhere; }
+/* A message of several lines (the preview of a load and its note, a notice and its link) writes them as paragraphs: the padding
+   of the message spaces them from its edge, so they keep no margin of their own; a second one sits a small step under the first. */
+.message-body > p { margin: 0; }
+.message-body > p + p { margin-top: var(--space-1); }
+/* A link inside the words of a message («Cargar días», «Asignar horario») starts where the words start: its padding is pulled back. */
+.message-body .button-link { margin-left: calc(-1 * var(--space-1)); }
 /* PageMessage mounts its live region empty for one render: it stays in the accessibility tree but takes no room. */
 .message:empty { margin: 0; padding: 0; border-width: 0; }
 .message-info { border-left-color: var(--border); background: var(--surface-tint); }
@@ -574,8 +580,8 @@ html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-height) + env(safe
 /* The short lists (locals, steps, assignments, days skipped by a load) and the schedules: rows with a hairline, as above. */
 .simple-list, .template-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
 .simple-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: var(--border-width) solid var(--rule); }
-/* Inside a message the last row needs no line: the message ends there. */
-.message .simple-row:last-child { border-bottom: 0; }
+/* Inside a message (the days a load skipped) the last record needs no line: the message ends there. */
+.message .record:last-child { border-bottom: 0; }
 .simple-row strong, .simple-row small { display: block; }
 .simple-row strong { font-weight: var(--font-weight-heavy); }
 .simple-row small { color: var(--text-muted); font-size: var(--font-size-body); }
@@ -825,7 +831,7 @@ td .short-input { width: 74px; }
   :focus-visible { outline-color: Highlight !important; }
   .spinner { border-color: CanvasText; border-top-color: Highlight; }
 }
-/* ===== Later additions: small modifiers of the regions above (folds, quick choices, work days, first steps) ===== */
+/* ===== Later additions: small modifiers of the regions above (folds, work days, first steps) ===== */
 /* The result of a mark and the question before one take focus by script: no ring after a tap or a click, the global ring when
    the keyboard is in use. */
 .mark-feedback:focus:not(:focus-visible), .now-step:focus:not(:focus-visible) { outline: none; }
@@ -853,22 +859,22 @@ td .short-input { width: 74px; }
 .fold[open] > summary::after { margin: .25em var(--space-1) 0; transform: rotate(-135deg); }
 .fold[open] > summary { margin-bottom: var(--space-2); }
 .fold > summary h2 { color: var(--text); }
-/* U3 (issue #104), small modifiers from existing tokens: the setup guide rows; the notice of days loaded with its button. */
-.work-days-preview { padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #f8faf8; }
-.work-days-preview p { margin: 0; line-height: 1.5; }
-.work-days-preview p + p { margin-top: 6px; }
-.work-days-skip { flex-wrap: wrap; justify-content: space-between; }
-.first-steps, .work-days-skips { margin: 0; padding: 0; list-style: none; }
+/* U3 (issue #104), small modifiers from existing tokens: the setup guide rows. */
+.first-steps { margin: 0; padding: 0; list-style: none; }
 .first-step { flex-wrap: wrap; }
 .first-step-copy { flex: 1 1 220px; min-width: 0; }
 .first-step .status-chip { margin-left: auto; }
-.coverage-notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+/* The two forms of «Días de trabajo» (slice E3): a message inside them (the preview, an error, a result) is one more step of the
+   form, spaced by the form's own gap and not by a margin on top of it. */
+.work-days-form .message { margin: 0; }
+/* The single day: its lead keeps a step above the form, and the boxes of a row stay level when one field has a hint («Horario»). */
+.fold > .muted + .work-days-form { margin-top: var(--space-4); }
+.form-grid.work-days-form { align-items: end; }
 /* The point of a mark, under the word of its location: a second line in the muted colour, figures of one width. */
 .mark-coordinates { display: block; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-/* 2026-11-09 integrated check of PR #107, small modifiers from existing tokens: the folded inbox filters on phones, the reasons
-   of a work-days load inside its result box, and the temporary password large enough to read aloud or copy by hand. */
+/* 2026-11-09 integrated check of PR #107, small modifiers from existing tokens: the folded inbox filters on phones and the
+   temporary password large enough to read aloud or copy by hand. */
 .filter-fold { margin-bottom: var(--space-4); }
 /* Inside the fold the filters end with the fold. */
 .filter-fold .filter-bar { margin-bottom: 0; }
-.message .work-days-skips { margin-top: 8px; }
 .issued-password-code { display: inline-block; color: var(--text-primary); font-size: 1.25rem; font-weight: 700; letter-spacing: .08em; overflow-wrap: anywhere; }

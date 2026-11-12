@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LoadFailure } from '../../app/ui'
 import { AdminApp } from './AdminApp'
-import { FirstStepsRender } from './FirstSteps'
+import { CoverageNoticeRender, FirstStepsRender } from './FirstSteps'
 
 const apiMocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn() }))
 vi.mock('../../app/session', () => ({
@@ -155,6 +155,24 @@ describe('aviso de días cargados', () => {
     expect(await screen.findByRole('heading', { name: 'Días de trabajo' })).toBeInTheDocument()
     expect(await screen.findByText('Mañana nadie tiene día cargado en Local Centro: cargalos para que puedan marcar.')).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Cargar días de trabajo' })).toBeInTheDocument()
+  })
+
+  // Slice E3: the notice is a message of the system (its icon, its body) and «Cargar días» leads somewhere, so it is a link
+  // button under the words. On arrival it stays a polite status even when it is an error.
+  it('el aviso es un mensaje del sistema con su ícono, sigue siendo un estado y «Cargar días» es un enlace debajo del texto', () => {
+    const onAction = vi.fn()
+    render(<CoverageNoticeRender notice={{ kind: 'error', siteNames: ['Local Centro'], text: 'Mañana nadie tiene día cargado en Local Centro: cargalos para que puedan marcar.' }} actionLabel="Cargar días" onAction={onAction} />)
+    const notice = screen.getByRole('status')
+    const body = notice.querySelector(':scope > .message-body') as HTMLElement
+
+    expect(notice).toHaveClass('message', 'message-error')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(notice.querySelector(':scope > svg.icon')).not.toBeNull()
+    expect(body).toHaveTextContent('Mañana nadie tiene día cargado en Local Centro')
+    const action = within(body).getByRole('button', { name: 'Cargar días' })
+    expect(action).toHaveClass('button-link')
+    fireEvent.click(action)
+    expect(onAction).toHaveBeenCalledTimes(1)
   })
 })
 
