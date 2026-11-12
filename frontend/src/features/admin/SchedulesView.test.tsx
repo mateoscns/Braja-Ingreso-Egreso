@@ -55,7 +55,27 @@ describe('Horarios: a schedule a shop owner understands', () => {
     serve({ templates: [] })
     render(<SchedulesView />)
     expect(await screen.findByText('Este local todavía no tiene horarios. Creá el primero.')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Local')).not.toBeInTheDocument()
+  })
+
+  // T12 (UX A-3): the Local select lived in the create form but also chose the list beside it, and it went away when the
+  // assignment step took the place of the form.
+  it('chooses the local at the top of «Horarios de este local», and keeps it while the assignment step replaces the form', async () => {
+    serve({ sites: [centro, norte] })
+    render(<SchedulesView />)
+    const list = within(await screen.findByRole('region', { name: 'Horarios de este local' }))
+    await list.findByText('Mañana')
+    const local = list.getByLabelText('Local')
+    expect(local).toHaveValue('s-1')
+    expect(comesBefore(local, list.getByText('Mañana'))).toBe(true)
+    // One control for one value: the form says the local it creates for, in words.
     expect(form().queryByLabelText('Local')).not.toBeInTheDocument()
+    expect(form().getByText('Local Centro')).toBeInTheDocument()
+
+    fireEvent.change(form().getByLabelText('Nombre del horario'), { target: { value: 'Corrido' } })
+    fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
+    await screen.findByRole('region', { name: '¿Quién trabaja con este horario?' })
+    expect(within(screen.getByRole('region', { name: 'Horarios de este local' })).getByLabelText('Local')).toHaveValue('s-1')
   })
 
   it('creates a cortado schedule from its card with the days computed and a live preview', async () => {
@@ -79,12 +99,19 @@ describe('Horarios: a schedule a shop owner understands', () => {
     expect(await screen.findByText('Horario «Cortado» creado.')).toBeInTheDocument()
   })
 
-  it('computes the next day for a night schedule and says it next to the field', async () => {
+  // Changed in T12: the hint is over the two times of the tramo, read with «Sale a las», no longer inside that field.
+  it('computes the next day for a night schedule and says it over the two times, read with the field it is about', async () => {
     render(<SchedulesView />)
     await screen.findByText('Mañana')
     fireEvent.click(form().getByRole('radio', { name: /^De noche/ }))
     const tramo1 = within(form().getByRole('group', { name: 'Tramo 1' }))
     expect(tramo1.getByLabelText('Sale a las')).toHaveAccessibleDescription('Sale al día siguiente (06:00).')
+    expect(tramo1.getByLabelText('Entra a las')).not.toHaveAccessibleDescription()
+    // T12: the hint sat inside «Sale a las», between its label and its box, so the two fields of the tramo were not level at
+    // 390 px. It is read before both fields now, and neither field holds a hint of its own.
+    const hint = tramo1.getByText('Sale al día siguiente (06:00).')
+    expect(hint.closest('.field')).toBeNull()
+    expect(comesBefore(hint, tramo1.getByLabelText('Entra a las'))).toBe(true)
     expect(form().queryByLabelText(/el día$/)).not.toBeInTheDocument()
     fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
     await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/templates', expect.objectContaining({
@@ -130,15 +157,18 @@ describe('Horarios: a schedule a shop owner understands', () => {
     expect(form().getByLabelText('Minutos para desayunar')).toHaveAccessibleDescription('Poné un número de 0 a 240.')
   })
 
+  // Changed in T12: the Local select is at the top of «Horarios de este local», no longer inside the create form.
   it('keeps the typed data when the Local changes and lists the horarios of the chosen local', async () => {
     serve({ sites: [centro, norte] })
     render(<SchedulesView />)
     await screen.findByText('Mañana')
-    expect(form().getByLabelText('Local')).toHaveValue('s-1')
+    const local = () => within(screen.getByRole('region', { name: 'Horarios de este local' })).getByLabelText('Local')
+    expect(local()).toHaveValue('s-1')
     fireEvent.change(form().getByLabelText('Nombre del horario'), { target: { value: 'Tarde' } })
     fireEvent.change(within(form().getByRole('group', { name: 'Tramo 1' })).getByLabelText('Entra a las'), { target: { value: '13:00' } })
-    fireEvent.change(form().getByLabelText('Local'), { target: { value: 's-2' } })
+    fireEvent.change(local(), { target: { value: 's-2' } })
 
+    expect(form().getByText('Local Norte')).toBeInTheDocument()
     expect(form().getByLabelText('Nombre del horario')).toHaveValue('Tarde')
     expect(within(form().getByRole('group', { name: 'Tramo 1' })).getByLabelText('Entra a las')).toHaveValue('13:00')
     expect(await screen.findByText('Este local todavía no tiene horarios. Creá el primero.')).toBeInTheDocument()
@@ -419,6 +449,9 @@ describe('Horarios: one validation style', () => {
     expect(apiMocks.post).toHaveBeenCalledTimes(1)
   })
 })
+
+/** True when `first` comes before `second` in the document. */
+const comesBefore = (first: Element, second: Element) => Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
 
 /** The row of buttons right after the block that holds `element`, inside the same form; null when something else comes next. */
 function aboveTheButtons(element: HTMLElement) {

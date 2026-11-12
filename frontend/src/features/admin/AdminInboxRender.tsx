@@ -20,6 +20,19 @@ export const INBOX_FILTERS_ID = 'inbox-filters'
 type Correction = { deviationId: string; classification: DeviationClassification } | null
 /** A decision the server refused: its message goes inside the row of that case, not at the top of the page. */
 export type FailedDecision = { deviationId: string; message: string } | null
+/** The case whose decision was just saved: the row says what it was saved as (T12; it was a line at the top of the section). */
+export type SavedDecision = { deviationId: string } | null
+
+/**
+ * One line over the cases: how many wait for the ADMIN (a motive to decide on) and how many for the employee (no motive yet),
+ * counted from the cases loaded. While more can be loaded the line says it counts this list, so it never claims a total (T12).
+ */
+export function caseCount(items: Deviation[], more: boolean): string {
+  const toDecide = items.filter((item) => item.status === 'PENDIENTE_REVISION').length
+  const waiting = items.filter((item) => item.status === 'MOTIVO_PENDIENTE').length
+  const line = `${toDecide} para decidir · ${waiting} ${waiting === 1 ? 'espera' : 'esperan'} explicación`
+  return more ? `En esta lista: ${line}` : line
+}
 
 /** The row of a case, which takes the focus when a notification opens it; the container moves the focus by these ids. */
 export const caseRowId = (deviationId: string) => `deviation-${deviationId}`
@@ -45,7 +58,7 @@ function inboxFilterSummary(applied: InboxFilterValues, employees: Employee[], s
   return `Filtros: ${parts.length ? parts.join(' · ') : 'todos'}`
 }
 
-export function AdminInboxRender({ narrow = false, appliedFilters = EMPTY_INBOX_FILTERS, coverage, onOpenJornada, items, employees, sites, filters, filterErrors = {}, filtered, onFiltersChange, onApplyFilters, onClearFilters, timeZones, nextCursor, loading, inboxLoadError, timeZoneLoadError, error, notice, busy, correction, correctionReason, correctionError, targetDeviation, failedDecision = null, onReload, onClassify, onRetry, onLoadMore, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
+export function AdminInboxRender({ narrow = false, appliedFilters = EMPTY_INBOX_FILTERS, coverage, onOpenJornada, items, employees, sites, filters, filterErrors = {}, filtered, onFiltersChange, onApplyFilters, onClearFilters, timeZones, nextCursor, loading, inboxLoadError, timeZoneLoadError, error, savedDecision = null, busy, correction, correctionReason, correctionError, targetDeviation, failedDecision = null, onReload, onClassify, onRetry, onLoadMore, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
   /** Phone width: the filters fold under one line that says which ones are applied, so the first case is in sight. */
   narrow?: boolean; appliedFilters?: InboxFilterValues
   /** The notice of days loaded (CoverageNotice) and the way to a deviation's jornada, both given by AdminApp. */
@@ -57,7 +70,8 @@ export function AdminInboxRender({ narrow = false, appliedFilters = EMPTY_INBOX_
   correctionError?: string
   onFiltersChange: (patch: Partial<InboxFilterValues>) => void; onApplyFilters: () => void; onClearFilters: () => void
   timeZones: Map<string, string>; nextCursor: string | null; loading: boolean; inboxLoadError: string; timeZoneLoadError: string
-  error: string; notice: string; busy: string; correction: Correction; correctionReason: string; targetDeviation: string; failedDecision?: FailedDecision
+  error: string; busy: string; correction: Correction; correctionReason: string; targetDeviation: string; failedDecision?: FailedDecision
+  savedDecision?: SavedDecision
   onReload: () => void; onClassify: (item: Deviation, classification: DeviationClassification) => void; onRetry: () => void; onLoadMore: () => void
   onCorrectionReasonChange: (reason: string) => void; onSubmitCorrection: (item: Deviation) => void; onCancelCorrection: () => void
 }) {
@@ -71,14 +85,14 @@ export function AdminInboxRender({ narrow = false, appliedFilters = EMPTY_INBOX_
   return <>
     <div className="page-title-row"><div><h1 tabIndex={-1}>Para revisar</h1><p className="muted">Revisá motivos y resolvé cada caso. Los avisos no incluyen datos privados.</p></div><button className="button button-secondary" disabled={loading} onClick={onReload}>{loading ? 'Actualizando…' : 'Actualizar'}</button></div>
     {error && <PageMessage kind="error">{error}</PageMessage>}
-    {notice && <PageMessage kind="success">{notice}</PageMessage>}
     {timeZoneLoadError && <PageMessage kind="error">No se pudieron cargar las zonas horarias de los locales: {timeZoneLoadError} Las horas se muestran en la zona horaria de este dispositivo.</PageMessage>}
     {targetDeviation && items.some((item) => item.id === targetDeviation) && <PageMessage kind="success">Abriste el caso indicado por el aviso.</PageMessage>}
     {coverage}
     {narrow ? <details className="fold filter-fold"><summary>{inboxFilterSummary(appliedFilters, employees, sites)}</summary>{filterForm}</details> : filterForm}
     <Panel title="Casos recientes">{inboxLoadError ? <LoadFailure message={inboxLoadError} onRetry={onRetry} /> : <>
+      {!loading && items.length > 0 && <p className="muted">{caseCount(items, Boolean(nextCursor))}</p>}
       <DeviationList items={items} onOpenJornada={onOpenJornada} filtered={filtered} loading={loading} busy={busy} onClassify={onClassify} targetId={targetDeviation} timeZones={timeZones}
-        correction={correction} correctionReason={correctionReason} correctionError={correctionError} failedDecision={failedDecision} onCorrectionReasonChange={onCorrectionReasonChange}
+        correction={correction} correctionReason={correctionReason} correctionError={correctionError} failedDecision={failedDecision} savedDecision={savedDecision} onCorrectionReasonChange={onCorrectionReasonChange}
         onSubmitCorrection={onSubmitCorrection} onCancelCorrection={onCancelCorrection} />
       {nextCursor && <div className="button-row case-more"><button className="button button-secondary" disabled={busy === 'page'} onClick={onLoadMore}>{busy === 'page' ? 'Cargando…' : 'Cargar anteriores'}</button></div>}
     </>}
@@ -86,9 +100,9 @@ export function AdminInboxRender({ narrow = false, appliedFilters = EMPTY_INBOX_
   </>
 }
 
-function DeviationList({ items, onOpenJornada, filtered, loading, busy, onClassify, targetId, timeZones, correction, correctionReason, correctionError, failedDecision, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
+function DeviationList({ items, onOpenJornada, filtered, loading, busy, onClassify, targetId, timeZones, correction, correctionReason, correctionError, failedDecision, savedDecision, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
   items: Deviation[]; onOpenJornada?: (item: Deviation) => void; filtered: boolean; loading: boolean; busy: string; onClassify: (item: Deviation, classification: DeviationClassification) => void
-  targetId: string; timeZones: Map<string, string>; correction: Correction; correctionReason: string; correctionError?: string; failedDecision: FailedDecision
+  targetId: string; timeZones: Map<string, string>; correction: Correction; correctionReason: string; correctionError?: string; failedDecision: FailedDecision; savedDecision: SavedDecision
   onCorrectionReasonChange: (reason: string) => void; onSubmitCorrection: (item: Deviation) => void; onCancelCorrection: () => void
 }) {
   if (loading) return <Loading label="Cargando casos…" />
@@ -100,6 +114,8 @@ function DeviationList({ items, onOpenJornada, filtered, loading, busy, onClassi
     const occurredAt = item.occurredAt ?? item.createdAt
     const correcting = correction?.deviationId === item.id
     const failure = failedDecision?.deviationId === item.id ? <PageMessage kind="error">{failedDecision.message}</PageMessage> : null
+    const decided = item.status === 'JUSTIFICADO' || item.status === 'NO_JUSTIFICADO'
+    const saved = savedDecision?.deviationId === item.id && decided ? <PageMessage kind="success">{`Guardado: ${statusName(item.status)}.`}</PageMessage> : null
     // Nothing in a row at rest is filled: the two decisions weigh the same, and the only filled button is the save of an open form.
     const decide = (classification: DeviationClassification, label: string, icon?: IconName, id?: string) =>
       <button type="button" id={id} className="button button-secondary" disabled={saving} onClick={() => onClassify(item, classification)}>{saving ? 'Guardando…' : <>{icon && <Icon name={icon} />}{label}</>}</button>
@@ -126,6 +142,7 @@ function DeviationList({ items, onOpenJornada, filtered, loading, busy, onClassi
         <div className="button-row"><button className="button button-primary" disabled={saving}>{saving ? 'Guardando…' : 'Guardar corrección'}</button><button type="button" className="button button-link" disabled={saving} onClick={onCancelCorrection}>Cancelar</button></div>
       </form>}
       {!correcting && failure}
+      {!correcting && saved}
     </li>
   })}</ul>
 }

@@ -39,8 +39,11 @@ export type ScheduleEditorProps = {
   id?: string
   /** What the last save of this form did («Horario … creado.»): a result of the form, above its buttons. */
   notice?: string
-  /** The Local field, first in the form; it is hidden with a single local (create only). */
-  sites?: Site[]; siteId?: string; onSiteChange?: (siteId: string) => void
+  /**
+   * The local the horario is created for, said in words first in the form (create only, with more than one local). It is chosen
+   * at the top of «Horarios de este local», which it also filters: one control for one value (T12).
+   */
+  siteName?: string
   /** The three types of horario as option tiles (create only). */
   showTypes?: boolean
   /** Edit in place, under the record: an inline form with the warning that loaded days keep their old schedule. */
@@ -52,7 +55,7 @@ export type ScheduleEditorProps = {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void; onCancel?: () => void
 }
 
-export function ScheduleEditor({ draft, busy, disabled = false, disabledReason = '', error, submitLabel, formLabel, id, notice = '', sites = [], siteId = '', onSiteChange, showTypes = false, editing = false,
+export function ScheduleEditor({ draft, busy, disabled = false, disabledReason = '', error, submitLabel, formLabel, id, notice = '', siteName = '', showTypes = false, editing = false,
   onNameChange, onPickType, onTramoChange, onAddTramo, onRemoveTramo, onBreakfastChange, onLunchChange, onManualOffsetChange, onUseComputedDays, onSubmit, onCancel }: ScheduleEditorProps) {
   const ids = useId()
   const pauseHintId = `${ids}-pause`
@@ -67,9 +70,10 @@ export function ScheduleEditor({ draft, busy, disabled = false, disabledReason =
   const reason = disabled && !busy ? disabledReason : ''
   return <form id={id} className={editing ? 'inline-form' : 'form-stack'} aria-label={formLabel} noValidate onSubmit={onSubmit}>
     {editing && <PageMessage>{EDIT_WARNING}</PageMessage>}
-    {onSiteChange && sites.length > 1 && <FormField label="Local" hint="Tus datos se mantienen si cambiás de local.">
-      <select value={siteId} disabled={busy} onChange={(event) => onSiteChange(event.target.value)}>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select>
-    </FormField>}
+    {siteName && <div className="field"><span className="field-label">Local</span>
+      <span>{siteName}</span>
+      <span className="field-hint">Para otro local, elegilo en «Horarios de este local». Lo que escribiste se mantiene.</span>
+    </div>}
     {/* One choice among three, each with a line of explanation: radios in option tiles (design system 4.5). */}
     {showTypes && <fieldset className="field" aria-describedby={typesHintId}>
       <legend className="field-label">¿Cómo es este horario?</legend>
@@ -87,9 +91,15 @@ export function ScheduleEditor({ draft, busy, disabled = false, disabledReason =
     {draft.tramos.map((tramo, index) => {
       const tramoErrors = show ? errors[index] ?? {} : {}
       const hints = blocks[index] && !errors[index]?.start && !errors[index]?.end ? tramoHints(blocks[index]) : {}
+      const startHintId = `${ids}-tramo-${index}-start`
+      const endHintId = `${ids}-tramo-${index}-end`
+      // «Entra al día siguiente» and «Sale al día siguiente» go over both times, each read with its field: inside one field the
+      // hint pushed its label and box down, and the two times of the tramo were not level at 390 px (T12).
       return <fieldset className="field-group tramo" key={index}><legend>Tramo {index + 1}</legend><div className="tramo-fields">
-        <FormField label="Entra a las" hint={hints.start} error={tramoErrors.start}><input type="time" value={tramo.start} disabled={busy} onChange={(event) => onTramoChange(index, { start: event.target.value })} /></FormField>
-        <FormField label="Sale a las" hint={hints.end} error={tramoErrors.end}><input type="time" value={tramo.end} disabled={busy} onChange={(event) => onTramoChange(index, { end: event.target.value })} /></FormField>
+        {hints.start && <span className="field-hint" id={startHintId}>{hints.start}</span>}
+        {hints.end && <span className="field-hint" id={endHintId}>{hints.end}</span>}
+        <FormField label="Entra a las" error={tramoErrors.start}><input type="time" value={tramo.start} aria-describedby={hints.start ? startHintId : undefined} disabled={busy} onChange={(event) => onTramoChange(index, { start: event.target.value })} /></FormField>
+        <FormField label="Sale a las" error={tramoErrors.end}><input type="time" value={tramo.end} aria-describedby={hints.end ? endHintId : undefined} disabled={busy} onChange={(event) => onTramoChange(index, { end: event.target.value })} /></FormField>
         {/* A light edit of the draft, undone with «Agregar otro tramo»: a link, not a red button per tramo. */}
         {draft.tramos.length > 1 && <button type="button" className="button button-link" disabled={busy} onClick={() => onRemoveTramo(index)}>Quitar este tramo</button>}
       </div></fieldset>
@@ -179,8 +189,10 @@ export function ScheduleAssignStep({ templateName, employees, employeesLoading, 
   return <section className="inline-form" id={scheduleFocusIds.assignStep} aria-labelledby={headingId}><h3 id={headingId}>{TITLE}</h3>{body}</section>
 }
 
-export function SchedulesViewRender({ sites, siteId, siteTemplates, loading, loadError, notice, messageAt = '', busy, openCardId, cardSlot, createPanel, onReload, onBeginEdit }: {
+export function SchedulesViewRender({ sites, siteId, siteTemplates, loading, loadError, notice, messageAt = '', busy, openCardId, cardSlot, createPanel, onReload, onBeginEdit, onSiteChange = () => undefined }: {
   sites: Site[]; siteId: string; siteTemplates: Template[]; loading: boolean; loadError: string; notice: string
+  /** The local chosen at the top of «Horarios de este local»: it lists its horarios and a new one is created for it (T12). */
+  onSiteChange?: (siteId: string) => void
   /** The form whose result `notice` is (scheduleMessageKeys); the container hands it to that form, so it shows nowhere else. */
   messageAt?: string
   busy: boolean
@@ -190,7 +202,6 @@ export function SchedulesViewRender({ sites, siteId, siteTemplates, loading, loa
   createPanel: ReactNode
   onReload: () => void; onBeginEdit: (template: Template) => void
 }) {
-  const siteName = sites.find((site) => site.id === siteId)?.name
   // A result whose form is not on the screen (the horario belongs to another local now) still shows: at the top of the page.
   const placed = messageAt === scheduleMessageKeys.create || siteTemplates.some((template) => messageAt === scheduleMessageKeys.edit(template.id))
   return <>
@@ -198,7 +209,11 @@ export function SchedulesViewRender({ sites, siteId, siteTemplates, loading, loa
     {notice && !placed && <PageMessage kind="success">{notice}</PageMessage>}
     <div className="content-grid">
       <Panel title="Horarios de este local">
-        {sites.length > 1 && siteName && <p className="muted">{siteName}</p>}
+        {/* With more than one local, the local is chosen here, over its list: it stays while the step after saving takes the
+            place of the create form, which uses the same local and says it in words. */}
+        {sites.length > 1 && <FormField label="Local" hint="Muestra sus horarios; uno nuevo se crea para este local.">
+          <select value={siteId} disabled={busy} onChange={(event) => onSiteChange(event.target.value)}>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select>
+        </FormField>}
         {loading ? <Loading /> : loadError ? <LoadFailure message={loadError} onRetry={onReload} /> : !sites.length ? <Empty>Primero creá un local en Locales.</Empty> : siteTemplates.length ? <ul className="record-list">{siteTemplates.map((template) => {
           const open = openCardId === template.id
           const nameId = `schedule-${template.id}-name`

@@ -182,9 +182,9 @@ export function SchedulesView() {
         the list beside it shows «Cargando…». */}
     <ScheduleEditor id={scheduleFocusIds.createForm} draft={draft} busy={busy} disabled={loading || Boolean(loadError) || !siteId}
       disabledReason={loading ? '' : loadError ? 'Reintentá la carga antes de crear un horario.' : !siteId ? 'Primero creá un local en Locales.' : ''} error={createError} notice={noticeAt === scheduleMessageKeys.create ? notice : ''} submitLabel="Crear horario" formLabel="Crear un horario"
-      sites={sites} siteId={siteId} onSiteChange={setSiteId} showTypes {...editorCallbacks(updateDraft)} onSubmit={(event) => void create(event)} />
+      siteName={sites.length > 1 ? sites.find((site) => site.id === siteId)?.name : undefined} showTypes {...editorCallbacks(updateDraft)} onSubmit={(event) => void create(event)} />
   </Panel>
 
   return <SchedulesViewRender sites={sites} siteId={siteId} siteTemplates={siteTemplates} loading={loading} loadError={loadError} notice={notice} messageAt={noticeAt} busy={busy}
-    openCardId={openCardId} cardSlot={cardSlot} createPanel={createPanel} onReload={() => void load()} onBeginEdit={beginEdit} />
+    openCardId={openCardId} cardSlot={cardSlot} createPanel={createPanel} onReload={() => void load()} onBeginEdit={beginEdit} onSiteChange={setSiteId} />
 }

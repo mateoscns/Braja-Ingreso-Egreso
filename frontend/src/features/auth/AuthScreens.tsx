@@ -1,7 +1,7 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react'
 import { Brand, CONTENT_ID, PageMessage, FormField, SkipLink, Status } from '../../app/ui'
 import { Icon } from '../../app/icons'
-import { useFieldErrors } from '../../app/useFieldErrors'
+import { useFieldErrors, useProblemFocus } from '../../app/useFieldErrors'
 import type { Session } from '../../shared/api/types'
 import {
   OWN_PASSWORD_RULE, OWN_PASSWORD_TOO_LONG_MESSAGE, OWN_PASSWORD_TOO_SHORT_MESSAGE, PASSWORD_MAX_CHARACTERS, PASSWORD_MIN_CHARACTERS, passwordTooLong
@@ -49,7 +49,8 @@ export function LoginScreen({ onSignIn, error }: { onSignIn: (dni: string, passw
     // A failed check keeps the notice of the interrupted mark: nothing was sent yet.
     if (!valid) return
     setBusy(true); clearMarkInterrupted(); setMarkInterrupted(false)
-    try { await onSignIn(dni.trim(), password) } catch (reason) { setFormError(reason instanceof Error ? reason.message : 'No se pudo iniciar sesión.') }
+    // The button is disabled while it waits, so a refusal takes the focus to its message (T12; WCAG 2.4.3).
+    try { await onSignIn(dni.trim(), password) } catch (reason) { setFormError(reason instanceof Error ? reason.message : 'No se pudo iniciar sesión.'); fields.focusProblem(formId) }
     finally { setBusy(false) }
   }
   // The notice the screen opens with stays above the form; the answer to a submit goes inside it, above its button (4.7). The
@@ -75,9 +76,11 @@ export function LoginScreen({ onSignIn, error }: { onSignIn: (dni: string, passw
 export function CompanyScreen({ session, onSelect, onSignOut }: { session: Session; onSelect: (id: string) => Promise<void>; onSignOut: () => void }) {
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState('')
+  const focusProblem = useProblemFocus()
   async function select(id: string) {
     setBusyId(id); setError('')
-    try { await onSelect(id) } catch (reason) { setError(reason instanceof Error ? reason.message : 'No se pudo seleccionar la empresa.') }
+    // Every company is disabled while one is activated: a refusal takes the focus to its message (T12; WCAG 2.4.3).
+    try { await onSelect(id) } catch (reason) { setError(reason instanceof Error ? reason.message : 'No se pudo seleccionar la empresa.'); focusProblem(CONTENT_ID) }
     finally { setBusyId('') }
   }
   // Each company is an option tile that enters at once: its name over its role, and an arrow that says it goes on; the one being
@@ -119,7 +122,7 @@ export function PasswordChangeScreen({ onChange, onSignOut }: { onChange: (curre
     })
     if (!valid) return
     setBusy(true)
-    try { await onChange(current, next) } catch (reason) { setError(reason instanceof Error ? reason.message : 'No se pudo cambiar la contraseña.') }
+    try { await onChange(current, next) } catch (reason) { setError(reason instanceof Error ? reason.message : 'No se pudo cambiar la contraseña.'); fields.focusProblem(formId) }
     finally { setBusy(false) }
   }
   const type = shown ? 'text' : 'password'

@@ -4,7 +4,8 @@
  */
 let seen = false
 
-export const LOCATION_NOTICE = 'Para marcar necesitamos saber que estás en el local. Solo se mira en el momento de marcar.'
+/** Rule 2: the location never blocks a mark, so it is not worded as a condition (T12, finding A-1). */
+export const LOCATION_NOTICE = 'Al marcar, el celular manda tu ubicación una sola vez para saber si estás en el local. Si no llega, la marca igual se registra.'
 
 export function locationNoticeSeen(): boolean { return seen }
 

@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Icon, type IconName } from './icons'
 import { appSourcePaths, readSource } from './testing/sourceFiles'
@@ -66,6 +67,7 @@ describe('componentes compartidos de interfaz', () => {
     // The select keeps its name and now shows it as a visible label.
     expect(screen.getByText('Empresa activa').tagName).toBe('LABEL')
     fireEvent.change(screen.getByRole('combobox', { name: 'Empresa activa' }), { target: { value: 'company-2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Cambiar' }))
 
     const status = await screen.findByRole('status')
     expect(status).toHaveTextContent('Esperando la activación de Otra empresa')
@@ -314,11 +316,14 @@ describe('componentes compartidos de interfaz', () => {
     render(<CompanySwitcher memberships={memberships} activeCompanyId="company-1" onSelect={onSelect} />)
 
     const select = screen.getByRole('combobox', { name: 'Empresa activa' })
+    const button = screen.getByRole('button', { name: 'Cambiar' })
     fireEvent.change(select, { target: { value: 'company-2' } })
+    fireEvent.click(button)
 
     expect(select).toBeDisabled()
+    expect(button).toBeDisabled()
     expect(await screen.findByRole('status')).toHaveTextContent('Esperando la activación de Otra empresa')
-    fireEvent.change(select, { target: { value: 'company-1' } })
+    fireEvent.click(button)
     expect(onSelect).toHaveBeenCalledTimes(1)
 
     request.resolve()
@@ -333,14 +338,83 @@ describe('componentes compartidos de interfaz', () => {
 
     const select = screen.getByRole('combobox', { name: 'Empresa activa' })
     fireEvent.change(select, { target: { value: 'company-2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Cambiar' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo activar la empresa.')
     await waitFor(() => expect(select).toBeEnabled())
-    fireEvent.change(select, { target: { value: 'company-2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Cambiar' }))
 
     await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(2))
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     await waitFor(() => expect(select).toBeEnabled())
+  })
+})
+
+// T12 (#114, 2026-11-12; WCAG 3.2.2): the switch changed the company on the change of the list, so going through it with the
+// keyboard reloaded the screen. Mateo answered "Lista + botón «Cambiar» (Recomendado)" (D-20261112-03).
+describe('el cambio de empresa con un botón', () => {
+  /** The app as App.tsx draws it: one screen per company, mounted again when the company changes. */
+  function Screens({ titleLater = false }: { titleLater?: boolean }) {
+    const [active, setActive] = useState('company-1')
+    const [drawn, setDrawn] = useState(!titleLater)
+    async function select(companyId: string) {
+      setActive(companyId)
+      if (titleLater) { setDrawn(false); setTimeout(() => setDrawn(true), 20) }
+    }
+    return <div key={active}>
+      <CompanySwitcher memberships={memberships} activeCompanyId={active} onSelect={select} />
+      <main id={CONTENT_ID} tabIndex={-1}>{drawn ? <h1>{`Pantalla de ${active}`}</h1> : <p>Cargando…</p>}</main>
+    </div>
+  }
+
+  it('elegir en la lista no cambia nada; el cambio pasa al tocar «Cambiar»', async () => {
+    const onSelect = vi.fn(() => Promise.resolve())
+    render(<CompanySwitcher memberships={memberships} activeCompanyId="company-1" onSelect={onSelect} />)
+    const select = screen.getByRole('combobox', { name: 'Empresa activa' })
+
+    fireEvent.change(select, { target: { value: 'company-2' } })
+    fireEvent.keyDown(select, { key: 'ArrowDown' })
+
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(select).toHaveValue('company-2')
+    fireEvent.click(screen.getByRole('button', { name: 'Cambiar' }))
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith('company-2')
+    await waitFor(() => expect(select).toBeEnabled())
+  })
+
+  it('«Cambiar» con la empresa que ya está activa no pide nada', () => {
+    const onSelect = vi.fn(() => Promise.resolve())
+    render(<CompanySwitcher memberships={memberships} activeCompanyId="company-1" onSelect={onSelect} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Cambiar' }))
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it('después del cambio el foco va al título de la pantalla nueva', async () => {
+    render(<Screens />)
+    fireEvent.change(screen.getByRole('combobox', { name: 'Empresa activa' }), { target: { value: 'company-2' } })
+    screen.getByRole('button', { name: 'Cambiar' }).focus()
+    fireEvent.click(screen.getByRole('button', { name: 'Cambiar' }))
+
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Pantalla de company-2' })).toHaveFocus())
+  })
+
+  it('si la pantalla nueva dibuja su título después de cargar, el foco lo espera', async () => {
+    render(<Screens titleLater />)
+    fireEvent.change(screen.getByRole('combobox', { name: 'Empresa activa' }), { target: { value: 'company-2' } })
+    screen.getByRole('button', { name: 'Cambiar' }).focus()
+    fireEvent.click(screen.getByRole('button', { name: 'Cambiar' }))
+
+    const title = await screen.findByRole('heading', { level: 1, name: 'Pantalla de company-2' })
+    await waitFor(() => expect(title).toHaveFocus())
+    expect(title).toHaveAttribute('tabindex', '-1')
+  })
+
+  it('el selector y su botón van juntos en la barra de arriba', () => {
+    render(<AppHeader companyName="Braja" name="Lucía" onSignOut={vi.fn()}><CompanySwitcher memberships={memberships} activeCompanyId="company-1" onSelect={vi.fn()} /></AppHeader>)
+    const wrap = screen.getByRole('combobox', { name: 'Empresa activa' }).parentElement!
+    expect(wrap).toHaveClass('company-switch-wrap')
+    expect(wrap).toContainElement(screen.getByRole('button', { name: 'Cambiar' }))
+    expect(screen.getByRole('banner')).toContainElement(wrap)
   })
 })
 

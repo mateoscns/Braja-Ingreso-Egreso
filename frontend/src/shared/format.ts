@@ -21,7 +21,15 @@ export function formatLocalDate(isoDate: string): string {
   return new Intl.DateTimeFormat('es-AR', { dateStyle: 'medium', timeZone: 'UTC' }).format(parsed)
 }
 
-/** Date and time without seconds, in the given time zone when provided. */
+/**
+ * Date and time without seconds, in the given time zone when provided, on the 24-hour clock of the employee's day and the
+ * horarios («16 oct 2026, 16:05»): es-AR alone writes «4:05 p. m.». The date and the time are formatted apart because asking
+ * es-AR for a 24-hour clock with the date in one format also changes the date to «16 de oct de 2026».
+ */
 export function formatDateTime(value: string, timeZone?: string): string {
-  return new Intl.DateTimeFormat('es-AR', { dateStyle: 'medium', timeStyle: 'short', ...(timeZone ? { timeZone } : {}) }).format(new Date(value))
+  const zone = timeZone ? { timeZone } : {}
+  const instant = new Date(value)
+  const date = new Intl.DateTimeFormat('es-AR', { dateStyle: 'medium', ...zone }).format(instant)
+  const time = new Intl.DateTimeFormat('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', ...zone }).format(instant)
+  return `${date}, ${time}`
 }

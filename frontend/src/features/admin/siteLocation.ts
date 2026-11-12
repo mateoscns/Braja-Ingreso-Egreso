@@ -115,10 +115,10 @@ function locationFailure(error: GeolocationPositionError): SiteLocationError {
 
 export function parseGeofenceRadiusMeters(value: string): number {
   const normalized = value.trim()
-  if (!/^\d+$/.test(normalized)) throw new Error('La distancia permitida para marcar debe ser un número entero entre 50 y 500 metros.')
+  if (!/^\d+$/.test(normalized)) throw new Error('La distancia alrededor del local debe ser un número entero entre 50 y 500 metros.')
   const radius = Number(normalized)
   if (!Number.isSafeInteger(radius) || radius < 50 || radius > 500) {
-    throw new Error('La distancia permitida para marcar debe ser un número entero entre 50 y 500 metros.')
+    throw new Error('La distancia alrededor del local debe ser un número entero entre 50 y 500 metros.')
   }
   return radius
 }

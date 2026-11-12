@@ -14,8 +14,12 @@ export type SiteMapPanelState = {
   /** «Buscar» with nothing written: the error of the search field, not an answer of the search. */
   queryError?: string
 }
-/** The panel (one map is open at a time): an empty search takes the focus to its field inside it. */
+/**
+ * The panel (one map is open at a time): opening it and an empty search take the focus to its search field inside it, and a
+ * result chosen, which empties the list that held it, takes the focus to «Confirmar ubicación» (T12, WCAG 2.4.3).
+ */
 export const SITE_MAP_PANEL_ID = 'site-map-panel'
+export const SITE_MAP_CONFIRM_ID = 'site-map-confirm'
 
 /** D-20261109-01: find the address, tap the exact spot, see the radius and confirm. Data and callbacks come from SitesView. */
 export function SiteMapPanel({ state, radiusMeters, disabled, onPick, onQueryChange, onSearch, onChooseResult, onConfirm, onClose }: {
@@ -44,7 +48,7 @@ export function SiteMapPanel({ state, radiusMeters, disabled, onPick, onQueryCha
     </li>)}</ul>}
     {/* Above the map, so on a phone the instruction, the map and the confirm button fit on one screen. */}
     <span className="field-hint" id={instructionId} role="status">{state.point
-      ? `Punto marcado. El círculo muestra los ${radiusMeters} m permitidos para marcar. Si no es la puerta, tocá de nuevo.`
+      ? `Punto marcado. El círculo muestra los ${radiusMeters} m alrededor del local. Si no es la puerta, tocá de nuevo.`
       : 'Tocá en el mapa la puerta del local.'}</span>
     <Suspense fallback={<Loading label="Cargando el mapa…" />}>
       <SiteMapPicker view={state.view} point={state.point} radiusMeters={radiusMeters} onPick={onPick} label="Mapa: tocá la puerta del local" />
@@ -52,7 +56,7 @@ export function SiteMapPanel({ state, radiusMeters, disabled, onPick, onQueryCha
     <div className="button-row">
       {/* Without a point there is nothing to confirm: the instruction over the map says what to do, and the button reads it
           (finding F-09). The instruction, the map and the button fit on one phone screen (design system 4.20). */}
-      <button type="button" className="button button-primary" aria-describedby={state.point ? undefined : instructionId} disabled={disabled || !state.point} onClick={onConfirm}>Confirmar ubicación</button>
+      <button type="button" id={SITE_MAP_CONFIRM_ID} className="button button-primary" aria-describedby={state.point ? undefined : instructionId} disabled={disabled || !state.point} onClick={onConfirm}>Confirmar ubicación</button>
       {/* Backing out of the map, so a link button (design system 4.1). */}
       <button type="button" className="button button-link" disabled={disabled} onClick={onClose}>Cerrar mapa</button>
     </div>

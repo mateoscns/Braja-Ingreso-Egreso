@@ -11,10 +11,12 @@ export type HistoryFilterValues = { employeeId: string; siteId: string; from: st
 /** The filter form, where the focus goes when a filter is wrong. */
 export const HISTORY_FILTERS_ID = 'history-filters'
 
-export function AdminHistoryRender({ open, onOpenChange, employees, sites, loadingOptions, filters, filterErrors = {}, rows, loading, error, opening, onFiltersChange, onSearch, onOpenDay }: {
+export function AdminHistoryRender({ open, onOpenChange, employees, sites, loadingOptions, optionsFailed = false, onRetryOptions = () => undefined, filters, filterErrors = {}, rows, loading, error, opening, onFiltersChange, onSearch, onOpenDay }: {
   /** The fold is open; onOpenChange follows the owner opening or closing it. */
   open: boolean; onOpenChange: (open: boolean) => void
   employees: Employee[]; sites: Site[]; loadingOptions: boolean; filters: HistoryFilterValues
+  /** The people and the locals of the filters could not be read («Hoy» says why at its top): the fold says so and retries them. */
+  optionsFailed?: boolean; onRetryOptions?: () => void
   /** What is wrong, under its filter: «who» is the person or the local, shown under «Empleado», the first of the two. */
   filterErrors?: FieldErrors<'who' | 'from' | 'to'>
   rows: JornadaSummary[] | null; loading: boolean; error: string
@@ -28,6 +30,8 @@ export function AdminHistoryRender({ open, onOpenChange, employees, sites, loadi
   return <section className="panel" aria-labelledby="day-search-title"><details className="fold" open={open} onToggle={(event) => onOpenChange(event.currentTarget.open)}>
     <summary><h2 id="day-search-title">Buscar días anteriores</h2></summary>
     <p className="muted">Días de trabajo, marcas y casos de un empleado o un local en un rango de fechas.</p>
+    {/* Its own words, not the error of «Hoy» again: that one is already at the top of the page, with its own retry. */}
+    {optionsFailed && <LoadFailure message="No se pudieron cargar los empleados y los locales para buscar." retryLabel="Reintentar empleados y locales" disabled={loadingOptions} onRetry={onRetryOptions} />}
     {/* «Buscar» waits for the people and the locals as their lists do, while «Hoy» reads them («Cargando días…» above). */}
     <form id={HISTORY_FILTERS_ID} className="filter-bar" aria-label="Filtros del historial" noValidate onSubmit={(event) => { event.preventDefault(); onSearch() }}>
       <FormField label="Empleado" error={filterErrors.who}><select value={filters.employeeId} disabled={loadingOptions} onChange={(event) => onFiltersChange({ employeeId: event.target.value })}><option value="">Todos</option>{employees.map((person) => <option key={person.id} value={person.id}>{person.displayName}</option>)}</select></FormField>

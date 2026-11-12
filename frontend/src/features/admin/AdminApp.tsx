@@ -44,7 +44,7 @@ export function AdminApp() {
   // step is missing, Bandeja otherwise.
   const [start, setStart] = useState<AdminSection | null>(null)
   // The section shown lives in the address, so reload and Back keep the place (D-20261111-02).
-  const { section, go, retiredAddress } = useAdminSection(start)
+  const { section, go, retiredAddress, retiredArrival } = useAdminSection(start)
   const [setup, setSetup] = useState<SetupData | null>(null)
   const [setupLoading, setSetupLoading] = useState(false)
   const [setupError, setSetupError] = useState('')
@@ -134,8 +134,8 @@ export function AdminApp() {
         {section === 'setup' && <FirstStepsRender steps={steps} loading={setupLoading} error={setupError} readyCount={setup ? readyTomorrow(setup) : 0} onGo={navigate} onRetry={() => void refreshSetup()} />}
         {section === 'inbox' && <AdminInbox onOpenJornada={openDeviationJornada}
           coverage={notice && <CoverageNoticeRender notice={notice} actionLabel="Cargar días" onAction={showWorkDaysForm} />} />}
-        {/* The old address of «Historial» lands here with its search open. */}
-        {section === 'jornadas' && <JourneysView key={journeysKey} openJornada={openJornada} searchOpen={retiredAddress === HISTORY_ADDRESS} />}
+        {/* The old address of «Historial» lands here with its search open, each time it is followed. */}
+        {section === 'jornadas' && <JourneysView key={journeysKey} openJornada={openJornada} searchArrival={retiredAddress === HISTORY_ADDRESS ? retiredArrival : 0} />}
         {section === 'workdays' && <WorkDaysView onNavigate={navigate} onDaysLoaded={() => void refreshSetup()}
           coverage={notice && <CoverageNoticeRender notice={notice} actionLabel="Cargar días" onAction={showWorkDaysForm} />} />}
         {section === 'empleados' && <EmployeesView />}

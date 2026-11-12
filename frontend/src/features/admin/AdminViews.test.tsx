@@ -354,7 +354,51 @@ describe('administración de desvíos y marcas', () => {
     await waitFor(() => expect(apiMocks.put).toHaveBeenCalledWith('/admin/deviations/d-1/classification', {
       classification: 'NO_JUSTIFICADO', correctionReason: 'Revisión de la evidencia del día.'
     }))
-    expect(await screen.findByText('Clasificación guardada.')).toBeInTheDocument()
+    // Changed in T12 (UX Medio 1): the result is said in the row of the case, not at the top of the section.
+    expect(await within(screen.getByRole('listitem', { name: 'Lucía Pérez' })).findByText('Guardado: No justificado.')).toBeInTheDocument()
+  })
+
+  // T12 (UX Medio 1, F-02 residual): «Clasificación guardada.» showed at the top of the section, far from a case lower down.
+  it('una decisión guardada se dice en la fila de su caso y el foco va a «Corregir a …»', async () => {
+    const previous = apiMocks.get.getMockImplementation()!
+    const waiting = { ...deviation, status: 'PENDIENTE_REVISION' as const, category: 'TRANSPORTE' as const }
+    apiMocks.get.mockImplementation((path: string) => path.startsWith('/inbox') ? Promise.resolve({ items: [waiting], nextCursor: null }) : previous(path))
+    apiMocks.put.mockResolvedValue({ ...waiting, status: 'JUSTIFICADO' })
+    render(<AdminInbox />)
+    const row = within(await screen.findByRole('listitem', { name: 'Lucía Pérez' }))
+    fireEvent.click(row.getByRole('button', { name: 'Justificado' }))
+
+    expect(await row.findByText('Guardado: Justificado.')).toBeInTheDocument()
+    await waitFor(() => expect(row.getByRole('button', { name: 'Corregir a no justificado' })).toHaveFocus())
+    expect(screen.queryByText('Clasificación guardada.')).not.toBeInTheDocument()
+  })
+
+  // T12 (UX A-5): «Para revisar» showed the cases without saying how many wait for the ADMIN and how many for the employee.
+  describe('la cuenta de los casos', () => {
+    const cases = [
+      { ...deviation, id: 'd-1', status: 'MOTIVO_PENDIENTE' as const },
+      { ...deviation, id: 'd-2', status: 'MOTIVO_PENDIENTE' as const },
+      { ...deviation, id: 'd-3', status: 'PENDIENTE_REVISION' as const, category: 'SALUD' as const },
+      { ...deviation, id: 'd-4', status: 'JUSTIFICADO' as const }
+    ]
+    const serveInbox = (items: typeof cases, nextCursor: string | null) => {
+      const previous = apiMocks.get.getMockImplementation()!
+      apiMocks.get.mockImplementation((path: string) => path.startsWith('/inbox') ? Promise.resolve({ items, nextCursor }) : previous(path))
+    }
+
+    it('dice cuántos casos esperan una decisión y cuántos una explicación', async () => {
+      serveInbox(cases, null)
+      render(<AdminInbox />)
+      const panel = within(await screen.findByRole('region', { name: 'Casos recientes' }))
+      expect(await panel.findByText('1 para decidir · 2 esperan explicación')).toBeInTheDocument()
+    })
+
+    it('con más casos para cargar no dice un total: cuenta los de esta lista', async () => {
+      serveInbox(cases.slice(1), 'next-page')
+      render(<AdminInbox />)
+      const panel = within(await screen.findByRole('region', { name: 'Casos recientes' }))
+      expect(await panel.findByText('En esta lista: 1 para decidir · 1 espera explicación')).toBeInTheDocument()
+    })
   })
 
   it('oculta las jornadas de la fecha anterior mientras se carga la fecha nueva', async () => {
@@ -763,11 +807,11 @@ describe('administración de desvíos y marcas', () => {
     })
 
     it('un rechazo muestra el mensaje del servidor y ninguna contraseña', async () => {
-      apiMocks.post.mockRejectedValueOnce(new Error('Esta persona también tiene acceso en otra empresa o como ADMIN; su contraseña la restablece el operador.'))
+      apiMocks.post.mockRejectedValueOnce(new Error('Esta persona también tiene acceso en otra empresa o como ADMIN, así que su contraseña no se puede restablecer desde acá. Pedí ayuda al soporte de Fichaje Braja.'))
       render(<EmployeesView />)
       fireEvent.click(await resetButton())
       fireEvent.click(screen.getByRole('button', { name: 'Confirmar restablecimiento' }))
-      expect(await screen.findByRole('alert')).toHaveTextContent('su contraseña la restablece el operador')
+      expect(await screen.findByRole('alert')).toHaveTextContent('su contraseña no se puede restablecer desde acá')
       expect(screen.queryByText('Listo, ya la entregué')).not.toBeInTheDocument()
     })
 
@@ -1105,6 +1149,71 @@ describe('administración de desvíos y marcas', () => {
 
       expect(await screen.findByText('La marca ya estaba anulada.')).toBeInTheDocument()
       await waitFor(() => expect(apiMocks.get.mock.calls.filter(([path]) => path === '/jornadas/j-1').length).toBeGreaterThan(detailCalls))
+    })
+
+    // T12 (UX A-2): only the detail was read again after a change, so the tag of the day in the list kept the old state.
+    it('después de agregar, corregir o anular una marca, la fila del día muestra el estado que se leyó de nuevo', async () => {
+      const previousGet = apiMocks.get.getMockImplementation()!
+      let state = 'EN_CURSO'
+      apiMocks.get.mockImplementation((path: string) => path === '/jornadas/j-1' ? Promise.resolve({ ...jornada, state }) : previousGet(path))
+      render(<JourneysView />)
+      const dayRow = () => screen.getByRole('row', { name: /^Lucía Pérez/ })
+      fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
+      await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
+      expect(within(dayRow()).getByText(formatJornadaState('EN_CURSO'))).toBeInTheDocument()
+
+      state = 'EGRESADA'
+      fireEvent.change(screen.getByLabelText('Hora (Local Centro)'), { target: { value: '2026-10-16T17:00' } })
+      fireEvent.change(screen.getByLabelText('¿Por qué la agregás?'), { target: { value: 'Olvidó marcar la salida.' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Agregar marca' }))
+      expect(await within(dayRow()).findByText(formatJornadaState('EGRESADA'))).toBeInTheDocument()
+
+      state = 'PAUSA_ABIERTA'
+      await waitFor(() => expect(within(screen.getByRole('row', { name: /^Entrada/ })).getByRole('button', { name: /^Corregir marca/ })).toBeEnabled())
+      fireEvent.click(within(screen.getByRole('row', { name: /^Entrada/ })).getByRole('button', { name: /^Corregir marca/ }))
+      fireEvent.change(screen.getByLabelText('Motivo de corrección de marca'), { target: { value: 'Se verificó la hora.' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Guardar corrección de marca' }))
+      expect(await within(dayRow()).findByText(formatJornadaState('PAUSA_ABIERTA'))).toBeInTheDocument()
+
+      state = 'NO_INGRESO'
+      await waitFor(() => expect(within(screen.getByRole('row', { name: /^Entrada/ })).getByRole('button', { name: /^Anular marca/ })).toBeEnabled())
+      fireEvent.click(within(screen.getByRole('row', { name: /^Entrada/ })).getByRole('button', { name: /^Anular marca/ }))
+      fireEvent.change(screen.getByLabelText('Motivo de anulación'), { target: { value: 'Tocó por error.' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirmar anulación' }))
+      expect(await within(dayRow()).findByText(formatJornadaState('NO_INGRESO'))).toBeInTheDocument()
+    })
+
+    // T12 (QA M1): the notice of a day and the place it shows were kept when another day opened, so «Día cancelado.» showed in
+    // the detail of a day nobody cancelled.
+    it('el aviso del día cancelado no aparece en el detalle de otro día que se abre después', async () => {
+      const previousGet = apiMocks.get.getMockImplementation()!
+      const otherEmployee = { ...employee, id: 'e-2', displayName: 'Nicolás Arce' }
+      let cancelled = false
+      apiMocks.get.mockImplementation((path: string) => {
+        if (path === '/employees') return Promise.resolve([employee, otherEmployee])
+        if (path.startsWith('/jornadas?')) return Promise.resolve([
+          { id: 'j-1', employeeId: 'e-1', siteId: 's-1', localDate: '2026-10-16', state: cancelled ? 'CANCELADA' : 'NO_INGRESO' },
+          { id: 'j-2', employeeId: 'e-2', siteId: 's-1', localDate: '2026-10-16', state: 'EN_CURSO' }
+        ])
+        if (path === '/jornadas/j-1') return Promise.resolve({ ...jornada, marks: [], ...(cancelled ? { state: 'CANCELADA', cancelledAt: '2026-10-16T13:00:00Z', cancelReason: 'Feriado' } : { state: 'NO_INGRESO' }) })
+        if (path === '/jornadas/j-2') return Promise.resolve({ ...jornada, id: 'j-2', employeeId: 'e-2' })
+        return previousGet(path)
+      })
+      apiMocks.post.mockImplementation(() => { cancelled = true; return Promise.resolve({ jornadaId: 'j-1', state: 'CANCELADA' }) })
+      render(<JourneysView />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Ver marcas de Lucía Pérez' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancelar el día' }))
+      fireEvent.change(screen.getByLabelText('Motivo de cancelación'), { target: { value: 'Feriado' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirmar cancelación' }))
+      expect(await screen.findByText('Día cancelado.')).toBeInTheDocument()
+      await screen.findByText(/Día cancelado el .* Motivo: Feriado/)
+
+      const openOther = screen.getByRole('button', { name: 'Ver marcas de Nicolás Arce' })
+      await waitFor(() => expect(openOther).toBeEnabled())
+      fireEvent.click(openOther)
+      expect(await screen.findByRole('region', { name: 'Marcas de Nicolás Arce' })).toBeInTheDocument()
+      await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
+      expect(screen.queryByText('Día cancelado.')).not.toBeInTheDocument()
     })
 
     it('un reintento de cancelación ya aplicada se muestra como hecho', async () => {
@@ -1901,6 +2010,22 @@ describe('dirección de cada sección del ADMIN', () => {
       expect(await screen.findByRole('heading', { name: 'Hoy', level: 1 })).toBeInTheDocument()
       expect(menuLink('Hoy')).toHaveAttribute('aria-current', 'page')
       expect(fold()).toHaveAttribute('open')
+      await waitFor(() => expect(window.location.hash).toBe('#/hoy'))
+    })
+
+    // T12 (QA B5): the address was the same as last time, so following it again after closing the fold did nothing.
+    it('seguir otra vez #/historial después de plegar la búsqueda la vuelve a abrir', async () => {
+      openAt('#/historial')
+      render(<AdminApp />)
+      expect(await screen.findByRole('heading', { name: 'Hoy', level: 1 })).toBeInTheDocument()
+      expect(fold()).toHaveAttribute('open')
+      await waitFor(() => expect(window.location.hash).toBe('#/hoy'))
+      act(() => { fold().open = false; fold().dispatchEvent(new Event('toggle')) })
+      expect(fold()).not.toHaveAttribute('open')
+
+      window.location.hash = '#/historial'
+      await hashSettles()
+      await waitFor(() => expect(fold()).toHaveAttribute('open'))
       await waitFor(() => expect(window.location.hash).toBe('#/hoy'))
     })
   })

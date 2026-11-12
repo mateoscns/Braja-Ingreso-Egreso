@@ -632,6 +632,8 @@ td .button-row { gap: var(--space-2); }
 .tramo > legend { float: left; width: 100%; }
 .tramo-fields { clear: both; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: var(--space-2) var(--space-4); }
 .tramo-fields > .button-link { grid-column: 1 / -1; justify-self: start; }
+/* The hint of a night schedule («Sale al día siguiente») spans both times, above them, so the two fields stay level (T12). */
+.tramo-fields > .field-hint { grid-column: 1 / -1; }
 /* A tramo with an error shows no hints (ScheduleEditor), and its error goes under the control: the two boxes stay level only
    when they align at the top. */
 .tramo-fields:has(.field-error) { align-items: start; }

@@ -212,7 +212,9 @@ function pauseMinutes(jornada: Jornada, out: MarkAction, back: MarkAction): numb
   const start = marks.find((mark) => mark.action === out)
   const end = marks.find((mark) => mark.action === back)
   if (!start || !end) return null
-  return Math.round((new Date(markInstant(end)).getTime() - new Date(markInstant(start)).getTime()) / MINUTE)
+  // The server flags a pause longer than its limit by any amount (DeviationPolicy.pause): a started minute counts, so a long
+  // pause never reads as long as its limit (T12).
+  return Math.ceil((new Date(markInstant(end)).getTime() - new Date(markInstant(start)).getTime()) / MINUTE)
 }
 
 /**

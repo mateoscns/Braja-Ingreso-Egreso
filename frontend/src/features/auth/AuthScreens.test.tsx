@@ -147,6 +147,8 @@ describe('pantallas de acceso', () => {
     rejectSelection(new Error('No se pudo activar Braja.'))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo activar Braja.')
+    // T12 (#114, 2026-11-12; WCAG 2.4.3): the button pressed is disabled while it waits, so the focus was lost; it goes to the message.
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveFocus())
     await waitFor(() => expect(screen.getByRole('button', { name: /Braja/ })).toBeEnabled())
   })
 
@@ -436,6 +438,8 @@ describe('una sola forma de validar en las pantallas de acceso', () => {
     expect(alert).toHaveTextContent('El DNI o la contraseña son incorrectos.')
     expect(isBefore(alert, screen.getByRole('button', { name: 'Ingresar' }))).toBe(true)
     expect(screen.getAllByRole('alert')).toHaveLength(1)
+    // T12 (#114, 2026-11-12; WCAG 2.4.3): the button pressed is disabled while it waits, so the focus was lost; it goes to the message.
+    await waitFor(() => expect(alert).toHaveFocus())
     for (const label of ['DNI', 'Contraseña']) {
       expect(screen.getByLabelText(label)).not.toHaveAttribute('aria-invalid')
       expect(screen.getByLabelText(label)).toHaveAccessibleDescription('')
@@ -492,6 +496,8 @@ describe('una sola forma de validar en las pantallas de acceso', () => {
     const alert = await within(form).findByRole('alert')
     expect(alert).toHaveTextContent('La contraseña actual no coincide.')
     expect(isBefore(alert, screen.getByRole('button', { name: 'Guardar contraseña' }))).toBe(true)
+    // T12 (#114, 2026-11-12; WCAG 2.4.3): the button pressed is disabled while it waits, so the focus was lost; it goes to the message.
+    await waitFor(() => expect(alert).toHaveFocus())
   })
 
   it('después de un envío fallido las contraseñas se siguen pudiendo pegar (3.3.8)', () => {

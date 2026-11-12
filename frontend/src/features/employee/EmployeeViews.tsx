@@ -89,6 +89,8 @@ function MarkReceipt({ confirmation, timeZone }: { confirmation: MarkConfirmatio
 export const markButtonId = (action: MarkAction) => `now-mark-${action}`
 /** «Lo enviamos…»: it takes the focus when the case sent leaves the list with its form (slice G2). */
 export const MOTIVE_NOTICE_ID = 'motive-notice'
+/** The form of one case: a refused send takes the focus to its first problem (app/useFieldErrors, T12). */
+export const motiveFormId = (id: string) => `motive-form-${id}`
 
 /** The next mark is the one filled button, 80 px tall; every other mark is a secondary button of 56 px. All full width. */
 function MarkButton({ action, next = false, busy, onMark }: { action: MarkAction; next?: boolean; busy: boolean; onMark: (action: MarkAction) => void }) {
@@ -99,16 +101,25 @@ function MarkButton({ action, next = false, busy, onMark }: { action: MarkAction
 /**
  * The "now" block (design system 4.13): the state of the day, the next mark and the schedule in one place. It is the section
  * «Marcar» only while there is something to mark; a finished, cancelled or missing day keeps the sentence and the schedule.
+ * `onToday` is given while another day is shown: that day is only for looking (D-20261112-01), so there is nothing to mark and
+ * the block says how to get back to marking, right under the sentence.
  */
-export function NowBlock({ sentence, jornada, site, options, busy, step, stepRef, onMark, onConfirmStep, onCancelStep }: {
+export function NowBlock({ sentence, jornada, site, options, busy, step, stepRef, onMark, onConfirmStep, onCancelStep, onToday }: {
   sentence: string; jornada?: Jornada; site?: Site; options: MarkOptions | null; busy: boolean; step: MarkStep | null
   stepRef: RefObject<HTMLDivElement | null>; onMark: (action: MarkAction) => void; onConfirmStep: () => void; onCancelStep: () => void
+  onToday?: () => void
 }) {
   const headingId = useId()
   const marking = Boolean(options && (options.primary || step))
+  // The tolerance is said in the present, for today; another day keeps only the name of the local.
+  const place = jornada ? [site?.name, onToday ? '' : `Tenés ${jornada.toleranceMinutes} minutos de tolerancia para entrar.`].filter(Boolean).join(' · ') : ''
   return <section className="now" aria-labelledby={marking ? headingId : undefined} aria-busy={marking ? busy : undefined}>
     {marking && <h2 id={headingId} className="visually-hidden">Marcar</h2>}
     {sentence && <p className="now-state">{sentence}</p>}
+    {onToday && <div className="now-step">
+      <p className="now-step-text">Para marcar, volvé a hoy.</p>
+      <div className="button-row"><button type="button" className="button button-secondary" disabled={busy} onClick={onToday}>Volver a hoy</button></div>
+    </div>}
     {marking && options && (step ? <div className="now-step" ref={stepRef} tabIndex={-1}>
       <p className="now-step-text">{step.text}</p>
       <div className="button-row">
@@ -122,7 +133,7 @@ export function NowBlock({ sentence, jornada, site, options, busy, step, stepRef
     </div>)}
     {jornada && <div className="now-context"><Icon name="clock" /><div>
       <p className="now-schedule"><strong>Tu horario</strong>{' '}{jornada.scheduleSnapshot.blocks.map((block, index) => <span key={`${block.start}-${index}`}>{formatBlock(block)}</span>)}</p>
-      <p className="now-place">{site ? `${site.name} · ` : ''}Tenés {jornada.toleranceMinutes} minutos de tolerancia para entrar.</p>
+      {place && <p className="now-place">{place}</p>}
     </div></div>}
   </section>
 }
@@ -251,18 +262,10 @@ function MotiveForm({ item, todo = false, formRef, children, values, errors, sav
   const error = errors[item.id]
   const saving = savingId === item.id
   const categoryErrorId = `${ids}-category-error`
-  // A failed submit takes the focus to the first field it marked, once its error is tied to it (design system 4.7). Field
-  // errors only come from a submit; editing a field clears its own, which must not move the focus.
-  const submitted = useRef(false)
-  useEffect(() => {
-    if (!submitted.current) return
-    submitted.current = false
-    const form = formRef.current
-    if (error?.category) (form?.querySelector<HTMLInputElement>('input[type=radio]:checked') ?? form?.querySelector<HTMLInputElement>('input[type=radio]'))?.focus()
-    else if (error?.text) form?.querySelector('textarea')?.focus()
-  }, [error, formRef])
-  return <form ref={formRef} className={todo ? 'inline-form inline-form-todo' : 'inline-form'} noValidate aria-busy={saving}
-    onSubmit={(event) => { submitted.current = true; onSubmit(event, item) }}>
+  // A refused send takes the focus to the first field it marked, or to the server's answer (design system 4.7): the container
+  // asks for it by this form's id, so the request survives the form being drawn again (T12).
+  return <form ref={formRef} id={motiveFormId(item.id)} className={todo ? 'inline-form inline-form-todo' : 'inline-form'} noValidate aria-busy={saving}
+    onSubmit={(event) => onSubmit(event, item)}>
     {children}
     {/* A group has no FormField: its error is tied by aria-describedby, in the look of a field error. */}
     <fieldset className={error?.category ? 'field field-invalid' : 'field'} aria-invalid={error?.category ? true : undefined} aria-describedby={error?.category ? categoryErrorId : undefined}>

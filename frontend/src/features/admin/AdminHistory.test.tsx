@@ -77,6 +77,24 @@ describe('búsqueda de días anteriores en «Hoy» (antes Historial)', () => {
     expect(historyCalls()).toEqual([])
   })
 
+  // T12 (QA B1): the search borrows the people and the locals of «Hoy»; when they failed, its filters offered only «Todos».
+  it('si fallaron los empleados y los locales, la búsqueda lo dice adentro y deja reintentarlos', async () => {
+    const previous = apiMocks.get.getMockImplementation()!
+    let fail = true
+    apiMocks.get.mockImplementation((path: string) => {
+      if (path === '/employees' && fail) { fail = false; return Promise.reject(new Error('Falló la carga de empleados.')) }
+      return previous(path)
+    })
+    render(<JourneysView />)
+
+    expect(await within(search()).findByText('No se pudieron cargar los empleados y los locales para buscar.')).toBeInTheDocument()
+    const retry = within(search()).getByRole('button', { name: 'Reintentar empleados y locales', hidden: true })
+    await waitFor(() => expect(retry).toBeEnabled())
+    fireEvent.click(retry)
+    await searchReady()
+    expect(within(search()).queryByText('No se pudieron cargar los empleados y los locales para buscar.')).not.toBeInTheDocument()
+  })
+
   it('propone los últimos 7 días y consulta con includeDetail para el empleado elegido', async () => {
     render(<JourneysView />)
     await searchReady()

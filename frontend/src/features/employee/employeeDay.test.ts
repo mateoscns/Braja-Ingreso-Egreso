@@ -222,6 +222,15 @@ describe('describeDeviation', () => {
     expect(describeDeviation({ ...base, type: 'EXCESO_DESAYUNO' }, jornada('EN_CURSO', marks), timeZone)).toBe('Tu desayuno duró 25 minutos y tenías 15.')
   })
 
+  // T12 (#114, 2026-11-12): the server flags a pause longer than its limit, even by seconds (DeviationPolicy.pause), and the
+  // minutes were rounded: «Tu almuerzo duró 45 minutos y tenías 45.» A started minute counts.
+  it('counts a started minute of a long pause, so it never reads as long as its limit', () => {
+    const marks = [mark('INGRESO', '2026-11-09T11:00:00Z', 1), mark('SALIDA_ALMUERZO', '2026-11-09T15:00:00Z', 2), mark('VUELTA_ALMUERZO', '2026-11-09T15:45:20Z', 3)]
+    expect(describeDeviation({ ...base, type: 'EXCESO_ALMUERZO' }, jornada('EN_CURSO', marks), timeZone)).toBe('Tu almuerzo duró 46 minutos y tenías 45.')
+    const exact = [mark('INGRESO', '2026-11-09T11:00:00Z', 1), mark('SALIDA_DESAYUNO', '2026-11-09T13:00:00Z', 2), mark('VUELTA_DESAYUNO', '2026-11-09T13:16:00Z', 3)]
+    expect(describeDeviation({ ...base, type: 'EXCESO_DESAYUNO' }, jornada('EN_CURSO', exact), timeZone)).toBe('Tu desayuno duró 16 minutos y tenías 15.')
+  })
+
   // 2026-11-10 (#115): both marks of a pause the ADMIN loaded are stored at the same moment.
   it('measures a pause the ADMIN loaded from the times it happened', () => {
     const stored = '2026-11-10T00:15:00Z'

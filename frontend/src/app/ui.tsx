@@ -221,22 +221,58 @@ export function AppHeader({ companyName, name, onSignOut, home, children }: {
   </>
 }
 
+/**
+ * After a company switch App.tsx mounts the screen of the new company again, and the switch that had the focus is gone with the
+ * old one: the focus goes to the title (h1) of the new screen once it is drawn (WCAG 2.4.3). The ADMIN's screen draws it after
+ * its first load, so this waits for a main that is not the old one to hold an h1, for a while. It only takes a focus that was
+ * left on nothing: someone who already moved on keeps their place.
+ */
+export function focusNewScreenTitle(previousMain: HTMLElement | null, timeoutMs = 15_000): void {
+  const newTitle = () => {
+    const main = document.getElementById(CONTENT_ID)
+    return main && main !== previousMain ? main.querySelector<HTMLElement>('h1') : null
+  }
+  const take = (title: HTMLElement) => {
+    if (document.activeElement && document.activeElement !== document.body) return
+    if (!title.hasAttribute('tabindex')) title.tabIndex = -1
+    revealAndFocus(title, title, 'start')
+  }
+  const found = newTitle()
+  if (found) { take(found); return }
+  if (typeof MutationObserver !== 'function') return
+  const observer = new MutationObserver(() => {
+    const title = newTitle()
+    if (title) { stop(); take(title) }
+  })
+  const timer = window.setTimeout(() => stop(), timeoutMs)
+  function stop() { observer.disconnect(); window.clearTimeout(timer) }
+  observer.observe(document.body, { childList: true, subtree: true })
+}
+
+/**
+ * The company switch (D-20261112-03; WCAG 3.2.2): the list only chooses, and the change happens on «Cambiar», so going through
+ * the list with the keyboard does not reload the screen under the person.
+ */
 export function CompanySwitcher({ memberships, activeCompanyId, onSelect, disabled = false }: {
   memberships: Membership[]; activeCompanyId: string; onSelect: (companyId: string) => Promise<void>; disabled?: boolean
 }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [choice, setChoice] = useState(activeCompanyId)
   const [pendingCompanyId, setPendingCompanyId] = useState('')
   const requestPending = useRef(false)
   const selectId = useId()
   if (memberships.length < 2) return null
-  async function change(companyId: string) {
+  async function change() {
+    const companyId = choice
+    // The company already active is nothing to change.
     if (disabled || requestPending.current || companyId === activeCompanyId) return
     requestPending.current = true
     setError('')
     setPendingCompanyId(companyId)
     setBusy(true)
-    try { await onSelect(companyId) }
+    const previousMain = document.getElementById(CONTENT_ID)
+    try { await onSelect(companyId); focusNewScreenTitle(previousMain) }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'No se pudo cambiar de empresa.') }
     finally {
       requestPending.current = false
@@ -249,9 +285,10 @@ export function CompanySwitcher({ memberships, activeCompanyId, onSelect, disabl
   return <>
     <div className="company-switch-wrap">
       <label className="company-switch-label" htmlFor={selectId}>Empresa activa</label>
-      <select id={selectId} className="company-switch" aria-busy={busy} disabled={busy || disabled} value={activeCompanyId} onChange={(event) => void change(event.target.value)}>
+      <select id={selectId} className="company-switch" aria-busy={busy} disabled={busy || disabled} value={choice} onChange={(event) => { setChoice(event.target.value); setError('') }}>
         {memberships.map((membership) => <option key={membership.companyId} value={membership.companyId}>{membership.companyName}</option>)}
       </select>
+      <button type="button" className="button button-link" disabled={busy || disabled} onClick={() => void change()}>Cambiar</button>
     </div>
     {busy && <TopbarNotice><PageMessage>Esperando la activación de {pendingCompanyName}…</PageMessage></TopbarNotice>}
     {error && <TopbarNotice><PageMessage kind="error">{error}</PageMessage></TopbarNotice>}
