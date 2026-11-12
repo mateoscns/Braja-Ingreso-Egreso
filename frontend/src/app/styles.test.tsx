@@ -276,10 +276,12 @@ const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui',
 // Lowered in slice D4 (the card of the sign-in screens, its eyebrow and the glyph boxes of the companies went): colours 16 → 11,
 // font sizes 16 → 10, shadows 3 → 2, old names 28 → 22.
 // Lowered in slice E3 (the box of the preview of a load went): colours 11 → 10, old names 22 → 21.
+// Lowered in slice E6 (the provisional password takes the tokens and the detail of a person its scroll margin): font sizes
+// 10 → 9, old names 21 → 19.
 const COLOR_LITERAL_CEILING = 10
-const UNTOKENED_FONT_SIZE_CEILING = 10
+const UNTOKENED_FONT_SIZE_CEILING = 9
 const BOX_SHADOW_CEILING = 2
-const LEGACY_TOKEN_USE_CEILING = 21
+const LEGACY_TOKEN_USE_CEILING = 19
 
 // The old names with the values they had before the token block. A name is deleted from the stylesheet once nothing uses it
 // and never gets a new value in the meantime: a half-migrated rule must look exactly as it did.
@@ -588,9 +590,9 @@ describe('campos, casillas y opciones: una sola forma', () => {
     expect(textBox.declarations).toMatch(/border-radius:\s*var\(--radius\)/)
     // Under 16 px iOS zooms the page when a field takes focus.
     expect(textBox.declarations).toMatch(/font-size:\s*var\(--font-size-body\)/)
-    // The cells of the employees table while a row is edited and the company switcher of the top bar are text boxes outside a
-    // field; they share the box until slices E6 and C1 make them fields. Their selector keeps out checkboxes the same way.
-    expect(textBox.selectors).toEqual([TEXT_BOX, 'td input:where(:not([type=checkbox], [type=radio]))', '.company-switch'])
+    // The company switcher of the top bar is a text box outside a field and shares the box. Slice E6: the cells of the employees
+    // table left the rule, since a person is edited in a form under the record.
+    expect(textBox.selectors).toEqual([TEXT_BOX, '.company-switch'])
     // The rule that reached every input is gone, and with it the rules that undid it for one checkbox or radio at a time.
     for (const gone of ['.field input', 'td input', 'td input[type=checkbox]', '.auth-card .field input', '.block-fields input',
       '.site-location-confirmation input', '.employee-category-option input']) {
@@ -663,7 +665,8 @@ describe('campos, casillas y opciones: una sola forma', () => {
     expect(label.declarations).toMatch(/min-height:\s*var\(--target\)/)
     expect(label.declarations).toMatch(/min-width:\s*var\(--target\)/)
     expect(label.declarations).toMatch(/cursor:\s*pointer/)
-    expect(label.selectors).toEqual(['.check', '.check-grid label', '.inline-checks label', '.site-location-confirmation', 'td > label'])
+    // Slice E6: the checks of the employees table (.inline-checks, the bare «Activo» in a cell) are .check now.
+    expect(label.selectors).toEqual(['.check', '.check-grid label', '.site-location-confirmation'])
     expect(ruleListing('.check-list').selectors).toEqual(['.check-list', '.check-grid'])
   })
 
@@ -1202,5 +1205,40 @@ describe('«Días de trabajo»: la carga del mes con las piezas del sistema', ()
     expect(allSelectors().filter((selector) => gone.test(selector))).toEqual([])
     // A row of a list inside a message is a record now: nothing draws the old row there.
     expect(allSelectors()).not.toContain('.message .simple-row:last-child')
+  })
+})
+
+// Slice E6: «Equipo» is built with the pieces of the system. A person is edited in a form under the record, the result of a form
+// is a message inside it, and the password shown once is a result read aloud to the person, in the monospace face.
+describe('«Equipo»: la lista de personas con las piezas del sistema', () => {
+  const value = (declarations: string, property: string) => new RegExp(`(?:^|[;\\s])${property}:\\s*([^;]+)`).exec(declarations)?.[1].trim()
+
+  it('la contraseña provisoria va en la letra monoespaciada, grande para leerla en voz alta y sin espaciado propio', () => {
+    const code = rule('.issued-password-code')
+
+    expect(value(code, 'font-family')).toBe('var(--font-mono)')
+    expect(value(code, 'font-size')).toBe('var(--font-size-title)')
+    expect(value(rule('.issued-password-code', media(600, 'min')), 'font-size')).toBe('var(--font-size-display)')
+    expect(value(code, 'font-weight')).toBe('var(--font-weight-heavy)')
+    expect(code).not.toMatch(/letter-spacing/)
+    // A result: the bar and the fill of a success message, no box.
+    const block = rule('.issued-password')
+    expect(value(block, 'border-left')).toBe('var(--bar-width) solid var(--ok)')
+    expect(value(block, 'background')).toBe('var(--ok-surface)')
+    expect(block).not.toMatch(/(?<![\w-])(?:border|border-radius|box-shadow)\s*:/)
+  })
+
+  it('un mensaje dentro de un formulario lo separa el espacio del formulario, no un margen más', () => {
+    expect(value(rule('.inline-form > .message'), 'margin')).toBe('0')
+    expect(value(rule('.form-result > .message'), 'margin')).toBe('0')
+    expect(value(rule('.form-result'), 'gap')).toBe('var(--space-4)')
+    // The rule of the inbox for the same thing is the general one now.
+    expect(allSelectors()).not.toContain('.case .inline-form > .message')
+  })
+
+  it('las reglas de la tabla editable, del detalle de una persona y de las casillas sueltas se fueron con su marcado', () => {
+    const gone = /\.(?:employee-detail|inline-checks|short-input|site-selection-checks)(?![\w-])|^td (?:> label|input)|^td:first-child input/
+
+    expect(allSelectors().filter((selector) => gone.test(selector))).toEqual([])
   })
 })

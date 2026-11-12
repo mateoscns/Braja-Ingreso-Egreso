@@ -5,7 +5,7 @@ import type { Employee, PasswordReset, Site, Template, TemplateAssignment } from
 import { deviceDate } from '../../shared/dateRange'
 import { useWideTable } from '../../app/useBreakpoint'
 import { PASSWORD_TOO_LONG_MESSAGE, passwordTooLong } from '../../shared/password'
-import { EmployeesViewRender, employeeDetailId, ISSUED_PASSWORD_ID, TemplateAssignmentsRender, type IssuedPassword } from './EmployeesViewRender'
+import { EmployeesViewRender, employeeDetailId, ISSUED_PASSWORD_ID, messageKeys, TemplateAssignmentsRender, type IssuedPassword } from './EmployeesViewRender'
 import { generateTemporaryPassword } from './temporaryPassword'
 import { errText } from './adminShared'
 
@@ -16,6 +16,8 @@ export function EmployeesView() {
   const [loadError, setLoadError] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  // The form whose result error and notice are (messageKeys): it shows there, never at the top of the page (design system 4.7).
+  const [messageAt, setMessageAt] = useState('')
   const [busy, setBusy] = useState(false)
   const [dni, setDni] = useState(''); const [displayName, setDisplayName] = useState(''); const [siteIds, setSiteIds] = useState<string[]>([])
   const [tolerance, setTolerance] = useState('5'); const [temporaryPassword, setTemporaryPassword] = useState('')
@@ -44,7 +46,7 @@ export function EmployeesView() {
     event.preventDefault()
     const employeeId = assignmentsFor
     if (!employeeId || !assignmentTemplateId || !assignmentValidFrom) return
-    setAssignmentBusy(true); setAssignmentError(''); setNotice('')
+    setAssignmentBusy(true); setAssignmentError(''); setNotice(''); setMessageAt(messageKeys.assignments)
     try {
       const created = await api.post<TemplateAssignment>(`/employees/${encodeURIComponent(employeeId)}/template-assignments`, { templateId: assignmentTemplateId, validFrom: assignmentValidFrom })
       setAssignments((current) => [created, ...current].sort((a, b) => b.validFrom.localeCompare(a.validFrom) || b.createdAt.localeCompare(a.createdAt)))
@@ -71,7 +73,7 @@ export function EmployeesView() {
   useEffect(() => { void reload() }, [])
   function toggleSite(id: string) { setSiteIds((current) => current.includes(id) ? current.filter((siteId) => siteId !== id) : [...current, id]) }
   async function create(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setError(''); setNotice('')
+    event.preventDefault(); setError(''); setNotice(''); setMessageAt(messageKeys.create)
     if (temporaryPassword && passwordTooLong(temporaryPassword)) { setError(PASSWORD_TOO_LONG_MESSAGE); return }
     setBusy(true)
     try {
@@ -90,7 +92,7 @@ export function EmployeesView() {
   function typePassword(value: string) { setTemporaryPassword(value); setGeneratedPassword(false) }
   async function saveEmployee() {
     if (!draft) return
-    setBusy(true); setError(''); setNotice('')
+    setBusy(true); setError(''); setNotice(''); setMessageAt(messageKeys.edit(draft.id))
     try {
       const updated = await api.patch<Employee>(`/employees/${encodeURIComponent(draft.id)}`, { displayName: draft.displayName, siteIds: draft.siteIds, toleranceMinutes: draft.toleranceMinutes, active: draft.active })
       setEmployees((current) => current.map((entry) => entry.id === updated.id ? updated : entry)); setDraft(null); setNotice('Cambios del empleado guardados.')
@@ -104,14 +106,14 @@ export function EmployeesView() {
   const assignmentsEmployee = employees.find((person) => person.id === assignmentsFor)
   const assignmentsPanel = assignmentsEmployee ? <TemplateAssignmentsRender employee={assignmentsEmployee} sites={sites}
     templates={assignmentTemplates.filter((template) => assignmentsEmployee.siteIds.includes(template.siteId))} assignments={assignments}
-    loading={assignmentsLoading} loadError={assignmentsLoadError} error={assignmentError} busy={assignmentBusy} templateId={assignmentTemplateId} validFrom={assignmentValidFrom}
+    loading={assignmentsLoading} loadError={assignmentsLoadError} error={assignmentError} notice={messageAt === messageKeys.assignments ? notice : ''} busy={assignmentBusy} templateId={assignmentTemplateId} validFrom={assignmentValidFrom}
     onTemplateChange={setAssignmentTemplateId} onValidFromChange={setAssignmentValidFrom} onSubmit={(event) => void assignTemplate(event)}
     onRetry={() => void openAssignments(assignmentsEmployee.id)} onClose={closeAssignments} /> : null
   // D-20261027-09: the temporary password lives only in this state; it is never written to browser storage and is
   // gone when the ADMIN dismisses the panel or leaves the view.
   const [resetTarget, setResetTarget] = useState<string | null>(null)
   const [issuedPassword, setIssuedPassword] = useState<IssuedPassword | null>(null)
-  // After creating an employee the password panel sits next to the form, below the list; bring it into view. The keyboard
+  // After creating an employee the password panel sits inside the form, below the list; bring it into view. The keyboard
   // focus goes there too (also after a reset, whose confirm button disappears), so it can be read out right away.
   useEffect(() => {
     if (!issuedPassword) return
@@ -123,14 +125,15 @@ export function EmployeesView() {
   async function confirmReset() {
     const person = employees.find((entry) => entry.id === resetTarget)
     if (!person) return
-    setBusy(true); setError(''); setNotice('')
+    setBusy(true); setError(''); setNotice(''); setMessageAt(messageKeys.reset(person.id))
     try {
       const { temporaryPassword: issued } = await api.post<PasswordReset>(`/employees/${encodeURIComponent(person.id)}/password-reset`)
-      setIssuedPassword({ displayName: person.displayName, temporaryPassword: issued })
+      // employeeId: the password shows in the record of that person.
+      setIssuedPassword({ displayName: person.displayName, temporaryPassword: issued, employeeId: person.id })
       setEmployees((current) => current.map((entry) => entry.id === person.id ? { ...entry, mustChangePassword: true } : entry))
     } catch (reason) { setError(errText(reason)) } finally { setBusy(false); setResetTarget(null) }
   }
-  return <EmployeesViewRender employees={employees} sites={sites} loading={loading} loadError={loadError} error={error} notice={notice} busy={busy} dni={dni} displayName={displayName} siteIds={siteIds} tolerance={tolerance} temporaryPassword={temporaryPassword} draft={draft}
+  return <EmployeesViewRender employees={employees} sites={sites} loading={loading} loadError={loadError} error={error} notice={notice} messageAt={messageAt} busy={busy} dni={dni} displayName={displayName} siteIds={siteIds} tolerance={tolerance} temporaryPassword={temporaryPassword} draft={draft}
     generatedPassword={generatedPassword} cards={cards} assignmentsFor={assignmentsFor} assignmentsPanel={assignmentsPanel} onOpenAssignments={(id) => void openAssignments(id)}
     onReload={() => void reload()} onCreate={create} onDniChange={setDni} onDisplayNameChange={setDisplayName} onToggleSite={toggleSite} onToleranceChange={setTolerance} onTemporaryPasswordChange={typePassword} onGeneratePassword={generatePassword}
     onSave={() => void saveEmployee()} onDraftChange={updateDraft} onStartEditing={startEditing} onCancelEditing={() => { setDraft(null); setError('') }}

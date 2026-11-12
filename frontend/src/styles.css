@@ -243,18 +243,16 @@ fieldset.field { gap: var(--space-2); }
 }
 /* The text box: what is typed in, a select and a textarea, all with one edge, one radius and 16 px text (under 16 px iOS zooms
    the page when a field takes focus). A checkbox or a radio inside a field is not a text box: the selector leaves them out, so
-   nothing has to undo this rule for them. Two text boxes are not in a field yet and share the box until they are: the cells of
-   the employees table while a row is edited (slice E6) and the company switcher of the top bar (slice C1). :where() keeps the
-   weight of `td input`, so `td .short-input` still sets its width. The box sets no outline: its focus ring is the common one,
-   below. */
-.field :is(input:not([type=checkbox], [type=radio]), select, textarea), td input:where(:not([type=checkbox], [type=radio])), .company-switch {
+   nothing has to undo this rule for them. The company switcher of the top bar is a text box outside a field and shares the box.
+   The box sets no outline: its focus ring is the common one, below. */
+.field :is(input:not([type=checkbox], [type=radio]), select, textarea), .company-switch {
   width: 100%; border: var(--border-width) solid var(--border); border-radius: var(--radius); padding: var(--space-2) var(--space-3);
   color: var(--text); background: var(--surface); font-size: var(--font-size-body);
   transition: border-color var(--motion-fast);
 }
 /* One line of text is as tall as a button, so a field next to one lines up with it. min-height, never height: larger text or
    wider text spacing is not cut. */
-.field :is(input:not([type=checkbox], [type=radio]), select), td input:where(:not([type=checkbox], [type=radio])), .company-switch { min-height: var(--target); }
+.field :is(input:not([type=checkbox], [type=radio]), select), .company-switch { min-height: var(--target); }
 /* A textarea starts with room for about three lines and can only be stretched downwards. */
 .field textarea { min-height: 5.5rem; resize: vertical; }
 /* Invalid: an edge of 2 px in the error colour, besides the text under the field. The second pixel is drawn inside, as on a
@@ -262,7 +260,7 @@ fieldset.field { gap: var(--space-2); }
 .field :is(input:not([type=checkbox], [type=radio]), select, textarea)[aria-invalid="true"] { border-color: var(--bad); box-shadow: inset 0 0 0 var(--border-width) var(--bad); }
 /* Disabled: still text to read on the band, never faded. Browsers fade a disabled field by themselves: Chrome draws a select at
    70 % (measured 2026-11-11), and Safari on iOS is known to fade every field (not checked on a device). */
-.field :is(input:not([type=checkbox], [type=radio]), select, textarea):disabled, td input:where(:not([type=checkbox], [type=radio])):disabled, .company-switch:disabled {
+.field :is(input:not([type=checkbox], [type=radio]), select, textarea):disabled, .company-switch:disabled {
   color: var(--text-muted); background: var(--surface-tint); opacity: 1;
 }
 .field-wide { grid-column: 1 / -1; }
@@ -593,9 +591,9 @@ html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-height) + env(safe
 .row-avatar { width: 36px; height: 36px; display: grid; place-items: center; color: #477253; border-radius: 10px; background: #eff6ef; }
 /* A checkbox or a radio. The box is 24 px, the floor of WCAG 2.5.8, and it is never the target: the label around it is, as tall
    and as wide as any control. The padding of the label centres one line of text on the box and lets a long text wrap under its
-   first line, with the box still on that line. The old ways to write a check share the rule until slice H1: the lists of
-   checks, the confirmation of a site's point and the bare «Activo» of the employees table. */
-.check, .check-grid label, .inline-checks label, .site-location-confirmation, td > label {
+   first line, with the box still on that line. The old ways to write a check share the rule until slice H1: the list of checks
+   of «Horarios» and the confirmation of a site's point. */
+.check, .check-grid label, .site-location-confirmation {
   display: inline-flex; align-items: flex-start; gap: var(--space-2);
   min-width: var(--target); min-height: var(--target); padding: calc((var(--target) - var(--target-floor)) / 2) 0;
   color: var(--text); cursor: pointer;
@@ -603,9 +601,8 @@ html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-height) + env(safe
 /* The box takes the cursor of its label: a hand, or the "not allowed" sign when it is disabled. */
 input[type=checkbox], input[type=radio] { flex: 0 0 auto; width: var(--target-floor); height: var(--target-floor); margin: 0; accent-color: var(--brand); cursor: inherit; }
 /* Disabled: the box as the browser draws it, and its text muted. */
-.check:has(input:disabled), .check-grid label:has(input:disabled), .inline-checks label:has(input:disabled), .site-location-confirmation:has(input:disabled) { color: var(--text-muted); cursor: not-allowed; }
+.check:has(input:disabled), .check-grid label:has(input:disabled), .site-location-confirmation:has(input:disabled) { color: var(--text-muted); cursor: not-allowed; }
 .check-list, .check-grid { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); }
-.inline-checks { display: flex; flex-direction: column; gap: var(--space-1); min-width: 100px; }
 /* A table is the form of a list of records from 768 px: a sheet with the same fields in the same order. Column heads in
    14 px bold muted words (sentence case: the markup writes them that way), an edge line under them, a hairline under every
    row. A table wider than its room scrolls inside this box, never the page. */
@@ -613,13 +610,10 @@ input[type=checkbox], input[type=radio] { flex: 0 0 auto; width: var(--target-fl
 table { width: 100%; border-collapse: collapse; font-size: var(--font-size-body); }
 th { padding: var(--space-2) var(--space-3) var(--space-2) 0; text-align: left; vertical-align: bottom; color: var(--text-muted); border-bottom: var(--border-width) solid var(--border); font-size: var(--font-size-meta); font-weight: var(--font-weight-heavy); }
 td { padding: var(--space-2) var(--space-3) var(--space-2) 0; color: var(--text); border-bottom: var(--border-width) solid var(--rule); vertical-align: middle; }
-/* The first column is the identifier of the row. A row that spans the table holds an open panel, not a record; a text box in
-   the first cell keeps the weight of what is typed. */
+/* The first column is the identifier of the row. A row that spans the table holds an open panel, not a record. */
 td:first-child:not([colspan]) { font-weight: var(--font-weight-heavy); }
-td:first-child input { font-weight: var(--font-weight-regular); }
 /* The last cell holds the row's buttons; they wrap under each other rather than widen the table. */
 td .button-row { gap: var(--space-2); }
-td .short-input { width: 74px; }
 /* A schedule is a record too: its name and its blocks, with «Cambiar horario» at the right (under them on a phone). */
 .template-card { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: var(--border-width) solid var(--rule); }
 .template-card p { color: var(--text-muted); margin: var(--space-1) 0; font-size: var(--font-size-body); }
@@ -637,9 +631,6 @@ td .short-input { width: 74px; }
 .template-card-open { flex-wrap: wrap; }
 .template-card-slot { flex-basis: 100%; min-width: 0; }
 .template-card-slot > h3 { margin: 0; font-size: 1rem; }
-/* Empleados: the horarios panel and the issued password open next to their place and are scrolled into view below the sticky bars. */
-.employee-detail { scroll-margin-top: calc(var(--topbar-height) + 80px); }
-.employee-detail .panel { margin: 12px 0 0; }
 @media (max-width: 520px) {
   .block-fields.block-fields-tramo { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .block-fields-tramo .remove-block { grid-column: 1 / -1; justify-self: start; }
@@ -694,7 +685,7 @@ td .short-input { width: 74px; }
 .case-actions { display: grid; justify-items: start; min-width: 0; max-width: 28rem; }
 .case-actions > .button-pair { justify-self: stretch; }
 /* A message inside the row is one more line of it: the row's gap spaces it. */
-.case > .message, .case .inline-form > .message { margin: 0; }
+.case > .message { margin: 0; }
 .case > .inline-form { margin-top: 0; }
 .case-list + .case-more { margin-top: var(--space-4); }
 @container (min-width: 56rem) {
@@ -705,6 +696,8 @@ td .short-input { width: 74px; }
 /* An inline form opens in place, under the row or the button that opened it (design system 4.7): a bar on its left, no box.
    Inside a wrapping row (a mark of the phone list) it takes a line of its own. */
 .inline-form { display: grid; gap: var(--space-4); flex-basis: 100%; width: 100%; margin-top: var(--space-4); padding-left: var(--space-4); border-left: var(--bar-width) solid var(--border); }
+/* Its result is one more step of the form, spaced by the form's gap and not by a margin on top of it (slice E6, every screen). */
+.inline-form > .message { margin: 0; }
 
 /* ===== Employee screen ===== */
 /* One column of 40 rem at most: the marks, the schedule and the day are read top to bottom, also on a tablet. */
@@ -872,9 +865,25 @@ td .short-input { width: 74px; }
 .form-grid.work-days-form { align-items: end; }
 /* The point of a mark, under the word of its location: a second line in the muted colour, figures of one width. */
 .mark-coordinates { display: block; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-/* 2026-11-09 integrated check of PR #107, small modifiers from existing tokens: the folded inbox filters on phones and the
-   temporary password large enough to read aloud or copy by hand. */
+/* 2026-11-09 integrated check of PR #107, small modifiers from existing tokens: the folded inbox filters on phones. */
 .filter-fold { margin-bottom: var(--space-4); }
 /* Inside the fold the filters end with the fold. */
 .filter-fold .filter-bar { margin-bottom: 0; }
-.issued-password-code { display: inline-block; color: var(--text-primary); font-size: 1.25rem; font-weight: 700; letter-spacing: .08em; overflow-wrap: anywhere; }
+/* ===== «Equipo» (slice E6) ===== */
+/* The result of a form with a grid (the add form, the horarios of a person): its messages and the password just made, in one
+   cell across the form, right above its buttons, spaced by their own gap and not by margins (design system 4.7). */
+.form-result { display: grid; gap: var(--space-4); min-width: 0; }
+.form-result > .message { margin: 0; }
+/* The edit form under a person: «Nombre» has no hint and «Minutos de tolerancia» has one, so the boxes of the row line up at
+   their foot, as in the single day of «Días de trabajo». */
+.form-grid.employee-edit-form { align-items: end; }
+/* A provisional password, shown once (D-20261027-09): a result, with the bar and fill of a success message and no box. In the
+   monospace face, where 1, l and I or 0 and O differ, and large enough to read it aloud or copy it by hand; it keeps to one
+   line at 320 px and grows from 600 px. A record or a form opens it after its own lines. */
+.issued-password { display: grid; justify-items: start; gap: var(--space-2); min-width: 0; padding: var(--space-3) var(--space-4); border-left: var(--bar-width) solid var(--ok); color: var(--text); background: var(--ok-surface); }
+.issued-password > h3, .issued-password > p { margin: 0; }
+.record > .issued-password, td > .issued-password { margin-top: var(--space-4); }
+.issued-password-code { color: var(--text); font-family: var(--font-mono); font-size: var(--font-size-title); font-weight: var(--font-weight-heavy); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+@media (min-width: 600px) {
+  .issued-password-code { font-size: var(--font-size-display); }
+}

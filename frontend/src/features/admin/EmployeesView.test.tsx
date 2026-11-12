@@ -110,12 +110,13 @@ describe('Empleados: easier for a shop owner', () => {
     expect(await screen.findByText('Horario asignado.')).toBeInTheDocument()
   })
 
-  describe('on a phone (520 px or less)', () => {
+  // Slice E6: under 768 px the people are records of a list (they were cards, `article`, until then).
+  describe('on a phone (under 768 px)', () => {
     beforeEach(() => { narrow = true })
 
-    it('lists the employees as cards instead of the table', async () => {
+    it('lists the employees as records instead of the table', async () => {
       render(<EmployeesView />)
-      const card = within(await screen.findByRole('article', { name: 'Lucía Pérez' }))
+      const card = within(await screen.findByRole('listitem', { name: 'Lucía Pérez' }))
       expect(screen.queryByRole('table')).not.toBeInTheDocument()
       expect(card.getByText('DNI 30123456')).toBeInTheDocument()
       expect(card.getByText('Locales: Local Centro')).toBeInTheDocument()
@@ -123,11 +124,11 @@ describe('Empleados: easier for a shop owner', () => {
       expect(card.getByText('Activo')).toBeInTheDocument()
     })
 
-    it('edits inside the card, outside any table, and saves with PATCH', async () => {
+    it('edits inside the record, outside any table, and saves with PATCH', async () => {
       apiMocks.patch.mockResolvedValueOnce({ ...lucia, toleranceMinutes: 10 })
       render(<EmployeesView />)
       fireEvent.click(await screen.findByRole('button', { name: 'Editar empleado Lucía Pérez' }))
-      const card = within(screen.getByRole('article', { name: 'Lucía Pérez' }))
+      const card = within(screen.getByRole('listitem', { name: 'Lucía Pérez' }))
       const tolerance = card.getByRole('spinbutton', { name: 'Minutos de tolerancia del empleado con DNI 30123456' })
       expect(tolerance.closest('table')).toBeNull()
       fireEvent.change(tolerance, { target: { value: '10' } })
@@ -136,11 +137,166 @@ describe('Empleados: easier for a shop owner', () => {
       expect(await screen.findByText('Minutos de tolerancia: 10')).toBeInTheDocument()
     })
 
-    it('opens the horarios inside the card', async () => {
+    it('opens the horarios inside the record', async () => {
       render(<EmployeesView />)
       fireEvent.click(await screen.findByRole('button', { name: 'Horarios de Lucía Pérez' }))
-      const card = within(screen.getByRole('article', { name: 'Lucía Pérez' }))
+      const card = within(screen.getByRole('listitem', { name: 'Lucía Pérez' }))
       expect(await card.findByRole('region', { name: 'Horarios de Lucía Pérez' })).toBeInTheDocument()
     })
+  })
+})
+
+// Slice E6 (design system 4.7, 4.10, 4.12): «Equipo» with the pieces of the system. A form opens under the record it changes and
+// says how it went inside itself, above its buttons; the state of a person is a tag; the password shown once is a result too.
+describe('«Equipo» with the pieces of the system', () => {
+  // clearAllMocks keeps the answers queued with mock…Once: one a test did not use must not reach the next one.
+  beforeEach(() => { apiMocks.post.mockReset(); apiMocks.patch.mockReset() })
+  const mario = { id: 'e-2', displayName: 'Mario Gómez', dni: '30999888', siteIds: ['s-1'], toleranceMinutes: 10, active: false }
+  /** The row of the table that is the record of a person: the one with the DNI in its cells. */
+  const recordRow = (dni: string) => screen.getAllByRole('row').find((row) => row.textContent?.includes(dni))!
+  /** The full-width row under a record, where its forms, results and horarios open. */
+  const underRow = (dni: string) => recordRow(dni).nextElementSibling as HTMLElement
+  const follows = (first: Element, second: Element) => Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
+  const fillNewEmployee = async () => {
+    fireEvent.change(await screen.findByLabelText('Nombre y apellido'), { target: { value: 'Ana Gómez' } })
+    fireEvent.change(screen.getByLabelText('DNI'), { target: { value: '30111222' } })
+    await waitFor(async () => expect(await screen.findByRole('checkbox', { name: 'Local Centro' })).toBeChecked())
+  }
+
+  it('editing opens an inline form in a full-width row under the record of the table', async () => {
+    render(<EmployeesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Editar empleado Lucía Pérez' }))
+    const form = screen.getByRole('form', { name: 'Editar empleado Lucía Pérez' })
+
+    // The record keeps showing what is saved; the draft lives in the form under it.
+    expect(recordRow('30123456')).toHaveTextContent('Lucía Pérez')
+    expect(underRow('30123456')).toContainElement(form)
+    expect(form.closest('td')).toHaveAttribute('colspan', '6')
+    expect(form).toHaveClass('inline-form')
+    expect(within(form).getByRole('textbox', { name: 'Nombre del empleado con DNI 30123456' })).toHaveValue('Lucía Pérez')
+  })
+
+  it('editing opens an inline form under the record of the list on a phone', async () => {
+    narrow = true
+    render(<EmployeesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Editar empleado Lucía Pérez' }))
+    const record = screen.getByRole('listitem', { name: 'Lucía Pérez' })
+    const form = within(record).getByRole('form', { name: 'Editar empleado Lucía Pérez' })
+
+    expect(form).toHaveClass('inline-form')
+    expect(follows(record.querySelector('.record-title')!, form)).toBe(true)
+    expect(form.closest('table')).toBeNull()
+  })
+
+  it('a failed save says so inside its form, above its buttons, and a saved one under the record', async () => {
+    apiMocks.patch.mockRejectedValueOnce(new Error('No se pudo guardar.')).mockResolvedValueOnce({ ...lucia, toleranceMinutes: 10 })
+    render(<EmployeesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Editar empleado Lucía Pérez' }))
+    const form = screen.getByRole('form', { name: 'Editar empleado Lucía Pérez' })
+    fireEvent.click(within(form).getByRole('button', { name: 'Guardar' }))
+
+    const alert = await within(form).findByRole('alert')
+    expect(alert).toHaveTextContent('No se pudo guardar.')
+    expect(follows(alert, within(form).getByRole('button', { name: 'Guardar' }))).toBe(true)
+    fireEvent.click(within(form).getByRole('button', { name: 'Guardar' }))
+    const saved = await screen.findByText('Cambios del empleado guardados.')
+    expect(screen.queryByRole('form', { name: 'Editar empleado Lucía Pérez' })).not.toBeInTheDocument()
+    expect(underRow('30123456')).toContainElement(saved)
+  })
+
+  it('the add form\'s result is inside it, above its button', async () => {
+    apiMocks.post.mockRejectedValueOnce(new Error('Esa persona ya tiene un rol en esta empresa.'))
+    render(<EmployeesView />)
+    await fillNewEmployee()
+    const create = screen.getByRole('button', { name: 'Crear empleado' })
+    fireEvent.click(create)
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Esa persona ya tiene un rol en esta empresa.')
+    expect(create.closest('form')).toContainElement(alert)
+    expect(follows(alert, create)).toBe(true)
+  })
+
+  it('a created employee and the password to hand over show inside the add form', async () => {
+    apiMocks.post.mockImplementation((_path: string, body: Record<string, unknown>) => Promise.resolve({ id: 'e-9', displayName: body.displayName, dni: body.dni, siteIds: body.siteIds, toleranceMinutes: 5, active: true, mustChangePassword: true }))
+    render(<EmployeesView />)
+    await fillNewEmployee()
+    fireEvent.click(screen.getByRole('button', { name: 'Generar contraseña' }))
+    const create = screen.getByRole('button', { name: 'Crear empleado' })
+    fireEvent.click(create)
+
+    const region = await screen.findByRole('region', { name: 'Contraseña provisoria de Ana Gómez' })
+    const form = create.closest('form')!
+    // A success message writes its text right after it mounts (PageMessage), so it is awaited.
+    expect(await within(form).findByText('Empleado creado.')).toBeInTheDocument()
+    expect(form).toContainElement(region)
+    expect(follows(region, create)).toBe(true)
+  })
+
+  it('a person\'s state is a StatusTag, in the table and in the list', async () => {
+    apiMocks.get.mockImplementation((path: string) => path === '/employees' ? Promise.resolve([lucia, mario]) : path === '/sites' ? Promise.resolve([site]) : Promise.resolve([]))
+    const expectTag = (scope: HTMLElement, tone: string, word: string) => {
+      const tag = scope.querySelector('.status-chip')
+      expect(tag).toHaveClass(`status-${tone}`)
+      expect(tag).toHaveTextContent(word)
+      expect(tag?.querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
+    }
+    render(<EmployeesView />)
+    await screen.findByText('Mario Gómez')
+    expectTag(recordRow('30123456'), 'neutral', 'Activo')
+    expectTag(recordRow('30999888'), 'wait', 'Inactivo')
+    cleanup()
+
+    narrow = true
+    render(<EmployeesView />)
+    expectTag(await screen.findByRole('listitem', { name: 'Lucía Pérez' }), 'neutral', 'Activo')
+    expectTag(screen.getByRole('listitem', { name: 'Mario Gómez' }), 'wait', 'Inactivo')
+  })
+
+  it('the confirmation and the result of a reset open under the record of the person', async () => {
+    apiMocks.post.mockResolvedValueOnce({ temporaryPassword: 'Abcd-Efgh-Jkmn-Pqrs' })
+    render(<EmployeesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Restablecer contraseña de Lucía Pérez' }))
+    const confirm = screen.getByRole('button', { name: 'Confirmar restablecimiento' })
+    expect(underRow('30123456')).toContainElement(confirm)
+    fireEvent.click(confirm)
+
+    const region = await screen.findByRole('region', { name: 'Contraseña provisoria de Lucía Pérez' })
+    expect(underRow('30123456')).toContainElement(region)
+    expect(within(region).getByText('Abcd-Efgh-Jkmn-Pqrs')).toHaveClass('issued-password-code')
+  })
+
+  it('the result of a reset opens inside the record of the person on a phone', async () => {
+    narrow = true
+    apiMocks.post.mockResolvedValueOnce({ temporaryPassword: 'Abcd-Efgh-Jkmn-Pqrs' })
+    render(<EmployeesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Restablecer contraseña de Lucía Pérez' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar restablecimiento' }))
+
+    const region = await screen.findByRole('region', { name: 'Contraseña provisoria de Lucía Pérez' })
+    expect(screen.getByRole('listitem', { name: 'Lucía Pérez' })).toContainElement(region)
+  })
+
+  it('a refused reset says so under the record of the person', async () => {
+    apiMocks.post.mockRejectedValueOnce(new Error('Esta persona también tiene acceso en otra empresa o como ADMIN; su contraseña la restablece el operador.'))
+    render(<EmployeesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Restablecer contraseña de Lucía Pérez' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar restablecimiento' }))
+
+    expect(underRow('30123456')).toContainElement(await screen.findByRole('alert'))
+  })
+
+  it('a schedule assigned says so inside the form of the horarios, above its button', async () => {
+    apiMocks.post.mockResolvedValueOnce({ id: 'a-1', employeeId: 'e-1', siteId: 's-1', templateId: 't-1', templateName: 'Mañana', validFrom: deviceDate(), createdAt: '2026-11-09T12:00:00Z' })
+    render(<EmployeesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Horarios de Lucía Pérez' }))
+    const panel = within(await screen.findByRole('region', { name: 'Horarios de Lucía Pérez' }))
+    fireEvent.change(await panel.findByLabelText('Horario'), { target: { value: 't-1' } })
+    const assign = panel.getByRole('button', { name: 'Asignar horario' })
+    fireEvent.click(assign)
+
+    const notice = await panel.findByText('Horario asignado.')
+    expect(assign.closest('form')).toContainElement(notice)
+    expect(follows(notice, assign)).toBe(true)
   })
 })
