@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { api } from '../../shared/api/client'
 import type { BulkDeclarationResult, Employee, Site, Template } from '../../shared/api/types'
 import { useFieldErrors } from '../../app/useFieldErrors'
+import { useFocusRequest } from '../../app/revealAndFocus'
 import { validateDateRange } from '../../shared/dateRange'
 import { declarationFailureMessage, MAX_BULK_DAYS, MAX_BULK_EMPLOYEES, type BulkDeclarationDraft } from './bulkDeclaration'
-import { WORK_DAYS_FORM_ID, WorkDaysFormRender, type WorkDaysField } from './WorkDaysForm'
+import { WORK_DAYS_FORM_ID, WORK_DAYS_RESULT_ID, WorkDaysFormRender, type WorkDaysField } from './WorkDaysForm'
 import { calendarToday, DATE_PROBLEMS, MONDAY_TO_SATURDAY, periodRange, previewText, summarizeBulkResult, validateWorkDays, type BulkResultSummary, type WorkPeriod } from './workDays'
 
 /**
@@ -36,6 +37,8 @@ export function WorkDaysPanel({ sites, employees, templates, disabled, onLoaded,
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [result, setResult] = useState<BulkResultSummary | null>(null)
   // What validateWorkDays finds goes under the group it is about; `error` is the refusal of the server, above the button.
   const fields = useFieldErrors<WorkDaysField>()
+  // «Cargar días» is disabled while it sends and loses the focus: the result takes it once it is drawn (slice G2).
+  const focusLater = useFocusRequest(!busy)
   useEffect(() => { setSiteId((current) => sites.some((site) => site.id === current) ? current : sites[0]?.id ?? '') }, [sites])
   const site = sites.find((entry) => entry.id === siteId)
   const people = useMemo(() => employees.filter((person) => person.active && person.siteIds.includes(siteId)), [employees, siteId])
@@ -64,6 +67,7 @@ export function WorkDaysPanel({ sites, employees, templates, disabled, onLoaded,
         employeeIds: selectedIds, siteId, from: range.from, to: range.to, weekdays, ...(templateId ? { templateId } : {})
       })
       setResult(summarizeBulkResult(response, (id) => names.get(id) ?? 'Una persona'))
+      focusLater({ id: WORK_DAYS_RESULT_ID })
       onLoaded()
     } catch (reason) {
       setError(declarationFailureMessage(reason, 'bulk') ?? (reason instanceof Error ? reason.message : 'No se pudieron cargar los días.'))

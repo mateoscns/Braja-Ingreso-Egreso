@@ -26,6 +26,8 @@ export type WorkDaysFormValues = {
 export type WorkDaysField = 'weekdays' | 'period' | 'people'
 /** The form, where the focus goes when it fails. */
 export const WORK_DAYS_FORM_ID = 'work-days'
+/** The result of a load, where the focus goes once it is on screen (slice G2). */
+export const WORK_DAYS_RESULT_ID = 'work-days-result'
 
 function listNames(names: string[]) { return names.length > 6 ? `${names.slice(0, 5).join(', ')} y ${names.length - 5} más` : names.join(', ') }
 
@@ -91,7 +93,7 @@ export function WorkDaysFormRender({ sites, employees, templates, values, previe
     {/* The answer to a submit, inside the form and right above its button (design system 4.7). */}
     <FieldsSummary count={Object.keys(fieldErrors).length} />
     {error && <PageMessage kind="error">{error}</PageMessage>}
-    {result && <div aria-label="Resultado de la carga" role="group">
+    {result && <div id={WORK_DAYS_RESULT_ID} tabIndex={-1} aria-label="Resultado de la carga" role="group">
       {/* The reasons sit inside the result message as records, each group with the people it names and the way to fix it. */}
       <PageMessage kind={result.created > 0 ? 'success' : 'info'}>
         {result.created === 0 ? 'No se cargó ningún día.' : result.created === 1 ? 'Se cargó 1 día.' : `Se cargaron ${result.created} días.`}

@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../../shared/api/client'
 import type { Site, SiteCoordinates } from '../../shared/api/types'
@@ -726,6 +726,8 @@ describe('SitesView with the pieces of the system', () => {
     const created: Site = { id: 'site-new', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: null, longitude: null, geofenceRadiusMeters: 100 }
     vi.spyOn(api, 'get').mockResolvedValue([] as never)
     vi.spyOn(api, 'post').mockResolvedValue(created as never)
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView })
     render(<SitesView />)
 
     fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre del local' }), { target: { value: 'Local Centro' } })
@@ -743,6 +745,12 @@ describe('SitesView with the pieces of the system', () => {
     expect(form).toContainElement(done)
     expect(comesBefore(done, button)).toBe(true)
     expect(screen.queryByText(/Ingresá latitud y longitud juntas/)).not.toBeInTheDocument()
+    // Slice G2: the button was disabled while it sent and the focus stayed on the page; it goes back to the emptied form, which
+    // is brought into view from its top so its first field is not left above a phone's screen.
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Nombre del local' })).toHaveFocus())
+    expect(scrollIntoView.mock.contexts.at(-1)).toBe(form)
+    expect(scrollIntoView).toHaveBeenLastCalledWith(expect.objectContaining({ block: 'start' }))
+    Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
   })
 
   it('shows a failed or saved location change inside the record of that local', async () => {

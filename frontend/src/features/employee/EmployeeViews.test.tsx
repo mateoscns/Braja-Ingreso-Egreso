@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LoadFailure } from '../../app/ui'
 import type { Deviation, Jornada, Site } from '../../shared/api/types'
-import { DayMarksPanel, MarkFeedback, MotivePanel } from './EmployeeViews'
+import { DayMarksPanel, MarkFeedback, MotivePanel, OtherDayPanel } from './EmployeeViews'
 
 // The real LoadFailure, watched: a failed load must go through it (slice F3).
 vi.mock('../../app/ui', async (importOriginal) => {
@@ -191,5 +191,27 @@ describe('los errores del motivo van con su campo', () => {
 
     render(<MotivePanel {...motiveProps({ items: [deviation], savingId: deviation.id })} />)
     expect(screen.getByRole('button', { name: 'Enviando…' })).toBeDisabled()
+  })
+})
+
+// Slice G2 (keyboard pass on the built app, 2026-11-12): while a chosen day loads, the sections above it shrink to one line, the
+// page scrolls up, and the field the person was typing the date in ended out of sight.
+describe('ver otros días', () => {
+  it('cuando termina de cargar el día elegido, el campo de la fecha vuelve a la vista si todavía tiene el foco', () => {
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView })
+    const panel = (loading: boolean) => <OtherDayPanel date="2026-11-11" disabled={false} loading={loading} onDate={() => undefined} onToday={() => undefined} />
+    const { rerender } = render(panel(true))
+    rerender(panel(false))
+    expect(scrollIntoView).not.toHaveBeenCalled()
+
+    rerender(panel(true))
+    const field = screen.getByLabelText('Día')
+    field.focus()
+    rerender(panel(false))
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    expect(scrollIntoView.mock.contexts[0]).toBe(field)
+    Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
   })
 })

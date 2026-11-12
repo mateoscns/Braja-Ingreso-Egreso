@@ -20,11 +20,12 @@ function useMounted(): boolean {
  * A message in a live region. An error is an `alert`, which screen readers announce as soon as it appears.
  * A `status` is only announced reliably when the text changes inside a region that already exists, so an info, success or
  * warning message mounts its region empty and writes the icon and the text right after; later changes update the same region.
+ * `id` lets the code give the message the focus (tabindex -1) when the control that led to it is gone (slice G2).
  */
-export function PageMessage({ children, kind = 'info' }: { children: ReactNode; kind?: MessageKind }) {
+export function PageMessage({ children, kind = 'info', id }: { children: ReactNode; kind?: MessageKind; id?: string }) {
   const mounted = useMounted()
   const alert = kind === 'error'
-  return <div className={`message message-${kind}`} role={alert ? 'alert' : 'status'} aria-atomic="true">
+  return <div id={id} tabIndex={id ? -1 : undefined} className={`message message-${kind}`} role={alert ? 'alert' : 'status'} aria-atomic="true">
     {alert || mounted ? <><Icon name={MESSAGE_ICONS[kind]} /><div className="message-body">{children}</div></> : null}
   </div>
 }

@@ -49,6 +49,23 @@ describe('Empleados: easier for a shop owner', () => {
     expect(screen.getByRole('checkbox', { name: 'Local Centro' })).toBeChecked()
   })
 
+  // Slice G2 (keyboard pass on the built app, 2026-11-12): the button was disabled while it sent, so the focus fell to the page
+  // and stayed there once the employee was created.
+  it('after creating an employee with no password to hand over, the focus is back in the empty form for the next one', async () => {
+    apiMocks.post.mockImplementation((_path: string, body: Record<string, unknown>) => Promise.resolve({ id: 'e-9', displayName: body.displayName, dni: body.dni, siteIds: body.siteIds, toleranceMinutes: 5, active: true, mustChangePassword: true }))
+    render(<EmployeesView />)
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Local Centro' })).toBeChecked())
+    fireEvent.change(screen.getByLabelText('Nombre y apellido'), { target: { value: 'Ana Gómez' } })
+    fireEvent.change(screen.getByLabelText('DNI'), { target: { value: '30111222' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Crear empleado' }))
+
+    expect(await screen.findByText('Empleado creado.')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('Nombre y apellido')).toHaveFocus())
+    // The form is taller than a phone: brought into view from its top, so its first field is not left above the screen.
+    expect(scrollIntoView.mock.contexts.at(-1)).toBe(screen.getByLabelText('Nombre y apellido').closest('form'))
+    expect(scrollIntoView).toHaveBeenLastCalledWith(expect.objectContaining({ block: 'start' }))
+  })
+
   it('generates a temporary password and shows it once after creating the employee', async () => {
     const storageWrites = vi.spyOn(Storage.prototype, 'setItem')
     apiMocks.post.mockImplementation((_path: string, body: Record<string, unknown>) => Promise.resolve({ id: 'e-9', displayName: body.displayName, dni: body.dni, siteIds: body.siteIds, toleranceMinutes: 5, active: true, mustChangePassword: true }))

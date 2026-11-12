@@ -580,6 +580,22 @@ describe('EmployeeApp', () => {
       expect(screen.queryByLabelText('Contá qué pasó')).not.toBeInTheDocument()
     })
 
+    // Slice G2 (keyboard pass on the built app, 2026-11-12): a case of another day leaves the list once sent, and the focus fell
+    // to the page with its form.
+    it('si el caso enviado era de otro día y sale de la lista, el foco va al mensaje de que lo enviamos', async () => {
+      const otherDay = { ...pendingDeviation, id: 'deviation-9', jornadaId: 'jornada-old' }
+      configureApi([], [otherDay])
+      mocks.apiPut.mockResolvedValueOnce({ ...otherDay, status: 'PENDIENTE_REVISION', category: 'OTRA', motiveText: 'Demora.' })
+      render(<EmployeeApp />)
+
+      fireEvent.click(await screen.findByRole('radio', { name: /Otra/ }))
+      fireEvent.change(screen.getByLabelText('Contá qué pasó'), { target: { value: 'Demora.' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Enviar motivo' }))
+
+      const sent = await screen.findByText('Lo enviamos. Tu encargado lo va a revisar.')
+      await waitFor(() => expect(sent.closest('.message')).toHaveFocus())
+    })
+
     it('si el envío falla, muestra el error en la tarjeta y conserva lo escrito', async () => {
       configureApi([pendingDeviation])
       mocks.apiPut.mockRejectedValueOnce(new Error('Tu encargado ya lo revisó: ya no se puede cambiar.'))
