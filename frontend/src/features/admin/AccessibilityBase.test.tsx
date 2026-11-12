@@ -2,7 +2,8 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Deviation, Employee, Session, Site } from '../../shared/api/types'
 import { CompanyScreen } from '../auth/AuthScreens'
-import { AdminInboxRender, EMPTY_INBOX_FILTERS, SitesViewRender } from './AdminViewsRender'
+import { AdminInboxRender, EMPTY_INBOX_FILTERS } from './AdminInboxRender'
+import { SitesViewRender } from './SitesViewRender'
 import { EmployeesViewRender } from './EmployeesViewRender'
 
 afterEach(cleanup)

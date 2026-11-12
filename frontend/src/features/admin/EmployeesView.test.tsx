@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { EmployeesView } from './AdminViews'
+import { EmployeesView } from './EmployeesView'
 import { deviceDate } from '../../shared/dateRange'
 
 const apiMocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn() }))
@@ -90,6 +90,11 @@ describe('Empleados: easier for a shop owner', () => {
     expect(storageWrites).not.toHaveBeenCalled()
     fireEvent.click(panel.getByRole('button', { name: 'Listo, ya la entregué' }))
     expect(screen.queryByText(generated)).not.toBeInTheDocument()
+    // Slice H1: back to the add form from its top, as after a creation without a password («nearest» left its first field above
+    // the screen of a phone).
+    await waitFor(() => expect(screen.getByLabelText('Nombre y apellido')).toHaveFocus())
+    expect(scrollIntoView.mock.contexts.at(-1)).toBe(screen.getByLabelText('Nombre y apellido').closest('form'))
+    expect(scrollIntoView).toHaveBeenLastCalledWith(expect.objectContaining({ block: 'start' }))
     storageWrites.mockRestore()
   })
 

@@ -199,7 +199,8 @@ export function EmployeesView() {
   }
   /** The password was handed over: the focus goes back to where it came from, the reset of that person or the add form. */
   function dismissIssuedPassword() {
-    if (issuedPassword?.reason === 'created') focusLater({ id: focusIds.createForm, into: true })
+    // The add form from its top, as after a creation without a password (above, in create).
+    if (issuedPassword?.reason === 'created') focusLater({ id: focusIds.createForm, into: true, block: 'start' })
     else if (issuedPassword?.employeeId) focusLater({ id: focusIds.resetButton(issuedPassword.employeeId) })
     setIssuedPassword(null)
   }

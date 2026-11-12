@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { expectSkipLinkToMain } from '../../app/testing/skipLink'
 import { AdminApp } from './AdminApp'
 import { AdminNav } from './AdminNav'
 import type { AdminSection } from './setupStatus'
@@ -206,16 +207,8 @@ describe('navegación del ADMIN dentro de la aplicación', () => {
     openAt('#/hoy')
     render(<AdminApp />)
     await waitFor(() => expect(link('Hoy')).toHaveAttribute('aria-current', 'page'))
-    const focusable = document.querySelector<HTMLElement>('a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')
-    const main = document.querySelector('main')
 
-    expect(focusable).toBe(screen.getByRole('link', { name: 'Ir al contenido' }))
-    expect(focusable).toHaveAttribute('href', '#contenido')
-    expect(document.querySelectorAll('main')).toHaveLength(1)
-    expect(main).toHaveAttribute('id', 'contenido')
-    expect(main).toHaveAttribute('tabindex', '-1')
-    fireEvent.click(focusable!)
-    expect(main).toHaveFocus()
+    expectSkipLinkToMain()
     expect(window.location.hash).toBe('#/hoy')
     await hashSettles()
   })

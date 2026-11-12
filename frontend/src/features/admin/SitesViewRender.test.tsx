@@ -3,9 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../../shared/api/client'
 import type { Site, SiteCoordinates } from '../../shared/api/types'
 import { formatDateTime } from '../../shared/format'
-import { SitesView } from './AdminViews'
-import { SitesViewRender } from './AdminViewsRender'
-import type { SiteLocationAuditResponse, SiteLocationEditDraft, SiteMapState } from './AdminViewsRender'
+import { SitesView } from './SitesView'
+import { SitesViewRender } from './SitesViewRender'
+import type { SiteLocationAuditResponse, SiteLocationEditDraft, SiteMapState } from './SitesViewRender'
 import type { SiteMapPickerProps } from './siteMap'
 
 // jsdom cannot lay out a Leaflet map: the lazy picker is replaced by a stand-in that shows its props and taps an unrounded point.

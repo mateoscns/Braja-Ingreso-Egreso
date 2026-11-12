@@ -6,6 +6,7 @@ import { ApiError, NetworkError, TimeoutError } from '../../shared/api/client'
 import { forgetLocationNotice, rememberLocationNotice } from './locationNotice'
 import { clearMarkInterrupted, markWasInterrupted } from '../auth/interruptedMark'
 import { LoadFailure } from '../../app/ui'
+import { expectSkipLinkToMain } from '../../app/testing/skipLink'
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
@@ -165,16 +166,8 @@ describe('EmployeeApp', () => {
   it('lo primero que alcanza Tab es «Ir al contenido», que lleva al único main de la pantalla', async () => {
     render(<EmployeeApp />)
     await breakfastButton()
-    const focusable = document.querySelector<HTMLElement>('a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')
-    const main = document.querySelector('main')
 
-    expect(focusable).toBe(screen.getByRole('link', { name: 'Ir al contenido' }))
-    expect(focusable).toHaveAttribute('href', '#contenido')
-    expect(document.querySelectorAll('main')).toHaveLength(1)
-    expect(main).toHaveAttribute('id', 'contenido')
-    expect(main).toHaveAttribute('tabindex', '-1')
-    fireEvent.click(focusable!)
-    expect(main).toHaveFocus()
+    expectSkipLinkToMain()
   })
 
   describe('pantalla principal', () => {
@@ -371,8 +364,10 @@ describe('EmployeeApp', () => {
       const onLocation = mocks.submitMark.mock.calls[0][3] as (result: 'SENT' | 'MISSING') => void
       act(() => onLocation('SENT'))
       const box = screen.getByText(/Listo: tu salida a desayunar/).closest('[role="status"]')!
-      await waitFor(() => expect(box).toHaveTextContent('Ubicación enviada ✔'))
+      await waitFor(() => expect(box).toHaveTextContent('Ubicación enviada'))
       expect(box).not.toHaveTextContent('Enviando ubicación')
+      // Slice H1 (finding F-22): the pin icon says it; the decorative «✔» after the words went.
+      expect(box).not.toHaveTextContent('✔')
     })
 
     it('avisa cuando la ubicación no llegó', async () => {
@@ -930,7 +925,9 @@ describe('EmployeeApp', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Actualizar' }))
 
       expect(await screen.findByText('Listo: tu salida a desayunar quedó registrada a las 10:59.')).toBeInTheDocument()
-      expect(screen.getByText(/Listo: tu salida a desayunar/).closest('[role="status"]')).toHaveTextContent('Ubicación enviada ✔')
+      const receipt = screen.getByText(/Listo: tu salida a desayunar/).closest('[role="status"]')
+      expect(receipt).toHaveTextContent('Ubicación enviada')
+      expect(receipt).not.toHaveTextContent('✔')
       expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     })
 

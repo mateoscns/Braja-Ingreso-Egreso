@@ -1,9 +1,8 @@
 import { useId, type FormEvent, type ReactNode } from 'react'
 import { Icon } from '../../app/icons'
-import { Empty, Fieldset, FieldsSummary, FormField, Loading, PageMessage, Panel, StatusTag } from '../../app/ui'
+import { Empty, Fieldset, FieldsSummary, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel, StatusTag } from '../../app/ui'
 import type { FieldErrors } from '../../app/useFieldErrors'
 import type { Employee, Site, Template } from '../../shared/api/types'
-import { LoadFailure, PageHeading } from './AdminViewsRender'
 import { checkScheduleDraft, type ScheduleDraft } from './scheduleDraft'
 import { joinNames, MAX_TRAMOS, SCHEDULE_TYPES, scheduleChips, tramoHints, type DayOffsets, type ScheduleTypeId, type Tramo } from './scheduleTramos'
 

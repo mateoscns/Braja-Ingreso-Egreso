@@ -1,5 +1,5 @@
 import type { Employee, Site, Template, TemplateAssignment } from '../../shared/api/types'
-import type { JourneyRow } from './AdminViewsRender'
+import type { JourneyRow } from './JourneysViewRender'
 import { addDays, calendarToday, dayText } from './workDays'
 
 /**
