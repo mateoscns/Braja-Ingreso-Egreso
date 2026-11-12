@@ -56,6 +56,16 @@ describe('la página «Configuración»', () => {
     }
   })
 
+  // Slice E7: the parts are a list of records of the system (design system 5.2), each row the link to its part.
+  it('las partes son una lista de registros del sistema, cada fila es el enlace a su parte', () => {
+    const { container } = render(<ConfigurationPage setupMissing secure onNavigate={vi.fn()} push={PUSH} />)
+    const list = screen.getByRole('list', { name: 'Partes de la configuración' })
+
+    expect(list).toHaveClass('record-list')
+    expect(within(list).getAllByRole('listitem').map((item) => item.firstElementChild?.tagName)).toEqual(['A', 'A', 'A', 'A'])
+    expect(container.querySelector('.simple-list, .simple-row')).toBeNull()
+  })
+
   it('mientras falta un paso, «Primeros pasos» es la primera parte', () => {
     show({ setupMissing: true })
 

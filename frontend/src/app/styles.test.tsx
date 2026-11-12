@@ -285,7 +285,8 @@ const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui',
 // height no longer reads --topbar-height, which is deleted): colours 10 → 6, font sizes 9 → 7, old names 19 → 7.
 // Lowered in slice E5 (the schedule cards, their chips, the boxed tramos, the small subhead and the fold of «Horarios» went):
 // colours 6 → 2, font sizes 7 → 1, old names 7 → 2.
-const COLOR_LITERAL_CEILING = 2
+// Lowered in slice E7 (the tinted box of the number of a setup step went): colours 2 → 0.
+const COLOR_LITERAL_CEILING = 0
 const UNTOKENED_FONT_SIZE_CEILING = 1
 const BOX_SHADOW_CEILING = 2
 const LEGACY_TOKEN_USE_CEILING = 2
@@ -804,7 +805,8 @@ describe('mensajes, etiquetas de estado, secciones, plegables, vacío y carga', 
     expect(tone('neutral').selectors).toEqual(['.status-neutral', '.status-no_ingreso', '.status-en_curso', '.status-pausa_abierta', '.status-egresada', '.status-cancelada'])
     // Slice D3: the employee's tags are StatusTag with the employee's tone, so the two rules of his screen went.
     expect(tone('wait').selectors).toEqual(['.status-wait', '.status-motivo_pendiente', '.status-inactivo'])
-    expect(tone('todo').selectors).toEqual(['.status-todo', '.status-pendiente_revision', '.first-step .status-motivo_pendiente'])
+    // Slice E7: the steps of «Primeros pasos» are StatusTag, so the rule that turned their borrowed class amber went.
+    expect(tone('todo').selectors).toEqual(['.status-todo', '.status-pendiente_revision'])
     expect(tone('ok').selectors).toEqual(['.status-ok', '.status-justificado'])
     expect(tone('bad').selectors).toEqual(['.status-bad', '.status-no_justificado'])
     const colours = { neutral: ['text', 'surface', 'border'], wait: ['text-muted', 'surface', 'border'], todo: ['warn', 'warn-surface', 'warn'], ok: ['ok', 'ok-surface', 'ok'], bad: ['bad', 'bad-surface', 'bad'] }
@@ -873,13 +875,14 @@ describe('mensajes, etiquetas de estado, secciones, plegables, vacío y carga', 
 // The records of a list (days, marks, people, locals, schedules, results of a search) keep their old class names until each
 // screen slice renames them to record-*; what they look like is decided here.
 const HAIRLINE = /border-bottom:\s*var\(--border-width\) solid var\(--rule\)/
-// Slice E5: a schedule is a .record, so template-list and template-card left the list with their rules.
-const RECORD_CLASSES = ['history-list', 'history-card', 'history-head', 'history-items', 'simple-list', 'simple-row']
+// Slice E5: a schedule is a .record, so template-list and template-card left the list with their rules. Slice E7: the steps of
+// «Primeros pasos» and the parts of «Configuración» are records, so simple-list and simple-row went too.
+const RECORD_CLASSES = ['history-list', 'history-card', 'history-head', 'history-items']
 
 describe('listas de registros y tablas: filas separadas por una línea, nunca tarjetas', () => {
   it('cada registro es una fila con una línea fina debajo, sin recuadro, esquinas, fondo ni sombra (principio 3)', () => {
     // Slice E4: a local is a .record, so '.simple-list > article' left the list with its rule.
-    for (const record of ['.history-card', '.simple-row']) {
+    for (const record of ['.history-card']) {
       expect(rule(record), record).toMatch(HAIRLINE)
       expect(rule(record), record).toMatch(/padding:\s*var\(--space-3\) 0/)
     }
@@ -889,7 +892,7 @@ describe('listas de registros y tablas: filas separadas por una línea, nunca ta
   })
 
   it('las filas van una debajo de la otra sin hueco: las separa su línea, no el espacio entre tarjetas', () => {
-    for (const list of ['.history-list', '.simple-list']) expect(ruleListing(list).declarations, list).not.toMatch(/(?<![\w-])gap\s*:/)
+    for (const list of ['.history-list']) expect(ruleListing(list).declarations, list).not.toMatch(/(?<![\w-])gap\s*:/)
     // Slice E1: the cases of the inbox are rows too, with no space between them. The employee's motives are records since D3.
     expect(rule('.case-list')).not.toMatch(/(?<![\w-])gap\s*:/)
   })
@@ -910,11 +913,10 @@ describe('listas de registros y tablas: filas separadas por una línea, nunca ta
   it('el nombre de un registro va en negrita y sus datos en 16 px del color secundario', () => {
     expect(rule('.history-head > strong:first-child')).toMatch(/font-size:\s*var\(--font-size-body-lg\)/)
     expect(rule('.history-head > strong:first-child')).toMatch(/font-weight:\s*var\(--font-weight-heavy\)/)
-    for (const detail of ['.history-items small', '.simple-row small']) {
+    for (const detail of ['.history-items small']) {
       expect(rule(detail), detail).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
       expect(rule(detail), detail).toMatch(/font-size:\s*var\(--font-size-body\)/)
     }
-    expect(rule('.simple-row strong')).not.toMatch(/font-size/)
     // A record has no avatar: the glyph of a local was decoration (aria-hidden) with a tinted box. Slice E4: the local is a
     // .record without one, so the rule that hid it is gone with the other rules of the old local row.
     expect(allSelectors().filter((selector) => selector.startsWith('.simple-list > article'))).toEqual([])
@@ -1339,5 +1341,45 @@ describe('«Horarios»: los horarios, sus tramos y su resumen con las piezas del
     expect(allSelectors().filter((selector) => gone.test(selector))).toEqual([])
     // Its only rule was the coordinate fields of the fold: the breakpoint went with it.
     expect(css).not.toMatch(/@media \(max-width: 640px\)/)
+  })
+})
+
+// Slice E7 (design system 4.19): «Primeros pasos» is a list of records. Each step has its number in a box of ink, its title and
+// what is missing; its tag and «Ir» go under the text on a phone and beside it from 600 px. The next step has the amber bar of a
+// task that waits for the person reading; a done step has a green check in its box.
+describe('«Primeros pasos»: los pasos con las piezas del sistema', () => {
+  const value = (declarations: string, property: string) => new RegExp(`(?:^|[;\\s])${property}:\\s*([^;]+)`).exec(declarations)?.[1].trim()
+  const areas = (declarations: string) => value(declarations, 'grid-template-areas')?.replace(/\s+/g, ' ')
+
+  it('el número va en un recuadro de tinta de 40 px; el de un paso listo es la marca verde', () => {
+    const number = rule('.step-number')
+
+    expect(value(number, 'border')).toBe('var(--border-width-strong) solid var(--text)')
+    expect(value(number, 'border-radius')).toBe('var(--radius)')
+    expect(value(number, 'font-weight')).toBe('var(--font-weight-heavy)')
+    expect(value(number, 'width')).toBe('2.5rem')
+    expect(value(number, 'height')).toBe('2.5rem')
+    expect(value(rule('.step-done .step-number'), 'color')).toBe('var(--ok)')
+  })
+
+  it('el próximo paso tiene la barra ámbar de lo que te espera y lo que falta va en ámbar y en negrita', () => {
+    expect(value(rule('.step-next'), 'border-left')).toBe('var(--bar-width) solid var(--warn)')
+    expect(value(rule('.step-detail'), 'color')).toBe('var(--warn)')
+    expect(value(rule('.step-detail'), 'font-weight')).toBe('var(--font-weight-strong)')
+  })
+
+  it('la etiqueta y «Ir» van debajo del texto en el teléfono y a su lado desde 600 px, y un paso no es una tarjeta', () => {
+    expect(areas(rule('.step'))).toBe('"number body" ". foot"')
+    expect(areas(rule('.step', media(600, 'min')))).toBe('"number body foot"')
+    expect(rule('.step-foot')).toMatch(/flex-wrap:\s*wrap/)
+    // The row is a record: its hairline and padding come from .record; no rule of a step adds a fill, corners or a shadow.
+    expect(selectorsOf(rulesNaming('step', 'step-body', 'step-foot', 'step-next', 'step-done')
+      .filter(({ declarations }) => /(?<![\w-])(?:background|border-radius|box-shadow)\s*:/.test(declarations)))).toEqual([])
+  })
+
+  it('las reglas de las filas viejas, del cuadro del número y de la etiqueta prestada se fueron con su marcado', () => {
+    const gone = /\.(?:simple-list|simple-row|row-avatar|first-steps|first-step|first-step-copy)(?![\w-])/
+
+    expect(allSelectors().filter((selector) => gone.test(selector))).toEqual([])
   })
 })
