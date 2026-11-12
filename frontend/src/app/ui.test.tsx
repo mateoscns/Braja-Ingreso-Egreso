@@ -1,7 +1,8 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Icon, type IconName } from './icons'
+import { appSourcePaths, readSource } from './testing/sourceFiles'
 import { AppHeader, Brand, CompanySwitcher, CONTENT_ID, Fieldset, FieldsSummary, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel, SkipLink, Status, StatusTag, TableScroll } from './ui'
 
 afterEach(cleanup)
@@ -361,9 +362,6 @@ describe('el salto al contenido', () => {
 
 // Slice G1 (WCAG 2.1.1): a table wider than its room scrolls inside its box; the keyboard reaches that box only while it scrolls.
 describe('una tabla que se desplaza', () => {
-  type NodeFs = { readFileSync(path: string, encoding: 'utf8'): string; readdirSync(path: string, options: { recursive: true }): string[] }
-  const fs = (globalThis as unknown as { process: { getBuiltinModule(id: 'node:fs'): NodeFs } }).process.getBuiltinModule('node:fs')
-
   /** jsdom lays nothing out: the box reports the widths given (the content's, then its own). */
   function widths(scroll: () => number, client: number) {
     const scrollWidth = vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockImplementation(scroll)
@@ -408,12 +406,47 @@ describe('una tabla que se desplaza', () => {
     } finally { restore() }
   })
 
-  it('ninguna pantalla escribe la caja a mano: toda tabla que se desplaza pasa por TableScroll', () => {
-    const screens = fs.readdirSync('src', { recursive: true })
-      .map((path) => path.replace(/\\/g, '/'))
-      .filter((path) => path.endsWith('.tsx') && !path.endsWith('.test.tsx') && path !== 'app/ui.tsx')
-      .filter((path) => fs.readFileSync(`src/${path}`, 'utf8').includes('table-scroll'))
+  // Slice H1: the box observes the element inside it, and React may replace that element (a list that becomes a table, a table
+  // with another key) without a change of the box: it was observed once, on the first render.
+  it('si cambia la tabla de adentro, la caja mide la nueva y deja de mirar la anterior', async () => {
+    const observed = new Set<Element>()
+    let notify = () => {}
+    class FakeResizeObserver {
+      constructor(callback: () => void) { notify = callback }
+      observe(target: Element) { observed.add(target) }
+      unobserve(target: Element) { observed.delete(target) }
+      disconnect() { observed.clear() }
+    }
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver)
+    let content = 600
+    const restore = widths(() => content, 600)
+    const rows = (key: string) => <><h2 id="employees-title">Empleados (2)</h2><TableScroll labelledBy="employees-title"><table key={key} aria-labelledby="employees-title"><tbody><tr><td>Lucía</td></tr></tbody></table></TableScroll></>
+    try {
+      const { container, rerender } = render(rows('first'))
+      const box = container.querySelector('.table-scroll')!
+      const first = box.firstElementChild!
+      expect(observed.has(box) && observed.has(first)).toBe(true)
 
+      rerender(rows('second'))
+      const second = box.firstElementChild!
+      expect(second).not.toBe(first)
+      await waitFor(() => expect(observed.has(second)).toBe(true))
+      expect(observed.has(first)).toBe(false)
+      expect(observed.has(box)).toBe(true)
+
+      content = 900
+      act(() => notify())
+      expect(screen.getByRole('region', { name: 'Empleados (2)' })).toBe(box)
+    } finally { restore(); vi.unstubAllGlobals() }
+  })
+
+  // Slice H1: the files are read from this test's own address (app/testing/sourceFiles), not from the folder the run starts in.
+  it('ninguna pantalla escribe la caja a mano: toda tabla que se desplaza pasa por TableScroll', () => {
+    const screens = appSourcePaths()
+      .filter((path) => path.endsWith('.tsx') && path !== 'app/ui.tsx')
+      .filter((path) => readSource(path).includes('table-scroll'))
+
+    expect(appSourcePaths()).toContain('app/ui.tsx')
     expect(screens).toEqual([])
   })
 })

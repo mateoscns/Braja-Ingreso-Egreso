@@ -48,7 +48,7 @@ export function Status({ children, className, as: Tag = 'p' }: { children: React
 export function LoadFailure({ message, onRetry, retryLabel = 'Reintentar', disabled = false, primary = false }: {
   message: string; onRetry: () => void; retryLabel?: string; disabled?: boolean; primary?: boolean
 }) {
-  return <div className="form-stack"><PageMessage kind="error">{message}</PageMessage><button type="button" className={`button ${primary ? 'button-primary' : 'button-quiet'}`} disabled={disabled} onClick={onRetry}>{retryLabel}</button></div>
+  return <div className="form-stack"><PageMessage kind="error">{message}</PageMessage><button type="button" className={`button ${primary ? 'button-primary' : 'button-secondary'}`} disabled={disabled} onClick={onRetry}>{retryLabel}</button></div>
 }
 
 /**
@@ -155,7 +155,8 @@ export function SkipLink() {
 /**
  * The box of a table wider than its room: it scrolls sideways inside it, never the page (styles.css). While it does, the box is
  * a region named by the title that names the table and a stop of Tab, so the keyboard can scroll it too (WCAG 2.1.1); a table
- * that fits adds no stop. It is measured again when the box or the table changes size, and when the window does.
+ * that fits adds no stop. It is measured again when the box or the table changes size, when the window does, and when the table
+ * inside is replaced by another element.
  */
 export function TableScroll({ labelledBy, children }: { labelledBy: string; children: ReactNode }) {
   const box = useRef<HTMLDivElement>(null)
@@ -167,10 +168,21 @@ export function TableScroll({ labelledBy, children }: { labelledBy: string; chil
     measure()
     window.addEventListener('resize', measure)
     // A day opened inside a row widens the table without a change of the window.
-    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null
-    observer?.observe(element)
-    if (element.firstElementChild) observer?.observe(element.firstElementChild)
-    return () => { window.removeEventListener('resize', measure); observer?.disconnect() }
+    const resizes = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null
+    resizes?.observe(element)
+    // React may put another element in the box (a table with another key) and keep the box: the old one is no longer watched.
+    let content: Element | null = null
+    const watchContent = () => {
+      if (element.firstElementChild === content) return
+      if (content) resizes?.unobserve(content)
+      content = element.firstElementChild
+      if (content) resizes?.observe(content)
+      measure()
+    }
+    watchContent()
+    const replacements = typeof MutationObserver === 'function' ? new MutationObserver(watchContent) : null
+    replacements?.observe(element, { childList: true })
+    return () => { window.removeEventListener('resize', measure); resizes?.disconnect(); replacements?.disconnect() }
   }, [])
   return <div ref={box} className="table-scroll" role={scrolls ? 'region' : undefined} tabIndex={scrolls ? 0 : undefined} aria-labelledby={scrolls ? labelledBy : undefined}>{children}</div>
 }

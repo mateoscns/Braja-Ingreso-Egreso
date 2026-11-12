@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { expectSkipLinkToMain } from '../../app/testing/skipLink'
 import { LoginScreen, CompanyScreen, PasswordChangeScreen } from './AuthScreens'
 import { clearMarkInterrupted, markWasInterrupted, noteMarkInterrupted } from './interruptedMark'
 
@@ -41,16 +42,8 @@ describe('el salto al contenido de las pantallas de acceso', () => {
     ['cambiar la contraseña', () => <PasswordChangeScreen onChange={vi.fn()} onSignOut={vi.fn()} />]
   ])('en la pantalla de %s lo primero que alcanza Tab es «Ir al contenido», que lleva al único main', (_name, screenOf) => {
     render(screenOf())
-    const focusable = document.querySelector<HTMLElement>('a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')
-    const main = document.querySelector('main')
 
-    expect(focusable).toBe(screen.getByRole('link', { name: 'Ir al contenido' }))
-    expect(focusable).toHaveAttribute('href', '#contenido')
-    expect(document.querySelectorAll('main')).toHaveLength(1)
-    expect(main).toHaveAttribute('id', 'contenido')
-    expect(main).toHaveAttribute('tabindex', '-1')
-    fireEvent.click(focusable!)
-    expect(main).toHaveFocus()
+    expectSkipLinkToMain()
   })
 })
 

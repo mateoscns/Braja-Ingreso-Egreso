@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { JourneysView } from './AdminViews'
+import { JourneysView } from './JourneysView'
 
 const apiMocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn() }))
 
@@ -90,14 +90,16 @@ describe('historial de cambios de una jornada (issue #60)', () => {
     expect(items[1]).toHaveTextContent(/Marca olvidada incorporada: Entrada de .*0?9:12/)
     expect(items[1]).toHaveTextContent('Por Ana Admin')
     expect(items[1]).toHaveTextContent('Motivo: Se olvidó de marcar')
-    expect(items[2]).toHaveTextContent('Caso actualizado: No marcó la entrada → Llegada tarde')
+    // Slice H1 (finding F-22): a change reads «de A a B», without an arrow.
+    expect(items[2]).toHaveTextContent('Caso actualizado: de No marcó la entrada a Llegada tarde')
     expect(items[2]).not.toHaveTextContent('Corrected event reconciliation')
-    expect(items[3]).toHaveTextContent('Llegada tarde: motivo corregido, categoría Salud → Transporte')
+    expect(items[3]).toHaveTextContent('Llegada tarde: motivo corregido, categoría de Salud a Transporte')
     expect(items[3]).toHaveTextContent('Por Lucía Pérez')
     expect(items[4]).toHaveTextContent('Llegada tarde: clasificación corregida de justificado a no justificado')
     expect(items[4]).toHaveTextContent('Motivo: Revisé la cámara')
     // Times are shown in the site's zone (UTC-3): 13:00Z is 10:00 at the site.
-    expect(items[5]).toHaveTextContent(/Marca corregida: Entrada de .*0?9:12.* → Entrada de .*0?9:05/)
+    expect(items[5]).toHaveTextContent(/Marca corregida: de Entrada de .*0?9:12.* a Entrada de .*0?9:05/)
+    expect(list).not.toHaveTextContent('→')
     expect(items[5]).toHaveTextContent(/10:00/)
     expect(items[5]).toHaveTextContent('Por DNI 30999888')
     // Reasons are React text, never markup.

@@ -4,9 +4,14 @@ import { revealAndFocus } from '../../app/revealAndFocus'
 import { useSession } from '../../app/session'
 import { api } from '../../shared/api/client'
 import type { Deviation } from '../../shared/api/types'
-import { AdminInbox, EmployeesView, JourneysView, SitesView, TemplatesView, WorkDaysView, type OpenJornadaRequest } from './AdminViews'
+import { AdminInbox } from './AdminInbox'
 import { AdminNav, CONFIGURATION_PARTS, DESTINATIONS, SETUP_PART } from './AdminNav'
 import { ConfigurationPage } from './ConfigurationPage'
+import { EmployeesView } from './EmployeesView'
+import { JourneysView, type OpenJornadaRequest } from './JourneysView'
+import { SchedulesView } from './SchedulesView'
+import { SitesView } from './SitesView'
+import { WorkDaysView } from './WorkDaysView'
 import { CoverageNoticeRender, FirstStepsRender } from './FirstSteps'
 import { coverageNotice, loadSetupData, readyTomorrow, setupComplete, setupSteps, type AdminSection, type SetupData } from './setupStatus'
 import { HISTORY_ADDRESS, SECTION_ADDRESSES, useAdminSection } from './useAdminSection'
@@ -135,7 +140,7 @@ export function AdminApp() {
           coverage={notice && <CoverageNoticeRender notice={notice} actionLabel="Cargar días" onAction={showWorkDaysForm} />} />}
         {section === 'empleados' && <EmployeesView />}
         {section === 'sedes' && <SitesView />}
-        {section === 'plantillas' && <TemplatesView />}
+        {section === 'plantillas' && <SchedulesView />}
         {section === 'config' && <ConfigurationPage setupMissing={setupMissing} secure={window.isSecureContext} onNavigate={navigate}
           push={{ ...push, companyName: active.companyName, onActivate: () => void activate(), onDeactivate: () => void deactivate(), onRetryConfig: retryConfig }} />}
       </main>

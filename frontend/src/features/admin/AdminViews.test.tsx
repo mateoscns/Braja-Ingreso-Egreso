@@ -1,7 +1,12 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AdminApp } from './AdminApp'
-import { AdminInbox, EmployeesView, JourneysView, SitesView, TemplatesView, WorkDaysView } from './AdminViews'
+import { AdminInbox } from './AdminInbox'
+import { EmployeesView } from './EmployeesView'
+import { JourneysView } from './JourneysView'
+import { SchedulesView } from './SchedulesView'
+import { SitesView } from './SitesView'
+import { WorkDaysView } from './WorkDaysView'
 import { formatDateTime, formatLocalDate, jornadaStateLabel as formatJornadaState } from '../../shared/format'
 
 const apiMocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn() }))
@@ -182,7 +187,7 @@ describe('administración de desvíos y marcas', () => {
       }
       return previousGet(path)
     })
-    render(<TemplatesView />)
+    render(<SchedulesView />)
 
     expect(await screen.findByText('Falló la carga de plantillas.')).toBeInTheDocument()
     expect(screen.queryByText('Este local todavía no tiene horarios. Creá el primero.')).not.toBeInTheDocument()
@@ -193,7 +198,7 @@ describe('administración de desvíos y marcas', () => {
   it('muestra el estado vacío de horarios solo cuando la consulta termina correctamente sin filas', async () => {
     const previousGet = apiMocks.get.getMockImplementation()!
     apiMocks.get.mockImplementation((path: string) => path === '/templates' ? Promise.resolve([]) : previousGet(path))
-    render(<TemplatesView />)
+    render(<SchedulesView />)
     expect(await screen.findByText('Este local todavía no tiene horarios. Creá el primero.')).toBeInTheDocument()
   })
 
@@ -401,7 +406,7 @@ describe('administración de desvíos y marcas', () => {
   })
 
   it('no muestra los días de cada tramo: se calculan solos (issue #103)', async () => {
-    render(<TemplatesView />)
+    render(<SchedulesView />)
     expect(await screen.findByLabelText('Entra a las')).toBeInTheDocument()
     expect(screen.queryByLabelText(/el día$/)).not.toBeInTheDocument()
   })
@@ -612,7 +617,7 @@ describe('administración de desvíos y marcas', () => {
       id: 't-2', siteId: 's-1', name: 'Noche', active: true, breakfastLimitMinutes: 15, lunchLimitMinutes: 60,
       blocks: [{ startDayOffset: 0, start: '22:00:00', end: '06:00:00', endDayOffset: 1 }]
     }]) : previousGet(path))
-    render(<TemplatesView />)
+    render(<SchedulesView />)
     expect(await screen.findByText('22:00–06:00 (sale al día siguiente)')).toBeInTheDocument()
     expect(screen.queryByText(/D\+1/)).not.toBeInTheDocument()
   })

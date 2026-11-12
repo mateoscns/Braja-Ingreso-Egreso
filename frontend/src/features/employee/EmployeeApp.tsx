@@ -311,7 +311,7 @@ export function EmployeeApp() {
       onMark={(action) => startMark(action)} onConfirmStep={confirmStep} onCancelStep={cancelStep} />,
     ...(motivesFirst ? [motivePanel, marksPanel] : [marksPanel, motivePanel])]
 
-  return <div className="app-frame employee-frame">
+  return <div className="app-frame">
     {/* Before the top bar, which comes first on every visit (WCAG 2.4.1). */}
     <SkipLink />
     <AppHeader companyName={active.companyName} name={session.displayName?.trim() || (session.dni ? `DNI ${session.dni}` : 'Empleado')} onSignOut={() => void signOut()}>

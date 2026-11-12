@@ -45,9 +45,9 @@ export function JourneyPicker({ jornadas, sites, selectedId, disabled, onSelect 
   jornadas: Jornada[]; sites: Site[]; selectedId: string; disabled: boolean; onSelect: (id: string) => void
 }) {
   // The one place «turno» stays: two days of work on the same date cannot be told apart by the word «día».
-  return <Panel title="Elegí tu turno"><div className="journey-picker" role="group" aria-label="Turnos de este día">{jornadas.map((jornada) =>
-    <button key={jornada.id} type="button" aria-pressed={selectedId === jornada.id} disabled={disabled} onClick={() => onSelect(jornada.id)} className={`journey-option ${selectedId === jornada.id ? 'journey-option-active' : ''}`}>
-      <strong>{jornada.scheduleSnapshot.name}</strong><small>{formatLocalDate(jornada.localDate)} · {sites.find((site) => site.id === jornada.siteId)?.name ?? 'Local'} · {jornadaStateLabel(jornada.state)}</small>
+  return <Panel title="Elegí tu turno"><div className="choice-list" role="group" aria-label="Turnos de este día">{jornadas.map((jornada) =>
+    <button key={jornada.id} type="button" aria-pressed={selectedId === jornada.id} disabled={disabled} onClick={() => onSelect(jornada.id)} className="choice">
+      <span className="choice-text"><strong>{jornada.scheduleSnapshot.name}</strong><small>{formatLocalDate(jornada.localDate)} · {sites.find((site) => site.id === jornada.siteId)?.name ?? 'Local'} · {jornadaStateLabel(jornada.state)}</small></span>
     </button>)}</div></Panel>
 }
 
@@ -79,7 +79,7 @@ function MarkReceipt({ confirmation, timeZone }: { confirmation: MarkConfirmatio
       <p className="receipt-title">{confirmationText(confirmation.action, confirmation.acceptedAt, timeZone)}</p>
       {location && <p className={`receipt-location receipt-location-${location.toLowerCase()}`}>
         {location === 'PENDING' ? <span className="spinner" aria-hidden="true" /> : <Icon name={location === 'SENT' ? 'pin' : 'alert'} />}
-        <span>{locationOutcomeText[location]}{location === 'SENT' && <span aria-hidden="true"> ✔</span>}</span>
+        <span>{locationOutcomeText[location]}</span>
       </p>}
     </div>
   </div>
@@ -294,6 +294,6 @@ export function OtherDayPanel({ date, disabled, loading, onDate, onToday }: { da
   useEffect(() => { if (!loading && field.current && document.activeElement === field.current) reveal(field.current) }, [loading])
   return <Panel title="Ver otros días">
     <FormField label="Día" hint="Elegí un día para ver sus marcas."><input ref={field} type="date" value={date} disabled={disabled} onChange={(event) => onDate(event.target.value)} /></FormField>
-    {date && <button type="button" className="button button-secondary button-wide employee-today-button" disabled={disabled} onClick={onToday}>Volver a hoy</button>}
+    {date && <button type="button" className="button button-secondary button-block employee-today-button" disabled={disabled} onClick={onToday}>Volver a hoy</button>}
   </Panel>
 }

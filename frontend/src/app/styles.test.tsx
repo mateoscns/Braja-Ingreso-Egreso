@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { appSourcePaths, readSource } from './testing/sourceFiles'
 
-// Vitest turns every CSS import (?raw included) into an empty string, so the stylesheet is read from disk,
-// relative to the frontend folder where the tests run. The project has no Node typings, hence the narrow local type.
-type NodeFs = { readFileSync(path: string, encoding: 'utf8'): string }
-const nodeProcess = (globalThis as unknown as { process: { getBuiltinModule(id: 'node:fs'): NodeFs } }).process
-const css = nodeProcess.getBuiltinModule('node:fs').readFileSync('src/styles.css', 'utf8')
+// Vitest turns every CSS import (?raw included) into an empty string, so the stylesheet is read from disk.
+const css = readSource('styles.css')
 
 /** WCAG 2.x relative luminance of a #rrggbb color. */
 function luminance(hex: string) {
@@ -181,10 +179,8 @@ describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {
   })
 })
 
-// The token block is the top of the stylesheet, down to TOKENS_END. Its first part holds the design tokens; from LEGACY_START
-// to the end of that rule it keeps the names the old rules still use.
+// The token block is the top of the stylesheet, down to TOKENS_END. Slice H1 removed the legacy names that sat at its end.
 const TOKENS_END = '/* end of tokens */'
-const LEGACY_START = '/* legacy tokens, removed in H1 */'
 function markerIndex(marker: string) {
   const index = css.indexOf(marker)
   if (index < 0) throw new Error(`No "${marker}" in the stylesheet`)
@@ -194,9 +190,9 @@ function markerIndex(marker: string) {
 const withoutComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, '')
 /** Every rule under the token block: there a value has to come from a token. */
 const belowTokens = () => withoutComments(css.slice(markerIndex(TOKENS_END)))
-/** A colour of the design tokens. The legacy names and anything declared further down are left out on purpose. */
+/** A colour of the design tokens. Anything declared further down is left out on purpose. */
 function designToken(name: string) {
-  const block = css.slice(0, markerIndex(LEGACY_START))
+  const block = css.slice(0, markerIndex(TOKENS_END))
   const value = new Map([...block.matchAll(/--([\w-]+):\s*(#[0-9a-f]{6})\s*;/gi)].map((match) => [match[1], match[2]])).get(name)
   if (!value) throw new Error(`No colour token --${name} in the token block`)
   return value
@@ -269,9 +265,9 @@ const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui',
   ['lime', 'brand', 'ui', 'Focus ring on the top bar; the brand mark']
 ]
 
-// Ceilings that only go down. Each one counts what the rules under the token block still write by hand, measured with the
-// pattern of its own test when the token block came in (2026-11-11). A slice that moves rules to tokens lowers the number in
-// the same commit; nobody raises one. Slice H1 turns the four into equalities with zero.
+// Ceilings that only went down. Each one counted what the rules under the token block still wrote by hand, measured with the
+// pattern of its own test when the token block came in (2026-11-11). Slice H1 turned the four into equalities: colours, font
+// sizes and old names are zero, and the box-shadows are the two rules of the system that draw the inner second pixel of an edge.
 // Lowered in slice N4 (the old menu, the fixed alerts bar and their room went): 42 → 30, 29 → 20, 6 → 4, 48 → 31.
 // Lowered in slice E2 (the coordinates of a mark take the tokens): font sizes 20 → 19, old names 31 → 30.
 // Lowered in slice D3 (the motive cards and their question went): colours 30 → 29, font sizes 19 → 18, old names 30 → 29.
@@ -287,34 +283,16 @@ const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui',
 // Lowered in slice E5 (the schedule cards, their chips, the boxed tramos, the small subhead and the fold of «Horarios» went):
 // colours 6 → 2, font sizes 7 → 1, old names 7 → 2.
 // Lowered in slice E7 (the tinted box of the number of a setup step went): colours 2 → 0.
-const COLOR_LITERAL_CEILING = 0
-const UNTOKENED_FONT_SIZE_CEILING = 1
-const BOX_SHADOW_CEILING = 2
-const LEGACY_TOKEN_USE_CEILING = 2
+// Slice H1: the last untokened font size (.small-copy, .88rem) takes --font-size-meta (14 px, the nearest size of the scale), and
+// the last two uses of an old name (.muted read --muted, which was --text-secondary, #53645a) take --text-muted (#47524b), the
+// token the design system folds --muted and --text-secondary into (design system 2.1).
 
-// The old names with the values they had before the token block. A name is deleted from the stylesheet once nothing uses it
-// and never gets a new value in the meantime: a half-migrated rule must look exactly as it did.
-const LEGACY_TOKENS = new Map([
-  ['--text-primary', '#18241f'],
-  ['--text-secondary', '#53645a'],
-  ['--text-tertiary', '#5c6d62'],
-  ['--page', '#f4f7f5'],
-  ['--focus', '#1d513c'],
-  ['--topbar-height', '70px'],
-  ['--alerts-bar-clearance', '124px'],
-  ['--tap-target', '44px'],
-  ['--radius-control', '9px'],
-  ['--radius-panel', '14px'],
-  ['--green', '#12372a'],
-  ['--green-2', '#1d513c'],
-  ['--green-3', '#e7f1e9'],
-  ['--muted', 'var(--text-secondary)'],
-  ['--line', '#e4e9e5'],
-  ['--red', '#a33e35'],
-  ['--shadow', '0 18px 55px rgba(24, 45, 34, .06)']
-])
+// The old names (design system 2.1, "Migration rule for names"): all gone from the stylesheet, and none may come back.
+const LEGACY_TOKENS = ['--text-primary', '--text-secondary', '--text-tertiary', '--page', '--focus', '--topbar-height',
+  '--alerts-bar-clearance', '--tap-target', '--radius-control', '--radius-panel', '--green', '--green-2', '--green-3', '--muted',
+  '--line', '--red', '--shadow']
 
-describe('tokens de diseño: el bloque de arriba y lo que todavía queda fuera de él', () => {
+describe('tokens de diseño: el bloque de arriba y nada escrito a mano fuera de él', () => {
   it('cada par de texto, borde, estado y foco de los tokens cumple el contraste AA (1.4.3 y 1.4.11)', () => {
     const failing = TOKEN_PAIRS
       .map(([foreground, background, kind, where]) => ({
@@ -328,44 +306,50 @@ describe('tokens de diseño: el bloque de arriba y lo que todavía queda fuera d
     expect(failing).toEqual([])
   })
 
-  it('ningún color fuera del bloque de tokens: el techo de colores escritos a mano solo baja', () => {
+  it('ningún color fuera del bloque de tokens: no queda ninguno escrito a mano', () => {
     // Hex, rgb()/rgba()/hsl() and the two keywords a rule would use for a surface or a text; transparent, currentColor and
     // the system colours of forced-colors are not values a token replaces.
     const literals = belowTokens().match(/#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})\b|\b(?:rgb|hsl)a?\(|(?<![\w-])(?:white|black)(?![\w-])/gi) ?? []
 
-    expect(literals.length).toBeLessThanOrEqual(COLOR_LITERAL_CEILING)
+    expect(literals).toEqual([])
   })
 
-  it('los tamaños de letra salen de los tokens: el techo de font-size sin token solo baja', () => {
+  it('los tamaños de letra salen de los tokens: no queda ningún font-size sin token', () => {
     const sizes = [...belowTokens().matchAll(/(?<![\w-])font-size\s*:\s*([^;}]+)/g)].map((match) => match[1].trim())
     const untokened = sizes.filter((size) => !/^var\(--font-size-[\w-]+\)$/.test(size))
 
-    expect(untokened.length).toBeLessThanOrEqual(UNTOKENED_FONT_SIZE_CEILING)
+    expect(untokened).toEqual([])
   })
 
-  it('no se agregan sombras: el techo de box-shadow solo baja', () => {
-    const shadows = belowTokens().match(/(?<![\w-])box-shadow\s*:/g) ?? []
+  // Design system 2.3: a chosen or an invalid control gets an edge of 2 px without moving its layout, a border of 1 px plus an
+  // inner box-shadow of 1 px of the same colour. That is the only box-shadow of the system; elevation does not exist.
+  it('las únicas sombras son el segundo píxel interno del borde de lo elegido y de un campo inválido', () => {
+    const shadows = allRules().filter(({ declarations }) => /(?<![\w-])box-shadow\s*:/.test(declarations))
 
-    expect(shadows.length).toBeLessThanOrEqual(BOX_SHADOW_CEILING)
+    expect(shadows.map(({ selectors }) => selectors.join(', '))).toEqual([
+      `${TEXT_BOX}[aria-invalid="true"]`,
+      '.button[aria-pressed="true"], .choice[aria-pressed="true"], .choice:has(input:checked)'
+    ])
+    for (const { declarations } of shadows) {
+      const edge = /border-color:\s*(var\(--[\w-]+\))/.exec(declarations)?.[1]
+      expect(/box-shadow:\s*([^;]+)/.exec(declarations)?.[1].trim()).toBe(`inset 0 0 0 var(--border-width) ${edge}`)
+    }
   })
 
-  it('los tokens viejos conservan su valor hasta que se borran y sus usos solo bajan', () => {
-    const start = markerIndex(LEGACY_START)
-    const block = withoutComments(css.slice(start, css.indexOf('}', start)))
-    const declared = new Map([...block.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map((match) => [match[1], match[2].trim()]))
-    const used = [...withoutComments(css).matchAll(/var\(\s*(--[\w-]+)/g)].map((match) => match[1]).filter((name) => LEGACY_TOKENS.has(name))
+  it('no queda ningún token viejo y toda variable que se usa está declarada', () => {
+    const source = withoutComments(css)
+    const declared = new Set([...source.matchAll(/(--[\w-]+)\s*:/g)].map((match) => match[1]))
+    const used = new Set([...source.matchAll(/var\(\s*(--[\w-]+)/g)].map((match) => match[1]))
 
-    // Not restyled, and no new name sneaks into the block: the way forward is a design token.
-    for (const [name, value] of declared) expect(value, name).toBe(LEGACY_TOKENS.get(name))
-    // Not orphaned: a name some rule still uses is still declared.
-    expect([...new Set(used)].filter((name) => !declared.has(name))).toEqual([])
-    expect(used.length).toBeLessThanOrEqual(LEGACY_TOKEN_USE_CEILING)
+    expect(LEGACY_TOKENS.filter((name) => declared.has(name) || used.has(name))).toEqual([])
+    expect([...used].filter((name) => !declared.has(name))).toEqual([])
+    expect(css).not.toMatch(/legacy tokens/i)
   })
 
   it('el esquema claro se declara en el bloque de tokens y ninguna otra regla lo cambia', () => {
     const declarations = [...withoutComments(css).matchAll(/(?<![\w-])color-scheme\s*:\s*([^;}]+)/g)].map((match) => match[1].trim())
 
-    expect(withoutComments(css.slice(0, markerIndex(LEGACY_START)))).toMatch(/(?<![\w-])color-scheme:\s*light\s*;/)
+    expect(withoutComments(css.slice(0, markerIndex(TOKENS_END)))).toMatch(/(?<![\w-])color-scheme:\s*light\s*;/)
     expect(declarations).toEqual(['light'])
   })
 })
@@ -514,9 +498,11 @@ describe('botones: variantes y estados', () => {
     expect(primary).not.toMatch(/box-shadow/)
   })
 
-  it('las variantes nuevas existen y los nombres viejos comparten su regla hasta que el marcado los deja', () => {
-    const secondary = rule('.button-secondary, .button-outline, .button-quiet')
-    const danger = rule('.button-danger, .button-danger-outline')
+  // Changed in slice H1: the markup left the old names (.button-outline, .button-quiet, .button-danger-outline, .button-wide), so
+  // each variant has its rule alone and no selector names an old one.
+  it('las variantes del sistema existen y los nombres viejos de botón se fueron', () => {
+    const secondary = rule('.button-secondary')
+    const danger = rule('.button-danger')
 
     expect(secondary).toMatch(/border-color:\s*var\(--border\)/)
     expect(secondary).toMatch(/background:\s*var\(--surface\)/)
@@ -525,7 +511,8 @@ describe('botones: variantes y estados', () => {
     expect(danger).toMatch(/(?<![\w-])color:\s*var\(--bad\)/)
     expect(rule('.button-link')).toMatch(/text-decoration:\s*underline/)
     expect(rule('.button-link')).toMatch(/(?<![\w-])color:\s*var\(--brand\)/)
-    expect(rule('.button-block, .button-wide')).toMatch(/width:\s*100%/)
+    expect(rule('.button-block')).toMatch(/width:\s*100%/)
+    expect(allSelectors().filter((selector) => /\.button-(?:outline|quiet|small|wide|danger-outline)(?![\w-])/.test(selector))).toEqual([])
     expect(rule('.button-large')).toMatch(/min-height:\s*var\(--target-large\)/)
     expect(rule('.button-clock')).toMatch(/min-height:\s*var\(--target-clock\)/)
     expect(rule('.button-clock')).toMatch(/font-size:\s*var\(--font-size-display\)/)
@@ -589,8 +576,8 @@ describe('botones: variantes y estados', () => {
 // The text box of a field: what is typed in, the select and the textarea. A checkbox or a radio inside a field is not one.
 const TEXT_BOX = '.field :is(input:not([type=checkbox], [type=radio]), select, textarea)'
 const allSelectors = () => allRules().flatMap(({ selectors }) => selectors)
-/** A selector of an option tile, by its new name or by one of the old ones that share its rules until the markup leaves them. */
-const isTile = (selector: string) => /\.(?:choice|journey-option|employee-category-option)(?![\w-])/.test(selector)
+/** A selector of an option tile. */
+const isTile = (selector: string) => /\.choice(?![\w-])/.test(selector)
 
 describe('campos, casillas y opciones: una sola forma', () => {
   it('el recuadro de texto es una sola regla y no alcanza a las casillas ni a los botones de opción', () => {
@@ -626,7 +613,8 @@ describe('campos, casillas y opciones: una sola forma', () => {
     expect(label).toMatch(/(?<![\w-])color:\s*var\(--text\)/)
     expect(hint).toMatch(/font-size:\s*var\(--font-size-body\)/)
     expect(hint).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
-    expect(ruleListing('.field-group').selectors).toEqual(['.field-group', 'fieldset.field', '.fieldset-plain'])
+    // Slice H1: the form of a missing mark is a .field-group, so the old name .fieldset-plain left the rule.
+    expect(ruleListing('.field-group').selectors).toEqual(['.field-group', 'fieldset.field'])
     expect(group).toMatch(/border:\s*0/)
     expect(group).toMatch(/padding:\s*0/)
   })
@@ -656,7 +644,7 @@ describe('campos, casillas y opciones: una sola forma', () => {
     expect(invalidGroup).toMatch(/border-left:\s*var\(--bar-width\) solid var\(--bad\)/)
     expect(invalidGroup).toMatch(/padding-left:\s*var\(--space-3\)/)
     // It comes after the rule that clears the fieldset, so it wins at the same specificity.
-    expect(css.indexOf('fieldset.field-invalid {')).toBeGreaterThan(css.indexOf('.field-group, fieldset.field, .fieldset-plain {'))
+    expect(css.indexOf('fieldset.field-invalid {')).toBeGreaterThan(css.indexOf('.field-group, fieldset.field {'))
   })
 
   // The two times of a tramo align at their foot, so a hint over one of them does not lift it; an error goes under the control,
@@ -699,21 +687,22 @@ describe('campos, casillas y opciones: una sola forma', () => {
     const chosen = ruleListing('.button[aria-pressed="true"]')
 
     expect(chosen.selectors).toEqual([
-      '.button[aria-pressed="true"]', '.choice[aria-pressed="true"]', '.choice:has(input:checked)',
-      '.journey-option[aria-pressed="true"]'
+      '.button[aria-pressed="true"]', '.choice[aria-pressed="true"]', '.choice:has(input:checked)'
     ])
     expect(chosen.declarations).toMatch(/border-color:\s*var\(--brand\)/)
     expect(chosen.declarations).toMatch(/box-shadow:\s*inset 0 0 0 var\(--border-width\) var\(--brand\)/)
     expect(chosen.declarations).toMatch(/background:\s*var\(--surface-selected\)/)
     // The chosen shift was told apart by a class with a paler edge (2.27:1) and a fill of 1.08:1; aria-pressed says it now.
-    expect(allSelectors().filter((selector) => selector.includes('.journey-option-active'))).toEqual([])
+    // Slice H1: the shift picker is a list of .choice tiles, so the old names left every rule.
+    expect(allSelectors().filter((selector) => /\.journey-(?:option|picker)/.test(selector))).toEqual([])
   })
 
   it('una opción es un control con el borde, las esquinas y el alto de los tokens', () => {
     const tile = ruleListing('.choice')
 
-    // Slice D3: the kinds of motive are .choice tiles, so their old name left the rule; slice D4: so are the companies.
-    expect(tile.selectors).toEqual(['.choice', '.journey-option'])
+    // Slice D3: the kinds of motive are .choice tiles, so their old name left the rule; slice D4: so are the companies; slice H1:
+    // so are the shifts of a day.
+    expect(tile.selectors).toEqual(['.choice'])
     expect(tile.declarations).toMatch(/border:\s*var\(--border-width\) solid var\(--border\)/)
     expect(tile.declarations).toMatch(/border-radius:\s*var\(--radius\)/)
     expect(tile.declarations).toMatch(/min-height:\s*var\(--target-large\)/)
@@ -726,23 +715,23 @@ describe('campos, casillas y opciones: una sola forma', () => {
     const faded = allRules().filter(({ selectors, declarations }) => selectors.some(isTile) && /(?<![\w-])opacity\s*:/.test(declarations))
 
     expect(faded.map(({ selectors }) => selectors.join(', '))).toEqual([])
-    expect(disabled.selectors).toEqual(['.choice:disabled', '.choice:has(input:disabled)', '.journey-option:disabled'])
+    expect(disabled.selectors).toEqual(['.choice:disabled', '.choice:has(input:disabled)'])
     expect(disabled.declarations).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
     expect(disabled.declarations).toMatch(/background:\s*var\(--surface-tint\)/)
     expect(disabled.declarations).toMatch(/border-color:\s*var\(--border\)/)
-    for (const selector of ['.button[aria-pressed="true"]:disabled', '.choice[aria-pressed="true"]:disabled', '.journey-option[aria-pressed="true"]:disabled']) {
+    for (const selector of ['.button[aria-pressed="true"]:disabled', '.choice[aria-pressed="true"]:disabled']) {
       expect(ruleListing(selector).declarations, selector).toMatch(/border-color:\s*var\(--brand\)/)
     }
   })
 
   it('las opciones van en una columna y en dos desde 600 px', () => {
-    const list = '.choice-list, .journey-picker'
+    const list = '.choice-list'
 
     expect(rule(list)).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/)
     expect(rule(list, media(600))).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/)
     // The one column is the base now: no narrow breakpoint has to bring it back. Slice G1: the 520 px block this read is gone,
     // and the only narrow block left is the one of 359 px.
-    expect(mediaBlock('max-width: 359px')).not.toMatch(/\.(?:choice-list|journey-picker|employee-category-list)/)
+    expect(mediaBlock('max-width: 359px')).not.toMatch(/\.(?:choice-list|employee-category-list)/)
   })
 
   // Slice N2 (D-20261111-02): the forms of a day open under the mark or the day they change, as one piece.
@@ -818,8 +807,9 @@ describe('mensajes, etiquetas de estado, secciones, plegables, vacío y carga', 
     const tone = (name: string) => ruleListing(`.status-${name}`)
 
     expect(tone('neutral').selectors).toEqual(['.status-neutral', '.status-no_ingreso', '.status-en_curso', '.status-pausa_abierta', '.status-egresada', '.status-cancelada'])
-    // Slice D3: the employee's tags are StatusTag with the employee's tone, so the two rules of his screen went.
-    expect(tone('wait').selectors).toEqual(['.status-wait', '.status-motivo_pendiente', '.status-inactivo'])
+    // Slice D3: the employee's tags are StatusTag with the employee's tone, so the two rules of his screen went. Slice H1: no
+    // state of a day or of a case is INACTIVO, so .status-inactivo went.
+    expect(tone('wait').selectors).toEqual(['.status-wait', '.status-motivo_pendiente'])
     // Slice E7: the steps of «Primeros pasos» are StatusTag, so the rule that turned their borrowed class amber went.
     expect(tone('todo').selectors).toEqual(['.status-todo', '.status-pendiente_revision'])
     expect(tone('ok').selectors).toEqual(['.status-ok', '.status-justificado'])
@@ -1093,7 +1083,7 @@ describe('pantalla del empleado: Para explicar', () => {
 
   it('el título y la ayuda de una opción van uno debajo del otro, la ayuda en el color apagado', () => {
     expect(rule('.choice-text')).toMatch(/display:\s*grid/)
-    expect(rule('.choice small, .journey-option small')).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
+    expect(rule('.choice small')).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
   })
 
   it('las tarjetas de motivos, sus opciones propias y su pregunta se fueron con su marcado', () => {
@@ -1442,14 +1432,14 @@ describe('puntos de corte, colores forzados, salto al contenido y foco por códi
   // the page, but the current place's.
   it('con colores forzados lo elegido, lo apretado y el lugar actual se siguen viendo con los colores del sistema (1.4.11)', () => {
     const forced = mediaBlock('forced-colors: active')
-    const pressed = rule('.button[aria-pressed="true"], .choice[aria-pressed="true"], .journey-option[aria-pressed="true"]', forced)
+    const pressed = rule('.button[aria-pressed="true"], .choice[aria-pressed="true"]', forced)
 
     expect(value(pressed, 'border-color')).toBe('Highlight')
     expect(value(pressed, 'background')).toBe('Highlight')
     expect(value(pressed, 'color')).toBe('HighlightText')
     // Left as written: the browser would paint the page's colour behind the words, where HighlightText does not read.
     expect(value(pressed, 'forced-color-adjust')).toBe('none')
-    expect(value(rule('.choice[aria-pressed="true"] small, .journey-option[aria-pressed="true"] small', forced), 'color')).toBe('HighlightText')
+    expect(value(rule('.choice[aria-pressed="true"] small', forced), 'color')).toBe('HighlightText')
     expect(value(rule('.choice:has(input:checked)', forced), 'border-color')).toBe('Highlight')
     expect(value(rule('.nav-link', forced), 'border-top-color')).toBe('Canvas')
     expect(value(rule('.nav-link', forced), 'border-left-color')).toBe('Canvas')
@@ -1476,6 +1466,8 @@ describe('puntos de corte, colores forzados, salto al contenido y foco por códi
   // or a click, also where a browser would draw one for a script focus after a click.
   it('lo que toma el foco por código no muestra el anillo después de un toque o un clic', () => {
     expect(value(rule('[tabindex="-1"]:focus:not(:focus-visible)'), 'outline')).toBe('none')
+    // Slice H1: one rule for all of them; the result of a mark and the question before one have tabindex -1 like the rest.
+    expect(allSelectors().filter((selector) => selector.endsWith(':focus:not(:focus-visible)'))).toEqual(['[tabindex="-1"]:focus:not(:focus-visible)'])
   })
 
   // 2026-11-12, slice F2b: a date of the filters with its error under it stood taller than its neighbours, so its box sat higher.
@@ -1519,5 +1511,93 @@ describe('verificación sobre la aplicación construida', () => {
     const disabled = rule('.field :is(input:not([type=checkbox], [type=radio]), select, textarea):disabled', forced)
 
     expect(disabled).toMatch(/border-color:\s*GrayText/)
+  })
+})
+
+// Slice H1: one system left. The markup and the stylesheet name the same classes (the check that would have caught the class
+// `mark-voided`, written with no rule, and the rule `.mark-action-primary`, which nothing wrote), and no screen draws a Unicode
+// glyph where the system has an icon (finding F-22).
+describe('una sola hoja para un solo marcado', () => {
+  const sources = appSourcePaths().map((path) => ({ path, text: readSource(path) }))
+  /** Every class a selector of the stylesheet names, media and container blocks included. */
+  const sheetClasses = new Set(allSelectors().flatMap((selector) => [...selector.matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)].map((match) => match[1])))
+
+  /**
+   * The classes a `className` writes: the quoted words of its expression, the fixed words of a template and the quoted words
+   * inside its `${…}`. A word glued to a `${…}` is built from a value: it is returned with a "*" where the value goes.
+   */
+  function writtenClasses(text: string) {
+    const names: string[] = []
+    for (const match of text.matchAll(/className=/g)) {
+      const start = match.index + match[0].length
+      let end = start
+      if (text[start] === '"' || text[start] === "'") end = text.indexOf(text[start], start + 1) + 1
+      else if (text[start] === '{') {
+        for (let depth = 0; end < text.length; end++) {
+          if (text[end] === '{') depth++
+          else if (text[end] === '}' && --depth === 0) break
+        }
+        end++
+      } else continue
+      const expression = text.slice(start, end)
+      const templates = [...expression.matchAll(/`([^`]*)`/g)].map((found) => found[1])
+      const insideTemplates = templates.flatMap((template) => [...template.matchAll(/\$\{([^}]*)\}/g)].map((found) => found[1]))
+      for (const quoted of [expression.replace(/`[^`]*`/g, ' '), ...insideTemplates].join(' ').matchAll(/'([^']*)'|"([^"]*)"/g)) {
+        names.push(...(quoted[1] ?? quoted[2]).split(/\s+/))
+      }
+      for (const template of templates) names.push(...template.replace(/\$\{[^}]*\}/g, '*').split(/\s+/))
+    }
+    return names.filter((name) => name !== '' && name !== '*')
+  }
+  const written = sources.flatMap(({ path, text }) => writtenClasses(text).map((name) => ({ path, name })))
+  const writtenNames = new Set(written.map(({ name }) => name))
+
+  // Classes built from a value: the stylesheet has one rule per value the code can give, and the guard only sees the prefix.
+  const BUILT_FROM_A_VALUE: Record<string, string> = {
+    'message-': 'PageMessage and the notice of «Primeros pasos»: message-${kind}, one rule per kind of message',
+    'status-': 'StatusTag (status-${tone}) and the tags of EmployeeViews and AdminHistoryRender built from an API state',
+    'case-': 'a case of «Para revisar»: case-${tone}, one rule per tone of a case',
+    'receipt-location-': 'the location line of a saved mark: receipt-location-${pending, sent or missing}'
+  }
+  // Written in the markup with no rule of their own, on purpose.
+  const WITHOUT_A_RULE: Record<string, string> = {
+    'mark-feedback': 'the slot of the result of a mark: tests find the result inside it; its focus rule is the one of [tabindex="-1"]'
+  }
+  // Named by the stylesheet and written by a library, not by the markup.
+  const WRITTEN_BY_A_LIBRARY: Record<string, string> = {
+    'leaflet-container': 'Leaflet, on the map of a local',
+    'leaflet-bar': 'Leaflet, on the zoom buttons of that map'
+  }
+
+  it('toda clase que escribe el marcado tiene su regla en la hoja', () => {
+    const dynamic = written.filter(({ name }) => name.includes('*'))
+    const missing = written.filter(({ name }) => !name.includes('*') && !sheetClasses.has(name) && !(name in WITHOUT_A_RULE))
+
+    expect(missing.map(({ path, name }) => `${path}: ${name}`)).toEqual([])
+    // A class built from a value starts with a prefix of the list; the list is not a way around the guard for anything else.
+    expect(dynamic.filter(({ name }) => !(name.slice(0, name.indexOf('*')) in BUILT_FROM_A_VALUE)).map(({ path, name }) => `${path}: ${name}`)).toEqual([])
+    // The lists only hold what is still true: each prefix is still built, each class without a rule is still written without one.
+    expect(Object.keys(BUILT_FROM_A_VALUE).filter((prefix) => !dynamic.some(({ name }) => name.startsWith(`${prefix}*`)))).toEqual([])
+    expect(Object.keys(WITHOUT_A_RULE).filter((name) => !writtenNames.has(name) || sheetClasses.has(name))).toEqual([])
+  })
+
+  it('toda clase que nombra la hoja la escribe el marcado', () => {
+    const unused = [...sheetClasses].filter((name) => !writtenNames.has(name) && !(name in WRITTEN_BY_A_LIBRARY)
+      && !Object.keys(BUILT_FROM_A_VALUE).some((prefix) => name.startsWith(prefix)))
+
+    expect(unused).toEqual([])
+    expect(Object.keys(WRITTEN_BY_A_LIBRARY).filter((name) => !sheetClasses.has(name))).toEqual([])
+  })
+
+  // Finding F-22: the menu, the states and the marks drew Unicode glyphs, some of them twice for different things, and a screen
+  // reader read them out. The system draws its icons (app/icons.tsx). «⋮» in the install help stays: it shows what the button of
+  // Chrome looks like. «→» was the arrow of a change («A → B») in the history of a day; it reads «de A a B» now.
+  it('ninguna pantalla dibuja los glifos del hallazgo F-22: el sistema tiene sus íconos', () => {
+    const glyphs = /[✓◷▦☰⌖▤♙✔↗▸▾→]/u
+    const found = sources.flatMap(({ path, text }) => text.split(/\r?\n/).map((line, index) => ({ where: `${path}:${index + 1}`, line })))
+      .filter(({ line }) => glyphs.test(line))
+
+    expect(found.map(({ where, line }) => `${where}: ${line.trim()}`)).toEqual([])
+    expect(sources.some(({ path, text }) => path === 'device/pwa/InstallControl.tsx' && text.includes('⋮'))).toBe(true)
   })
 })

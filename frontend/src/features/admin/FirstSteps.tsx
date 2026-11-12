@@ -32,8 +32,7 @@ export function FirstStepsRender({ steps, loading, error, readyCount, onGo, onRe
     {!steps ? !error && <Loading label="Revisando qué falta…" /> : <Panel title={`${done} de ${steps.length} pasos listos`}>
       <ol className="record-list" aria-label="Pasos para empezar">{steps.map((step, index) => {
         const isDone = step.done === true
-        const kind = isDone ? ' step-done' : index === next ? ' step-next' : ''
-        return <li key={step.title} className={`record step${kind}`}>
+        return <li key={step.title} className={isDone ? 'record step step-done' : index === next ? 'record step step-next' : 'record step'}>
           {/* The title already says the number; the box repeats it for the eye. */}
           <span className="step-number" aria-hidden="true">{isDone ? <Icon name="check" /> : index + 1}</span>
           <div className="step-body">

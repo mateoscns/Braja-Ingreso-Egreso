@@ -1,10 +1,9 @@
 import { Fragment, type FormEvent, type ReactNode } from 'react'
-import { Empty, Fieldset, FieldsSummary, FormField, Loading, PageMessage, Panel, StatusTag, TableScroll } from '../../app/ui'
+import { Empty, Fieldset, FieldsSummary, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel, StatusTag, TableScroll } from '../../app/ui'
 import type { FieldErrors } from '../../app/useFieldErrors'
 import type { Employee, Site, Template, TemplateAssignment } from '../../shared/api/types'
 import { formatLocalDate } from '../../shared/format'
 import { PASSWORD_LENGTH_HINT, PASSWORD_MAX_CHARACTERS } from '../../shared/password'
-import { LoadFailure, PageHeading } from './AdminViewsRender'
 
 const TOLERANCE_LABEL = 'Minutos de tolerancia'
 const TOLERANCE_HINT = 'Son los minutos que puede llegar tarde o salir antes o después sin que te avisemos.'

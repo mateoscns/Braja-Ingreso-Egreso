@@ -198,7 +198,7 @@ export function daySlots(jornada: Jornada, timeZone?: string): DaySlot[] {
 export type LocationOutcome = 'PENDING' | 'SENT' | 'MISSING'
 export const locationOutcomeText: Record<LocationOutcome, string> = {
   PENDING: 'Enviando ubicación… no cierres la app.',
-  /** The view adds a decorative ✔ after it. */
+  /** The view shows it after the pin icon. */
   SENT: 'Ubicación enviada',
   MISSING: 'No llegó tu ubicación: puede figurar como fuera del local. Revisá que el celular tenga la ubicación activada.'
 }

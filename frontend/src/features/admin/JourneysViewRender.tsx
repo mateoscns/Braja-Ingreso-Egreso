@@ -141,7 +141,7 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
             {/* The form of a mark, or its result, in a full-width row right under it (design system 4.12). */}
             {under && <tr><td colSpan={5}>{under}</td></tr>}</Fragment>
         })}</tbody></table></TableScroll>}
-      {detail.state !== 'CANCELADA' && <form id={FORGOTTEN_FORM_ID} className="inline-form" noValidate onSubmit={onAddForgottenMark}><fieldset className="form-grid fieldset-plain" disabled={!detailTimeZone}>
+      {detail.state !== 'CANCELADA' && <form id={FORGOTTEN_FORM_ID} className="inline-form" noValidate onSubmit={onAddForgottenMark}><fieldset className="form-grid field-group" disabled={!detailTimeZone}>
         <div className="field-wide"><h3>Agregar una marca que faltó</h3><p className="field-hint">Escribí la hora de {detailSite?.name ?? 'el local'}. Queda guardado que la agregaste vos y por qué.</p></div>
         <FormField label="¿Qué marca faltó?"><select value={forgotAction} onChange={(event) => onForgotActionChange(event.target.value as MarkAction)}>{MARK_ACTIONS.map((action) => <option key={action} value={action}>{actionName(action)}</option>)}</select></FormField>
         <FormField label={`Hora (${detailSite?.name ?? 'local'})`} error={forgottenErrors.occurredAt}><input type="datetime-local" required value={forgotOccurredAt} onChange={(event) => onForgotOccurredAtChange(event.target.value)} /></FormField>
@@ -154,7 +154,7 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
   }
   return <>
     <PageHeading title="Hoy" subtitle="Revisá las marcas de cada día y corregí lo que haga falta. Cada día sigue el calendario de su local." />
-    {dependencyError && <div className="form-stack"><PageMessage kind="error">{dependencyError}</PageMessage><button type="button" className="button button-secondary" disabled={loading || journeysLoading} onClick={onRetryDependencies}>Reintentar datos del día</button></div>}
+    {dependencyError && <LoadFailure message={dependencyError} retryLabel="Reintentar datos del día" disabled={loading || journeysLoading} onRetry={onRetryDependencies} />}
     {/* Written out instead of Panel: its title names the table, or the list on a phone. */}
     <section className="panel" aria-labelledby={LIST_HEADING_ID}>
       <div className="panel-heading"><h2 id={LIST_HEADING_ID}>{journeysTitle(date)}</h2><button className="button button-secondary" disabled={journeysLoading} onClick={onReloadJourneys}><Icon name="refresh" />{journeysLoading ? 'Actualizando…' : 'Actualizar'}</button></div>
@@ -212,21 +212,21 @@ function auditTitle(entry: JornadaAuditEntry, timeZone: string): string {
   switch (entry.kind) {
     case 'JORNADA_CANCELLATION': return 'Día cancelado'
     case 'FORGOTTEN_MARK': return `Marca olvidada incorporada: ${markAt(entry.afterAction, entry.afterOccurredAt)}`
-    case 'MARK_CORRECTION': return `Marca corregida: ${markAt(entry.beforeAction, entry.beforeOccurredAt)} → ${markAt(entry.afterAction, entry.afterOccurredAt)}`
+    case 'MARK_CORRECTION': return `Marca corregida: de ${markAt(entry.beforeAction, entry.beforeOccurredAt)} a ${markAt(entry.afterAction, entry.afterOccurredAt)}`
     case 'MARK_VOID': return `Marca anulada: ${markAt(entry.beforeAction, entry.beforeOccurredAt)}`
     case 'DEVIATION': break
   }
   const current = type(entry.deviationType)
   switch (entry.changeType) {
     case 'CREATED': return `Caso detectado: ${type(entry.afterType ?? entry.deviationType)}`
-    case 'TYPE_REPLACED': return `Caso actualizado: ${type(entry.beforeType)} → ${type(entry.afterType)}`
+    case 'TYPE_REPLACED': return `Caso actualizado: de ${type(entry.beforeType)} a ${type(entry.afterType)}`
     case 'RETRACTED': return `Caso cerrado: ${type(entry.beforeType ?? entry.deviationType)}`
     case 'CLASSIFICATION_CHANGED': return entry.beforeClassification
       ? `${current}: clasificación corregida de ${classification(entry.beforeClassification)} a ${classification(entry.afterClassification)}`
       : `${current}: clasificado como ${classification(entry.afterClassification)}`
     case 'CLASSIFICATION_RESET': return `${current}: vuelve a revisión (se quitó la clasificación ${classification(entry.beforeClassification)})`
     case 'MOTIVE_SUBMITTED': return `${current}: motivo cargado, categoría ${category(entry.afterMotiveCategory)}`
-    case 'MOTIVE_CORRECTED': return `${current}: motivo corregido, categoría ${category(entry.beforeMotiveCategory)} → ${category(entry.afterMotiveCategory)}`
+    case 'MOTIVE_CORRECTED': return `${current}: motivo corregido, categoría de ${category(entry.beforeMotiveCategory)} a ${category(entry.afterMotiveCategory)}`
     default: return `${current}: cambio registrado`
   }
 }
