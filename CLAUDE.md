@@ -871,12 +871,24 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     `frontend/eslint.config.js`, `frontend/tsconfig.json`,
     `.github/workflows/ci.yml`).
 36. **Los componentes de render reciben datos y callbacks por props; el estado
-    remoto vive en contenedores.** En ADMIN, los contenedores viven en
-    `frontend/src/features/admin/AdminViews.tsx` y las vistas en
-    `frontend/src/features/admin/AdminViewsRender.tsx`.
-    `frontend/src/features/admin/AdminViews.test.tsx` cubre interacciones,
-    pero no existe una prueba que proteja esa separación arquitectónica
-    `[sin guarda: implementado, sin test]` (2026-10-20).
+    remoto vive en contenedores.** En ADMIN, cada sección tiene en
+    `frontend/src/features/admin/` su contenedor y su render:
+    `AdminInbox.tsx` y `AdminInboxRender.tsx`, `JourneysView.tsx` y
+    `JourneysViewRender.tsx`, `AdminHistory.tsx` y `AdminHistoryRender.tsx`,
+    `WorkDaysView.tsx` (con `WorkDaysPanel.tsx`) y `WorkDaysViewRender.tsx`
+    (con `WorkDaysForm.tsx`), `SitesView.tsx` y `SitesViewRender.tsx`,
+    `SchedulesView.tsx` y `ScheduleEditor.tsx`, `EmployeesView.tsx` y
+    `EmployeesViewRender.tsx`; `AdminApp.tsx` guarda lo común a todas las
+    secciones: la sección actual, el estado de la configuración y los avisos
+    (2026-11-12, issue #114: las tandas M1 y M2 partieron
+    `AdminViews.tsx` y `AdminViewsRender.tsx` por sección y la H1, PR #162,
+    borró esos dos archivos, que solo reexportaban). Al 2026-11-12 solo esos
+    contenedores y `AdminApp.tsx` importan `shared/api/client`
+    fuera de los tests
+    (`git grep -l "shared/api/client" -- frontend/src/features/admin ":!*.test.*"`).
+    `frontend/src/features/admin/AdminViews.test.tsx` y los tests de cada
+    sección cubren interacciones, pero no existe una prueba que proteja esa
+    separación arquitectónica `[sin guarda: implementado, sin test]`.
 37. **Toda llamada a la API pasa por `frontend/src/shared/api/client.ts`**
     (único `fetch`; el archivo anterior decía `frontend/src/api`). Guarda:
     `client.test.ts` prueba el cliente; que nadie más llame `fetch`
