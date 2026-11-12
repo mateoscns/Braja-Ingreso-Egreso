@@ -54,8 +54,8 @@ export function LoadFailure({ message, onRetry, retryLabel = 'Reintentar', disab
  * the title is optional: a new page («Configuración») has none, since the system writes no capitals (design system 7.1), and the
  * old pages keep theirs until the owner decides on them.
  */
-export function PageHeading({ eyebrow, title, subtitle, action }: { eyebrow?: string; title: string; subtitle: string; action?: ReactNode }) {
-  return <div className="page-title-row"><div>{eyebrow && <p className="eyebrow">{eyebrow}</p>}<h1>{title}</h1><p className="muted">{subtitle}</p></div>{action}</div>
+export function PageHeading({ title, subtitle, action }: { title: string; subtitle: string; action?: ReactNode }) {
+  return <div className="page-title-row"><div><h1>{title}</h1><p className="muted">{subtitle}</p></div>{action}</div>
 }
 
 /**

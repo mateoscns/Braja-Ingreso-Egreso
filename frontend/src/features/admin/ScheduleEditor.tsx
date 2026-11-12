@@ -140,7 +140,7 @@ export function SchedulesViewRender({ sites, siteId, siteTemplates, loading, loa
 }) {
   const siteName = sites.find((site) => site.id === siteId)?.name
   return <>
-    <PageHeading eyebrow="CONFIGURACIÓN" title="Horarios" subtitle="Armá los horarios de cada local: a qué hora entran, a qué hora salen y cuánto pueden tardar en desayunar y almorzar." />
+    <PageHeading title="Horarios" subtitle="Armá los horarios de cada local: a qué hora entran, a qué hora salen y cuánto pueden tardar en desayunar y almorzar." />
     {notice && <PageMessage kind="success">{notice}</PageMessage>}
     <div className="content-grid">
       <Panel title="Horarios de este local">

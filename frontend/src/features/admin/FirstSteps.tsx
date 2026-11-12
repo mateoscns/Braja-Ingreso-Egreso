@@ -14,7 +14,7 @@ export function FirstStepsRender({ steps, loading, error, readyCount, onGo, onRe
   const done = steps?.filter((step) => step.done !== false).length ?? 0
   const next = steps?.findIndex((step) => step.done === false) ?? -1
   return <>
-    <div className="page-title-row"><div><p className="eyebrow">PARA EMPEZAR</p><h1>Primeros pasos</h1><p className="muted">Seguí estos pasos en orden. Cuando estén todos listos, tu equipo ya puede marcar.</p></div></div>
+    <div className="page-title-row"><div><h1>Primeros pasos</h1><p className="muted">Seguí estos pasos en orden. Cuando estén todos listos, tu equipo ya puede marcar.</p></div></div>
     {error && <LoadFailure message={error} disabled={loading} onRetry={onRetry} />}
     {steps && next === -1 && <PageMessage kind="success">{readyText(readyCount)}</PageMessage>}
     {!steps ? !error && <Loading label="Revisando qué falta…" /> : <Panel title={`${done} de ${steps.length} pasos listos`}>

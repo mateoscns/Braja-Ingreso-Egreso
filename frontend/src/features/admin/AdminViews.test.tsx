@@ -1490,6 +1490,18 @@ describe('dirección de cada sección del ADMIN', () => {
     expect(window.location.hash).toBe(hash)
   })
 
+  // The owner removed the small uppercase line above every title (2026-11-11: "Sacarlas todas"). «Para revisar» has its own
+  // test in its slice (E1).
+  it.each([
+    ['#/hoy', 'Hoy'], ['#/dias-de-trabajo', 'Días de trabajo'], ['#/configuracion/locales', 'Locales'], ['#/configuracion/horarios', 'Horarios'],
+    ['#/configuracion/equipo', 'Equipo'], ['#/configuracion/primeros-pasos', 'Primeros pasos'], ['#/configuracion', 'Configuración']
+  ])('la sección de %s no tiene una línea en mayúsculas arriba del título', async (hash, title) => {
+    openAt(hash)
+    const { container } = render(<AdminApp />)
+    await screen.findByRole('heading', { name: title, level: 1 })
+    expect(container.querySelector('.eyebrow')).toBeNull()
+  })
+
   // The start section writes its address in an effect after it renders, so the address is waited for (2026-11-11: read at once, it failed now and then under the load of the whole suite).
   it.each(['#/no-existe', '#/HOY', '#inicio'])('una dirección desconocida (%s) abre la sección de inicio', async (hash) => {
     openAt(hash)

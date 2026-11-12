@@ -90,7 +90,7 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
   })}</div>
 
   return <>
-    <PageHeading eyebrow="EQUIPO" title="Equipo" subtitle="Cada persona entra con su DNI. Acá la das de alta, elegís en qué locales trabaja y qué horario tiene." />
+    <PageHeading title="Equipo" subtitle="Cada persona entra con su DNI. Acá la das de alta, elegís en qué locales trabaja y qué horario tiene." />
     {error && <PageMessage kind="error">{error}</PageMessage>}
     {notice && <PageMessage kind="success">{notice}</PageMessage>}
     {issuedPassword && issuedPassword.reason !== 'created' && <IssuedPasswordPanel issued={issuedPassword} onDismiss={onDismissIssuedPassword} />}
