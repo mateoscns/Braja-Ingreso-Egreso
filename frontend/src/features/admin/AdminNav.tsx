@@ -1,4 +1,4 @@
-import type { MouseEvent } from 'react'
+import { useEffect, useRef, type MouseEvent } from 'react'
 import { Icon, type IconName } from '../../app/icons'
 import type { AdminSection } from './setupStatus'
 import { SECTION_ADDRESSES } from './useAdminSection'
@@ -42,18 +42,42 @@ export function followLink(event: MouseEvent<HTMLAnchorElement>, section: AdminS
  * are a list inside its item: the rail shows them (the owner, 2026-11-11), the bar hides them and the «Configuración» page lists
  * them. Render only: AdminApp owns the section and whether a setup step is missing.
  */
+/**
+ * The room the page keeps under its content for the bar fixed at the bottom (styles.css, --bottom-nav-room): its real height, which
+ * grows to two rows with a large system text. Where the bar is in the flow (the rail from 1024 px, a phone lying down) nothing is
+ * reserved. Set through the CSSOM, which the content security policy allows. Device check before release, 2026-11-12.
+ */
+function useBottomBarRoom() {
+  const navRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const nav = navRef.current
+    if (!nav || typeof ResizeObserver !== 'function') return
+    const root = document.documentElement
+    const update = () => {
+      if (window.getComputedStyle(nav).position === 'fixed') root.style.setProperty('--bottom-nav-room', `${nav.offsetHeight}px`)
+      else root.style.removeProperty('--bottom-nav-room')
+    }
+    const observer = new ResizeObserver(update)
+    observer.observe(nav)
+    update()
+    return () => { observer.disconnect(); root.style.removeProperty('--bottom-nav-room') }
+  }, [])
+  return navRef
+}
+
 export function AdminNav({ section, setupMissing, onNavigate }: {
   section: AdminSection | null
   /** Lists «Primeros pasos» first among the parts. It also stays while it is the place shown, so the rail never loses it. */
   setupMissing: boolean
   onNavigate: (section: AdminSection) => void
 }) {
+  const navRef = useBottomBarRoom()
   const parts = setupMissing || section === SETUP_PART.section ? [SETUP_PART, ...CONFIGURATION_PARTS] : CONFIGURATION_PARTS
   const link = (item: NavItem, current: 'page' | 'true' | undefined) => <a className="nav-link" href={SECTION_ADDRESSES[item.section]}
     aria-current={current} onClick={(event) => followLink(event, item.section, onNavigate)}>
     <Icon name={item.icon} /><span>{item.label}</span>
   </a>
-  return <nav className="nav" aria-label="Navegación principal">
+  return <nav ref={navRef} className="nav" aria-label="Navegación principal">
     <ul className="nav-list">{DESTINATIONS.map((item) => <li key={item.section}>
       {link(item, section === item.section ? 'page' : item.section === 'config' && isConfigurationPart(section) ? 'true' : undefined)}
       {item.section === 'config' && <ul className="nav-sub">{parts.map((part) => <li key={part.section}>

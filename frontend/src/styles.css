@@ -91,6 +91,8 @@
 
   /* Layout. */
   --bottom-nav-height: 4.5rem;   /* 72 px: icon plus a label of up to two lines */
+  /* The room the page keeps for the bottom bar: one row here; AdminNav sets its real height, two rows with a large text. */
+  --bottom-nav-room: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
   --rail-width: 15rem;
   --content-max: 68.75rem;       /* 1100 px */
 
@@ -397,11 +399,11 @@ input:is([type="date"], [type="time"], [type="datetime-local"]):focus-within { o
    1024 px. It scrolls away with the page and has no fixed height: a larger text or a long company name makes it taller, never
    cuts it. Each area keeps the page gutter and the phone's safe areas itself, so the strip runs from edge to edge. */
 .topbar {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "brand out" "context context";
+  display: grid; grid-template-columns: minmax(min-content, 1fr) minmax(0, max-content); grid-template-areas: "brand out" "context context";
   grid-template-rows: minmax(3.5rem, auto) auto; align-items: center; column-gap: var(--space-3);
   padding-top: env(safe-area-inset-top); color: var(--on-brand); background: var(--brand);
 }
-.topbar > .brand { grid-area: brand; justify-self: start; min-height: var(--target); margin-left: max(var(--gutter), env(safe-area-inset-left)); }
+.topbar > .brand { grid-area: brand; justify-self: start; min-width: 0; min-height: var(--target); margin-left: max(var(--gutter), env(safe-area-inset-left)); flex-wrap: wrap; row-gap: 0; }
 .topbar-out { grid-area: out; margin-right: max(calc(var(--gutter) - var(--space-1)), env(safe-area-inset-right)); color: var(--on-brand); }
 /* The context strip: the company and the person in the muted text on the band, wrapping (a long company name is never cut). */
 .topbar-context {
@@ -453,12 +455,13 @@ input:is([type="date"], [type="time"], [type="datetime-local"]):focus-within { o
 }
 .nav-list, .nav-sub { margin: 0; padding: 0; list-style: none; }
 /* Equal shares, but never narrower than the longest word of a label, so «Configuración» is whole at 320 px; a label of two words
-   («Para revisar», «Días de trabajo») may take two lines. */
-.nav-list { display: flex; }
+   («Para revisar», «Días de trabajo») may take two lines. With a large system text the four do not fit in one row: they wrap
+   to a second one instead of leaving the screen (WCAG 1.4.10), and AdminNav gives the page the bar's real height. */
+.nav-list { display: flex; flex-wrap: wrap; }
 .nav-list > li { flex: 1 1 0; min-width: min-content; }
 .nav-link {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-1);
-  min-height: var(--bottom-nav-height); padding: var(--space-1); border-top: var(--bar-width) solid transparent;
+  min-height: min(var(--bottom-nav-height), 72px); padding: var(--space-1); border-top: var(--bar-width) solid transparent;
   color: var(--text-muted); font-size: var(--font-size-meta); font-weight: var(--font-weight-strong); line-height: var(--line-height-tight);
   text-align: center; text-decoration: none; transition: background-color var(--motion-fast);
 }
@@ -472,12 +475,12 @@ input:is([type="date"], [type="time"], [type="datetime-local"]):focus-within { o
 /* The parts of «Configuración» are listed on the rail only; on a phone its page leads to them. */
 .nav-sub { display: none; }
 /* WCAG 2.4.11: the end of the content, and a control scrolled into view, stay above the bar. */
-.main-content { min-width: 0; padding: 26px 16px; padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + var(--space-5)); }
+.main-content { min-width: 0; padding: 26px 16px; padding-bottom: calc(var(--bottom-nav-room) + var(--space-5)); }
 /* More room around the content from a tablet. Longhands: the bottom padding is the room of the bar, above and below. */
 @media (min-width: 768px) {
   .main-content { padding-top: 38px; padding-right: clamp(22px, 4vw, 64px); padding-left: clamp(22px, 4vw, 64px); }
 }
-html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + var(--space-2)); }
+html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-room) + var(--space-2)); }
 /* From 1024 px the same list is a column on the left, in the page: the four destinations and, under «Configuración», its parts
    (the owner, 2026-11-11: "Sí, con sus partes"). Each row is as tall as a control, its icon beside its name. The frame becomes a
    column so the rail's band reaches the foot of a short page. */
@@ -485,7 +488,7 @@ html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-height) + env(safe
   .admin-frame { display: flex; flex-direction: column; }
   .workspace { display: grid; flex: 1 0 auto; width: 100%; grid-template-columns: var(--rail-width) minmax(0, 1fr); }
   .nav { position: static; padding: var(--space-5) 0; border-top: 0; border-right: var(--border-width) solid var(--rule); background: var(--surface-tint); }
-  .nav-list { flex-direction: column; }
+  .nav-list { flex-direction: column; flex-wrap: nowrap; }
   .nav-list > li { flex: none; min-width: 0; }
   .nav-link {
     flex-direction: row; justify-content: flex-start; gap: var(--space-3); min-height: var(--target);
