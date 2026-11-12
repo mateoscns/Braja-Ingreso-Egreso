@@ -1,6 +1,6 @@
 // The sites (Sedes) render: the list, the location edit and create forms, their draft, map and audit types, and the location history of a site.
 import { type FormEvent } from 'react'
-import { Empty, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel } from '../../app/ui'
+import { Empty, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel, Status } from '../../app/ui'
 import type { Site, SiteCoordinates } from '../../shared/api/types'
 import type { SiteLocationErrorKind } from './siteLocation'
 import type { GeocodeResult } from '../../shared/api/geocode'
@@ -78,7 +78,10 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, name
           </div>
           {editMapOpen && siteMap && <SiteMapPanel state={siteMap} radiusMeters={mapRadiusMeters(locationEdit.geofenceRadiusMeters)} disabled={busy} {...mapCallbacks} />}
           <span className="field-hint">Lo más fácil: tocá «Elegir en el mapa», buscá la dirección y tocá la puerta del local. La ubicación de este dispositivo solo sirve si es precisa (hasta 25 m).</span>
-          {locationEdit.locationMessage && <span className={`site-location-message site-location-message-${locationEdit.locationStatus}`} role={locationEdit.locationStatus === 'error' ? 'alert' : 'status'} aria-live={locationEdit.locationStatus === 'error' ? 'assertive' : 'polite'}>{locationEdit.locationStatus === 'error' && <strong>{locationErrorTitle(locationEdit.locationErrorKind)}: </strong>}{locationEdit.locationMessage}</span>}
+          {/* An error is an alert, read as it appears; any other message is a Status, so the search and its result are announced. */}
+          {locationEdit.locationMessage && (locationEdit.locationStatus === 'error'
+            ? <span className="site-location-message site-location-message-error" role="alert" aria-live="assertive"><strong>{locationErrorTitle(locationEdit.locationErrorKind)}: </strong>{locationEdit.locationMessage}</span>
+            : <Status as="span" className={`site-location-message site-location-message-${locationEdit.locationStatus}`}>{locationEdit.locationMessage}</Status>)}
           {editCoordinates && <div className="site-location-selection">
             <span className="site-location-coordinates">Latitud {editCoordinates.latitude.toFixed(7)} · Longitud {editCoordinates.longitude.toFixed(7)}</span>
             <a href={siteMapHref(editCoordinates)} target="_blank" rel="noreferrer noopener">Revisar este punto en el mapa</a>
@@ -111,9 +114,9 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, name
           </div>
           {createMapOpen && siteMap && <SiteMapPanel state={siteMap} radiusMeters={mapRadiusMeters(createRadiusMeters)} disabled={busy} {...mapCallbacks} />}
           <span id="site-location-help" className="field-hint">Opcional. Lo más fácil: tocá «Elegir en el mapa», buscá la dirección y tocá la puerta del local. La ubicación de este dispositivo solo sirve si es precisa (hasta 25 m). También podés crear el local sin ubicación.</span>
-          {locationMessage && <span className={`site-location-message site-location-message-${locationStatus}`} role={locationStatus === 'error' ? 'alert' : 'status'} aria-live={locationStatus === 'error' ? 'assertive' : 'polite'}>
-            {locationStatus === 'error' && <strong>{locationErrorTitle(locationErrorKind)}: </strong>}{locationMessage}
-          </span>}
+          {locationMessage && (locationStatus === 'error'
+            ? <span className="site-location-message site-location-message-error" role="alert" aria-live="assertive"><strong>{locationErrorTitle(locationErrorKind)}: </strong>{locationMessage}</span>
+            : <Status as="span" className={`site-location-message site-location-message-${locationStatus}`}>{locationMessage}</Status>)}
           {createCoordinates && <div className="site-location-selection">
             <span className="site-location-coordinates">Latitud {createCoordinates.latitude.toFixed(7)} · Longitud {createCoordinates.longitude.toFixed(7)}</span>
             <a href={siteMapHref(createCoordinates)} target="_blank" rel="noreferrer noopener">Revisar este punto en el mapa</a>

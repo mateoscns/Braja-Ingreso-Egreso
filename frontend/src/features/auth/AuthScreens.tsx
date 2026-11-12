@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Brand, PageMessage, FormField } from '../../app/ui'
+import { Brand, PageMessage, FormField, Status } from '../../app/ui'
 import type { Session } from '../../shared/api/types'
 import {
   OWN_PASSWORD_RULE, OWN_PASSWORD_TOO_LONG_MESSAGE, OWN_PASSWORD_TOO_SHORT_MESSAGE, PASSWORD_MAX_CHARACTERS, PASSWORD_MIN_CHARACTERS, passwordTooLong
@@ -28,7 +28,7 @@ export function LoginScreen({ onSignIn, error }: { onSignIn: (dni: string, passw
   return <main className="auth-page"><div className="auth-brand"><Brand /></div>
     <section className="auth-card"><p className="eyebrow">INGRESO AL SISTEMA</p><h1>Bienvenido</h1><p className="muted">Ingresá con tu DNI y contraseña.</p>
       {shownError && <PageMessage kind="error">{shownError}</PageMessage>}
-      {busy && <p role="status" aria-live="polite" aria-atomic="true">Entrando, esperá un momento…</p>}
+      {busy && <Status>Entrando, esperá un momento…</Status>}
       <form onSubmit={submit} className="form-stack" aria-busy={busy}>
         <FormField label="DNI"><input autoComplete="username" inputMode="numeric" minLength={7} maxLength={12} required value={dni} onChange={(e) => setDni(e.target.value)} /></FormField>
         <FormField label="Contraseña"><input type={shown ? 'text' : 'password'} autoComplete="current-password" maxLength={256} required value={password} onChange={(e) => setPassword(e.target.value)} /></FormField>
@@ -50,7 +50,7 @@ export function CompanyScreen({ session, onSelect, onSignOut }: { session: Sessi
   return <main className="auth-page"><div className="auth-brand"><Brand /></div>
     <section className="auth-card"><p className="eyebrow">CUENTA COMPARTIDA</p><h1>Elegí una empresa</h1><p className="muted">Solo aparecen las empresas donde tenés acceso.</p>
       {error && <PageMessage kind="error">{error}</PageMessage>}
-      {busyId && <p role="status" aria-live="polite" aria-atomic="true">Esperando la activación de {session.memberships.find((membership) => membership.companyId === busyId)?.companyName ?? 'la empresa'}…</p>}
+      {busyId && <Status>Esperando la activación de {session.memberships.find((membership) => membership.companyId === busyId)?.companyName ?? 'la empresa'}…</Status>}
       <div className="company-list" aria-busy={Boolean(busyId)}>{session.memberships.map((membership) => <button key={membership.companyId} className="company-choice" disabled={Boolean(busyId)} onClick={() => void select(membership.companyId)}>
         <span className="choice-icon" aria-hidden="true">{membership.companyName.slice(0, 1).toUpperCase()}</span><span><strong>{membership.companyName}</strong><small>{membership.role === 'ADMIN' ? 'Administración' : 'Empleado'}</small></span><span className="choice-arrow" aria-hidden="true">{busyId === membership.companyId ? '…' : '→'}</span>
       </button>)}</div>
@@ -84,7 +84,7 @@ export function PasswordChangeScreen({ onChange, onSignOut }: { onChange: (curre
   return <main className="auth-page"><div className="auth-brand"><Brand /></div>
     <section className="auth-card"><p className="eyebrow">PRIMER INGRESO</p><h1>Cambiá tu contraseña</h1><p className="muted">Cambiá la contraseña que te dieron por una tuya. <strong>{OWN_PASSWORD_RULE}</strong></p>
       {error && <PageMessage kind="error">{error}</PageMessage>}
-      {busy && <p role="status" aria-live="polite" aria-atomic="true">Guardando tu contraseña…</p>}
+      {busy && <Status>Guardando tu contraseña…</Status>}
       <form onSubmit={submit} className="form-stack" aria-busy={busy} noValidate>
         <FormField label="Contraseña que te dieron"><input type={type} autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} /></FormField>
         <FormField label="Nueva contraseña" hint={lengthCounter(next)}><input type={type} autoComplete="new-password" minLength={PASSWORD_MIN_CHARACTERS} maxLength={PASSWORD_MAX_CHARACTERS} required value={next} onChange={(e) => setNext(e.target.value)} /></FormField>

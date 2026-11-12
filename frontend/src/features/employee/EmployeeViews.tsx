@@ -1,6 +1,6 @@
 import { Fragment, useId, type FormEvent, type RefObject } from 'react'
 import { Icon, type IconName } from '../../app/icons'
-import { Empty, FormField, Loading, PageMessage, Panel, StatusTag } from '../../app/ui'
+import { Empty, FormField, LoadFailure, Loading, PageMessage, Panel, Status, StatusTag } from '../../app/ui'
 import type { Deviation, Jornada, MarkAction, Site } from '../../shared/api/types'
 import { formatBlock, formatDateTime, formatLocalDate, jornadaStateLabel } from '../../shared/format'
 import { forEmployee } from '../../shared/labels'
@@ -56,9 +56,9 @@ export function MarkFeedback({ feedbackRef, sending, error, showRefresh, onRefre
   confirmation: MarkConfirmation | null; timeZone?: string
 }) {
   return <div className="mark-feedback" ref={feedbackRef} tabIndex={-1}>
-    {sending && <div className="message message-info" role="status" aria-live="polite" aria-atomic="true">
+    {sending && <Status as="div" className="message message-info">
       <span className="spinner" aria-hidden="true" /><div className="message-body">Enviando tu marca… esperá un momento.</div>
-    </div>}
+    </Status>}
     {error && <PageMessage kind="error">{error}</PageMessage>}
     {showRefresh && <button type="button" className="button button-secondary" onClick={onRefresh}>Actualizar</button>}
     {confirmation && <MarkReceipt confirmation={confirmation} timeZone={timeZone} />}
@@ -165,8 +165,7 @@ export function MotivePanel(props: MotivePanelProps) {
   const { loading, loadFailed, pendingError, retrying, truncated, limit, items, notice } = props
   return <Panel title="Para explicar"><p className="muted small-copy">Contale a tu encargado qué pasó. Podés cambiarlo hasta que lo revise. Lo que escribas solo lo ven vos y tu encargado.</p>
     {notice && <PageMessage kind="success">{notice}</PageMessage>}
-    {!loading && !loadFailed && pendingError && <><PageMessage kind="error">No pudimos cargar lo que tenés para explicar. {pendingError}</PageMessage>
-      <button type="button" className="button button-quiet button-small" onClick={props.onRetry}>Reintentar</button></>}
+    {!loading && !loadFailed && pendingError && <LoadFailure message={`No pudimos cargar lo que tenés para explicar. ${pendingError}`} onRetry={props.onRetry} />}
     {!loading && !loadFailed && !retrying && truncated && <p className="muted small-copy">Te mostramos los {limit} más recientes. Cuando los completes vas a ver los anteriores.</p>}
     {loading || retrying ? <Loading label="Cargando…" /> : loadFailed ? <Empty>No pudimos cargar lo que tenés para explicar.</Empty>
       : items.length === 0 ? (pendingError ? null : <Empty>No tenés nada para explicar.</Empty>)
@@ -202,7 +201,7 @@ function MotiveCard({ item, jornadas, sites, values, errors, savingId, editingId
       <button className="button button-primary button-small" disabled={saving}>{saving ? 'Enviando…' : item.status === 'PENDIENTE_REVISION' ? 'Guardar corrección' : 'Enviar motivo'}</button>
       {editingIds.includes(item.id) && <button type="button" className="button button-quiet button-small" disabled={saving} onClick={() => onCancel(item.id)}>Cancelar</button>}
     </div>
-    {saving && <p className="muted small-copy" role="status" aria-live="polite">Enviando lo que escribiste…</p>}
+    {saving && <Status className="muted small-copy">Enviando lo que escribiste…</Status>}
   </form>
 }
 

@@ -1,9 +1,18 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
-import type { Jornada, Site } from '../../shared/api/types'
-import { DayMarksPanel } from './EmployeeViews'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { createRef, type ComponentProps } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { LoadFailure } from '../../app/ui'
+import type { Deviation, Jornada, Site } from '../../shared/api/types'
+import { DayMarksPanel, MarkFeedback, MotivePanel } from './EmployeeViews'
 
-afterEach(cleanup)
+// The real LoadFailure, watched: a failed load must go through it (slice F3).
+vi.mock('../../app/ui', async (importOriginal) => {
+  const ui = await importOriginal<typeof import('../../app/ui')>()
+  return { ...ui, LoadFailure: vi.fn(ui.LoadFailure) }
+})
+
+afterEach(() => { cleanup(); vi.clearAllMocks() })
 
 const site: Site = { id: 's-1', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: null, longitude: null, geofenceRadiusMeters: 100 }
 
@@ -98,5 +107,50 @@ describe('DayMarksPanel', () => {
       expect(entryRow).toHaveTextContent('Cargada por tu encargado')
       expect(entryRow).not.toHaveTextContent('Ubicación')
     })
+  })
+})
+
+// Slice F3 (WCAG 4.1.3): a sending line is announced only if its region is in the document before its text.
+describe('líneas de espera y cargas fallidas', () => {
+  const deviation: Deviation = {
+    id: 'd-1', jornadaId: 'j-1', siteId: site.id, type: 'LLEGADA_TARDE', status: 'MOTIVO_PENDIENTE', category: null,
+    occurredAt: '2026-11-09T11:20:00Z', createdAt: '2026-11-09T11:20:00Z', pushEligible: true
+  }
+  const motiveProps = (overrides: Partial<ComponentProps<typeof MotivePanel>> = {}): ComponentProps<typeof MotivePanel> => ({
+    loading: false, loadFailed: false, pendingError: '', retrying: false, truncated: false, limit: 100, items: [], notice: '', jornadas: [], sites: [site],
+    values: {}, errors: {}, savingId: '', editingIds: [], onChange: vi.fn(), onSubmit: vi.fn(), onCancel: vi.fn(), onRetry: vi.fn(), ...overrides
+  })
+
+  it('mientras la marca se envía, su región está en el lugar de la confirmación antes que su texto', () => {
+    const feedback = <MarkFeedback feedbackRef={createRef()} sending error="" showRefresh={false} onRefresh={vi.fn()} confirmation={null} />
+
+    expect(renderToStaticMarkup(feedback))
+      .toBe('<div class="mark-feedback" tabindex="-1"><div class="message message-info" role="status" aria-atomic="true"></div></div>')
+    render(feedback)
+    const status = screen.getByRole('status')
+    expect(status).toHaveTextContent('Enviando tu marca… esperá un momento.')
+    expect(status.querySelector('.spinner')).toHaveAttribute('aria-hidden', 'true')
+  })
+
+  it('mientras se envía un motivo, su región está en el formulario antes que su texto', () => {
+    const panel = <MotivePanel {...motiveProps({ items: [deviation], savingId: deviation.id })} />
+
+    const markup = renderToStaticMarkup(panel)
+    expect(markup).toContain('<p class="muted small-copy" role="status" aria-atomic="true"></p>')
+    expect(markup).not.toContain('Enviando lo que escribiste…')
+    render(panel)
+    expect(screen.getByRole('status')).toHaveTextContent('Enviando lo que escribiste…')
+    expect(screen.getByRole('status').closest('form')).not.toBeNull()
+  })
+
+  it('si fallan los pendientes, el panel lo dice con la carga fallida compartida y su Reintentar pide de nuevo', () => {
+    const onRetry = vi.fn()
+    render(<MotivePanel {...motiveProps({ pendingError: 'Servidor no disponible.', onRetry })} />)
+
+    expect(vi.mocked(LoadFailure)).toHaveBeenCalled()
+    expect(vi.mocked(LoadFailure).mock.lastCall?.[0]).toMatchObject({ message: 'No pudimos cargar lo que tenés para explicar. Servidor no disponible.' })
+    expect(screen.getByRole('alert')).toHaveTextContent('No pudimos cargar lo que tenés para explicar. Servidor no disponible.')
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
+    expect(onRetry).toHaveBeenCalledTimes(1)
   })
 })

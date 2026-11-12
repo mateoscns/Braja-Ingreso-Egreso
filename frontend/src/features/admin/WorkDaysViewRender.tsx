@@ -1,7 +1,7 @@
 // The «Días de trabajo» render (section 'workdays', D-20261111-02 step 2): the notice of days loaded, the monthly load and the
 // single-day form, taken as they were from the bottom of the days screen. The list of a date and its detail are «Hoy».
 import type { FormEvent, ReactNode } from 'react'
-import { FormField, PageHeading, PageMessage } from '../../app/ui'
+import { FormField, LoadFailure, PageHeading, PageMessage } from '../../app/ui'
 import type { Employee, Site, Template } from '../../shared/api/types'
 
 export function WorkDaysViewRender({ workDaysPanel, coverage, sites, eligibleEmployees, siteTemplates, loading, dependencyError, busy, employeeId, siteId, templateId, singleDate, singleError = '', singleNotice = '', onSingleDateChange, onEmployeeChange, onSiteChange, onTemplateChange, onDeclare, onRetryDependencies }: {
@@ -16,7 +16,7 @@ export function WorkDaysViewRender({ workDaysPanel, coverage, sites, eligibleEmp
 }) {
   return <>
     <PageHeading eyebrow="DÍAS DE TRABAJO" title="Días de trabajo" subtitle="Cargá los días que trabaja cada persona. Cada día sigue el calendario de su local." />
-    {dependencyError && <div className="form-stack"><PageMessage kind="error">{dependencyError}</PageMessage><button type="button" className="button button-quiet" disabled={loading} onClick={onRetryDependencies}>Reintentar datos del día</button></div>}
+    {dependencyError && <LoadFailure message={dependencyError} retryLabel="Reintentar datos del día" disabled={loading} onRetry={onRetryDependencies} />}
     {coverage}
     {workDaysPanel}
     <section className="panel" aria-labelledby="single-day-title"><details className="fold">

@@ -5,6 +5,69 @@ import { clearMarkInterrupted, markWasInterrupted, noteMarkInterrupted } from '.
 
 afterEach(() => { cleanup(); clearMarkInterrupted() })
 
+/**
+ * Watches the document and tells whether a status region entered it empty and got its text afterwards: screen readers announce
+ * a change inside a region they already know, and often say nothing for one that arrives with its text (WCAG 4.1.3, slice F3).
+ */
+function watchStatusRegions() {
+  const records: MutationRecord[] = []
+  const observer = new MutationObserver((batch) => { records.push(...batch) })
+  observer.observe(document.body, { childList: true, subtree: true })
+  return {
+    enteredEmpty(region: Element) {
+      records.push(...observer.takeRecords())
+      observer.disconnect()
+      const entered = records.findIndex((record) => [...record.addedNodes].some((node) => node.contains(region)))
+      return entered >= 0 && records.slice(entered + 1).some((record) => record.addedNodes.length > 0 && region.contains(record.target))
+    }
+  }
+}
+
+const twoCompanies = { accountId: 'a', memberships: [
+  { companyId: 'c-1', companyName: 'Braja', role: 'ADMIN' as const },
+  { companyId: 'c-2', companyName: 'Otra empresa', role: 'EMPLOYEE' as const }
+], activeCompanyId: null, mustChangePassword: false }
+
+describe('las esperas de las pantallas de acceso se anuncian: su región está antes que su texto', () => {
+  it('al ingresar', async () => {
+    render(<LoginScreen onSignIn={() => new Promise<void>(() => {})} />)
+    fireEvent.change(screen.getByLabelText('DNI'), { target: { value: '30123456' } })
+    fireEvent.change(screen.getByLabelText('Contraseña'), { target: { value: 'temporary-password' } })
+    const watch = watchStatusRegions()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ingresar' }))
+
+    const status = await screen.findByRole('status')
+    expect(status).toHaveTextContent('Entrando, esperá un momento…')
+    expect(watch.enteredEmpty(status)).toBe(true)
+  })
+
+  it('al elegir una empresa', async () => {
+    render(<CompanyScreen session={twoCompanies} onSelect={() => new Promise<void>(() => {})} onSignOut={vi.fn()} />)
+    const watch = watchStatusRegions()
+
+    fireEvent.click(screen.getByRole('button', { name: /Braja/ }))
+
+    const status = await screen.findByRole('status')
+    expect(status).toHaveTextContent('Esperando la activación de Braja…')
+    expect(watch.enteredEmpty(status)).toBe(true)
+  })
+
+  it('al guardar la contraseña nueva', async () => {
+    render(<PasswordChangeScreen onChange={() => new Promise<void>(() => {})} onSignOut={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('Contraseña que te dieron'), { target: { value: 'temporary-password' } })
+    fireEvent.change(screen.getByLabelText('Nueva contraseña'), { target: { value: 'CorrectHorseBattery9!' } })
+    fireEvent.change(screen.getByLabelText('Repetí la nueva contraseña'), { target: { value: 'CorrectHorseBattery9!' } })
+    const watch = watchStatusRegions()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar contraseña' }))
+
+    const status = await screen.findByRole('status')
+    expect(status).toHaveTextContent('Guardando tu contraseña…')
+    expect(watch.enteredEmpty(status)).toBe(true)
+  })
+})
+
 describe('pantallas de acceso', () => {
   it('envía DNI y contraseña al servidor sin guardarlos en el navegador', async () => {
     const onSignIn = vi.fn().mockResolvedValue(undefined)

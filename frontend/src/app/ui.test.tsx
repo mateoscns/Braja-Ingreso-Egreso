@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Icon, type IconName } from './icons'
-import { AppHeader, Brand, CompanySwitcher, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel, StatusTag } from './ui'
+import { AppHeader, Brand, CompanySwitcher, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel, Status, StatusTag } from './ui'
 
 afterEach(cleanup)
 
@@ -158,6 +158,35 @@ describe('componentes compartidos de interfaz', () => {
     expect(region).toHaveTextContent('Se guardó otra vez.')
   })
 
+  // Slice F3 (WCAG 4.1.3): a line that comes and goes («Entrando…», «Enviando tu marca…») is announced only if its region is
+  // already in the document when its text arrives.
+  it('una línea de espera monta su región vacía y recién después escribe el texto, para que se anuncie', () => {
+    expect(renderToStaticMarkup(<Status>Entrando, esperá un momento…</Status>))
+      .toBe('<p role="status" aria-atomic="true"></p>')
+    expect(renderToStaticMarkup(<Status as="div" className="message message-info"><span className="spinner" aria-hidden="true" /><div className="message-body">Enviando tu marca… esperá un momento.</div></Status>))
+      .toBe('<div class="message message-info" role="status" aria-atomic="true"></div>')
+    expect(renderToStaticMarkup(<Status as="span" className="site-location-message">Buscando la ubicación…</Status>))
+      .toBe('<span class="site-location-message" role="status" aria-atomic="true"></span>')
+
+    const { rerender } = render(<Status className="muted small-copy">Enviando lo que escribiste…</Status>)
+    const region = screen.getByRole('status')
+    expect(region.tagName).toBe('P')
+    expect(region).toHaveClass('muted', 'small-copy')
+    expect(region).toHaveTextContent('Enviando lo que escribiste…')
+    rerender(<Status className="muted small-copy">Enviando otra vez…</Status>)
+    expect(screen.getByRole('status')).toBe(region)
+    expect(region).toHaveTextContent('Enviando otra vez…')
+  })
+
+  it('la carga también monta su región vacía y recién después escribe el texto', () => {
+    expect(renderToStaticMarkup(<Loading label="Cargando tu día…" />))
+      .toBe('<div class="loading" role="status" aria-atomic="true"></div>')
+
+    const { container } = render(<Loading label="Cargando tu día…" />)
+    expect(screen.getByRole('status')).toHaveTextContent('Cargando tu día…')
+    expect(container.querySelector('.loading > .spinner')).toHaveAttribute('aria-hidden', 'true')
+  })
+
   it('cada tipo de mensaje tiene su rol y su ícono, oculto para los lectores: el tipo lo dicen las palabras y la barra', () => {
     const kinds = [['info', 'info', 'status'], ['success', 'check', 'status'], ['warning', 'alert', 'status'], ['error', 'error', 'alert']] as const
 
@@ -210,6 +239,18 @@ describe('componentes compartidos de interfaz', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('No se pudieron cargar los empleados.')
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
     expect(onRetry).toHaveBeenCalledTimes(1)
+  })
+
+  it('una carga fallida conserva el texto de su botón y lo desactiva mientras se vuelve a pedir', () => {
+    const onRetry = vi.fn()
+    const { rerender } = render(<LoadFailure message="No se pudieron cargar los datos del día." retryLabel="Reintentar datos del día" onRetry={onRetry} />)
+
+    const retry = screen.getByRole('button', { name: 'Reintentar datos del día' })
+    expect(retry).toBeEnabled()
+    fireEvent.click(retry)
+    expect(onRetry).toHaveBeenCalledTimes(1)
+    rerender(<LoadFailure message="No se pudieron cargar los datos del día." retryLabel="Reintentar datos del día" disabled onRetry={onRetry} />)
+    expect(screen.getByRole('button', { name: 'Reintentar datos del día' })).toBeDisabled()
   })
 
   it('el encabezado de página tiene el título como h1, su texto de arriba y su bajada, y una acción opcional', () => {

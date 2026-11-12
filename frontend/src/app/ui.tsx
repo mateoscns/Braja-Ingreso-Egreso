@@ -8,23 +8,45 @@ export type MessageKind = 'info' | 'success' | 'warning' | 'error'
 /** The kind of a message is told by its bar and its icon, not by colour alone; the words still carry it for screen readers. */
 const MESSAGE_ICONS = { info: 'info', success: 'check', warning: 'alert', error: 'error' } satisfies Record<MessageKind, IconName>
 
+/** False on the first render, true right after: a `status` region mounts empty so the text it gets next is announced. */
+function useMounted(): boolean {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+  return mounted
+}
+
 /**
  * A message in a live region. An error is an `alert`, which screen readers announce as soon as it appears.
  * A `status` is only announced reliably when the text changes inside a region that already exists, so an info, success or
  * warning message mounts its region empty and writes the icon and the text right after; later changes update the same region.
  */
 export function PageMessage({ children, kind = 'info' }: { children: ReactNode; kind?: MessageKind }) {
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => { setMounted(true) }, [])
+  const mounted = useMounted()
   const alert = kind === 'error'
   return <div className={`message message-${kind}`} role={alert ? 'alert' : 'status'} aria-atomic="true">
     {alert || mounted ? <><Icon name={MESSAGE_ICONS[kind]} /><div className="message-body">{children}</div></> : null}
   </div>
 }
 
-/** A failed load: the error and the way to try again, in place of what could not be shown. */
-export function LoadFailure({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return <div className="form-stack"><PageMessage kind="error">{message}</PageMessage><button type="button" className="button button-quiet" onClick={onRetry}>Reintentar</button></div>
+/**
+ * A line that comes and goes while something runs («Entrando…», «Enviando tu marca…»): a `status` region that mounts empty and
+ * writes its content right after, like PageMessage, so screen readers announce it (WCAG 4.1.3). `as` and `className` keep the
+ * element and the look the line already had.
+ */
+export function Status({ children, className, as: Tag = 'p' }: { children: ReactNode; className?: string; as?: 'p' | 'div' | 'span' }) {
+  const mounted = useMounted()
+  return <Tag className={className} role="status" aria-atomic="true">{mounted ? children : null}</Tag>
+}
+
+/**
+ * A failed load: the error and the way to try again, in place of what could not be shown. `retryLabel` keeps a button that
+ * names what it reloads; `disabled` turns it off while the load runs again; `primary` fills the button when retrying is the
+ * only thing left to do on the screen.
+ */
+export function LoadFailure({ message, onRetry, retryLabel = 'Reintentar', disabled = false, primary = false }: {
+  message: string; onRetry: () => void; retryLabel?: string; disabled?: boolean; primary?: boolean
+}) {
+  return <div className="form-stack"><PageMessage kind="error">{message}</PageMessage><button type="button" className={`button ${primary ? 'button-primary' : 'button-quiet'}`} disabled={disabled} onClick={onRetry}>{retryLabel}</button></div>
 }
 
 /**
@@ -47,8 +69,9 @@ export function StatusTag({ tone, icon, children }: { tone: StatusTone; icon: Ic
   return <span className={`status-chip status-${tone}`}><Icon name={icon} />{children}</span>
 }
 
+/** A load in progress: it replaces what is coming, and is a Status so its words are announced. */
 export function Loading({ label = 'Cargando…' }: { label?: string }) {
-  return <div className="loading" role="status"><span className="spinner" aria-hidden="true" />{label}</div>
+  return <Status as="div" className="loading"><span className="spinner" aria-hidden="true" />{label}</Status>
 }
 
 export function Panel({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
