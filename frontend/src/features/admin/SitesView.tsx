@@ -8,7 +8,7 @@ import { approximateDevicePosition, normalizePickedPoint, SEARCH_RESULT_ZOOM, si
 import { GeocodeError, searchAddress, type GeocodeResult } from '../../shared/api/geocode'
 import { useFocusRequest } from '../../app/revealAndFocus'
 import { useFieldErrors, useProblemFocus } from '../../app/useFieldErrors'
-import { SITE_MAP_PANEL_ID } from './SiteMapPanel'
+import { SITE_MAP_CONFIRM_ID, SITE_MAP_PANEL_ID } from './SiteMapPanel'
 import { siteFocusIds, SitesViewRender, siteMessageKeys, type SiteField, type SiteLocationAuditResponse, type SiteLocationEditDraft, type SiteMapState } from './SitesViewRender'
 import { errText } from './adminShared'
 
@@ -26,7 +26,7 @@ function validCoordinates(latitudeText: string, longitudeText: string): SiteCoor
 /** The distance a form asks for, or the words of parseGeofenceRadiusMeters when it is not one. */
 function radiusCheck(value: string): { meters: number | null; error: string } {
   try { return { meters: parseGeofenceRadiusMeters(value), error: '' } }
-  catch (reason) { return { meters: null, error: reason instanceof Error ? reason.message : 'Revisá la distancia permitida para marcar.' } }
+  catch (reason) { return { meters: null, error: reason instanceof Error ? reason.message : 'Revisá la distancia alrededor del local.' } }
 }
 
 /** The point of a form: none (both coordinates empty), the coordinates, or the form's words for a missing half or a pair out of range. */
@@ -217,6 +217,8 @@ export function SitesView() {
   function clearEditLocation() {
     cancelLocationCapture()
     editFields.clear('coordinates', 'confirmation')
+    // «Quitar ubicación» leaves with the point: the focus goes to the capture, the first location control that stays.
+    if (locationEdit) focusLater({ id: siteFocusIds.captureButton({ kind: 'edit', siteId: locationEdit.siteId }) })
     setLocationEdit((current) => current ? {
       ...current, latitude: '', longitude: '', locationStatus: 'idle',
       locationMessage: 'El centro quedará vacío cuando guardes los cambios.', locationErrorKind: null,
@@ -253,6 +255,12 @@ export function SitesView() {
     mapSearchInFlight.current = null
     setSiteMap(null)
   }
+  /** «Cerrar mapa» and «Confirmar ubicación»: the map leaves, and «Elegir en el mapa», back in its place, takes the focus. */
+  function leaveSiteMap() {
+    const target = siteMap?.target
+    closeSiteMap()
+    if (target) focusLater({ id: siteFocusIds.mapButton(target) })
+  }
   function openSiteMap(target: LocationCaptureTarget) {
     cancelLocationCapture()
     closeSiteMap()
@@ -263,6 +271,8 @@ export function SitesView() {
     siteMapController.current = controller
     const initialView = siteMapInitialView(center, null)
     setSiteMap({ target, view: initialView, point: center, query: '', searchStatus: 'idle', searchMessage: '', results: [] })
+    // «Elegir en el mapa» goes away while the map is open: the focus goes into the map, to its address search.
+    focusLater({ id: SITE_MAP_PANEL_ID, into: true })
     if (center) return
     // Only to center the map, whatever its accuracy; it is never saved. A tap or a search result wins over a late answer.
     void approximateDevicePosition(undefined, controller.signal).then((position) => {
@@ -311,6 +321,8 @@ export function SitesView() {
       ...current, view: { ...point, zoom: SEARCH_RESULT_ZOOM }, point, results: [], searchStatus: 'done',
       searchMessage: 'Revisá el punto en el mapa; si no es la puerta del local, tocá el lugar exacto.'
     } : current)
+    // The list that held the chosen result is gone: the focus goes to what comes next.
+    focusLater({ id: SITE_MAP_CONFIRM_ID })
   }
   function confirmSiteMapPoint() {
     if (!siteMap?.point) return
@@ -331,7 +343,7 @@ export function SitesView() {
         locationMessage: 'Punto elegido en el mapa. Ya podés guardar la ubicación.'
       } : current)
     }
-    closeSiteMap()
+    leaveSiteMap()
   }
   function closeSiteLocationAudit() {
     siteLocationAuditRequest.current += 1
@@ -421,7 +433,7 @@ export function SitesView() {
   }
   return <SitesViewRender sites={sites} loading={loading} loadError={loadError} error={error} notice={notice} messageAt={messageAt} name={name} timeZone={timeZone} busy={busy}
     createRadiusMeters={createRadiusMeters} createLatitude={createLatitude} createLongitude={createLongitude} createLocationSource={createLocationSource}
-    siteMap={siteMap} createPointFromMap={createPointFromMap} onOpenMap={openSiteMap} onCloseMap={closeSiteMap} onMapPick={pickSiteMapPoint}
+    siteMap={siteMap} createPointFromMap={createPointFromMap} onOpenMap={openSiteMap} onCloseMap={leaveSiteMap} onMapPick={pickSiteMapPoint}
     onMapQueryChange={(query) => setSiteMap((current) => current ? { ...current, query, queryError: '' } : current)} onMapSearch={() => void searchSiteMap()}
     onChooseMapResult={chooseSiteMapResult} onConfirmMapPoint={confirmSiteMapPoint}
     locationEdit={locationEdit} siteLocationAuditFor={siteLocationAuditFor} siteLocationAudit={siteLocationAudit} siteLocationAuditLoading={siteLocationAuditLoading} siteLocationAuditError={siteLocationAuditError}
@@ -434,6 +446,7 @@ export function SitesView() {
     onCaptureEditLocation={(siteId) => void captureLocationFor({ kind: 'edit', siteId })} onClearEditLocation={clearEditLocation}
     onLocationEditChange={updateLocationEdit} onSaveLocationEdit={saveLocationEdit}
     onToggleSiteLocationAudit={toggleSiteLocationAudit} onRetrySiteLocationAudit={() => { if (siteLocationAuditFor) void loadSiteLocationAudit(siteLocationAuditFor) }}
-    onCaptureLocation={() => void captureLocation()} onClearLocation={clearLocation}
+    onCaptureLocation={() => void captureLocation()}
+    onClearLocation={() => { clearLocation(); focusLater({ id: siteFocusIds.captureButton({ kind: 'create' }) }) }}
     onReload={() => void reload()} onSubmit={submit} onNameChange={(value) => { setName(value); createFields.clear('name') }} onTimeZoneChange={setTimeZone} />
 }

@@ -82,7 +82,7 @@ describe('SitesViewRender location picker', () => {
   it('defaults the create radius to 100 meters and constrains it to 50–500', () => {
     renderSitesView()
 
-    const radius = screen.getByRole('spinbutton', { name: 'Distancia permitida para marcar (metros)' })
+    const radius = screen.getByRole('spinbutton', { name: 'Distancia alrededor del local (metros)' })
     expect(radius).toHaveValue(100)
     expect(radius).toHaveAttribute('min', '50')
     expect(radius).toHaveAttribute('max', '500')
@@ -104,7 +104,7 @@ describe('SitesViewRender location picker', () => {
     renderSitesView(null, false, vi.fn(), { sites: [site], locationEdit, siteLocationAuditFor: site.id, siteLocationAudit: audit })
 
     expect(screen.getByRole('form', { name: 'Cambiar ubicación de Local Centro' })).toBeInTheDocument()
-    expect(within(screen.getByRole('form', { name: 'Cambiar ubicación de Local Centro' })).getByRole('spinbutton', { name: 'Distancia permitida para marcar (metros)' })).toHaveValue(175)
+    expect(within(screen.getByRole('form', { name: 'Cambiar ubicación de Local Centro' })).getByRole('spinbutton', { name: 'Distancia alrededor del local (metros)' })).toHaveValue(175)
     expect(screen.getByRole('button', { name: 'Capturar otra ubicación' })).toBeInTheDocument()
     expect(screen.getByText('Precisión informada por el dispositivo: ±8.0 m (estimación; no garantiza exactitud).')).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: 'Confirmo que este punto corresponde al local.' })).not.toBeChecked()
@@ -426,7 +426,7 @@ describe('SitesView location administration API', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Cambiar ubicación de Local Centro' }))
     fireEvent.click(screen.getByRole('button', { name: 'Quitar ubicación' }))
     const form = screen.getByRole('form', { name: 'Cambiar ubicación de Local Centro' })
-    fireEvent.change(within(form).getByRole('spinbutton', { name: 'Distancia permitida para marcar (metros)' }), { target: { value: '250' } })
+    fireEvent.change(within(form).getByRole('spinbutton', { name: 'Distancia alrededor del local (metros)' }), { target: { value: '250' } })
     fireEvent.submit(form)
 
     await screen.findByText('Ubicación del local actualizada.')
@@ -587,7 +587,7 @@ describe('SitesView map picker', () => {
     expect(manual).not.toHaveAttribute('open')
     expect(within(manual!).getByText('Escribir las coordenadas a mano')).toBeInTheDocument()
     expect(within(createForm).getByRole('group', { name: '¿Dónde queda el local?' })).toBeInTheDocument()
-    expect(within(createForm).getByRole('spinbutton', { name: 'Distancia permitida para marcar (metros)' })).toHaveValue(100)
+    expect(within(createForm).getByRole('spinbutton', { name: 'Distancia alrededor del local (metros)' })).toHaveValue(100)
     expect(screen.queryByTestId('site-map')).not.toBeInTheDocument()
   })
 
@@ -604,7 +604,7 @@ describe('SitesView map picker', () => {
     expect(map).toHaveAttribute('data-radius', '100')
     expect(screen.getByRole('button', { name: 'Confirmar ubicación' })).toBeDisabled()
 
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'Distancia permitida para marcar (metros)' }), { target: { value: '250' } })
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Distancia alrededor del local (metros)' }), { target: { value: '250' } })
     expect(map).toHaveAttribute('data-radius', '250')
     fireEvent.click(within(map).getByRole('button', { name: 'Tocar el mapa' }))
     expect(map).toHaveAttribute('data-point', '-34.6037224,-58.3815926')
@@ -878,7 +878,7 @@ describe('SitesView: where the focus goes when the location form opens and close
     render(<SitesView />)
     fireEvent.click(await screen.findByRole('button', { name: 'Cambiar ubicación de Local Centro' }))
     const form = screen.getByRole('form', { name: 'Cambiar ubicación de Local Centro' })
-    fireEvent.change(within(form).getByRole('spinbutton', { name: 'Distancia permitida para marcar (metros)' }), { target: { value: '150' } })
+    fireEvent.change(within(form).getByRole('spinbutton', { name: 'Distancia alrededor del local (metros)' }), { target: { value: '150' } })
     fireEvent.submit(form)
 
     expect(await within(screen.getByRole('listitem', { name: 'Local Centro' })).findByText('Ubicación del local actualizada.')).toBeInTheDocument()
@@ -897,12 +897,12 @@ describe('SitesView: one validation style', () => {
     const name = await screen.findByRole('textbox', { name: 'Nombre del local' })
     const form = createButton().closest('form')!
     expect(form).toHaveAttribute('novalidate')
-    fireEvent.change(screen.getByRole('spinbutton', { name: 'Distancia permitida para marcar (metros)' }), { target: { value: '20' } })
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Distancia alrededor del local (metros)' }), { target: { value: '20' } })
     fireEvent.submit(form)
 
     expect(name).toHaveAttribute('aria-invalid', 'true')
     expect(name).toHaveAccessibleDescription('Ej. Local Centro Escribí el nombre del local.')
-    expect(screen.getByRole('spinbutton', { name: 'Distancia permitida para marcar (metros)' })).toHaveAccessibleDescription(expect.stringContaining('La distancia permitida para marcar debe ser un número entero entre 50 y 500 metros.'))
+    expect(screen.getByRole('spinbutton', { name: 'Distancia alrededor del local (metros)' })).toHaveAccessibleDescription(expect.stringContaining('La distancia alrededor del local debe ser un número entero entre 50 y 500 metros.'))
     expect(within(form).getByRole('alert')).toHaveTextContent('Revisá lo que está marcado debajo de cada campo.')
     await vi.waitFor(() => expect(name).toHaveFocus())
     expect(post).not.toHaveBeenCalled()
@@ -965,5 +965,112 @@ describe('SitesView: one validation style', () => {
     const confirm = screen.getByRole('button', { name: 'Confirmar ubicación' })
     expect(confirm).toBeDisabled()
     expect(confirm).toHaveAccessibleDescription('Tocá en el mapa la puerta del local.')
+  })
+})
+
+// T12 (WCAG 2.4.3; the map flow is the way to place a local without dragging, 2.5.7): each control that leaves the screen when
+// it is used hands the focus to what comes next, instead of dropping it on the page.
+describe('SitesView: where the focus goes in the map and location controls', () => {
+  const jsonResponse = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  const existing: Site = { id: 'site-1', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: -34.6, longitude: -58.38, geofenceRadiusMeters: 100 }
+
+  it('«Elegir en el mapa» goes away when the map opens: the focus goes to the address search of the map', async () => {
+    vi.spyOn(api, 'get').mockResolvedValue([] as never)
+    render(<SitesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Elegir en el mapa' }))
+
+    await vi.waitFor(() => expect(screen.getByRole('textbox', { name: 'Buscá la dirección del local' })).toHaveFocus())
+  })
+
+  it('choosing a search result empties the list it was in: the focus goes to «Confirmar ubicación»', async () => {
+    vi.spyOn(api, 'get').mockResolvedValue([] as never)
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(jsonResponse([{ lat: '-34.6037224', lon: '-58.3815926', display_name: 'Avenida Corrientes 1234, Buenos Aires' }]))))
+    render(<SitesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Elegir en el mapa' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Buscá la dirección del local' }), { target: { value: 'Corrientes 1234' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Buscar' }))
+    const result = await screen.findByRole('button', { name: 'Avenida Corrientes 1234, Buenos Aires' })
+    result.focus()
+    fireEvent.click(result)
+
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Confirmar ubicación' })).toHaveFocus())
+  })
+
+  it('«Confirmar ubicación» and «Cerrar mapa» give the focus back to «Elegir en el mapa»', async () => {
+    vi.spyOn(api, 'get').mockResolvedValue([] as never)
+    render(<SitesView />)
+    const createForm = (await screen.findByRole('button', { name: 'Crear local' })).closest('form')!
+    fireEvent.click(within(createForm).getByRole('button', { name: 'Elegir en el mapa' }))
+    fireEvent.click(within(await within(createForm).findByTestId('site-map')).getByRole('button', { name: 'Tocar el mapa' }))
+    fireEvent.click(within(createForm).getByRole('button', { name: 'Confirmar ubicación' }))
+    await vi.waitFor(() => expect(within(createForm).getByRole('button', { name: 'Elegir en el mapa' })).toHaveFocus())
+
+    fireEvent.click(within(createForm).getByRole('button', { name: 'Elegir en el mapa' }))
+    await within(createForm).findByTestId('site-map')
+    fireEvent.click(within(createForm).getByRole('button', { name: 'Cerrar mapa' }))
+    await vi.waitFor(() => expect(within(createForm).getByRole('button', { name: 'Elegir en el mapa' })).toHaveFocus())
+  })
+
+  it('the map of a location change gives the focus back to its own «Elegir en el mapa»', async () => {
+    vi.spyOn(api, 'get').mockResolvedValue([existing] as never)
+    render(<SitesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Cambiar ubicación de Local Centro' }))
+    const form = screen.getByRole('form', { name: 'Cambiar ubicación de Local Centro' })
+    fireEvent.click(within(form).getByRole('button', { name: 'Elegir en el mapa' }))
+    await within(form).findByTestId('site-map')
+    fireEvent.click(within(form).getByRole('button', { name: 'Cerrar mapa' }))
+
+    await vi.waitFor(() => expect(within(form).getByRole('button', { name: 'Elegir en el mapa' })).toHaveFocus())
+  })
+
+  it('«Quitar ubicación» goes away with the point: the focus goes to «Capturar ubicación del dispositivo»', async () => {
+    vi.spyOn(api, 'get').mockResolvedValue([existing] as never)
+    render(<SitesView />)
+    const createForm = (await screen.findByRole('button', { name: 'Crear local' })).closest('form')!
+    fireEvent.change(within(createForm).getByRole('spinbutton', { name: 'Latitud' }), { target: { value: '-34.6' } })
+    fireEvent.click(within(createForm).getByRole('button', { name: 'Quitar ubicación' }))
+    await vi.waitFor(() => expect(within(createForm).getByRole('button', { name: 'Capturar ubicación del dispositivo' })).toHaveFocus())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cambiar ubicación de Local Centro' }))
+    const form = screen.getByRole('form', { name: 'Cambiar ubicación de Local Centro' })
+    fireEvent.click(within(form).getByRole('button', { name: 'Quitar ubicación' }))
+    await vi.waitFor(() => expect(within(form).getByRole('button', { name: 'Capturar ubicación del dispositivo' })).toHaveFocus())
+  })
+})
+
+// T12 (UX A-1; CLAUDE.md rule 2: the location never blocks a mark): the distance says where a mark is flagged, not where marking
+// is allowed.
+describe('SitesView: the distance around a local is not a condition to mark', () => {
+  const sites: Site[] = [
+    { id: 'site-1', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: -34.6, longitude: -58.38, geofenceRadiusMeters: 150 },
+    { id: 'site-2', name: 'Local Norte', timeZone: 'America/Argentina/Buenos_Aires', latitude: null, longitude: null, geofenceRadiusMeters: null }
+  ]
+
+  it('names the field and the record by the distance around the local, and says what happens to a mark farther away', () => {
+    const { container } = renderSitesView(null, false, vi.fn(), { sites })
+
+    const radius = screen.getByRole('spinbutton', { name: 'Distancia alrededor del local (metros)' })
+    expect(radius).toHaveAccessibleDescription(expect.stringContaining('Una marca hecha más lejos se guarda igual y queda en Para revisar como «Fuera del local».'))
+    expect(within(screen.getByRole('listitem', { name: 'Local Centro' })).getByText('Distancia alrededor del local: 150 m')).toHaveClass('record-meta')
+    expect(container).not.toHaveTextContent(/permitid/)
+    expect(container).not.toHaveTextContent('— m')
+  })
+
+  it('a local without a location says only that, with no distance', () => {
+    renderSitesView(null, false, vi.fn(), { sites })
+
+    const record = within(screen.getByRole('listitem', { name: 'Local Norte' }))
+    expect(record.getByText('Sin ubicación cargada')).toBeInTheDocument()
+    expect(record.queryByText(/Distancia/)).not.toBeInTheDocument()
+  })
+
+  it('the circle of the map is the distance around the local', () => {
+    const siteMap: SiteMapState = {
+      target: { kind: 'create' }, view: { latitude: -34.6, longitude: -58.38, zoom: 17 }, point: { latitude: -34.6, longitude: -58.38 },
+      query: '', searchStatus: 'idle', searchMessage: '', results: []
+    }
+    renderSitesView(null, false, vi.fn(), { siteMap, createRadiusMeters: '120' })
+
+    expect(screen.getByText('Punto marcado. El círculo muestra los 120 m alrededor del local. Si no es la puerta, tocá de nuevo.')).toBeInTheDocument()
   })
 })

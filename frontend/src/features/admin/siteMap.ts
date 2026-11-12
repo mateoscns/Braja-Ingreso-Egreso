@@ -25,6 +25,17 @@ export const OSM_TILE_OPTIONS = {
   referrerPolicy: 'strict-origin-when-cross-origin'
 } as const satisfies TileLayerOptions
 
+/**
+ * The colours Leaflet draws with, the values of two tokens of styles.css: Leaflet writes them as SVG attributes, which cannot
+ * read a CSS variable (SiteMapPicker.test.tsx checks they still match). The radius is the brand ink, 3 px over a white halo, so
+ * it keeps 3:1 against light tiles and against parks, water and buildings (WCAG 1.4.11); the point is a brand dot ringed in white.
+ */
+export const MAP_INK_COLOR = '#12372a' // --brand
+export const MAP_HALO_COLOR = '#ffffff' // --surface
+export const RADIUS_HALO_STYLE = { color: MAP_HALO_COLOR, weight: 7, opacity: 0.9, fill: false, interactive: false } as const
+export const RADIUS_STYLE = { color: MAP_INK_COLOR, weight: 3, opacity: 1, fillColor: MAP_INK_COLOR, fillOpacity: 0.12, interactive: false } as const
+export const POINT_STYLE = { radius: 9, color: MAP_HALO_COLOR, weight: 3, fillColor: MAP_INK_COLOR, fillOpacity: 1, interactive: false } as const
+
 /** Buenos Aires: where the map starts when the site has no center and the device gives no position. */
 export const DEFAULT_MAP_VIEW: SiteMapView = { latitude: -34.6, longitude: -58.4, zoom: 12 }
 export const SITE_CENTER_ZOOM = 17

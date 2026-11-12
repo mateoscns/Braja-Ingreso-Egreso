@@ -12,8 +12,12 @@ import { SiteZoneField } from './SiteZoneField'
 import { timeZoneLabel } from './siteZone'
 import { dateTime } from './adminRenderShared'
 
-/** The geofence radius in the owner's words (D-20261109-01): how far from the site's point a mark still counts as on site. */
-const RADIUS_LABEL = 'Distancia permitida para marcar (metros)'
+/**
+ * The geofence radius (D-20261109-01): how far from the site's point a mark still counts as on site. Worded as a distance around
+ * the local and what happens to a mark farther away, never as a condition to mark: the location never blocks a mark (rule 2).
+ */
+const RADIUS_LABEL = 'Distancia alrededor del local (metros)'
+const RADIUS_HINT = 'Una marca hecha más lejos se guarda igual y queda en Para revisar como «Fuera del local».'
 const LIST_HEADING_ID = 'sites-title'
 
 /** Where the result of a form shows (design system 4.7): the add form, or the location change of one local. */
@@ -21,9 +25,14 @@ export const siteMessageKeys = { create: 'create', edit: (siteId: string) => `ed
 
 /**
  * «Cambiar ubicación» and its form: the form takes the focus when it opens, and the button gets it back when it closes (slice F1).
- * A failed submit focuses inside its form (slice F2b).
+ * A failed submit focuses inside its form (slice F2b). «Elegir en el mapa» gets the focus back when the map closes, and
+ * «Capturar ubicación del dispositivo» takes it when «Quitar ubicación» leaves with the point (T12): one of each per form.
  */
-export const siteFocusIds = { locationButton: (siteId: string) => `site-${siteId}-location`, locationForm: (siteId: string) => `site-${siteId}-location-form`, createForm: 'site-create-form' }
+export const siteFocusIds = {
+  locationButton: (siteId: string) => `site-${siteId}-location`, locationForm: (siteId: string) => `site-${siteId}-location-form`, createForm: 'site-create-form',
+  mapButton: (target: SiteMapTarget) => target.kind === 'create' ? 'site-create-map' : `site-${target.siteId}-map`,
+  captureButton: (target: SiteMapTarget) => target.kind === 'create' ? 'site-create-capture' : `site-${target.siteId}-capture`
+}
 
 /** What a submit of a site form can find wrong: the name, the distance, and the point or its confirmation (the location group). */
 export type SiteField = 'name' | 'radius' | 'coordinates' | 'confirmation'
@@ -125,8 +134,8 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, mess
     return <form id={siteFocusIds.locationForm(site.id)} className="inline-form" aria-label={`Cambiar ubicación de ${site.name}`} noValidate onSubmit={onSaveLocationEdit}>
       <Fieldset legend="¿Dónde queda el local?" hint={locationHelp} error={editErrors.coordinates || editErrors.confirmation}>
         <div className="button-row">
-          {!editMapOpen && <button type="button" className="button button-secondary" disabled={busy || capturing} onClick={() => onOpenMap({ kind: 'edit', siteId: site.id })}>Elegir en el mapa</button>}
-          <button type="button" className="button button-secondary" disabled={busy} onClick={() => capturing ? onCancelLocationCapture() : onCaptureEditLocation(site.id)}>{capturing ? 'Cancelar búsqueda' : edit.latitude && edit.longitude ? 'Capturar otra ubicación' : 'Capturar ubicación del dispositivo'}</button>
+          {!editMapOpen && <button type="button" id={siteFocusIds.mapButton({ kind: 'edit', siteId: site.id })} className="button button-secondary" disabled={busy || capturing} onClick={() => onOpenMap({ kind: 'edit', siteId: site.id })}>Elegir en el mapa</button>}
+          <button type="button" id={siteFocusIds.captureButton({ kind: 'edit', siteId: site.id })} className="button button-secondary" disabled={busy} onClick={() => capturing ? onCancelLocationCapture() : onCaptureEditLocation(site.id)}>{capturing ? 'Cancelar búsqueda' : edit.latitude && edit.longitude ? 'Capturar otra ubicación' : 'Capturar ubicación del dispositivo'}</button>
           {(edit.latitude || edit.longitude) && <button type="button" className="button button-danger" disabled={busy || capturing} onClick={onClearEditLocation}>Quitar ubicación</button>}
         </div>
         {editMapOpen && siteMap && <SiteMapPanel state={siteMap} radiusMeters={mapRadiusMeters(edit.geofenceRadiusMeters)} disabled={busy} {...mapCallbacks} />}
@@ -137,7 +146,7 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, mess
         edit.locationSource !== null && <label className="check"><input type="checkbox" checked={edit.locationConfirmed} aria-invalid={Boolean(editErrors.confirmation) || undefined} disabled={busy || capturing} onChange={(event) => onLocationEditChange({ locationConfirmed: event.target.checked })} />Confirmo que este punto corresponde al local.</label>)}
         {manualCoordinates(edit.latitude, edit.longitude, busy || capturing, Boolean(editErrors.coordinates), (field, value) => onLocationEditChange(field === 'latitude' ? { latitude: value } : { longitude: value }))}
       </Fieldset>
-      <FormField label={RADIUS_LABEL} hint="Desde el punto elegido: entre 50 y 500 m, en números enteros." error={editErrors.radius}><input type="number" required min="50" max="500" step="1" value={edit.geofenceRadiusMeters} onChange={(event) => onLocationEditChange({ geofenceRadiusMeters: event.target.value })} /></FormField>
+      <FormField label={RADIUS_LABEL} hint={`${RADIUS_HINT} Desde el punto elegido: entre 50 y 500 m, en números enteros.`} error={editErrors.radius}><input type="number" required min="50" max="500" step="1" value={edit.geofenceRadiusMeters} onChange={(event) => onLocationEditChange({ geofenceRadiusMeters: event.target.value })} /></FormField>
       {/* The result of saving, right above the buttons (design system 4.7). */}
       {messagesAt(siteMessageKeys.edit(site.id)) && <div className="form-result">{messagesAt(siteMessageKeys.edit(site.id))}</div>}
       <div className="button-row"><button className="button button-primary" disabled={busy || capturing}>{busy ? 'Guardando…' : 'Guardar ubicación'}</button><button type="button" className="button button-link" disabled={busy} onClick={onCancelLocationEdit}>Cancelar</button></div>
@@ -156,8 +165,11 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, mess
           return <li key={site.id} className="record" aria-labelledby={`site-${site.id}-name`}>
             <p className="record-title"><strong id={`site-${site.id}-name`}>{site.name}</strong></p>
             <p className="record-meta">{`Hora de ${timeZoneLabel(site.timeZone)}`}</p>
-            <p className="record-meta">{typeof site.latitude === 'number' && typeof site.longitude === 'number' ? 'Ubicación cargada' : 'Sin ubicación cargada'}</p>
-            <p className="record-meta">Distancia permitida para marcar: {site.geofenceRadiusMeters ?? '—'} m</p>
+            {/* Without a point the distance measures from nowhere: the local says only that it has no location. */}
+            {typeof site.latitude === 'number' && typeof site.longitude === 'number' ? <>
+              <p className="record-meta">Ubicación cargada</p>
+              {typeof site.geofenceRadiusMeters === 'number' && <p className="record-meta">{`Distancia alrededor del local: ${site.geofenceRadiusMeters} m`}</p>}
+            </> : <p className="record-meta">Sin ubicación cargada</p>}
             {/* Link buttons: they open something under the record; the filled button belongs to the form they open. */}
             <div className="record-actions">
               <button type="button" id={siteFocusIds.locationButton(site.id)} className="button button-link" disabled={busy} aria-label={`Cambiar ubicación de ${site.name}`} onClick={() => onBeginLocationEdit(site)}>Cambiar ubicación</button>
@@ -173,8 +185,8 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, mess
         <FormField label="Nombre del local" hint="Ej. Local Centro" error={createErrors.name}><input required maxLength={120} value={name} onChange={(event) => onNameChange(event.target.value)} /></FormField>
         <Fieldset legend="¿Dónde queda el local?" hint={`Opcional. ${locationHelp} También podés crear el local sin ubicación.`} error={createErrors.coordinates || createErrors.confirmation}>
           <div className="button-row">
-            {!createMapOpen && <button type="button" className="button button-secondary" disabled={busy || locating} onClick={() => onOpenMap({ kind: 'create' })}>Elegir en el mapa</button>}
-            <button type="button" className="button button-secondary" disabled={busy} onClick={locating ? onCancelLocationCapture : onCaptureLocation}>{locating ? 'Cancelar búsqueda' : createLatitude || createLongitude ? 'Capturar otra ubicación' : 'Capturar ubicación del dispositivo'}</button>
+            {!createMapOpen && <button type="button" id={siteFocusIds.mapButton({ kind: 'create' })} className="button button-secondary" disabled={busy || locating} onClick={() => onOpenMap({ kind: 'create' })}>Elegir en el mapa</button>}
+            <button type="button" id={siteFocusIds.captureButton({ kind: 'create' })} className="button button-secondary" disabled={busy} onClick={locating ? onCancelLocationCapture : onCaptureLocation}>{locating ? 'Cancelar búsqueda' : createLatitude || createLongitude ? 'Capturar otra ubicación' : 'Capturar ubicación del dispositivo'}</button>
             {(createLatitude || createLongitude) && <button type="button" className="button button-danger" disabled={busy || locating} onClick={onClearLocation}>Quitar ubicación</button>}
           </div>
           {createMapOpen && siteMap && <SiteMapPanel state={siteMap} radiusMeters={mapRadiusMeters(createRadiusMeters)} disabled={busy} {...mapCallbacks} />}
@@ -185,7 +197,7 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, mess
           <label className="check"><input type="checkbox" checked={locationConfirmed} aria-invalid={Boolean(createErrors.confirmation) || undefined} disabled={busy || locating} onChange={(event) => onLocationConfirmedChange(event.target.checked)} />Confirmo que este punto corresponde al local.</label>)}
           {manualCoordinates(createLatitude, createLongitude, busy || locating, Boolean(createErrors.coordinates), onCreateCoordinateChange)}
         </Fieldset>
-        <FormField label={RADIUS_LABEL} hint="Desde el punto elegido: entre 50 y 500 m. Si no sabés, dejá 100 m." error={createErrors.radius}><input type="number" required min="50" max="500" step="1" value={createRadiusMeters} onChange={(event) => onCreateRadiusMetersChange(event.target.value)} /></FormField>
+        <FormField label={RADIUS_LABEL} hint={`${RADIUS_HINT} Desde el punto elegido: entre 50 y 500 m. Si no sabés, dejá 100 m.`} error={createErrors.radius}><input type="number" required min="50" max="500" step="1" value={createRadiusMeters} onChange={(event) => onCreateRadiusMetersChange(event.target.value)} /></FormField>
         <SiteZoneField value={timeZone} onChange={onTimeZoneChange} />
         {/* The result of the form, right above its button (design system 4.7); while a capture runs, its line with
             «Cancelar búsqueda» in the group above says why «Crear local» waits. */}
