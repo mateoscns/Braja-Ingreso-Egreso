@@ -565,7 +565,8 @@ describe('administración de desvíos y marcas', () => {
 
     it('muestra los días cargados como tarjetas, con "Ver marcas" a la vista', async () => {
       render(<JourneysView />)
-      const card = await screen.findByRole('article', { name: 'Lucía Pérez' })
+      // Slice E2: a row of a list (design system 4.12), no longer an article.
+      const card = await screen.findByRole('listitem', { name: 'Lucía Pérez' })
       expect(screen.queryByRole('columnheader', { name: 'Empleado' })).not.toBeInTheDocument()
       expect(card).toHaveTextContent('Local Centro')
       expect(card).toHaveTextContent(formatJornadaState('EN_CURSO'))
@@ -1155,7 +1156,7 @@ describe('administración de desvíos y marcas', () => {
 
       it('el día se abre dentro de su tarjeta, el formulario dentro de su marca con el foco en el motivo, y «Volver» devuelve el foco', async () => {
         render(<JourneysView />)
-        const card = await screen.findByRole('article', { name: 'Lucía Pérez' })
+        const card = await screen.findByRole('listitem', { name: 'Lucía Pérez' })
         fireEvent.click(within(card).getByRole('button', { name: 'Ver marcas de Lucía Pérez' }))
         const marks = await within(card).findByRole('list', { name: 'Marcas del día' })
         await waitFor(() => expect(screen.getByRole('heading', { name: 'Marcas de Lucía Pérez' })).toHaveFocus())
@@ -1176,6 +1177,63 @@ describe('administración de desvíos y marcas', () => {
         const [item] = within(screen.getByRole('list', { name: 'Marcas del día' })).getAllByRole('listitem')
         expect(item).toHaveTextContent(`Registrada: ${formatDateTime('2026-10-16T14:30:00Z', site.timeZone)}`)
       })
+    })
+  })
+
+  // Slice E2 (design system 4.10 and 4.12): the voided mark had a bare chip in the table and only a struck line on a phone, and
+  // neither table had a name.
+  describe('«Hoy» con las piezas del sistema: etiquetas, listas y tablas con nombre', () => {
+    const voidedDay = { marks: [{ ...jornada.marks[0], voided: true, voidedAt: '2026-10-16T13:00:00Z', voidReason: 'Tocó por error.' }] }
+    const phone = () => Object.defineProperty(window, 'matchMedia', { configurable: true, writable: true, value: vi.fn((query: string) => ({ matches: query.startsWith('(max-width'), addEventListener: vi.fn(), removeEventListener: vi.fn() })) })
+    function withDayDetail(detail: object) {
+      const previousGet = apiMocks.get.getMockImplementation()!
+      apiMocks.get.mockImplementation((path: string) => path === '/jornadas/j-1' ? Promise.resolve({ ...jornada, ...detail }) : previousGet(path))
+    }
+    /** The tag of a state: a word after an icon hidden from screen readers, in the neutral tone of a day's state. */
+    function expectNeutralTag(container: HTMLElement, word: string) {
+      const tag = within(container).getAllByText(word).find((element) => element.classList.contains('status-chip'))
+      expect(tag, word).toBeDefined()
+      expect(tag).toHaveClass('status-neutral')
+      expect(tag!.querySelector('svg[aria-hidden="true"]')).not.toBeNull()
+    }
+
+    it('una marca anulada lleva la etiqueta «Anulada» en la tabla y en la lista del teléfono', async () => {
+      withDayDetail(voidedDay)
+      render(<JourneysView />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Ver marcas de Lucía Pérez' }))
+      expectNeutralTag(await screen.findByRole('row', { name: /^Entrada/ }), 'Anulada')
+      cleanup()
+
+      phone()
+      render(<JourneysView />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Ver marcas de Lucía Pérez' }))
+      const [item] = within(await screen.findByRole('list', { name: 'Marcas del día' })).getAllByRole('listitem')
+      expectNeutralTag(item, 'Anulada')
+      expect(item).toHaveTextContent('Tocó por error.')
+      expect(within(item).queryByRole('button')).not.toBeInTheDocument()
+    })
+
+    it('la tabla de los días y la de las marcas se nombran por el título de su sección', async () => {
+      render(<JourneysView />)
+      const days = await screen.findByRole('table', { name: /^Días de trabajo del/ })
+      expect(within(days).getByRole('columnheader', { name: 'Empleado' })).toHaveAttribute('scope', 'col')
+      fireEvent.click(within(days).getByRole('button', { name: 'Ver marcas de Lucía Pérez' }))
+      const marks = await screen.findByRole('table', { name: 'Marcas de Lucía Pérez' })
+      expect(within(marks).getByRole('columnheader', { name: 'Ubicación' })).toHaveAttribute('scope', 'col')
+    })
+
+    it('el estado de cada día es una etiqueta con su ícono, en la tabla y en la lista del teléfono', async () => {
+      render(<JourneysView />)
+      expectNeutralTag(await screen.findByRole('row', { name: /^Lucía Pérez/ }), formatJornadaState('EN_CURSO'))
+      cleanup()
+
+      phone()
+      render(<JourneysView />)
+      // A phone shows the days as a list named by its section, one item per person.
+      const days = await screen.findByRole('list', { name: /^Días de trabajo del/ })
+      const item = within(days).getByRole('listitem', { name: 'Lucía Pérez' })
+      expectNeutralTag(item, formatJornadaState('EN_CURSO'))
+      expect(item).toHaveTextContent('Local Centro')
     })
   })
 
