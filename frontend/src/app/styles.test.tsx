@@ -278,10 +278,12 @@ const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui',
 // Lowered in slice E3 (the box of the preview of a load went): colours 11 → 10, old names 22 → 21.
 // Lowered in slice E6 (the provisional password takes the tokens and the detail of a person its scroll margin): font sizes
 // 10 → 9, old names 21 → 19.
-const COLOR_LITERAL_CEILING = 10
-const UNTOKENED_FONT_SIZE_CEILING = 9
+// Lowered in slice E4 (the boxes of the location and of the map went, the map frame and its zoom buttons take the tokens and its
+// height no longer reads --topbar-height, which is deleted): colours 10 → 6, font sizes 9 → 7, old names 19 → 7.
+const COLOR_LITERAL_CEILING = 6
+const UNTOKENED_FONT_SIZE_CEILING = 7
 const BOX_SHADOW_CEILING = 2
-const LEGACY_TOKEN_USE_CEILING = 19
+const LEGACY_TOKEN_USE_CEILING = 7
 
 // The old names with the values they had before the token block. A name is deleted from the stylesheet once nothing uses it
 // and never gets a new value in the meantime: a half-migrated rule must look exactly as it did.
@@ -633,7 +635,8 @@ describe('campos, casillas y opciones: una sola forma', () => {
     expect(error.declarations).toMatch(/(?<![\w-])color:\s*var\(--bad\)/)
     expect(error.declarations).toMatch(/font-weight:\s*var\(--font-weight-strong\)/)
     // One rule for the error text: the three old names share it until the markup leaves them.
-    expect(error.selectors).toEqual(['.field-error', '.field-hint-error', '.employee-field-error', '.site-location-message-error'])
+    // Slice E4: the error of a location capture is a message of the system, so its old name left the rule.
+    expect(error.selectors).toEqual(['.field-error', '.field-hint-error', '.employee-field-error'])
     expect(allSelectors().filter((selector) => selector === '.field-hint-error')).toHaveLength(1)
   })
 
@@ -666,7 +669,8 @@ describe('campos, casillas y opciones: una sola forma', () => {
     expect(label.declarations).toMatch(/min-width:\s*var\(--target\)/)
     expect(label.declarations).toMatch(/cursor:\s*pointer/)
     // Slice E6: the checks of the employees table (.inline-checks, the bare «Activo» in a cell) are .check now.
-    expect(label.selectors).toEqual(['.check', '.check-grid label', '.site-location-confirmation'])
+    // Slice E4: the confirmation of a local's point is a .check too.
+    expect(label.selectors).toEqual(['.check', '.check-grid label'])
     expect(ruleListing('.check-list').selectors).toEqual(['.check-list', '.check-grid'])
   })
 
@@ -867,7 +871,8 @@ const RECORD_CLASSES = ['history-list', 'history-card', 'history-head', 'history
 
 describe('listas de registros y tablas: filas separadas por una línea, nunca tarjetas', () => {
   it('cada registro es una fila con una línea fina debajo, sin recuadro, esquinas, fondo ni sombra (principio 3)', () => {
-    for (const record of ['.history-card', '.template-card', '.simple-row', '.simple-list > article']) {
+    // Slice E4: a local is a .record, so '.simple-list > article' left the list with its rule.
+    for (const record of ['.history-card', '.template-card', '.simple-row']) {
       expect(rule(record), record).toMatch(HAIRLINE)
       expect(rule(record), record).toMatch(/padding:\s*var\(--space-3\) 0/)
     }
@@ -903,8 +908,9 @@ describe('listas de registros y tablas: filas separadas por una línea, nunca ta
       expect(rule(detail), detail).toMatch(/font-size:\s*var\(--font-size-body\)/)
     }
     expect(rule('.simple-row strong')).not.toMatch(/font-size/)
-    // A record has no avatar: the glyph of a local was decoration (aria-hidden) with a tinted box.
-    expect(rule('.simple-list > article .row-avatar')).toMatch(/display:\s*none/)
+    // A record has no avatar: the glyph of a local was decoration (aria-hidden) with a tinted box. Slice E4: the local is a
+    // .record without one, so the rule that hid it is gone with the other rules of the old local row.
+    expect(allSelectors().filter((selector) => selector.startsWith('.simple-list > article'))).toEqual([])
   })
 
   // Slice E2 (design system 4.12): «Hoy» is the first screen on the record-* names. A row: a title line (the identifier, then its
@@ -1240,5 +1246,46 @@ describe('«Equipo»: la lista de personas con las piezas del sistema', () => {
     const gone = /\.(?:employee-detail|inline-checks|short-input|site-selection-checks)(?![\w-])|^td (?:> label|input)|^td:first-child input/
 
     expect(allSelectors().filter((selector) => gone.test(selector))).toEqual([])
+  })
+})
+
+// Slice E4 (design system 4.20): «Locales» is built with the pieces of the system. The map is a frame in the flow of its form,
+// as tall as a phone allows with the search above it and «Confirmar ubicación» under it; nothing about a top bar decides it, since
+// the top bar scrolls away with the page (slice C1) and only the bottom bar stays.
+describe('«Locales»: la lista, el formulario de ubicación y el marco del mapa', () => {
+  const value = (declarations: string, property: string) => [...declarations.matchAll(new RegExp(`(?:^|[;\\s])${property}:\\s*([^;]+)`, 'g'))].map((match) => match[1].trim())
+
+  it('el mapa mide una parte del alto de la pantalla entre un mínimo y un máximo, y más desde 768 px, sin contar la barra de arriba', () => {
+    const canvas = rule('.site-map-canvas')
+
+    // The vh value is the fallback of a browser without dvh; the last one wins where dvh is known.
+    expect(value(canvas, 'height')).toEqual(['clamp(12.5rem, 45vh, 22.5rem)', 'clamp(12.5rem, 45dvh, 22.5rem)'])
+    expect(value(rule('.site-map-canvas', media(768, 'min')), 'height')).toEqual(['clamp(16rem, 50vh, 27.5rem)', 'clamp(16rem, 50dvh, 27.5rem)'])
+    expect(value(canvas, 'border')).toEqual(['var(--border-width) solid var(--border)'])
+    expect(value(canvas, 'border-radius')).toEqual(['var(--radius)'])
+    expect(css).not.toMatch(/--topbar-height/)
+    // The zoom buttons of the map are as tall and wide as any control.
+    expect(value(rule('.site-map-canvas.leaflet-container .leaflet-bar a'), 'height')).toEqual(['var(--target)'])
+  })
+
+  it('el panel del mapa y el punto elegido van planos en el flujo del formulario, sin recuadro ni fondo', () => {
+    for (const part of ['.site-map-panel', '.site-location-selection']) {
+      expect(rule(part), part).not.toMatch(/(?<![\w-])(?:background|border|border-radius|box-shadow)\s*:/)
+    }
+    const coordinates = rule('.site-location-coordinates')
+    expect(value(coordinates, 'color')).toEqual(['var(--text)'])
+    expect(coordinates).toMatch(/font-variant-numeric:\s*tabular-nums/)
+    expect(coordinates).not.toMatch(/font-size/)
+    // The history opened under a local: its title is spaced by the gap, and its last change leaves the line to the record.
+    expect(value(rule('.inline-form > h3'), 'margin')).toEqual(['0'])
+    expect(value(rule('.inline-form > .record-list:last-child > .record:last-child'), 'border-bottom')).toEqual(['0'])
+  })
+
+  it('las reglas propias de la fila de un local, de sus acciones, de su mensaje y de su casilla se fueron con su marcado', () => {
+    const gone = /\.(?:site-location-field|site-location-actions|site-location-message|site-location-message-\w+|site-location-confirmation|audit-history|audit-items)(?![\w-])/
+
+    expect(allSelectors().filter((selector) => gone.test(selector))).toEqual([])
+    // No narrow breakpoint resizes the map: the base rule is the phone's.
+    expect(media(760)).not.toMatch(/site-map/)
   })
 })

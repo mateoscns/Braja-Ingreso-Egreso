@@ -65,7 +65,9 @@ describe('accesibilidad de base en las pantallas existentes', () => {
     const sites = render(<SitesViewRender sites={[site]} loading={false} loadError="" error="" notice="" name="" timeZone="" busy={false} siteLocation={null}
       locationStatus="idle" locationMessage="" locating={false} onReload={noop} onSubmit={noop} onNameChange={noop} onTimeZoneChange={noop}
       onCaptureLocation={noop} onClearLocation={noop} />)
-    expect(sites.container.querySelector('.row-avatar')).toHaveAttribute('aria-hidden', 'true')
+    // Changed in slice E4: a local is a record of the system, which has no avatar (design system 4.12); the glyph is gone.
+    expect(sites.container.querySelector('.row-avatar')).toBeNull()
+    expect(sites.getByRole('listitem', { name: 'Local Centro' })).toHaveClass('record')
   })
 
   it('la elección de empresa nombra cada botón solo con la empresa y su rol', () => {

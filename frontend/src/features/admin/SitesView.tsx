@@ -6,7 +6,7 @@ import { isRegionTimeZone, REGION_TIME_ZONE_MESSAGE } from './siteZone'
 import { captureSiteCoordinates, parseGeofenceRadiusMeters, SiteLocationError, type SiteLocationErrorKind } from './siteLocation'
 import { approximateDevicePosition, normalizePickedPoint, SEARCH_RESULT_ZOOM, siteMapInitialView } from './siteMap'
 import { GeocodeError, searchAddress, type GeocodeResult } from '../../shared/api/geocode'
-import { SitesViewRender, type SiteLocationAuditResponse, type SiteLocationEditDraft, type SiteMapState } from './SitesViewRender'
+import { SitesViewRender, siteMessageKeys, type SiteLocationAuditResponse, type SiteLocationEditDraft, type SiteMapState } from './SitesViewRender'
 import { errText } from './adminShared'
 
 type LocationCaptureTarget = { kind: 'create' } | { kind: 'edit'; siteId: string }
@@ -26,6 +26,8 @@ export function SitesView() {
   const [loadError, setLoadError] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  // The form whose result error and notice are (siteMessageKeys): it shows there, never at the top of the page (design system 4.7).
+  const [messageAt, setMessageAt] = useState('')
   const [name, setName] = useState('')
   const [timeZone, setTimeZone] = useState('America/Argentina/Buenos_Aires')
   const [siteLocation, setSiteLocation] = useState<SiteCoordinates | null>(null)
@@ -316,7 +318,7 @@ export function SitesView() {
   async function saveLocationEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!locationEdit) return
-    setError(''); setNotice('')
+    setError(''); setNotice(''); setMessageAt(siteMessageKeys.edit(locationEdit.siteId))
     let geofenceRadiusMeters: number
     try { geofenceRadiusMeters = parseGeofenceRadiusMeters(locationEdit.geofenceRadiusMeters) }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Revisá la distancia permitida para marcar.'); return }
@@ -356,7 +358,7 @@ export function SitesView() {
     } catch (reason) { setError(errText(reason)) } finally { setBusy(false) }
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setError(''); setNotice('')
+    event.preventDefault(); setError(''); setNotice(''); setMessageAt(siteMessageKeys.create)
     let geofenceRadiusMeters: number
     try { geofenceRadiusMeters = parseGeofenceRadiusMeters(createRadiusMeters) }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Revisá la distancia permitida para marcar.'); return }
@@ -394,7 +396,7 @@ export function SitesView() {
     }
     catch (reason) { setError(errText(reason)) } finally { setBusy(false) }
   }
-  return <SitesViewRender sites={sites} loading={loading} loadError={loadError} error={error} notice={notice} name={name} timeZone={timeZone} busy={busy}
+  return <SitesViewRender sites={sites} loading={loading} loadError={loadError} error={error} notice={notice} messageAt={messageAt} name={name} timeZone={timeZone} busy={busy}
     createRadiusMeters={createRadiusMeters} createLatitude={createLatitude} createLongitude={createLongitude} createLocationSource={createLocationSource}
     siteMap={siteMap} createPointFromMap={createPointFromMap} onOpenMap={openSiteMap} onCloseMap={closeSiteMap} onMapPick={pickSiteMapPoint}
     onMapQueryChange={(query) => setSiteMap((current) => current ? { ...current, query } : current)} onMapSearch={() => void searchSiteMap()}

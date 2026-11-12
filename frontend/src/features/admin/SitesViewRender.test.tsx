@@ -5,7 +5,7 @@ import type { Site, SiteCoordinates } from '../../shared/api/types'
 import { formatDateTime } from '../../shared/format'
 import { SitesView } from './AdminViews'
 import { SitesViewRender } from './AdminViewsRender'
-import type { SiteLocationAuditResponse, SiteLocationEditDraft } from './AdminViewsRender'
+import type { SiteLocationAuditResponse, SiteLocationEditDraft, SiteMapState } from './AdminViewsRender'
 import type { SiteMapPickerProps } from './siteMap'
 
 // jsdom cannot lay out a Leaflet map: the lazy picker is replaced by a stand-in that shows its props and taps an unrounded point.
@@ -25,7 +25,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 function renderSitesView(siteLocation: SiteCoordinates | null = null, locating = false, onCancelLocationCapture = vi.fn(), options: {
   sites?: Site[]; createRadiusMeters?: string; createLatitude?: string; createLongitude?: string; locationEdit?: SiteLocationEditDraft | null; siteLocationAuditFor?: string; locationAccuracyMeters?: number | null
-  siteLocationAudit?: SiteLocationAuditResponse | null
+  siteLocationAudit?: SiteLocationAuditResponse | null; siteMap?: SiteMapState | null
 } = {}) {
   return render(<SitesViewRender
     sites={options.sites ?? []} loading={false} loadError="" error="" notice="" name="Local Centro" timeZone="America/Argentina/Buenos_Aires" busy={false}
@@ -34,6 +34,7 @@ function renderSitesView(siteLocation: SiteCoordinates | null = null, locating =
     locationAccuracyMeters={options.locationAccuracyMeters} createRadiusMeters={options.createRadiusMeters}
     createLatitude={options.createLatitude ?? (siteLocation ? String(siteLocation.latitude) : '')} createLongitude={options.createLongitude ?? (siteLocation ? String(siteLocation.longitude) : '')}
     createLocationSource={siteLocation ? 'CAPTURED' : null} locationEdit={options.locationEdit} siteLocationAuditFor={options.siteLocationAuditFor} siteLocationAudit={options.siteLocationAudit}
+    siteMap={options.siteMap}
     onReload={vi.fn()} onSubmit={vi.fn()} onNameChange={vi.fn()} onTimeZoneChange={vi.fn()} onCaptureLocation={vi.fn()} onCancelLocationCapture={onCancelLocationCapture} onClearLocation={vi.fn()}
   />)
 }
@@ -155,7 +156,9 @@ describe('SitesViewRender location messages', () => {
 
     const status = screen.getByRole('status')
     expect(status).toHaveTextContent('Buscando la ubicación del dispositivo…')
-    expect(status).toHaveClass('site-location-message', 'site-location-message-loading')
+    // Slice E4: the line is a message of the system (design system 4.8), with a spinner while the search runs.
+    expect(status).toHaveClass('message', 'message-info')
+    expect(status.querySelector('.spinner')).toHaveAttribute('aria-hidden', 'true')
     expect(watch.enteredEmpty(status)).toBe(true)
   })
 
@@ -170,7 +173,7 @@ describe('SitesViewRender location messages', () => {
 
     const status = within(screen.getByRole('form', { name: 'Cambiar ubicación de Local Centro' })).getByRole('status')
     expect(status).toHaveTextContent('Buscando la ubicación actual del dispositivo…')
-    expect(status).toHaveClass('site-location-message', 'site-location-message-loading')
+    expect(status).toHaveClass('message', 'message-info')
     expect(watch.enteredEmpty(status)).toBe(true)
   })
 
@@ -183,7 +186,7 @@ describe('SitesViewRender location messages', () => {
     renderSitesView(null, false, vi.fn(), { sites: [site], locationEdit })
 
     const alert = within(screen.getByRole('form', { name: 'Cambiar ubicación de Local Centro' })).getByRole('alert')
-    expect(alert).toHaveClass('site-location-message', 'site-location-message-error')
+    expect(alert).toHaveClass('message', 'message-error')
     expect(alert).toHaveAttribute('aria-live', 'assertive')
     expect(alert).toHaveTextContent('No se pudo obtener la ubicación. Volvé a intentar.')
     expect(within(screen.getByRole('form', { name: 'Cambiar ubicación de Local Centro' })).queryByRole('status')).not.toBeInTheDocument()
@@ -477,7 +480,8 @@ describe('SitesView location administration API', () => {
     fireEvent.click(confirmation)
     expect(confirmation).toBeChecked()
     fireEvent.click(within(form).getByRole('button', { name: 'Capturar otra ubicación' }))
-    expect(await within(form).findByRole('alert')).toHaveTextContent('Precisión insuficiente')
+    // Slice E4: the failed save stays inside the form too, so the form holds two alerts; the capture's is the one with its title.
+    expect((await within(form).findByText('Precisión insuficiente:', { selector: 'strong' })).closest('[role="alert"]')).toHaveTextContent('Precisión insuficiente')
     expect(confirmation).not.toBeChecked()
     expect(within(form).getByText('Latitud -34.6037220 · Longitud -58.3815920')).toBeInTheDocument()
 
@@ -654,8 +658,9 @@ describe('SitesView map picker', () => {
     expect(map).toHaveAttribute('data-radius', '150')
 
     const query = within(form).getByRole('textbox', { name: 'Buscá la dirección del local' })
-    // Short enough to read whole in a 360 px wide field.
-    expect(query).toHaveAttribute('placeholder', 'Calle y número')
+    // Slice E4: the example is the hint, read before typing, and no longer only a placeholder that typing hides.
+    expect(query).toHaveAccessibleDescription('Calle y número')
+    expect(query).not.toHaveAttribute('placeholder')
     fireEvent.change(query, { target: { value: 'Av. Corrientes 1234, CABA' } })
     fireEvent.keyDown(query, { key: 'Enter' })
     const search = within(form).getByRole('button', { name: 'Buscando…' })
@@ -706,5 +711,135 @@ describe('SitesView map picker', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Buscar' }))
     expect(await screen.findByText(/No se pudo buscar la dirección/)).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+/** True when `first` comes before `second` in the document. */
+const comesBefore = (first: Element, second: Element) => Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
+
+// Slice E4 (design system 4.4, 4.7, 4.12, 4.20): «Locales» built with the pieces of the system.
+describe('SitesView with the pieces of the system', () => {
+  it('shows a failed create and the created local inside the add form, right above its button', async () => {
+    const created: Site = { id: 'site-new', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: null, longitude: null, geofenceRadiusMeters: 100 }
+    vi.spyOn(api, 'get').mockResolvedValue([] as never)
+    vi.spyOn(api, 'post').mockResolvedValue(created as never)
+    render(<SitesView />)
+
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre del local' }), { target: { value: 'Local Centro' } })
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Latitud' }), { target: { value: '91' } })
+    const button = screen.getByRole('button', { name: 'Crear local' })
+    const form = button.closest('form')!
+    fireEvent.submit(form)
+    const failure = await screen.findByText(/Ingresá latitud y longitud juntas/)
+    expect(form).toContainElement(failure)
+    expect(comesBefore(failure, button)).toBe(true)
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Latitud' }), { target: { value: '' } })
+    fireEvent.submit(form)
+    const done = await screen.findByText('Local creado.')
+    expect(form).toContainElement(done)
+    expect(comesBefore(done, button)).toBe(true)
+    expect(screen.queryByText(/Ingresá latitud y longitud juntas/)).not.toBeInTheDocument()
+  })
+
+  it('shows a failed or saved location change inside the record of that local', async () => {
+    const existing: Site = { id: 'site-1', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: -34.6, longitude: -58.38, geofenceRadiusMeters: 100 }
+    vi.spyOn(api, 'get').mockResolvedValue([existing] as never)
+    vi.spyOn(api, 'put').mockResolvedValue({ ...existing, latitude: -34.61 } as never)
+    render(<SitesView />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Cambiar ubicación de Local Centro' }))
+    const form = screen.getByRole('form', { name: 'Cambiar ubicación de Local Centro' })
+    fireEvent.change(within(form).getByRole('spinbutton', { name: 'Latitud' }), { target: { value: '-34.61' } })
+    fireEvent.submit(form)
+    const failure = await within(form).findByText('Confirmá que el nuevo punto corresponde a este local antes de guardarlo.')
+    expect(comesBefore(failure, within(form).getByRole('button', { name: 'Guardar ubicación' }))).toBe(true)
+
+    fireEvent.click(within(form).getByRole('checkbox', { name: 'Confirmo que este punto corresponde al local.' }))
+    fireEvent.submit(form)
+    const record = screen.getByRole('listitem', { name: 'Local Centro' })
+    expect(await within(record).findByText('Ubicación del local actualizada.')).toBeInTheDocument()
+    expect(screen.queryByRole('form', { name: 'Cambiar ubicación de Local Centro' })).not.toBeInTheDocument()
+  })
+
+  it('makes the location confirmation a check whose whole label is the target', () => {
+    renderSitesView({ latitude: -34.603722, longitude: -58.381592 }, false, vi.fn(), { locationAccuracyMeters: 8 })
+
+    const confirmation = screen.getByRole('checkbox', { name: 'Confirmo que este punto corresponde al local.' })
+    expect(confirmation.closest('label')).toHaveClass('check')
+  })
+
+  it('lists the locals as records named by the local, without a decorative avatar', () => {
+    const sites: Site[] = [
+      { id: 'site-1', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: -34.6, longitude: -58.38, geofenceRadiusMeters: 150 },
+      { id: 'site-2', name: 'Local Norte', timeZone: 'America/Argentina/Buenos_Aires', latitude: null, longitude: null, geofenceRadiusMeters: 100 }
+    ]
+    const { container } = renderSitesView(null, false, vi.fn(), { sites })
+
+    expect(screen.getByRole('list', { name: 'Locales registrados' })).toHaveClass('record-list')
+    const record = screen.getByRole('listitem', { name: 'Local Norte' })
+    expect(record).toHaveClass('record')
+    expect(within(record).getByText('Sin ubicación cargada')).toHaveClass('record-meta')
+    expect(container.querySelector('.row-avatar')).toBeNull()
+  })
+
+  it('shows the location history as a record list', () => {
+    const site: Site = { id: 'site-1', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: -34.6037224, longitude: -58.3815926, geofenceRadiusMeters: 150 }
+    const audit: SiteLocationAuditResponse = { entries: [
+      { id: 'audit-1', changedAt: '2026-10-28T15:30:00Z', actorDisplayName: 'Mateo', afterLatitude: -34.6, afterLongitude: -58.38, afterRadiusMeters: 100, locationSource: 'CAPTURED' },
+      { id: 'audit-2', changedAt: '2026-11-10T12:05:00Z', actorDisplayName: 'Mateo', beforeLatitude: -34.6, beforeLongitude: -58.38, beforeRadiusMeters: 100, afterLatitude: site.latitude, afterLongitude: site.longitude, afterRadiusMeters: 150, locationSource: 'MANUAL' }
+    ] }
+    renderSitesView(null, false, vi.fn(), { sites: [site], siteLocationAuditFor: site.id, siteLocationAudit: audit })
+
+    const history = screen.getByRole('region', { name: 'Historial de ubicación de Local Centro' })
+    expect(history).not.toHaveClass('audit-history')
+    const list = within(history).getByRole('list', { name: 'Cambios de ubicación de Local Centro' })
+    expect(list).toHaveClass('record-list')
+    const changes = within(list).getAllByRole('listitem')
+    expect(changes).toHaveLength(2)
+    for (const change of changes) expect(change).toHaveClass('record')
+    expect(within(changes[1]).getByText('Ubicación y radio actualizados').closest('.record-title')).not.toBeNull()
+    expect(within(changes[1]).getByText('Por Mateo')).toHaveClass('record-meta')
+  })
+
+  it('groups the location as a field of the system, its help read before its buttons, and the name example as a hint', () => {
+    const site: Site = { id: 'site-1', name: 'Local Centro', timeZone: 'America/Argentina/Buenos_Aires', latitude: -34.6, longitude: -58.38, geofenceRadiusMeters: 150 }
+    const locationEdit: SiteLocationEditDraft = {
+      siteId: site.id, latitude: '-34.6', longitude: '-58.38', geofenceRadiusMeters: '150', locationStatus: 'selected',
+      locationMessage: '', locationErrorKind: null, locationAccuracyMeters: null, locationConfirmed: true, locationSource: null
+    }
+    renderSitesView(null, false, vi.fn(), { sites: [site], locationEdit })
+
+    const forms = [screen.getByRole('form', { name: 'Cambiar ubicación de Local Centro' }), screen.getByRole('button', { name: 'Crear local' }).closest('form')!]
+    for (const form of forms) {
+      const group = within(form).getByRole('group', { name: '¿Dónde queda el local?' })
+      expect(group).toHaveClass('field')
+      expect(group).not.toHaveClass('fieldset-plain')
+      expect(group).toHaveAccessibleDescription(/Lo más fácil: tocá «Elegir en el mapa»/)
+      const help = within(group).getByText(/Lo más fácil: tocá «Elegir en el mapa»/)
+      expect(comesBefore(help, within(group).getByRole('button', { name: 'Elegir en el mapa' }))).toBe(true)
+      // The coordinates written by hand are a fold of the system.
+      expect(within(group).getByText('Escribir las coordenadas a mano').closest('details')).toHaveClass('fold')
+    }
+    expect(forms[0]).toHaveClass('inline-form')
+    const name = screen.getByRole('textbox', { name: 'Nombre del local' })
+    expect(name).toHaveAccessibleDescription('Ej. Local Centro')
+    expect(name).not.toHaveAttribute('placeholder')
+  })
+
+  it('opens the map as a flat part of the form: confirm filled, close as a link, the search answer as a message', async () => {
+    const siteMap: SiteMapState = {
+      target: { kind: 'create' }, view: { latitude: -34.6, longitude: -58.38, zoom: 17 }, point: { latitude: -34.6, longitude: -58.38 },
+      query: 'Calle que no existe 99999', searchStatus: 'done', searchMessage: 'No encontramos esa dirección.', results: []
+    }
+    renderSitesView(null, false, vi.fn(), { siteMap })
+
+    const panel = screen.getByRole('region', { name: 'Mapa para elegir la ubicación del local' })
+    expect(within(panel).getByRole('button', { name: 'Confirmar ubicación' })).toHaveClass('button-primary')
+    expect(within(panel).getByRole('button', { name: 'Cerrar mapa' })).toHaveClass('button-link')
+    // A status message mounts empty and gets its text one effect later (PageMessage).
+    expect((await within(panel).findByText('No encontramos esa dirección.')).closest('.message')).toHaveClass('message-info')
+    const search = within(panel).getByRole('textbox', { name: 'Buscá la dirección del local' })
+    expect(search).toHaveAccessibleDescription('Calle y número')
   })
 })
