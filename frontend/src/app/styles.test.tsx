@@ -268,10 +268,11 @@ const TOKEN_PAIRS: [foreground: string, background: string, kind: 'text' | 'ui',
 // pattern of its own test when the token block came in (2026-11-11). A slice that moves rules to tokens lowers the number in
 // the same commit; nobody raises one. Slice H1 turns the four into equalities with zero.
 // Lowered in slice N4 (the old menu, the fixed alerts bar and their room went): 42 → 30, 29 → 20, 6 → 4, 48 → 31.
+// Lowered in slice E2 (the coordinates of a mark take the tokens): font sizes 20 → 19, old names 31 → 30.
 const COLOR_LITERAL_CEILING = 30
-const UNTOKENED_FONT_SIZE_CEILING = 20
+const UNTOKENED_FONT_SIZE_CEILING = 19
 const BOX_SHADOW_CEILING = 4
-const LEGACY_TOKEN_USE_CEILING = 31
+const LEGACY_TOKEN_USE_CEILING = 30
 
 // The old names with the values they had before the token block. A name is deleted from the stylesheet once nothing uses it
 // and never gets a new value in the meantime: a half-migrated rule must look exactly as it did.
@@ -893,6 +894,45 @@ describe('listas de registros y tablas: filas separadas por una línea, nunca ta
     expect(rule('.simple-row strong')).not.toMatch(/font-size/)
     // A record has no avatar: the glyph of a local was decoration (aria-hidden) with a tinted box.
     expect(rule('.simple-list > article .row-avatar')).toMatch(/display:\s*none/)
+  })
+
+  // Slice E2 (design system 4.12): «Hoy» is the first screen on the record-* names. A row: a title line (the identifier, then its
+  // tag), detail lines in the muted colour at the working size, and its buttons; a voided mark reads muted besides struck.
+  it('un registro de la lista nueva es una fila con su línea fina, su título, sus datos en 16 px secundarios y sus botones', () => {
+    const value = (declarations: string, property: string) => new RegExp(`(?:^|[;\\s])${property}:\\s*([^;]+)`).exec(declarations)?.[1].trim()
+    const record = rule('.record')
+    const meta = rule('.record-meta')
+
+    expect(record).toMatch(HAIRLINE)
+    expect(record).toMatch(/padding:\s*var\(--space-3\) 0/)
+    expect(record).toMatch(/overflow-wrap:\s*anywhere/)
+    expect(rule('.record-list')).toMatch(/list-style:\s*none/)
+    expect(rule('.record-list')).not.toMatch(/(?<![\w-])gap\s*:/)
+    expect(rule('.record-title > strong:first-child')).toMatch(/font-size:\s*var\(--font-size-body-lg\)/)
+    expect(rule('.record-title > strong:first-child')).toMatch(/font-weight:\s*var\(--font-weight-heavy\)/)
+    expect(meta).toMatch(/(?<![\w-])color:\s*var\(--text-muted\)/)
+    expect(meta).toMatch(/font-size:\s*var\(--font-size-body\)/)
+    expect(rule('.record-actions')).toMatch(/flex-wrap:\s*wrap/)
+    expect(value(ruleListing('.record-voided').declarations, 'color')).toBe('var(--text-muted)')
+    // The coordinates of a mark: the muted colour at the working size, with figures of one width.
+    expect(value(rule('.mark-coordinates'), 'color')).toBe('var(--text-muted)')
+    expect(rule('.mark-coordinates')).toMatch(/font-variant-numeric:\s*tabular-nums/)
+    expect(rule('.mark-coordinates')).not.toMatch(/font-size/)
+  })
+
+  it('el día abierto y su lista de cambios se separan con espacio y una línea fina, sin recuadro; la fecha no se corre hacia afuera', () => {
+    const changes = rule('.day-changes')
+
+    expect(changes).toMatch(/border-top:\s*var\(--border-width\) solid var\(--rule\)/)
+    expect(rule('.subsection-head')).toMatch(/flex-wrap:\s*wrap/)
+    expect(rule('.subsection-head > h3')).toMatch(/margin:\s*0/)
+    expect(selectorsOf(rulesNaming('record', 'record-list', 'record-title', 'record-meta', 'record-actions', 'day-changes', 'subsection-head')
+      .filter(({ declarations }) => /(?<![\w-])(?:background|box-shadow|border-radius|border-left|border-right)\s*:/.test(declarations)))).toEqual([])
+    // The date field sat 8 px over the line of its section title and pushed to the right edge.
+    expect(/margin:\s*([^;]+)/.exec(rule('.toolbar'))?.[1].trim()).toBe('0 0 var(--space-4)')
+    expect(rule('.toolbar')).not.toMatch(/flex-end/)
+    // The marks of a day and the results of their forms are records now: the rule N2 kept for them in the old list is gone.
+    expect(allSelectors()).not.toContain('.history-items li > .message')
   })
 
   it('una tabla es una planilla: títulos de 14 px en negrita sin mayúsculas, raya de borde debajo y celdas con línea fina', () => {

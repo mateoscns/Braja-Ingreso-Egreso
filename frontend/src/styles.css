@@ -513,8 +513,10 @@ html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-height) + env(safe
 /* Two sections side by side: the space above goes to the grid (it collapses with the heading's), not to each section. */
 .content-grid { display: grid; grid-template-columns: minmax(0, .9fr) minmax(360px, 1.1fr); gap: 19px; align-items: start; margin-top: var(--space-6); }
 .content-grid > .panel { margin-top: 0; }
-.toolbar { display: flex; justify-content: flex-end; margin: -8px 0 17px; }
-.toolbar .field { width: min(290px, 100%); }
+/* The date of «Hoy»: under the title of its section, where the eye goes next, as wide as a date needs and never wider than the
+   screen. */
+.toolbar { display: flex; margin: 0 0 var(--space-4); }
+.toolbar .field { width: min(18rem, 100%); }
 .filter-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; align-items: end; margin-bottom: 18px; padding: 14px; border: 1px solid #e9eeea; border-radius: 12px; background: #fff; }
 .filter-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .filter-error { grid-column: 1 / -1; }
@@ -534,17 +536,31 @@ html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-height) + env(safe
 .history-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .history-items li { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); padding: var(--space-3) 0; border-bottom: var(--border-width) solid var(--rule); overflow-wrap: anywhere; }
 .history-items small { color: var(--text-muted); font-size: var(--font-size-body); }
-/* The result of a form that closed on a mark sits under the mark, on a line of its own. */
-.history-items li > .message { flex-basis: 100%; }
 /* Inside a record the items are its detail lines (DNI, locals; the marks and cases of a day): muted, without lines of their
-   own, the name of a mark still in the text colour. Two lists of one record (marks, then cases) keep a step between them.
-   Only the record's own lists: the marks and changes of a day opened inside its record (D-20261111-02) are lists on their own. */
+   own, the name of a mark still in the text colour. Two lists of one record (marks, then cases) keep a step between them. */
 .history-card > .history-items { gap: var(--space-1); color: var(--text-muted); }
 /* «Sin marcas.» / «Sin desvíos.» is one more detail line of the record, not a paragraph with its own margins. */
 .history-card > .small-copy { margin: 0; }
 .history-card > .history-items strong { color: var(--text); }
 .history-card > .history-items li { padding: 0; border-bottom: 0; }
 .history-card > .history-items + .history-items { margin-top: var(--space-2); }
+/* The names of the design system (4.12), screen by screen («Hoy» first, slice E2): a list of rows, each a grid of lines with a
+   hairline under it. The title line is the identifier, then its tag; the detail lines are muted at the working size; the buttons
+   wrap. An open form, a result or an opened day is one more line of the row. */
+.record-list { margin: 0; padding: 0; list-style: none; }
+.record { display: grid; gap: var(--space-1); min-width: 0; padding: var(--space-3) 0; border-bottom: var(--border-width) solid var(--rule); overflow-wrap: anywhere; }
+.record-title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); margin: 0; }
+.record-title > strong:first-child { font-size: var(--font-size-body-lg); font-weight: var(--font-weight-heavy); }
+.record-meta { display: flex; flex-wrap: wrap; gap: 0 var(--space-3); margin: 0; color: var(--text-muted); font-size: var(--font-size-body); }
+.record-actions { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); margin-top: var(--space-1); }
+/* A voided mark stays in its list, struck and muted, next to its tag «Anulada»; in a table the cells take the colour too. */
+.record-voided, .record-voided td { color: var(--text-muted); }
+/* A day opened inside its row (or its table row): a step under what opened it, and room under it before the next row. */
+.record > .day-detail, td > .day-detail { margin-top: var(--space-4); padding-bottom: var(--space-5); }
+/* The changes of a day, after its forms: a hairline above, the title with its button, then the list. */
+.day-changes { margin-top: var(--space-6); padding-top: var(--space-4); border-top: var(--border-width) solid var(--rule); }
+.subsection-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-2); }
+.subsection-head > h3 { margin: 0; }
 
 /* ===== Lists, checks, tables, schedules, status chips ===== */
 /* The inbox cases and the employee's motives are their own pieces (slices E1, D3); they keep their spacing until then. */
@@ -823,7 +839,8 @@ td .short-input { width: 74px; }
 .first-step-copy { flex: 1 1 220px; min-width: 0; }
 .first-step .status-chip { margin-left: auto; }
 .coverage-notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
-.mark-coordinates { display: block; color: var(--text-secondary); font-size: .8125rem; }
+/* The point of a mark, under the word of its location: a second line in the muted colour, figures of one width. */
+.mark-coordinates { display: block; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 /* 2026-11-09 integrated check of PR #107, small modifiers from existing tokens: the folded inbox filters on phones, the reasons
    of a work-days load inside its result box, and the temporary password large enough to read aloud or copy by hand. */
 .filter-fold { margin-bottom: var(--space-4); }

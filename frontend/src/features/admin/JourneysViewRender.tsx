@@ -1,9 +1,11 @@
 // The «Hoy» render (section 'jornadas'): the list of a date, the detail of a day inside its own row with each mark form under
 // the mark it changes, and the change history of a day, then the search of earlier days (AdminHistory). The monthly load and
-// the single day are «Días de trabajo» (WorkDaysViewRender, D-20261111-02 step 2).
+// the single day are «Días de trabajo» (WorkDaysViewRender, D-20261111-02 step 2). Lists are record-* rows under 768 px and
+// tables named by their section from there (design system 4.12); states are StatusTag (4.10).
 import { Fragment, type FormEvent, type ReactNode } from 'react'
-import { Empty, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel } from '../../app/ui'
-import type { Deviation, Jornada, JornadaAudit, JornadaAuditEntry, Mark, MarkAction, Site } from '../../shared/api/types'
+import { Icon, type IconName } from '../../app/icons'
+import { Empty, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel, StatusTag } from '../../app/ui'
+import type { Deviation, Jornada, JornadaAudit, JornadaAuditEntry, JornadaStatus, Mark, MarkAction, Site } from '../../shared/api/types'
 import { adminCategoryName as categoryName, adminDeviationName as deviationName, adminDeviationStatusName as statusName, adminMarkLocationName as locationName, adminMarkName as actionName } from '../../shared/labels'
 import { dateTime, stateLabel } from './adminRenderShared'
 
@@ -24,6 +26,16 @@ export const markButtonId = (kind: MarkFormKind, markId: string) => `mark-${mark
 /** Where the result or error of a form shows: inside the form while it is open, next to its mark once it closed. The other
     places are 'forgotten', 'cancel' and 'detail' (a day that could not be read). */
 export const markMessageKey = (kind: MarkFormKind, markId: string) => `${kind}:${markId}`
+/** The title of the list of the date: the table and the phone list are named by it. */
+const LIST_HEADING_ID = 'jornadas-list-title'
+
+/** The state of a day is neutral (design system 4.10): it asks nothing of anybody; its icon tells the states apart besides the word. */
+const DAY_STATE_ICONS: Record<JornadaStatus, IconName> = { NO_INGRESO: 'waiting', EN_CURSO: 'clock', PAUSA_ABIERTA: 'pause', EGRESADA: 'check', CANCELADA: 'ban' }
+function DayStateTag({ state }: { state: JornadaStatus }) {
+  return <StatusTag tone="neutral" icon={DAY_STATE_ICONS[state] ?? 'waiting'}>{stateLabel(state)}</StatusTag>
+}
+/** A voided mark stays listed (D-20261027-08): struck, and named by the same tag as on the employee's day sheet. */
+const VoidedTag = () => <StatusTag tone="neutral" icon="ban">Anulada</StatusTag>
 
 // Without a date the title is plain «Días»: «Días de trabajo» is the name of another section now.
 function journeysTitle(date: string) {
@@ -62,20 +74,22 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
   const messagesAt = (key: string) => messageAt === key && (error || notice) ? <>{error && <PageMessage kind="error">{error}</PageMessage>}{notice && <PageMessage kind="success">{notice}</PageMessage>}</> : null
   const markTime = (mark: Mark) => dateTime(mark.occurredAt ?? mark.acceptedAt, detailTimeZone)
   const recordedTime = (mark: Mark) => dateTime(mark.recordedAt ?? mark.acceptedAt, detailTimeZone)
-  const markLocation = (mark: Mark) => <>{locationName(mark.locationStatus)}{typeof mark.latitude === 'number' && typeof mark.longitude === 'number' && <small className="mark-coordinates">{`${mark.latitude.toFixed(5)}, ${mark.longitude.toFixed(5)}`}</small>}</>
-  const markButtons = (mark: Mark) => <div className="button-row"><button id={markButtonId('correct', mark.id)} className="button button-small button-quiet" aria-label={`Corregir marca ${actionName(mark.action)} de ${markTime(mark)}`} disabled={markBusy !== '' || !detailTimeZone} onClick={() => onBeginMarkCorrection(mark)}>Corregir</button><button id={markButtonId('void', mark.id)} className="button button-small button-danger-outline" aria-label={`Anular marca ${actionName(mark.action)} de ${markTime(mark)}`} disabled={markBusy !== ''} onClick={() => onBeginVoid(mark)}>Anular</button></div>
+  const markLocation = (mark: Mark) => <>{locationName(mark.locationStatus)}{typeof mark.latitude === 'number' && typeof mark.longitude === 'number' && <span className="mark-coordinates">{`${mark.latitude.toFixed(5)}, ${mark.longitude.toFixed(5)}`}</span>}</>
+  // Correcting changes the mark (secondary); voiding takes it out of the day (the one danger style, outlined).
+  const markButtons = (mark: Mark, className: string) => <div className={className}><button id={markButtonId('correct', mark.id)} className="button button-secondary" aria-label={`Corregir marca ${actionName(mark.action)} de ${markTime(mark)}`} disabled={markBusy !== '' || !detailTimeZone} onClick={() => onBeginMarkCorrection(mark)}>Corregir</button><button id={markButtonId('void', mark.id)} className="button button-danger" aria-label={`Anular marca ${actionName(mark.action)} de ${markTime(mark)}`} disabled={markBusy !== ''} onClick={() => onBeginVoid(mark)}>Anular</button></div>
   const voidedNote = (mark: Mark) => `${mark.voidedAt ? `Anulada el ${dateTime(mark.voidedAt, detailTimeZone)}` : 'Anulada'}${mark.voidReason ? ` · ${mark.voidReason}` : ''}`
+  // Backing out of a form is a link button: it never borrows the look, or the word, of the action it backs out of.
   const voidForm = (mark: Mark) => <form id={markFormId('void', mark.id)} className="inline-form" aria-label={`Anular la marca ${actionName(mark.action)} de ${markTime(mark)}`} onSubmit={(event) => onConfirmVoid(event, mark)}>
     <FormField label="Motivo de anulación" hint={`La marca no se borra: queda visible como anulada, con tu nombre, la hora y este motivo, y deja de contar para el día y los casos. ${HEALTH_DATA_HINT}`}><textarea required maxLength={2000} value={voidReason} onChange={(event) => onVoidReasonChange(event.target.value)} /></FormField>
     {messagesAt(markMessageKey('void', mark.id))}
-    <div className="button-row"><button className="button button-small button-danger-outline" disabled={markBusy === mark.id || !voidReason.trim()}>{markBusy === mark.id ? 'Anulando…' : 'Confirmar anulación'}</button><button type="button" className="button button-small button-quiet" disabled={markBusy === mark.id} onClick={onAbortVoid}>Volver</button></div>
+    <div className="button-row"><button className="button button-danger" disabled={markBusy === mark.id || !voidReason.trim()}>{markBusy === mark.id ? 'Anulando…' : 'Confirmar anulación'}</button><button type="button" className="button button-link" disabled={markBusy === mark.id} onClick={onAbortVoid}>Volver</button></div>
   </form>
   const correctionForm = (mark: Mark) => <form id={markFormId('correct', mark.id)} className="inline-form" aria-label={`Corregir la marca ${actionName(mark.action)} de ${markTime(mark)}`} onSubmit={(event) => onCorrectMark(event, mark)}>
     <FormField label="Tipo de marca corregida"><select value={correctedAction} onChange={(event) => onCorrectedActionChange(event.target.value as MarkAction)}>{MARK_ACTIONS.map((action) => <option key={action} value={action}>{actionName(action)}</option>)}</select></FormField>
     <FormField label={`Hora corregida (${detailSite?.name ?? 'zona horaria del local'})`}><input type="datetime-local" required value={correctedOccurredAt} onChange={(event) => onCorrectedOccurredAtChange(event.target.value)} /></FormField>
     <FormField label="Motivo de corrección de marca"><textarea required maxLength={2000} value={correctionReason} onChange={(event) => onCorrectionReasonChange(event.target.value)} /></FormField>
     {messagesAt(markMessageKey('correct', mark.id))}
-    <div className="button-row"><button className="button button-small button-primary" disabled={markBusy === mark.id || !correctionReason.trim()}>{markBusy === mark.id ? 'Guardando…' : 'Guardar corrección de marca'}</button><button type="button" className="button button-small button-quiet" disabled={markBusy === mark.id} onClick={onCancelMarkCorrection}>Cancelar</button></div>
+    <div className="button-row"><button className="button button-primary" disabled={markBusy === mark.id || !correctionReason.trim()}>{markBusy === mark.id ? 'Guardando…' : 'Guardar corrección de marca'}</button><button type="button" className="button button-link" disabled={markBusy === mark.id} onClick={onCancelMarkCorrection}>Cancelar</button></div>
   </form>
   /** What opens under a mark: its open form, or else the result of the form that closed on it. */
   const underMark = (mark: Mark) => mark.voided ? messagesAt(markMessageKey('void', mark.id))
@@ -92,8 +106,8 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
   // A plain function, not a component: a component declared here would be new on every render and lose the typed text.
   function jornadaDetail(detail: Jornada) {
     const forgottenMessages = messagesAt('forgotten')
-    // Written out instead of Panel: the title takes the focus when the day opens (tabIndex -1).
-    return <section id={DETAIL_ID} className="panel" aria-labelledby={DETAIL_HEADING_ID}>
+    // Written out instead of Panel: the title takes the focus when the day opens (tabIndex -1), and names the table of marks.
+    return <section id={DETAIL_ID} className="panel day-detail" aria-labelledby={DETAIL_HEADING_ID}>
       <div className="panel-heading"><h2 id={DETAIL_HEADING_ID} tabIndex={-1}>{`Marcas de ${peopleById.get(detail.employeeId) ?? 'empleado'}`}</h2></div>
       <p className="muted">Horario asignado: {detail.scheduleSnapshot.name} · tolerancia {detail.toleranceMinutes} min</p>
       {!detailTimeZone && <PageMessage kind="error">No se pudo cargar la zona horaria del local. Reintentá los datos del día antes de incorporar o corregir marcas.</PageMessage>}
@@ -101,22 +115,22 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
       {cancellable && cancelOpen ? <form id={CANCEL_FORM_ID} className="inline-form" onSubmit={onConfirmCancel}>
         <FormField label="Motivo de cancelación" hint={`El día queda cancelado con tu nombre, la hora y este motivo; sus casos se cierran y podés volver a cargarlo. ${HEALTH_DATA_HINT}`}><textarea required maxLength={2000} value={cancelReason} onChange={(event) => onCancelReasonChange(event.target.value)} /></FormField>
         {messagesAt('cancel')}
-        <div className="button-row"><button className="button button-small button-danger-outline" disabled={markBusy !== '' || !cancelReason.trim()}>{markBusy === 'cancel' ? 'Cancelando…' : 'Confirmar cancelación'}</button><button type="button" className="button button-small button-quiet" disabled={markBusy === 'cancel'} onClick={onAbortCancel}>Volver</button></div>
-      </form> : <>{messagesAt('cancel')}{cancellable && <div className="button-row"><button id={CANCEL_BUTTON_ID} type="button" className="button button-small button-danger-outline" disabled={markBusy !== ''} onClick={onBeginCancel}>Cancelar el día</button></div>}</>}
+        <div className="button-row"><button className="button button-danger" disabled={markBusy !== '' || !cancelReason.trim()}>{markBusy === 'cancel' ? 'Cancelando…' : 'Confirmar cancelación'}</button><button type="button" className="button button-link" disabled={markBusy === 'cancel'} onClick={onAbortCancel}>Volver</button></div>
+      </form> : <>{messagesAt('cancel')}{cancellable && <div className="button-row"><button id={CANCEL_BUTTON_ID} type="button" className="button button-danger" disabled={markBusy !== ''} onClick={onBeginCancel}>Cancelar el día</button></div>}</>}
       {!detail.marks.length ? <Empty>{detail.state === 'CANCELADA' ? 'Este día fue cancelado y no tiene marcas.' : 'Este día todavía no tiene marcas.'}</Empty>
-        : narrow ? <ul className="history-items" aria-label="Marcas del día">{detail.marks.map((mark) => <li key={mark.id} className={mark.voided ? 'mark-voided' : undefined}>
-          <strong>{mark.voided ? <s>{actionName(mark.action)}</s> : actionName(mark.action)}</strong><span>{mark.voided ? <s>{markTime(mark)}</s> : markTime(mark)}</span>
+        : narrow ? <ul className="record-list" aria-label="Marcas del día">{detail.marks.map((mark) => <li key={mark.id} className={mark.voided ? 'record record-voided' : 'record'}>
+          <p className="record-title"><strong>{mark.voided ? <s>{actionName(mark.action)}</s> : actionName(mark.action)}</strong>{mark.voided && <VoidedTag />}</p>
           {/* The table's «Registrada» column, so no information depends on the width of the screen. */}
-          <small>Registrada: {recordedTime(mark)}</small>
-          <small>{mark.voided ? voidedNote(mark) : markLocation(mark)}</small>
-          {!mark.voided && markButtons(mark)}
+          <p className="record-meta"><span>{mark.voided ? <s>{markTime(mark)}</s> : markTime(mark)}</span><span>Registrada: {recordedTime(mark)}</span></p>
+          <p className="record-meta">{mark.voided ? voidedNote(mark) : markLocation(mark)}</p>
+          {!mark.voided && markButtons(mark, 'record-actions')}
           {underMark(mark)}
         </li>)}</ul>
-        : <div className="table-scroll"><table><thead><tr><th>Marca</th><th>Hora</th><th>Registrada</th><th>Ubicación</th><th>Acciones</th></tr></thead><tbody>{detail.marks.map((mark) => {
+        : <div className="table-scroll"><table aria-labelledby={DETAIL_HEADING_ID}><thead><tr><th scope="col">Marca</th><th scope="col">Hora</th><th scope="col">Registrada</th><th scope="col">Ubicación</th><th scope="col">Acciones</th></tr></thead><tbody>{detail.marks.map((mark) => {
           const under = underMark(mark)
           return <Fragment key={mark.id}>{mark.voided
-            ? <tr className="mark-voided"><td><s>{actionName(mark.action)}</s> <span className="status-chip">Anulada</span></td><td><s>{markTime(mark)}</s></td><td>{recordedTime(mark)}</td><td>{markLocation(mark)}</td><td><small>{voidedNote(mark)}</small></td></tr>
-            : <tr><td>{actionName(mark.action)}</td><td>{markTime(mark)}</td><td>{recordedTime(mark)}</td><td>{markLocation(mark)}</td><td>{markButtons(mark)}</td></tr>}
+            ? <tr className="record-voided"><td><s>{actionName(mark.action)}</s> <VoidedTag /></td><td><s>{markTime(mark)}</s></td><td>{recordedTime(mark)}</td><td>{markLocation(mark)}</td><td>{voidedNote(mark)}</td></tr>
+            : <tr><td>{actionName(mark.action)}</td><td>{markTime(mark)}</td><td>{recordedTime(mark)}</td><td>{markLocation(mark)}</td><td>{markButtons(mark, 'button-row')}</td></tr>}
             {/* The form of a mark, or its result, in a full-width row right under it (design system 4.12). */}
             {under && <tr><td colSpan={5}>{under}</td></tr>}</Fragment>
         })}</tbody></table></div>}
@@ -133,24 +147,27 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
   }
   return <>
     <PageHeading eyebrow="DÍA A DÍA" title="Hoy" subtitle="Revisá las marcas de cada día y corregí lo que haga falta. Cada día sigue el calendario de su local." />
-    {dependencyError && <div className="form-stack"><PageMessage kind="error">{dependencyError}</PageMessage><button type="button" className="button button-quiet" disabled={loading || journeysLoading} onClick={onRetryDependencies}>Reintentar datos del día</button></div>}
-    <Panel title={journeysTitle(date)} action={<button className="button button-small button-quiet" disabled={journeysLoading} onClick={onReloadJourneys}>{journeysLoading ? 'Actualizando…' : 'Actualizar'}</button>}>
+    {dependencyError && <div className="form-stack"><PageMessage kind="error">{dependencyError}</PageMessage><button type="button" className="button button-secondary" disabled={loading || journeysLoading} onClick={onRetryDependencies}>Reintentar datos del día</button></div>}
+    {/* Written out instead of Panel: its title names the table, or the list on a phone. */}
+    <section className="panel" aria-labelledby={LIST_HEADING_ID}>
+      <div className="panel-heading"><h2 id={LIST_HEADING_ID}>{journeysTitle(date)}</h2><button className="button button-secondary" disabled={journeysLoading} onClick={onReloadJourneys}><Icon name="refresh" />{journeysLoading ? 'Actualizando…' : 'Actualizar'}</button></div>
       <div className="toolbar"><FormField label="Fecha" hint={dateError || undefined}><input type="date" required aria-invalid={Boolean(dateError)} disabled={loading} value={date} onChange={(event) => onDateChange(event.target.value)} /></FormField></div>
-      {!date ? <Empty>{dateError}</Empty> : loading || journeysLoading || journeysDate !== date ? <Loading label={loading || !journeysDate ? 'Cargando días…' : 'Actualizando días…'} /> : journeysError ? <LoadFailure message={journeysError} onRetry={onReloadJourneys} /> : jornadas.length ? narrow ? <div className="history-list">{jornadas.map((jornada) => {
-        // Phones: one card per day loaded, so "Ver marcas" is in sight without swiping a table sideways.
+      {!date ? <Empty>{dateError}</Empty> : loading || journeysLoading || journeysDate !== date ? <Loading label={loading || !journeysDate ? 'Cargando días…' : 'Actualizando días…'} /> : journeysError ? <LoadFailure message={journeysError} onRetry={onReloadJourneys} /> : jornadas.length ? narrow ? <ul className="record-list" aria-labelledby={LIST_HEADING_ID}>{jornadas.map((jornada) => {
+        // Phones: one row per day loaded, so "Ver marcas" is in sight without swiping a table sideways.
         const person = peopleById.get(jornada.employeeId) ?? 'Empleado'
-        return <article className="history-card" key={jornada.id} aria-labelledby={`jornada-${jornada.id}-person`}>
-          <div className="history-head"><strong id={`jornada-${jornada.id}-person`}>{person}</strong><span className="muted">{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Local'}</span><span className={`status-chip status-${jornada.state.toLowerCase()}`}>{stateLabel(jornada.state)}</span></div>
-          <button className="button button-small button-quiet" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button>
+        return <li className="record" key={jornada.id} aria-labelledby={`jornada-${jornada.id}-person`}>
+          <p className="record-title"><strong id={`jornada-${jornada.id}-person`}>{person}</strong><DayStateTag state={jornada.state} /></p>
+          <p className="record-meta">{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Local'}</p>
+          <div className="record-actions"><button className="button button-link" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></div>
           {detailIn(jornada.id)}
-        </article>
-      })}</div> : <div className="table-scroll"><table><thead><tr><th>Empleado</th><th>Local</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{jornadas.map((jornada) => {
+        </li>
+      })}</ul> : <div className="table-scroll"><table aria-labelledby={LIST_HEADING_ID}><thead><tr><th scope="col">Empleado</th><th scope="col">Local</th><th scope="col">Estado</th><th scope="col">Acciones</th></tr></thead><tbody>{jornadas.map((jornada) => {
         const open = detailIn(jornada.id)
-        return <Fragment key={jornada.id}><tr><td>{peopleById.get(jornada.employeeId) ?? 'Empleado'}</td><td>{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Local'}</td><td><span className={`status-chip status-${jornada.state.toLowerCase()}`}>{stateLabel(jornada.state)}</span></td><td><button className="button button-small button-quiet" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></td></tr>
+        return <Fragment key={jornada.id}><tr><td>{peopleById.get(jornada.employeeId) ?? 'Empleado'}</td><td>{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Local'}</td><td><DayStateTag state={jornada.state} /></td><td><button className="button button-link" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></td></tr>
           {/* The day opens in a full-width row under its own; once read, the row is named by the day's title. */}
           {open && <tr aria-labelledby={detail && !detailLoading ? DETAIL_HEADING_ID : undefined}><td colSpan={4}>{open}</td></tr>}</Fragment>
       })}</tbody></table></div> : <Empty>No hay días cargados para esta fecha.</Empty>}
-    </Panel>
+    </section>
     {daySearch}
     {/* A day that is not a row of the list (one found by the search, or the list could not show it) opens here, right
         under the search that found it. */}
@@ -162,15 +179,16 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
 export function JornadaAuditSection({ open, audit, loading, error, onToggle, onRetry }: {
   open: boolean; audit: JornadaAudit | null; loading: boolean; error: string; onToggle: () => void; onRetry: () => void
 }) {
-  return <section className="audit-history" aria-labelledby="audit-history-title">
-    <div className="form-subhead"><h3 id="audit-history-title">Historial de cambios</h3>
-      <button type="button" className="button button-small button-quiet" aria-expanded={open} aria-controls="audit-history-body" onClick={onToggle}>{open ? 'Ocultar historial' : 'Ver historial'}</button></div>
+  return <section className="day-changes" aria-labelledby="audit-history-title">
+    <div className="subsection-head"><h3 id="audit-history-title">Historial de cambios</h3>
+      <button type="button" className="button button-secondary" aria-expanded={open} aria-controls="audit-history-body" onClick={onToggle}>{open ? 'Ocultar historial' : 'Ver historial'}</button></div>
     {open && <div id="audit-history-body">{loading ? <Loading label="Cargando historial de cambios…" /> : error ? <LoadFailure message={error} onRetry={onRetry} /> : !audit ? null : audit.entries.length === 0 ? <Empty>Este día no tiene cambios registrados.</Empty> : <>
       {audit.truncated && <PageMessage>Se muestran los primeros {audit.entries.length} cambios de este día.</PageMessage>}
-      <ol className="history-items audit-items" aria-label="Cambios del día">{audit.entries.map((entry, index) => <li key={`${entry.kind}-${entry.changedAt}-${index}`}>
-        <strong>{auditTitle(entry, audit.timeZone)}</strong><span>{dateTime(entry.changedAt, audit.timeZone)}</span>
-        <small>{entry.actorAccountId ? `Por ${entry.actorDisplayName?.trim() || 'una persona sin nombre registrado'}` : 'Automático del sistema'}</small>
-        {entry.reason && showsReason(entry) && <small>Motivo: {entry.reason}</small>}
+      {/* Each change is a row: what changed, then when and who on one line, then the reason a person wrote. */}
+      <ol className="record-list" aria-label="Cambios del día">{audit.entries.map((entry, index) => <li key={`${entry.kind}-${entry.changedAt}-${index}`} className="record">
+        <strong>{auditTitle(entry, audit.timeZone)}</strong>
+        <p className="record-meta"><span>{dateTime(entry.changedAt, audit.timeZone)}</span><span>{entry.actorAccountId ? `Por ${entry.actorDisplayName?.trim() || 'una persona sin nombre registrado'}` : 'Automático del sistema'}</span></p>
+        {entry.reason && showsReason(entry) && <p className="record-meta">Motivo: {entry.reason}</p>}
       </li>)}</ol>
     </>}</div>}
   </section>
