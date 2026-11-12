@@ -3,7 +3,7 @@ import { api } from '../../shared/api/client'
 import type { Employee, Site, Template } from '../../shared/api/types'
 import { deviceDate } from '../../shared/dateRange'
 import { Panel } from '../../app/ui'
-import { ScheduleAssignStep, ScheduleEditor, SchedulesViewRender, type AssignmentResult } from './ScheduleEditor'
+import { ScheduleAssignStep, ScheduleEditor, scheduleMessageKeys, SchedulesViewRender, type AssignmentResult } from './ScheduleEditor'
 import {
   addScheduleTramo, changeManualOffsets, changeScheduleTramo, emptyScheduleDraft, pickScheduleType, removeScheduleTramo,
   scheduleDraftFromTemplate, scheduleInput, type ScheduleDraft
@@ -40,6 +40,8 @@ export function SchedulesView() {
   const [employeesLoading, setEmployeesLoading] = useState(true)
   const [employeesError, setEmployeesError] = useState('')
   const [notice, setNotice] = useState('')
+  // The form whose result `notice` is (scheduleMessageKeys): it shows there, not at the top of the page.
+  const [noticeAt, setNoticeAt] = useState('')
   const [siteId, setSiteId] = useState('')
   const [draft, setDraft] = useState<ScheduleDraft>(emptyScheduleDraft)
   const [createError, setCreateError] = useState('')
@@ -83,7 +85,7 @@ export function SchedulesView() {
     try {
       const saved = await api.post<Template>('/templates', payload)
       setTemplates((current) => [...current, saved]); setDraft(emptyScheduleDraft())
-      setNotice(`Horario «${saved.name}» creado.`); openAssign(saved.id, 'create')
+      setNotice(`Horario «${saved.name}» creado.`); setNoticeAt(scheduleMessageKeys.create); openAssign(saved.id, 'create')
     } catch (reason) { setCreateError(errText(reason)) } finally { setBusy(false) }
   }
 
@@ -103,7 +105,7 @@ export function SchedulesView() {
     try {
       const saved = await api.patch<Template>(`/templates/${encodeURIComponent(template.id)}`, payload)
       setTemplates((current) => current.map((entry) => entry.id === saved.id ? saved : entry)); setEdit(null)
-      setNotice(`Horario «${saved.name}» actualizado.`); openAssign(saved.id, 'edit')
+      setNotice(`Horario «${saved.name}» actualizado.`); setNoticeAt(scheduleMessageKeys.edit(saved.id)); openAssign(saved.id, 'edit')
     } catch (reason) { setEdit((current) => current && { ...current, error: errText(reason) }) } finally { setBusy(false) }
   }
 
@@ -128,26 +130,31 @@ export function SchedulesView() {
     setAssign((current) => current?.templateId === templateId ? { ...current, busy: false, result, checked: current.checked.filter((id) => !done.includes(id)) } : current)
   }
 
-  const updateDraft = (change: (current: ScheduleDraft) => ScheduleDraft) => setDraft(change)
+  // Writing a new horario is the next action: the result of the last one, shown above the same button, goes.
+  const updateDraft = (change: (current: ScheduleDraft) => ScheduleDraft) => {
+    setDraft(change)
+    if (noticeAt === scheduleMessageKeys.create) setNotice('')
+  }
   const updateEdit = (change: (current: ScheduleDraft) => ScheduleDraft) => setEdit((current) => current && { ...current, draft: change(current.draft) })
 
   const assignStep = assign && assignTemplate ? <ScheduleAssignStep templateName={assignTemplate.name} employees={assignEmployees} employeesLoading={employeesLoading} employeesError={employeesError}
     checked={assign.checked} validFrom={assign.validFrom} busy={assign.busy} result={assign.result} asPanel={assign.origin === 'create'}
+    notice={noticeAt === (assign.origin === 'create' ? scheduleMessageKeys.create : scheduleMessageKeys.edit(assign.templateId)) ? notice : ''}
     onToggle={(id) => setAssign((current) => current && { ...current, checked: current.checked.includes(id) ? current.checked.filter((entry) => entry !== id) : [...current.checked, id] })}
     onValidFromChange={(validFrom) => setAssign((current) => current && { ...current, validFrom })}
     onSubmit={(event) => void submitAssign(event)} onRetryEmployees={() => void loadEmployees()} onClose={() => setAssign(null)} /> : null
 
   const editTemplate = edit ? templates.find((template) => template.id === edit.templateId) : undefined
   const openCardId = edit?.templateId ?? (assign?.origin === 'edit' ? assign.templateId : '')
-  const cardSlot = edit && editTemplate ? <div className="template-card-slot"><ScheduleEditor draft={edit.draft} busy={busy} error={edit.error} editing
+  const cardSlot = edit && editTemplate ? <ScheduleEditor draft={edit.draft} busy={busy} error={edit.error} editing
     submitLabel="Guardar cambios" formLabel={`Cambiar horario ${editTemplate.name}`} {...editorCallbacks(updateEdit)}
-    onSubmit={(event) => void saveEdit(event)} onCancel={() => setEdit(null)} /></div> : assign?.origin === 'edit' ? assignStep : null
+    onSubmit={(event) => void saveEdit(event)} onCancel={() => setEdit(null)} /> : assign?.origin === 'edit' ? assignStep : null
 
   const createPanel = assign?.origin === 'create' && assignStep ? assignStep : <Panel title="Crear un horario">
-    <ScheduleEditor draft={draft} busy={busy} disabled={loading || Boolean(loadError) || !siteId} error={createError} submitLabel="Crear horario" formLabel="Crear un horario"
+    <ScheduleEditor draft={draft} busy={busy} disabled={loading || Boolean(loadError) || !siteId} error={createError} notice={noticeAt === scheduleMessageKeys.create ? notice : ''} submitLabel="Crear horario" formLabel="Crear un horario"
       sites={sites} siteId={siteId} onSiteChange={setSiteId} showTypes {...editorCallbacks(updateDraft)} onSubmit={(event) => void create(event)} />
   </Panel>
 
-  return <SchedulesViewRender sites={sites} siteId={siteId} siteTemplates={siteTemplates} loading={loading} loadError={loadError} notice={notice} busy={busy}
+  return <SchedulesViewRender sites={sites} siteId={siteId} siteTemplates={siteTemplates} loading={loading} loadError={loadError} notice={notice} messageAt={noticeAt} busy={busy}
     openCardId={openCardId} cardSlot={cardSlot} createPanel={createPanel} onReload={() => void load()} onBeginEdit={beginEdit} />
 }
