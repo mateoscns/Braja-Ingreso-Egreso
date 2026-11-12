@@ -104,7 +104,6 @@
   --text-tertiary: #5c6d62;
   --page: #f4f7f5;
   --focus: #1d513c;
-  --topbar-height: 70px;
   --tap-target: 44px;
   --radius-control: 9px;
   --green: #12372a;
@@ -195,8 +194,8 @@ h3 { font-size: var(--font-size-body-lg); line-height: var(--line-height-heading
 .field { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
 .field-label { color: var(--text); font-size: var(--font-size-body); font-weight: var(--font-weight-strong); }
 .field-hint { color: var(--text-muted); font-size: var(--font-size-body); }
-/* The text of an error. The three old names are this text until the markup leaves them; slice H1 removes them. */
-.field-error, .field-hint-error, .employee-field-error, .site-location-message-error { color: var(--bad); font-weight: var(--font-weight-strong); }
+/* The text of an error. The two old names are this text until the markup leaves them; slice H1 removes them. */
+.field-error, .field-hint-error, .employee-field-error { color: var(--bad); font-weight: var(--font-weight-strong); }
 /* The employee's motive form writes its errors as paragraphs. */
 .employee-field-error { margin: 0; }
 /* FormField puts a triangle before its error, so it is not told by its colour alone; the triangle sits on the first line of
@@ -217,30 +216,41 @@ h3 { font-size: var(--font-size-body-lg); line-height: var(--line-height-heading
 /* A group written as a field holds whole controls (a row of quick choices, a list of checks, two dates), not the parts of one:
    they sit a step further apart than a label and its control. */
 fieldset.field { gap: var(--space-2); }
-.site-location-field { display: flex; flex-direction: column; gap: 8px; }
+/* ===== «Locales»: the location of a local (slice E4, design system 4.20) ===== */
+/* A message inside the location group or the map is one more step of it, spaced by their gap and not by a margin. */
+fieldset.field > .message, .site-map-panel > .message { margin: 0; }
+/* A part opened under a record (the location history) is spaced by its own gap, and its list ends with the record's line, not
+   with a second line of its own. */
+.inline-form > h3 { margin: 0; }
+.inline-form > .record-list:last-child > .record:last-child { border-bottom: 0; }
+/* The point that will be saved: its coordinates, the link to review it, where it came from and its confirmation, hung from a
+   hairline like a motive, in the flow of the form and without a box. */
+.site-location-selection { display: grid; justify-items: start; gap: var(--space-1); min-width: 0; padding-left: var(--space-3); border-left: var(--border-width-strong) solid var(--rule); }
+.site-location-coordinates { color: var(--text); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* The link stands alone on its line, so it is a whole target like any control. */
+.site-location-selection > a { display: inline-flex; align-items: center; min-height: var(--target); }
+/* The coordinate fields and the fold of «Horarios» (ScheduleEditor) still use these names; slice E5 moves them to the system. */
 .site-location-coordinate-inputs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.site-location-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.site-location-message, .site-location-coordinates { font-size: .875rem; line-height: 1.45; }
-.site-location-coordinates { color: #3d5f47; font-variant-numeric: tabular-nums; }
-.site-location-selection { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #f8faf8; }
 @media (max-width: 640px) { .site-location-coordinate-inputs { grid-template-columns: 1fr; } }
-/* D-20261109-01 site map picker: the same tokens and box as .site-location-selection; the map height leaves the search field and
-   the confirm button on screen under the sticky top bar (and the sticky section bar on phones). */
 .site-location-manual > summary { display: inline-flex; align-items: center; min-height: var(--tap-target); color: var(--green-2); font-size: .875rem; font-weight: 650; cursor: pointer; }
 .site-location-manual[open] > summary { margin-bottom: 8px; }
-.site-map-panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #f8faf8; }
-.site-map-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
-.site-map-results { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.site-map-results .button { width: 100%; justify-content: flex-start; padding-top: 8px; padding-bottom: 8px; text-align: left; line-height: 1.35; overflow-wrap: anywhere; }
-.site-map-canvas { position: relative; z-index: 0; isolation: isolate; width: 100%; height: clamp(260px, calc(100vh - var(--topbar-height) - 280px), 440px); height: clamp(260px, calc(100dvh - var(--topbar-height) - 280px), 440px); border: 1px solid #dfe6e1; border-radius: var(--radius-control); overflow: hidden; background: var(--green-3); }
-.site-map-canvas.leaflet-container { font: inherit; font-size: .8125rem; }
-.site-map-canvas.leaflet-container .leaflet-bar a { width: var(--tap-target); height: var(--tap-target); line-height: var(--tap-target); }
-.site-map-canvas:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
-@media (max-width: 760px) {
-  .site-map-panel { padding: 10px; }
-  /* Leaves room for the sticky section bar, the search, the hint, the confirm button and the fixed alerts bar. */
-  .site-map-canvas { height: clamp(160px, calc(100vh - var(--topbar-height) - 380px), 360px); height: clamp(160px, calc(100dvh - var(--topbar-height) - 380px), 360px); }
+/* D-20261109-01, the map picker: a part of the form in its flow, no box. The search with its button, the answers, the hint, the
+   map and «Confirmar ubicación» go one under the other; on a phone of 640 px the map and that button fit in one screenful. */
+.site-map-panel { display: grid; gap: var(--space-3); min-width: 0; }
+.site-map-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: var(--space-2); }
+.site-map-results { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.site-map-results .button { width: 100%; justify-content: flex-start; padding-top: var(--space-2); padding-bottom: var(--space-2); text-align: left; line-height: var(--line-height-heading); overflow-wrap: anywhere; }
+/* A share of the screen's height between a floor and a ceiling: the top bar scrolls away with the page (slice C1), so it is not
+   counted. vh first for a browser without dvh, which then takes the second line. */
+.site-map-canvas { position: relative; z-index: 0; isolation: isolate; width: 100%; height: clamp(12.5rem, 45vh, 22.5rem); height: clamp(12.5rem, 45dvh, 22.5rem); border: var(--border-width) solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--surface-tint); }
+@media (min-width: 768px) {
+  .site-map-canvas { height: clamp(16rem, 50vh, 27.5rem); height: clamp(16rem, 50dvh, 27.5rem); }
 }
+/* The page's face and size instead of Leaflet's; its attribution keeps the size Leaflet gives it. */
+.site-map-canvas.leaflet-container { font: inherit; }
+.site-map-canvas.leaflet-container .leaflet-bar a { width: var(--target); height: var(--target); line-height: var(--target); }
+/* The ring is the common one; Leaflet's own stylesheet moves it to 1 px, this puts it back at 2 px. */
+.site-map-canvas:focus-visible { outline-offset: 2px; }
 /* The text box: what is typed in, a select and a textarea, all with one edge, one radius and 16 px text (under 16 px iOS zooms
    the page when a field takes focus). A checkbox or a radio inside a field is not a text box: the selector leaves them out, so
    nothing has to undo this rule for them. The company switcher of the top bar is a text box outside a field and shares the box.
@@ -583,17 +593,13 @@ html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-height) + env(safe
 .simple-row strong, .simple-row small { display: block; }
 .simple-row strong { font-weight: var(--font-weight-heavy); }
 .simple-row small { color: var(--text-muted); font-size: var(--font-size-body); }
-/* A local is a record of two parts, its row and its buttons (then its open form or history): the line goes under the whole
-   record, not between its parts, and the record has no avatar. */
-.simple-list > article { padding: var(--space-3) 0; border-bottom: var(--border-width) solid var(--rule); }
-.simple-list > article > .simple-row { padding: 0; border-bottom: 0; }
-.simple-list > article .row-avatar { display: none; }
+/* The numbered steps of «Primeros pasos» still draw their number in this box (slice E7). */
 .row-avatar { width: 36px; height: 36px; display: grid; place-items: center; color: #477253; border-radius: 10px; background: #eff6ef; }
 /* A checkbox or a radio. The box is 24 px, the floor of WCAG 2.5.8, and it is never the target: the label around it is, as tall
    and as wide as any control. The padding of the label centres one line of text on the box and lets a long text wrap under its
-   first line, with the box still on that line. The old ways to write a check share the rule until slice H1: the list of checks
-   of «Horarios» and the confirmation of a site's point. */
-.check, .check-grid label, .site-location-confirmation {
+   first line, with the box still on that line. The old way to write a check shares the rule until slice H1: the list of checks
+   of «Horarios». */
+.check, .check-grid label {
   display: inline-flex; align-items: flex-start; gap: var(--space-2);
   min-width: var(--target); min-height: var(--target); padding: calc((var(--target) - var(--target-floor)) / 2) 0;
   color: var(--text); cursor: pointer;
@@ -601,7 +607,7 @@ html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-height) + env(safe
 /* The box takes the cursor of its label: a hand, or the "not allowed" sign when it is disabled. */
 input[type=checkbox], input[type=radio] { flex: 0 0 auto; width: var(--target-floor); height: var(--target-floor); margin: 0; accent-color: var(--brand); cursor: inherit; }
 /* Disabled: the box as the browser draws it, and its text muted. */
-.check:has(input:disabled), .check-grid label:has(input:disabled), .site-location-confirmation:has(input:disabled) { color: var(--text-muted); cursor: not-allowed; }
+.check:has(input:disabled), .check-grid label:has(input:disabled) { color: var(--text-muted); cursor: not-allowed; }
 .check-list, .check-grid { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); }
 /* A table is the form of a list of records from 768 px: a sheet with the same fields in the same order. Column heads in
    14 px bold muted words (sentence case: the markup writes them that way), an edge line under them, a hairline under every
@@ -793,8 +799,6 @@ td .button-row { gap: var(--space-2); }
   .remove-block { justify-self: start; }
 }
 @media (max-width: 760px) {
-  /* Still read by the height of the site map (slice E4). */
-  :root { --topbar-height: 60px; }
   /* The bottom padding is the room of the navigation bar, above. */
   .main-content { padding-top: 26px; padding-right: 16px; padding-left: 16px; }
   .page-title-row { align-items: flex-start; }
