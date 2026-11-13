@@ -1,6 +1,6 @@
 import type { Template, TemplateBlock, TemplateInput } from '../../shared/api/types'
 import {
-  draftBlocks, MAX_TRAMOS, nextTramo, offsetsAreComputed, SCHEDULE_TYPES, tramosFromBlocks,
+  clockMinutes, draftBlocks, MAX_TRAMOS, nextTramo, offsetsAreComputed, SCHEDULE_TYPES, tramosFromBlocks,
   type DayOffsets, type ScheduleTypeId, type Tramo, type TramoComputation
 } from './scheduleTramos'
 
@@ -32,6 +32,24 @@ export function scheduleDraftFromTemplate(template: Template): ScheduleDraft {
   }
 }
 
+/**
+ * Whether the tramos still have the shape of a type (#177: after changing a time no tile stayed chosen): «Corrido» is one tramo
+ * that ends the same day, «De noche» one that ends the next day, «Cortado» two tramos. Only the tile already chosen is kept;
+ * none is ever chosen for the owner.
+ */
+function keepsShape(type: ScheduleTypeId, tramos: Tramo[]): boolean {
+  if (type === 'cortado') return tramos.length === 2
+  if (tramos.length !== 1) return false
+  const start = clockMinutes(tramos[0].start)
+  const end = clockMinutes(tramos[0].end)
+  // A time still being typed does not change the kind of the horario.
+  if (start === null || end === null) return true
+  return type === 'noche' ? end <= start : end > start
+}
+
+/** The type the draft keeps after its tramos change: the one chosen, while they keep its shape; null (a custom horario) otherwise. */
+const typeAfter = (draft: ScheduleDraft, tramos: Tramo[]) => draft.type && keepsShape(draft.type, tramos) ? draft.type : null
+
 /** Picking a type fills its tramos; the name follows the type while the owner has not written one. */
 export function pickScheduleType(draft: ScheduleDraft, id: ScheduleTypeId): ScheduleDraft {
   const type = SCHEDULE_TYPES.find((entry) => entry.id === id) ?? corrido
@@ -42,22 +60,25 @@ export function pickScheduleType(draft: ScheduleDraft, id: ScheduleTypeId): Sche
 export function addScheduleTramo(draft: ScheduleDraft): ScheduleDraft {
   if (draft.tramos.length >= MAX_TRAMOS) return draft
   const last = draft.manualOffsets?.[draft.manualOffsets.length - 1]
+  const tramos = [...draft.tramos, nextTramo(draft.tramos[draft.tramos.length - 1])]
   return {
-    ...draft, type: null, tramos: [...draft.tramos, nextTramo(draft.tramos[draft.tramos.length - 1])],
+    ...draft, type: typeAfter(draft, tramos), tramos,
     manualOffsets: draft.manualOffsets && [...draft.manualOffsets, { startDayOffset: last?.endDayOffset ?? 0, endDayOffset: last?.endDayOffset ?? 0 }]
   }
 }
 
 export function removeScheduleTramo(draft: ScheduleDraft, index: number): ScheduleDraft {
   if (draft.tramos.length <= 1) return draft
+  const tramos = draft.tramos.filter((_, position) => position !== index)
   return {
-    ...draft, type: null, tramos: draft.tramos.filter((_, position) => position !== index),
+    ...draft, type: typeAfter(draft, tramos), tramos,
     manualOffsets: draft.manualOffsets && draft.manualOffsets.filter((_, position) => position !== index)
   }
 }
 
 export function changeScheduleTramo(draft: ScheduleDraft, index: number, patch: Partial<Tramo>): ScheduleDraft {
-  return { ...draft, type: null, tramos: draft.tramos.map((tramo, position) => position === index ? { ...tramo, ...patch } : tramo) }
+  const tramos = draft.tramos.map((tramo, position) => position === index ? { ...tramo, ...patch } : tramo)
+  return { ...draft, type: typeAfter(draft, tramos), tramos }
 }
 
 export function changeManualOffsets(draft: ScheduleDraft, index: number, patch: Partial<DayOffsets>): ScheduleDraft {

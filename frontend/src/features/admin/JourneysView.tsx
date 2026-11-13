@@ -6,11 +6,12 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { api, queryString } from '../../shared/api/client'
 import type { Employee, Jornada, JornadaAudit, Mark, MarkAction, Site } from '../../shared/api/types'
 import { useWideTable } from '../../app/useBreakpoint'
-import { revealAndFocus } from '../../app/revealAndFocus'
+import { revealAndFocus, useFocusRequest } from '../../app/revealAndFocus'
 import { useFieldErrors } from '../../app/useFieldErrors'
-import { CANCEL_BUTTON_ID, CANCEL_FORM_ID, DETAIL_HEADING_ID, DETAIL_ID, FORGOTTEN_FORM_ID, JourneysViewRender, markButtonId, markFormId, markMessageKey, type JourneyRow } from './JourneysViewRender'
+import { CANCEL_BUTTON_ID, CANCEL_FORM_ID, dayButtonId, DETAIL_HEADING_ID, DETAIL_ID, FORGOTTEN_FORM_ID, JourneysViewRender, markButtonId, markFormId, markMessageKey, type JourneyRow } from './JourneysViewRender'
 import { errText } from './adminShared'
 import { AdminHistory } from './AdminHistory'
+import { historyDayButtonId } from './AdminHistoryRender'
 
 /** What takes the focus once the screen shows it: the day just opened (its title), a form just opened (its first field), or
     the button that opened a form that closed. */
@@ -95,6 +96,9 @@ export function JourneysView({ openJornada, searchArrival = 0 }: { openJornada?:
   // Change history (issue #60): collapsed by default and loaded only when the ADMIN opens it; auditFor is the open jornada.
   const [auditFor, setAuditFor] = useState(''); const [audit, setAudit] = useState<JornadaAudit | null>(null); const [auditLoading, setAuditLoading] = useState(false); const [auditError, setAuditError] = useState('')
   const auditRequest = useRef(0)
+  // The «Ver marcas» that opened the day: «Cerrar» gives the focus back to it (#177).
+  const detailOpener = useRef('')
+  const focusLater = useFocusRequest(markBusy === '' && !detailLoading)
   async function loadAudit(jornadaId: string) {
     const requestId = ++auditRequest.current
     setAudit(null); setAuditError(''); setAuditLoading(true)
@@ -143,7 +147,7 @@ export function JourneysView({ openJornada, searchArrival = 0 }: { openJornada?:
     } catch { /* The list stays on today; showDetail below reports the failure. */ }
     await loadDependencies(target)
     if (request.forgottenAction) setForgotAction(request.forgottenAction)
-    await openDetail(request.jornadaId)
+    await openDetail(request.jornadaId, dayButtonId(request.jornadaId))
   }
   useEffect(() => { if (openJornada) void openRequested(openJornada); else void loadDependencies(date) }, [])
   // Runs once what was asked for is on screen: the day read, no request running (a busy button cannot take the focus).
@@ -190,10 +194,26 @@ export function JourneysView({ openJornada, searchArrival = 0 }: { openJornada?:
    * result of a form of the day open before is that day's: it does not follow into this one (T12: «Día cancelado.» showed in
    * the detail of another day).
    */
-  async function openDetail(jornadaId: string) {
+  async function openDetail(jornadaId: string, opener: string) {
+    detailOpener.current = opener
     setReveal({ kind: 'detail' })
     setNotice(''); setMessageAt('')
     await showDetail(jornadaId)
+  }
+  /**
+   * «Cerrar» of the open day: nothing of the day stays open, and the focus goes back to the «Ver marcas» that opened it, else to
+   * the one of its row, else to the title of the page.
+   */
+  function closeDetail() {
+    const jornadaId = detailFor
+    detailRequest.current += 1
+    closeAudit()
+    setDetail(null); setDetailFor(''); setDetailLoading(false); setReveal(null); setMessageAt(''); setError(''); setNotice('')
+    setEditingMarkId(''); setVoidingMarkId(''); setVoidReason(''); setCancelOpen(false); setCancelReason('')
+    forgottenFields.reset(); correctionFields.reset(); voidFields.reset(); cancelFields.reset()
+    const back = [detailOpener.current, dayButtonId(jornadaId)].find((id) => id && document.getElementById(id))
+    if (back) focusLater({ id: back })
+    else document.querySelector<HTMLElement>('h1')?.focus({ preventScroll: true })
   }
   const detailSite = detail ? sites.find((site) => site.id === detail.siteId) : undefined
   // Without the site's zone a typed time cannot be converted safely; the device zone would silently shift it.
@@ -299,14 +319,14 @@ export function JourneysView({ openJornada, searchArrival = 0 }: { openJornada?:
   }
   const peopleById = useMemo(() => new Map(employees.map((person) => [person.id, person.displayName])), [employees])
   const daySearch = <AdminHistory employees={employees} sites={sites} loadingOptions={loading} optionsError={dependencyError} onRetryOptions={() => void loadDependencies(date)}
-    opening={detailLoading} arrival={searchArrival} onOpenDay={(id) => void openDetail(id)} />
+    opening={detailLoading} arrival={searchArrival} onOpenDay={(id) => void openDetail(id, historyDayButtonId(id))} />
   return <JourneysViewRender daySearch={daySearch} narrow={narrow} sites={sites} jornadas={jornadas} loading={loading} journeysLoading={journeysLoading} journeysDate={journeysDate} journeysError={journeysError} dependencyError={dependencyError} error={error} notice={notice} messageAt={messageAt} detail={detail} detailFor={detailFor} detailLoading={detailLoading} markBusy={markBusy} date={date} peopleById={peopleById} dateError={dateError} detailSite={detailSite} detailTimeZone={detailTimeZone} forgotAction={forgotAction} forgotOccurredAt={forgotOccurredAt} forgotReason={forgotReason} editingMarkId={editingMarkId} correctedAction={correctedAction} correctedOccurredAt={correctedOccurredAt} correctionReason={correctionReason}
     cancelOpen={cancelOpen} cancelReason={cancelReason} voidingMarkId={voidingMarkId} voidReason={voidReason}
     forgottenErrors={forgottenFields.errors} correctionErrors={correctionFields.errors} voidError={voidFields.errors.reason} cancelError={cancelFields.errors.reason}
     auditOpen={Boolean(detail) && auditFor === detail?.id} audit={audit} auditLoading={auditLoading} auditError={auditError} onToggleAudit={toggleAudit} onRetryAudit={() => { if (auditFor) void loadAudit(auditFor) }}
     onBeginCancel={() => { setCancelOpen(true); setCancelReason(''); cancelFields.reset(); setReveal({ kind: 'form', id: CANCEL_FORM_ID }) }} onCancelReasonChange={(value) => { setCancelReason(value); cancelFields.clear('reason') }} onConfirmCancel={(event) => void cancelJornada(event)} onAbortCancel={() => { setCancelOpen(false); setCancelReason(''); cancelFields.reset(); setReveal({ kind: 'trigger', id: CANCEL_BUTTON_ID }) }}
     onBeginVoid={beginVoid} onVoidReasonChange={(value) => { setVoidReason(value); voidFields.clear('reason') }} onConfirmVoid={(event, mark) => void voidMark(event, mark)} onAbortVoid={abortVoid}
-    onDateChange={changeDate} onRetryDependencies={() => void loadDependencies(date)} onReloadJourneys={() => void loadJourneys(date)} onShowDetail={(id) => void openDetail(id)}
+    onDateChange={changeDate} onRetryDependencies={() => void loadDependencies(date)} onReloadJourneys={() => void loadJourneys(date)} onShowDetail={(id) => void openDetail(id, dayButtonId(id))} onCloseDetail={closeDetail}
     onForgotActionChange={setForgotAction} onForgotOccurredAtChange={(value) => { setForgotOccurredAt(value); forgottenFields.clear('occurredAt') }} onForgotReasonChange={(value) => { setForgotReason(value); forgottenFields.clear('reason') }} onAddForgottenMark={(event) => void addForgottenMark(event)}
     onBeginMarkCorrection={beginMarkCorrection} onCorrectedActionChange={setCorrectedAction} onCorrectedOccurredAtChange={(value) => { setCorrectedOccurredAt(value); correctionFields.clear('occurredAt') }} onCorrectionReasonChange={(value) => { setCorrectionReason(value); correctionFields.clear('reason') }}
     onCorrectMark={(event, mark) => void correctMark(event, mark)} onCancelMarkCorrection={cancelMarkCorrection} />

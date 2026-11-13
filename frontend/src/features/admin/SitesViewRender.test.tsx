@@ -1074,3 +1074,38 @@ describe('SitesView: the distance around a local is not a condition to mark', ()
     expect(screen.getByText('Punto marcado. El círculo muestra los 120 m alrededor del local. Si no es la puerta, tocá de nuevo.')).toBeInTheDocument()
   })
 })
+
+// #177: a new local said «Local creado.» and nothing about its schedule, which lives in another part of «Configuración».
+describe('«Locales»: what comes after creating a local', () => {
+  const created: Site = { id: 'site-new', name: 'Local Norte', timeZone: 'America/Argentina/Buenos_Aires', latitude: null, longitude: null, geofenceRadiusMeters: 100 }
+  const createNorte = async (existing: Site[] = []) => {
+    vi.spyOn(api, 'get').mockResolvedValue(existing as never)
+    vi.spyOn(api, 'post').mockResolvedValue(created as never)
+    const onNavigate = vi.fn()
+    render(<SitesView onNavigate={onNavigate} />)
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Nombre del local' }), { target: { value: 'Local Norte' } })
+    fireEvent.submit(screen.getByRole('button', { name: 'Crear local' }).closest('form')!)
+    await screen.findByText('Local creado.')
+    return onNavigate
+  }
+
+  it('says the local still needs its schedule, with the way to «Horarios»', async () => {
+    const onNavigate = await createNorte()
+    const form = screen.getByRole('button', { name: 'Crear local' }).closest('form')!
+    expect(within(form).getByText('Para que tu equipo marque en Local Norte, falta crear su horario.')).toBeInTheDocument()
+    const link = within(form).getByRole('link', { name: 'Crear su horario en Horarios' })
+    expect(link).toHaveAttribute('href', '#/configuracion/horarios')
+    fireEvent.click(link)
+    expect(onNavigate).toHaveBeenCalledWith('plantillas')
+  })
+
+  it('with more than one local it says which one to choose there', async () => {
+    await createNorte([{ ...created, id: 'site-1', name: 'Local Centro' }])
+    expect(screen.getByText('Para que tu equipo marque en Local Norte, falta crear su horario. En Horarios, elegí Local Norte en «Local».')).toBeInTheDocument()
+  })
+
+  it('the subtitle sends the schedules to «Horarios»', () => {
+    renderSitesView()
+    expect(screen.getByRole('heading', { level: 1, name: 'Locales' }).nextElementSibling).toHaveTextContent('Cada local tiene su nombre, la hora que usa y dónde queda. Sus horarios se arman en Horarios.')
+  })
+})

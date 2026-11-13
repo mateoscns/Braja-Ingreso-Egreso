@@ -60,17 +60,24 @@ describe('workDates: la misma regla que el servidor (bulkDates)', () => {
 describe('vista previa', () => {
   it('dice cuántos días, cuáles, qué período y para cuántas personas', () => {
     expect(previewText({ from: '2026-12-01', to: '2026-12-31', weekdays: [1, 2, 3, 4, 5], people: 8 }))
-      .toBe('Vas a cargar 23 días (lunes a viernes, del 1 al 31 de diciembre) para 8 personas.')
+      .toBe('Vas a cargar 23 días (lunes a viernes, del 1 al 31 de diciembre) para cada una de las 8 personas (184 en total).')
     expect(previewText({ from: '2026-11-28', to: '2026-12-05', weekdays: [1, 2, 3, 4, 5, 6], people: 1 }))
       .toBe('Vas a cargar 7 días (lunes a sábado, del 28 de noviembre al 5 de diciembre) para 1 persona.')
     expect(previewText({ from: '2026-11-09', to: '2026-11-15', weekdays: [1, 2, 3, 4, 5, 6, 7], people: 2 }))
-      .toBe('Vas a cargar 7 días (todos los días, del 9 al 15 de noviembre) para 2 personas.')
+      .toBe('Vas a cargar 7 días (todos los días, del 9 al 15 de noviembre) para cada una de las 2 personas (14 en total).')
     expect(previewText({ from: '2026-11-09', to: '2026-11-15', weekdays: [1, 3, 5], people: 2 }))
-      .toBe('Vas a cargar 3 días (lunes, miércoles y viernes, del 9 al 15 de noviembre) para 2 personas.')
+      .toBe('Vas a cargar 3 días (lunes, miércoles y viernes, del 9 al 15 de noviembre) para cada una de las 2 personas (6 en total).')
     expect(previewText({ from: '2026-12-31', to: '2026-12-31', weekdays: [4], people: 2 }))
-      .toBe('Vas a cargar 1 día (jueves, el 31 de diciembre) para 2 personas.')
+      .toBe('Vas a cargar 1 día (jueves, el 31 de diciembre) para cada una de las 2 personas (2 en total).')
     expect(previewText({ from: '2026-12-28', to: '2027-01-03', weekdays: [1], people: 2 }))
-      .toBe('Vas a cargar 1 día (lunes, del 28 de diciembre de 2026 al 3 de enero de 2027) para 2 personas.')
+      .toBe('Vas a cargar 1 día (lunes, del 28 de diciembre de 2026 al 3 de enero de 2027) para cada una de las 2 personas (2 en total).')
+  })
+  // #177: the preview counted dates per person and the result counted days created, and it could read «para 0 personas».
+  it('sin personas elegidas dice lo que falta en lugar de «0 personas»', () => {
+    expect(previewText({ from: '2026-11-09', to: '2026-11-15', weekdays: [1, 2, 3, 4, 5], people: 0 }))
+      .toBe('Son 5 días (lunes a viernes, del 9 al 15 de noviembre). Elegí a quiénes se los cargás.')
+    expect(previewText({ from: '2026-11-09', to: '2026-11-15', weekdays: [1], people: 0 }))
+      .toBe('Es 1 día (lunes, del 9 al 15 de noviembre). Elegí a quiénes se lo cargás.')
   })
   it('pide fechas válidas cuando el período elegido a mano está incompleto o es muy largo', () => {
     expect(previewText({ from: '', to: '2026-11-15', weekdays: [1], people: 2 })).toBe('Elegí el primer y el último día.')

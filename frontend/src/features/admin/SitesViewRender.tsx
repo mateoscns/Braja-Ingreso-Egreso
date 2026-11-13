@@ -10,7 +10,8 @@ import { SiteMapPanel, type SiteMapPanelState } from './SiteMapPanel'
 import { mapRadiusMeters } from './siteMap'
 import { SiteZoneField } from './SiteZoneField'
 import { timeZoneLabel } from './siteZone'
-import { dateTime } from './adminRenderShared'
+import { dateTime, SectionLink } from './adminRenderShared'
+import type { AdminSection } from './setupStatus'
 
 /**
  * The geofence radius (D-20261109-01): how far from the site's point a mark still counts as on site. Worded as a distance around
@@ -77,10 +78,14 @@ function LocationLine({ status, message, errorKind }: { status: SiteLocationEdit
   </Status>
 }
 
-export function SitesViewRender({ sites, loading, loadError, error, notice, messageAt = '', name, timeZone, busy, locationStatus, locationMessage, locating, locationErrorKind = null, locationAccuracyMeters = null, locationConfirmed = false, createRadiusMeters = '100', createLatitude = '', createLongitude = '', createLocationSource = null, locationEdit = null, siteLocationAuditFor = '', siteLocationAudit = null, siteLocationAuditLoading = false, siteLocationAuditError = '', siteMap = null, createPointFromMap = false, createErrors = {}, editErrors = {}, onOpenMap = () => undefined, onCloseMap = () => undefined, onMapPick = () => undefined, onMapQueryChange = () => undefined, onMapSearch = () => undefined, onChooseMapResult = () => undefined, onConfirmMapPoint = () => undefined, onLocationConfirmedChange = () => undefined, onCancelLocationCapture = () => undefined, onCreateRadiusMetersChange = () => undefined, onCreateCoordinateChange = () => undefined, onBeginLocationEdit = () => undefined, onCancelLocationEdit = () => undefined, onLocationEditChange = () => undefined, onCaptureEditLocation = () => undefined, onClearEditLocation = () => undefined, onSaveLocationEdit = () => undefined, onToggleSiteLocationAudit = () => undefined, onRetrySiteLocationAudit = () => undefined, onReload, onSubmit, onNameChange, onTimeZoneChange, onCaptureLocation, onClearLocation }: {
+export function SitesViewRender({ sites, loading, loadError, error, notice, messageAt = '', createdSite = null, onNavigate, name, timeZone, busy, locationStatus, locationMessage, locating, locationErrorKind = null, locationAccuracyMeters = null, locationConfirmed = false, createRadiusMeters = '100', createLatitude = '', createLongitude = '', createLocationSource = null, locationEdit = null, siteLocationAuditFor = '', siteLocationAudit = null, siteLocationAuditLoading = false, siteLocationAuditError = '', siteMap = null, createPointFromMap = false, createErrors = {}, editErrors = {}, onOpenMap = () => undefined, onCloseMap = () => undefined, onMapPick = () => undefined, onMapQueryChange = () => undefined, onMapSearch = () => undefined, onChooseMapResult = () => undefined, onConfirmMapPoint = () => undefined, onLocationConfirmedChange = () => undefined, onCancelLocationCapture = () => undefined, onCreateRadiusMetersChange = () => undefined, onCreateCoordinateChange = () => undefined, onBeginLocationEdit = () => undefined, onCancelLocationEdit = () => undefined, onLocationEditChange = () => undefined, onCaptureEditLocation = () => undefined, onClearEditLocation = () => undefined, onSaveLocationEdit = () => undefined, onToggleSiteLocationAudit = () => undefined, onRetrySiteLocationAudit = () => undefined, onReload, onSubmit, onNameChange, onTimeZoneChange, onCaptureLocation, onClearLocation }: {
   sites: Site[]; loading: boolean; loadError: string; error: string; notice: string; name: string; timeZone: string; busy: boolean
   /** The form whose result `error` and `notice` are (siteMessageKeys); they show there, or at the top of the page without one. */
   messageAt?: string
+  /** The local the add form just created: its result says it still needs its horario, which lives in «Horarios» (#177). */
+  createdSite?: Site | null
+  /** Follows the link to «Horarios» (AdminApp.navigate); without it the link changes the address. */
+  onNavigate?: (section: AdminSection) => void
   siteLocation: SiteCoordinates | null; locationStatus: 'idle' | 'loading' | 'selected' | 'error'; locationMessage: string; locating: boolean
   locationErrorKind?: SiteLocationErrorKind | null; locationAccuracyMeters?: number | null; locationConfirmed?: boolean
   createRadiusMeters?: string; createLatitude?: string; createLongitude?: string; createLocationSource?: 'CAPTURED' | 'MANUAL' | null
@@ -109,7 +114,12 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, mess
   const messagesAt = (key: string) => messageAt === key && (error || notice) ? messages : null
   // A result whose form is not on the screen any more still shows: at the top of the page, as before slice E4.
   const placed = messageAt === siteMessageKeys.create || sites.some((site) => messageAt === siteMessageKeys.edit(site.id))
-  const createResult = messagesAt(siteMessageKeys.create)
+  // With more than one local, «Horarios» opens on the first one: the step says which one to choose there.
+  const nextStep = createdSite && messageAt === siteMessageKeys.create && notice && !error ? <div className="form-stack">
+    <p className="muted">{`Para que tu equipo marque en ${createdSite.name}, falta crear su horario.${sites.length > 1 ? ` En Horarios, elegí ${createdSite.name} en «Local».` : ''}`}</p>
+    <div className="button-row"><SectionLink section="plantillas" onNavigate={onNavigate}>Crear su horario en Horarios</SectionLink></div>
+  </div> : null
+  const createResult = messagesAt(siteMessageKeys.create) && <>{messagesAt(siteMessageKeys.create)}{nextStep}</>
 
   // The point that will be saved, with what says where it came from and, for a captured or typed point, its confirmation.
   const chosenPoint = (coordinates: SiteCoordinates, origin: string, confirmation: ReactNode) => <div className="site-location-selection">
@@ -154,7 +164,8 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, mess
   }
 
   return <>
-    <PageHeading title="Locales" subtitle="Cada local define su zona horaria y sus horarios." />
+    {/* The horarios of a local are made in «Horarios», not here (#177). */}
+    <PageHeading title="Locales" subtitle="Cada local tiene su nombre, la hora que usa y dónde queda. Sus horarios se arman en Horarios." />
     {!placed && messages}
     <div className="content-grid">
       {/* Written out instead of Panel: its title names the list. */}

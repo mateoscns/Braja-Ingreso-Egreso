@@ -191,7 +191,7 @@ describe('búsqueda de días anteriores en «Hoy» (antes Historial)', () => {
     // The day is not a row of the list of the date, so it opens in its own block, outside the results.
     const detail = screen.getByRole('region', { name: 'Marcas de Lucía Pérez' })
     expect(search()).not.toContainElement(detail)
-    expect(detail).toHaveTextContent('Horario asignado: Mañana · tolerancia 5 min')
+    expect(detail).toHaveTextContent('Horario asignado: Mañana (09:00 a 17:00) · tolerancia 5 min')
     expect(within(detail).getByRole('button', { name: /^Corregir marca Entrada/ })).toBeEnabled()
     expect(within(detail).getByRole('button', { name: 'Agregar marca' })).toBeInTheDocument()
     expect(within(detail).getByRole('button', { name: 'Ver historial' })).toBeInTheDocument()
@@ -201,6 +201,22 @@ describe('búsqueda de días anteriores en «Hoy» (antes Historial)', () => {
     fireEvent.change(within(detail).getByLabelText('Motivo de anulación'), { target: { value: 'Marca duplicada' } })
     fireEvent.click(within(detail).getByRole('button', { name: 'Confirmar anulación' }))
     await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/admin/marks/m-1/void', { reason: 'Marca duplicada' }))
+  })
+
+  // #177: an opened day had no «Cerrar».
+  it('«Cerrar» de un día encontrado lo cierra y devuelve el foco a su «Ver marcas» de la búsqueda', async () => {
+    render(<JourneysView />)
+    await searchReady()
+    pick('Empleado', 'e-1')
+    fireEvent.click(searchButton())
+    const card = await within(search()).findByRole('article', { name: /Lucía Pérez/ })
+    const found = within(card).getByRole('button', { name: /^Ver marcas de Lucía Pérez del 16/ })
+    fireEvent.click(found)
+    const heading = await screen.findByRole('heading', { name: 'Marcas de Lucía Pérez' })
+    await waitFor(() => expect(heading).toHaveFocus())
+    fireEvent.click(within(screen.getByRole('region', { name: 'Marcas de Lucía Pérez' })).getByRole('button', { name: 'Cerrar' }))
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Marcas de Lucía Pérez' })).not.toBeInTheDocument())
+    await waitFor(() => expect(found).toHaveFocus())
   })
 
   // Slice F2b (design system 4.3 and 4.7): the search is checked on submit, each problem under the filter it is about.

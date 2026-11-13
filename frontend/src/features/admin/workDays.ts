@@ -124,6 +124,11 @@ export function dayText(date: string): string {
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`
 
+/**
+ * What a load will create, in the words of its result (#177): the result counts days created (one per person and date), so with
+ * several people the preview says the days of each one and the total. With nobody chosen it says what is missing, never
+ * «para 0 personas».
+ */
 export function previewText({ from, to, weekdays, people }: { from: string; to: string; weekdays: number[]; people: number }): string {
   if (!from || !to) return 'Elegí el primer y el último día.'
   const start = toTime(from)
@@ -131,7 +136,10 @@ export function previewText({ from, to, weekdays, people }: { from: string; to: 
   if (start === null || end === null || end < start || end - start >= MAX_BULK_DAYS * DAY_MS) return `Elegí un período de hasta ${MAX_BULK_DAYS} días, del primero al último.`
   const days = workDates(from, to, weekdays).length
   if (days === 0) return 'Ningún día del período cae en los días elegidos.'
-  return `Vas a cargar ${plural(days, 'día', 'días')} (${weekdaysText(weekdays)}, ${rangeText(from, to)}) para ${plural(people, 'persona', 'personas')}.`
+  const which = `${weekdaysText(weekdays)}, ${rangeText(from, to)}`
+  if (people <= 0) return days === 1 ? `Es 1 día (${which}). Elegí a quiénes se lo cargás.` : `Son ${days} días (${which}). Elegí a quiénes se los cargás.`
+  if (people === 1) return `Vas a cargar ${plural(days, 'día', 'días')} (${which}) para 1 persona.`
+  return `Vas a cargar ${plural(days, 'día', 'días')} (${which}) para cada una de las ${people} personas (${days * people} en total).`
 }
 
 const DATES_MISSING = 'Completá el primer y el último día.'

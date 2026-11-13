@@ -138,8 +138,8 @@ export function AdminApp() {
         {section === 'jornadas' && <JourneysView key={journeysKey} openJornada={openJornada} searchArrival={retiredAddress === HISTORY_ADDRESS ? retiredArrival : 0} />}
         {section === 'workdays' && <WorkDaysView onNavigate={navigate} onDaysLoaded={() => void refreshSetup()}
           coverage={notice && <CoverageNoticeRender notice={notice} actionLabel="Cargar días" onAction={showWorkDaysForm} />} />}
-        {section === 'empleados' && <EmployeesView />}
-        {section === 'sedes' && <SitesView />}
+        {section === 'empleados' && <EmployeesView onNavigate={navigate} />}
+        {section === 'sedes' && <SitesView onNavigate={navigate} />}
         {section === 'plantillas' && <SchedulesView />}
         {section === 'config' && <ConfigurationPage setupMissing={setupMissing} secure={window.isSecureContext} onNavigate={navigate}
           push={{ ...push, companyName: active.companyName, onActivate: () => void activate(), onDeactivate: () => void deactivate(), onRetryConfig: retryConfig }} />}

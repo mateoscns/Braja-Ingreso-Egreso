@@ -442,10 +442,10 @@ describe('administración de desvíos y marcas', () => {
     fireEvent.change(screen.getByLabelText('Fecha'), { target: { value: '2026-10-17' } })
     expect(await screen.findByRole('row', { name: /Nicolás Arce/ })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /^Ver marcas/ }))
-    expect(await screen.findByText('Horario asignado: Tarde · tolerancia 5 min')).toBeInTheDocument()
+    expect(await screen.findByText('Horario asignado: Tarde (09:00 a 17:00) · tolerancia 5 min')).toBeInTheDocument()
 
     await act(async () => { resolveOldDetail({ ...jornada, scheduleSnapshot: { ...jornada.scheduleSnapshot, name: 'Mañana antigua' } }) })
-    expect(screen.getByText('Horario asignado: Tarde · tolerancia 5 min')).toBeInTheDocument()
+    expect(screen.getByText('Horario asignado: Tarde (09:00 a 17:00) · tolerancia 5 min')).toBeInTheDocument()
     expect(screen.queryByText(/Horario asignado: Mañana antigua/)).not.toBeInTheDocument()
   })
 
@@ -458,7 +458,7 @@ describe('administración de desvíos y marcas', () => {
   it('registra una marca olvidada y permite corregir una marca con motivo de auditoría', async () => {
     render(<JourneysView />)
     fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
-    await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
+    await screen.findByText('Horario asignado: Mañana (09:00 a 17:00) · tolerancia 5 min')
 
     fireEvent.change(screen.getByLabelText('¿Qué marca faltó?'), { target: { value: 'SALIDA_ALMUERZO' } })
     fireEvent.change(screen.getByLabelText('Hora (Local Centro)'), { target: { value: '2026-10-16T12:30' } })
@@ -486,7 +486,7 @@ describe('administración de desvíos y marcas', () => {
       apiMocks.post.mockRejectedValueOnce(rejection(code))
       render(<JourneysView />)
       fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
-      await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
+      await screen.findByText('Horario asignado: Mañana (09:00 a 17:00) · tolerancia 5 min')
       fireEvent.change(screen.getByLabelText('Hora (Local Centro)'), { target: { value: '2026-10-16T08:30' } })
       fireEvent.change(screen.getByLabelText('¿Por qué la agregás?'), { target: { value: 'Olvidó marcar.' } })
       fireEvent.click(screen.getByRole('button', { name: 'Agregar marca' }))
@@ -526,7 +526,7 @@ describe('administración de desvíos y marcas', () => {
     apiMocks.get.mockImplementation((path: string) => path === '/sites' ? Promise.resolve([{ ...site, timeZone: 'America/New_York' }]) : originalGet(path))
     render(<JourneysView />)
     fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
-    await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
+    await screen.findByText('Horario asignado: Mañana (09:00 a 17:00) · tolerancia 5 min')
     fireEvent.change(screen.getByLabelText('¿Qué marca faltó?'), { target: { value: 'SALIDA_ALMUERZO' } })
     fireEvent.change(screen.getByLabelText('Hora (Local Centro)'), { target: { value: localTime } })
     fireEvent.change(screen.getByLabelText('¿Por qué la agregás?'), { target: { value: 'Marca olvidada.' } })
@@ -570,7 +570,7 @@ describe('administración de desvíos y marcas', () => {
   it('los campos de hora del detalle no piden segundos', async () => {
     render(<JourneysView />)
     fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
-    await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
+    await screen.findByText('Horario asignado: Mañana (09:00 a 17:00) · tolerancia 5 min')
     expect(screen.getByRole('heading', { name: 'Agregar una marca que faltó' })).toBeInTheDocument()
     expect(screen.getByLabelText('Hora (Local Centro)')).not.toHaveAttribute('step')
     fireEvent.click(screen.getByRole('button', { name: /^Corregir marca Entrada/ }))
@@ -622,7 +622,7 @@ describe('administración de desvíos y marcas', () => {
       expect(card).toHaveTextContent('Local Centro')
       expect(card).toHaveTextContent(formatJornadaState('EN_CURSO'))
       fireEvent.click(within(card).getByRole('button', { name: 'Ver marcas de Lucía Pérez' }))
-      expect(await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')).toBeInTheDocument()
+      expect(await screen.findByText('Horario asignado: Mañana (09:00 a 17:00) · tolerancia 5 min')).toBeInTheDocument()
     })
 
     it('pliega los filtros de la bandeja y resume en una línea los que están aplicados', async () => {
@@ -701,7 +701,8 @@ describe('administración de desvíos y marcas', () => {
       fireEvent.click(screen.getByRole('checkbox', { name: 'Activo (DNI 30123456)' }))
       fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
 
-      expect(await screen.findByText('Cambios del empleado guardados.')).toBeInTheDocument()
+      // #177: a deactivation says so instead of «Cambios del empleado guardados.».
+      expect(await screen.findByText('Lucía P. quedó inactivo.')).toBeInTheDocument()
       expect(apiMocks.patch).toHaveBeenCalledWith('/employees/e-1', { displayName: 'Lucía P.', siteIds: ['s-1'], toleranceMinutes: 5, active: false })
       expect(rowOf('Lucía P.')).toHaveTextContent('Inactivo')
     })
@@ -840,7 +841,7 @@ describe('administración de desvíos y marcas', () => {
     apiMocks.get.mockImplementation((path: string) => path === '/sites' ? Promise.reject(new Error('Servidor no disponible.')) : previous(path))
     render(<JourneysView />)
     fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
-    await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
+    await screen.findByText('Horario asignado: Mañana (09:00 a 17:00) · tolerancia 5 min')
 
     expect(screen.getByText('No se pudo cargar la zona horaria del local. Reintentá los datos del día antes de incorporar o corregir marcas.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Agregar marca' })).toBeDisabled()
@@ -1105,7 +1106,7 @@ describe('administración de desvíos y marcas', () => {
     it('no ofrece cancelar una jornada que ya tiene marcas', async () => {
       render(<JourneysView />)
       fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
-      await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
+      await screen.findByText('Horario asignado: Mañana (09:00 a 17:00) · tolerancia 5 min')
       expect(screen.queryByRole('button', { name: 'Cancelar el día' })).not.toBeInTheDocument()
     })
 
@@ -1159,7 +1160,7 @@ describe('administración de desvíos y marcas', () => {
       render(<JourneysView />)
       const dayRow = () => screen.getByRole('row', { name: /^Lucía Pérez/ })
       fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
-      await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
+      await screen.findByText('Horario asignado: Mañana (09:00 a 17:00) · tolerancia 5 min')
       expect(within(dayRow()).getByText(formatJornadaState('EN_CURSO'))).toBeInTheDocument()
 
       state = 'EGRESADA'
@@ -1212,7 +1213,7 @@ describe('administración de desvíos y marcas', () => {
       await waitFor(() => expect(openOther).toBeEnabled())
       fireEvent.click(openOther)
       expect(await screen.findByRole('region', { name: 'Marcas de Nicolás Arce' })).toBeInTheDocument()
-      await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
+      await screen.findByText('Horario asignado: Mañana (09:00 a 17:00) · tolerancia 5 min')
       expect(screen.queryByText('Día cancelado.')).not.toBeInTheDocument()
     })
 
@@ -1245,7 +1246,7 @@ describe('administración de desvíos y marcas', () => {
     const openDay = async () => {
       const button = await screen.findByRole('button', { name: 'Ver marcas de Lucía Pérez' })
       fireEvent.click(button)
-      await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
+      await screen.findByText('Horario asignado: Mañana (09:00 a 17:00) · tolerancia 5 min')
       // The day is open once focus reached its heading, as a person sees it. Clicking on before that let the pending focus
       // of the day land after the next form's (2026-11-11: failed now and then under the load of the whole suite).
       await waitFor(() => expect(screen.getByRole('heading', { name: /^Marcas de / })).toHaveFocus())
@@ -1412,8 +1413,31 @@ describe('administración de desvíos y marcas', () => {
         render(<JourneysView />)
         await openDay()
         const [item] = within(screen.getByRole('list', { name: 'Marcas del día' })).getAllByRole('listitem')
-        expect(item).toHaveTextContent(`Registrada: ${formatDateTime('2026-10-16T14:30:00Z', site.timeZone)}`)
+        // #177: the first time had no label and «Registrada:» next to it was not explained.
+        expect(item).toHaveTextContent(`Hora de la marca: ${formatDateTime('2026-10-16T12:00:00Z', site.timeZone)}`)
+        expect(item).toHaveTextContent(`Guardada en el sistema: ${formatDateTime('2026-10-16T14:30:00Z', site.timeZone)}`)
+        expect(item).not.toHaveTextContent('Registrada')
       })
+
+      // #177: «Horario asignado: Mañana · tolerancia 10 min» had no hours.
+      it('el horario del día dice sus horas, también uno partido o que termina al día siguiente', async () => {
+        withDayDetail({ scheduleSnapshot: { ...jornada.scheduleSnapshot, name: 'Partido', blocks: [
+          { startDayOffset: 0, start: '09:00:00', end: '13:00:00', endDayOffset: 0 }, { startDayOffset: 0, start: '20:00:00', end: '01:00:00', endDayOffset: 1 }
+        ] } })
+        render(<JourneysView />)
+        fireEvent.click(await screen.findByRole('button', { name: 'Ver marcas de Lucía Pérez' }))
+        expect(await screen.findByText('Horario asignado: Partido (09:00 a 13:00 y 20:00 a 01:00 (día siguiente)) · tolerancia 5 min')).toBeInTheDocument()
+      })
+    })
+
+    // #177: an opened day had no «Cerrar»; it stayed open under its row until another one was opened.
+    it('«Cerrar» cierra el día abierto y devuelve el foco a su «Ver marcas»', async () => {
+      render(<JourneysView />)
+      const button = await openDay()
+      const detail = screen.getByRole('region', { name: 'Marcas de Lucía Pérez' })
+      fireEvent.click(within(detail).getByRole('button', { name: 'Cerrar' }))
+      await waitFor(() => expect(screen.queryByRole('region', { name: 'Marcas de Lucía Pérez' })).not.toBeInTheDocument())
+      await waitFor(() => expect(button).toHaveFocus())
     })
   })
 
@@ -1609,7 +1633,7 @@ describe('administración de desvíos y marcas', () => {
       expect(panel.getByRole('button', { name: 'Lo que queda del mes' })).toHaveAttribute('aria-pressed', 'true')
       expect(panel.getByRole('checkbox', { name: 'Domingo' })).not.toBeChecked()
       expect(panel.getByText('Vas a cargar 19 días (lunes a sábado, del 9 al 30 de noviembre) para 1 persona.')).toBeInTheDocument()
-      expect(panel.getByText('Se cargan una sola vez. Para el mes siguiente, volvé a esta pantalla.')).toBeInTheDocument()
+      expect(panel.getByText('Los días no se repiten solos: cuando termine este período, volvé acá para cargar el siguiente.')).toBeInTheDocument()
       expect(panel.queryByLabelText('Primer día')).not.toBeInTheDocument()
       fireEvent.click(panel.getByRole('button', { name: 'Cargar días' }))
       await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/jornadas/bulk', { employeeIds: ['e-1'], siteId: 's-1', from: '2026-11-09', to: '2026-11-30', weekdays: [1, 2, 3, 4, 5, 6] }))
@@ -2034,7 +2058,7 @@ describe('dirección de cada sección del ADMIN', () => {
     openAt('#/para-revisar')
     render(<AdminApp />)
     fireEvent.click(await screen.findByRole('button', { name: 'Ver el día de Lucía Pérez' }))
-    expect(await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')).toBeInTheDocument()
+    expect(await screen.findByText('Horario asignado: Mañana (09:00 a 17:00) · tolerancia 5 min')).toBeInTheDocument()
     expect(window.location.hash).toBe('#/hoy')
   })
 
@@ -2222,7 +2246,7 @@ describe('un solo estilo de validación en los formularios del ADMIN', () => {
     apiMocks.get.mockImplementation((path: string) => path === '/sites' ? Promise.reject(new Error('Servidor no disponible.')) : previous(path))
     render(<JourneysView />)
     fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
-    await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')
+    await screen.findByText('Horario asignado: Mañana (09:00 a 17:00) · tolerancia 5 min')
 
     expect(screen.getByRole('button', { name: 'Agregar marca' })).toHaveAccessibleDescription('No se pudo cargar la zona horaria del local. Reintentá los datos del día antes de incorporar o corregir marcas.')
   })

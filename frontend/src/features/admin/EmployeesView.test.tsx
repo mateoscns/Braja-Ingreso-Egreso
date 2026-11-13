@@ -112,7 +112,7 @@ describe('Empleados: easier for a shop owner', () => {
 
   it('explains the tolerance minutes', async () => {
     render(<EmployeesView />)
-    expect(await screen.findByLabelText('Minutos de tolerancia')).toHaveAccessibleDescription('Son los minutos que puede llegar tarde o salir antes o después sin que te avisemos.')
+    expect(await screen.findByLabelText('Minutos de tolerancia')).toHaveAccessibleDescription('Son los minutos que puede llegar tarde o salir antes o después sin que aparezca un caso en Para revisar.')
   })
 
   it('opens the horarios of an employee next to it, scrolled into view, from today by default', async () => {
@@ -510,5 +510,99 @@ describe('Empleados: one validation style', () => {
     expect(sites).toHaveAccessibleDescription('Marcá al menos un local.')
     await waitFor(() => expect(within(form).getByRole('checkbox', { name: 'Local Centro (DNI 30123456)' })).toHaveFocus())
     expect(apiMocks.patch).not.toHaveBeenCalled()
+  })
+})
+
+// Issue #177: the simulated evaluation found the steps were never chained, the add form was below the whole list and
+// deactivating a person said nothing about what it does.
+describe('«Equipo»: what comes after each step (#177)', () => {
+  beforeEach(() => { apiMocks.post.mockReset(); apiMocks.patch.mockReset() })
+  const createAna = async (onNavigate = vi.fn()) => {
+    apiMocks.post.mockImplementation((_path: string, body: Record<string, unknown>) => Promise.resolve({ id: 'e-9', displayName: body.displayName, dni: body.dni, siteIds: body.siteIds, toleranceMinutes: 5, active: true, mustChangePassword: true }))
+    apiMocks.get.mockImplementation((path: string) => {
+      if (path === '/sites') return Promise.resolve([site])
+      if (path === '/employees') return Promise.resolve([lucia])
+      if (path === '/templates') return Promise.resolve([manana])
+      if (path.endsWith('/template-assignments')) return Promise.resolve([])
+      throw new Error(`GET inesperado: ${path}`)
+    })
+    render(<EmployeesView onNavigate={onNavigate} />)
+    fireEvent.change(await screen.findByLabelText('Nombre y apellido'), { target: { value: 'Ana Gómez' } })
+    fireEvent.change(screen.getByLabelText('DNI'), { target: { value: '30111222' } })
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Local Centro' })).toBeChecked())
+    fireEvent.click(screen.getByRole('button', { name: 'Crear empleado' }))
+    expect(await screen.findByText('Empleado creado.')).toBeInTheDocument()
+    return onNavigate
+  }
+
+  it('after creating a person it says what is still missing for them to clock in, with the way to each step', async () => {
+    const onNavigate = await createAna()
+    const form = screen.getByRole('button', { name: 'Crear empleado' }).closest('form')!
+    expect(within(form).getByText('Para que Ana Gómez pueda marcar faltan dos pasos: asignarle un horario y después cargarle los días de trabajo.')).toBeInTheDocument()
+
+    const days = within(form).getByRole('link', { name: 'Cargar días de trabajo' })
+    expect(days).toHaveAttribute('href', '#/dias-de-trabajo')
+    fireEvent.click(days)
+    expect(onNavigate).toHaveBeenCalledWith('workdays')
+
+    // The schedule is assigned here, in the horarios of the person: the step opens them under the new record.
+    fireEvent.click(within(form).getByRole('button', { name: 'Asignarle un horario a Ana Gómez' }))
+    expect(await screen.findByRole('region', { name: 'Horarios de Ana Gómez' })).toBeInTheDocument()
+    expect(apiMocks.get).toHaveBeenCalledWith('/employees/e-9/template-assignments')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Horarios de Ana Gómez' })).toHaveFocus())
+  })
+
+  it('a person whose locals have no horario is sent to «Horarios» to create one', async () => {
+    const onNavigate = vi.fn()
+    apiMocks.get.mockImplementation((path: string) => {
+      if (path === '/sites') return Promise.resolve([site])
+      if (path === '/employees') return Promise.resolve([lucia])
+      if (path === '/templates') return Promise.resolve([])
+      if (path === '/employees/e-1/template-assignments') return Promise.resolve([])
+      throw new Error(`GET inesperado: ${path}`)
+    })
+    render(<EmployeesView onNavigate={onNavigate} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Horarios de Lucía Pérez' }))
+    const panel = within(await screen.findByRole('region', { name: 'Horarios de Lucía Pérez' }))
+    const link = await panel.findByRole('link', { name: 'Crear un horario en Horarios' })
+    expect(link).toHaveAttribute('href', '#/configuracion/horarios')
+    fireEvent.click(link)
+    expect(onNavigate).toHaveBeenCalledWith('plantillas')
+  })
+
+  it('the heading has a way to the add form that puts the keyboard on its first field', async () => {
+    render(<EmployeesView />)
+    await screen.findByRole('button', { name: 'Editar empleado Lucía Pérez' })
+    const heading = screen.getByRole('heading', { level: 1, name: 'Equipo' }).closest('.page-title-row')!
+    fireEvent.click(within(heading as HTMLElement).getByRole('button', { name: 'Dar de alta un empleado' }))
+    await waitFor(() => expect(screen.getByLabelText('Nombre y apellido')).toHaveFocus())
+    expect(scrollIntoView.mock.contexts.at(-1)).toBe(screen.getByLabelText('Nombre y apellido').closest('form'))
+    expect(scrollIntoView).toHaveBeenLastCalledWith(expect.objectContaining({ block: 'start' }))
+  })
+
+  it('«Activo» says what unticking it does, and saving says the person became inactive or active again', async () => {
+    apiMocks.patch.mockImplementation((_path: string, body: Record<string, unknown>) => Promise.resolve({ ...lucia, ...body }))
+    render(<EmployeesView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Editar empleado Lucía Pérez' }))
+    let form = within(screen.getByRole('form', { name: 'Editar empleado Lucía Pérez' }))
+    const active = form.getByRole('checkbox', { name: 'Activo (DNI 30123456)' })
+    expect(active).toHaveAccessibleDescription('Sin marcar, no puede entrar ni marcar; su historial queda.')
+    fireEvent.click(active)
+    fireEvent.click(form.getByRole('button', { name: 'Guardar' }))
+    expect(await screen.findByText('Lucía Pérez quedó inactivo.')).toBeInTheDocument()
+    expect(apiMocks.patch).toHaveBeenLastCalledWith('/employees/e-1', expect.objectContaining({ active: false }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Editar empleado Lucía Pérez' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Editar empleado Lucía Pérez' }))
+    form = within(screen.getByRole('form', { name: 'Editar empleado Lucía Pérez' }))
+    fireEvent.click(form.getByRole('checkbox', { name: 'Activo (DNI 30123456)' }))
+    fireEvent.click(form.getByRole('button', { name: 'Guardar' }))
+    expect(await screen.findByText('Lucía Pérez quedó activo otra vez.')).toBeInTheDocument()
+
+    // Without a change of state the message stays the one of before.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Editar empleado Lucía Pérez' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Editar empleado Lucía Pérez' }))
+    fireEvent.click(within(screen.getByRole('form', { name: 'Editar empleado Lucía Pérez' })).getByRole('button', { name: 'Guardar' }))
+    expect(await screen.findByText('Cambios del empleado guardados.')).toBeInTheDocument()
   })
 })

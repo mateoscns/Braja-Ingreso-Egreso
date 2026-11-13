@@ -16,7 +16,8 @@ const PERIODS: { value: WorkPeriod; label: string }[] = [
   { value: 'this-week', label: 'Esta semana' }, { value: 'two-weeks', label: 'Próximas 2 semanas' },
   { value: 'rest-of-month', label: 'Lo que queda del mes' }, { value: 'next-month', label: 'Mes que viene' }, { value: 'custom', label: 'Elegir fechas' }
 ]
-export const ONCE_NOTE = 'Se cargan una sola vez. Para el mes siguiente, volvé a esta pantalla.'
+/** Days are created once, with no weekly rule (D-20261015-01); «Se cargan una sola vez» read as «it cannot be fixed» (#177). */
+export const ONCE_NOTE = 'Los días no se repiten solos: cuando termine este período, volvé acá para cargar el siguiente.'
 
 export type WorkDaysFormValues = {
   siteId: string; weekdays: number[]; period: WorkPeriod; from: string; to: string

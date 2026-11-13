@@ -7,6 +7,7 @@ import { Icon, type IconName } from '../../app/icons'
 import { Empty, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel, StatusTag, TableScroll } from '../../app/ui'
 import type { FieldErrors } from '../../app/useFieldErrors'
 import type { Deviation, Jornada, JornadaAudit, JornadaAuditEntry, JornadaStatus, Mark, MarkAction, Site } from '../../shared/api/types'
+import { formatBlock } from '../../shared/format'
 import { adminCategoryName as categoryName, adminDeviationName as deviationName, adminDeviationStatusName as statusName, adminMarkLocationName as locationName, adminMarkName as actionName } from '../../shared/labels'
 import { dateTime, stateLabel } from './adminRenderShared'
 
@@ -21,6 +22,11 @@ export const DETAIL_HEADING_ID = 'jornada-detail-title'
 export const FORGOTTEN_FORM_ID = 'jornada-forgotten-mark-form'
 export const CANCEL_FORM_ID = 'jornada-cancel-form'
 export const CANCEL_BUTTON_ID = 'jornada-cancel-button'
+/** «Ver marcas» of a day of the list: the day's «Cerrar» gives the focus back to it (#177). */
+export const dayButtonId = (jornadaId: string) => `jornada-${jornadaId}-show`
+/** The two times of a mark, named the same in the table and on a phone (#177: the first had no name, «Registrada» no meaning). */
+const MARK_TIME_LABEL = 'Hora de la marca'
+const RECORDED_TIME_LABEL = 'Guardada en el sistema'
 /** The message that the local's zone could not be read: it is the reason of the buttons that need a typed time. */
 const ZONE_MISSING_ID = 'jornada-zone-missing'
 export type MarkFormKind = 'correct' | 'void'
@@ -49,7 +55,7 @@ function journeysTitle(date: string) {
   return `Días de trabajo del ${formattedDate}`
 }
 
-export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas, loading, journeysLoading, journeysDate, journeysError, dependencyError, error, notice, messageAt, detail, detailFor, detailLoading, markBusy, date, dateError, peopleById, detailSite, detailTimeZone, forgotAction, forgotOccurredAt, forgotReason, editingMarkId, correctedAction, correctedOccurredAt, correctionReason, cancelOpen, cancelReason, voidingMarkId, voidReason, forgottenErrors = {}, correctionErrors = {}, voidError, cancelError, auditOpen, audit, auditLoading, auditError, onToggleAudit, onRetryAudit, onDateChange, onRetryDependencies, onReloadJourneys, onShowDetail, onForgotActionChange, onForgotOccurredAtChange, onForgotReasonChange, onAddForgottenMark, onBeginMarkCorrection, onCorrectedActionChange, onCorrectedOccurredAtChange, onCorrectionReasonChange, onCorrectMark, onCancelMarkCorrection, onBeginCancel, onCancelReasonChange, onConfirmCancel, onAbortCancel, onBeginVoid, onVoidReasonChange, onConfirmVoid, onAbortVoid }: {
+export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas, loading, journeysLoading, journeysDate, journeysError, dependencyError, error, notice, messageAt, detail, detailFor, detailLoading, markBusy, date, dateError, peopleById, detailSite, detailTimeZone, forgotAction, forgotOccurredAt, forgotReason, editingMarkId, correctedAction, correctedOccurredAt, correctionReason, cancelOpen, cancelReason, voidingMarkId, voidReason, forgottenErrors = {}, correctionErrors = {}, voidError, cancelError, auditOpen, audit, auditLoading, auditError, onToggleAudit, onRetryAudit, onDateChange, onRetryDependencies, onReloadJourneys, onShowDetail, onCloseDetail = () => undefined, onForgotActionChange, onForgotOccurredAtChange, onForgotReasonChange, onAddForgottenMark, onBeginMarkCorrection, onCorrectedActionChange, onCorrectedOccurredAtChange, onCorrectionReasonChange, onCorrectMark, onCancelMarkCorrection, onBeginCancel, onCancelReasonChange, onConfirmCancel, onAbortCancel, onBeginVoid, onVoidReasonChange, onConfirmVoid, onAbortVoid }: {
   /** The search of earlier days (AdminHistory), a fold under the list of the date. */
   daySearch?: ReactNode
   /** Under 768 px: the days and the marks of a day are lists instead of tables. */
@@ -64,6 +70,8 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
   correctedAction: MarkAction; correctedOccurredAt: string; correctionReason: string
   onDateChange: (value: string) => void
   onRetryDependencies: () => void; onReloadJourneys: () => void; onShowDetail: (id: string) => void
+  /** «Cerrar» of the open day: the container closes it and gives the focus back to the «Ver marcas» that opened it. */
+  onCloseDetail?: () => void
   onForgotActionChange: (value: MarkAction) => void; onForgotOccurredAtChange: (value: string) => void; onForgotReasonChange: (value: string) => void; onAddForgottenMark: (event: FormEvent<HTMLFormElement>) => void
   onBeginMarkCorrection: (mark: Mark) => void; onCorrectedActionChange: (value: MarkAction) => void; onCorrectedOccurredAtChange: (value: string) => void; onCorrectionReasonChange: (value: string) => void
   onCorrectMark: (event: FormEvent<HTMLFormElement>, mark: Mark) => void; onCancelMarkCorrection: () => void
@@ -115,8 +123,10 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
     const forgottenMessages = messagesAt('forgotten')
     // Written out instead of Panel: the title takes the focus when the day opens (tabIndex -1), and names the table of marks.
     return <section id={DETAIL_ID} className="panel day-detail" aria-labelledby={DETAIL_HEADING_ID}>
-      <div className="panel-heading"><h2 id={DETAIL_HEADING_ID} tabIndex={-1}>{`Marcas de ${peopleById.get(detail.employeeId) ?? 'empleado'}`}</h2></div>
-      <p className="muted">Horario asignado: {detail.scheduleSnapshot.name} · tolerancia {detail.toleranceMinutes} min</p>
+      <div className="panel-heading"><h2 id={DETAIL_HEADING_ID} tabIndex={-1}>{`Marcas de ${peopleById.get(detail.employeeId) ?? 'empleado'}`}</h2>
+        <button type="button" className="button button-link" disabled={markBusy !== ''} onClick={onCloseDetail}>Cerrar</button></div>
+      {/* The hours of the schedule the day was loaded with (#177: only its name was shown). */}
+      <p className="muted">{`Horario asignado: ${scheduleText(detail.scheduleSnapshot)} · tolerancia ${detail.toleranceMinutes} min`}</p>
       {!detailTimeZone && <div id={ZONE_MISSING_ID}><PageMessage kind="error">No se pudo cargar la zona horaria del local. Reintentá los datos del día antes de incorporar o corregir marcas.</PageMessage></div>}
       {detail.state === 'CANCELADA' && <PageMessage>Día cancelado el {dateTime(detail.cancelledAt ?? '', detailTimeZone)}.{detail.cancelReason ? ` Motivo: ${detail.cancelReason}` : ''}</PageMessage>}
       {cancellable && cancelOpen ? <form id={CANCEL_FORM_ID} className="inline-form" noValidate onSubmit={onConfirmCancel}>
@@ -128,12 +138,12 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
         : narrow ? <ul className="record-list" aria-label="Marcas del día">{detail.marks.map((mark) => <li key={mark.id} className={mark.voided ? 'record record-voided' : 'record'}>
           <p className="record-title"><strong>{mark.voided ? <s>{actionName(mark.action)}</s> : actionName(mark.action)}</strong>{mark.voided && <VoidedTag />}</p>
           {/* The table's «Registrada» column, so no information depends on the width of the screen. */}
-          <p className="record-meta"><span>{mark.voided ? <s>{markTime(mark)}</s> : markTime(mark)}</span><span>Registrada: {recordedTime(mark)}</span></p>
+          <p className="record-meta"><span>{`${MARK_TIME_LABEL}: `}{mark.voided ? <s>{markTime(mark)}</s> : markTime(mark)}</span><span>{`${RECORDED_TIME_LABEL}: ${recordedTime(mark)}`}</span></p>
           <p className="record-meta">{mark.voided ? voidedNote(mark) : markLocation(mark)}</p>
           {!mark.voided && markButtons(mark, 'record-actions')}
           {underMark(mark)}
         </li>)}</ul>
-        : <TableScroll labelledBy={DETAIL_HEADING_ID}><table aria-labelledby={DETAIL_HEADING_ID}><thead><tr><th scope="col">Marca</th><th scope="col">Hora</th><th scope="col">Registrada</th><th scope="col">Ubicación</th><th scope="col">Acciones</th></tr></thead><tbody>{detail.marks.map((mark) => {
+        : <TableScroll labelledBy={DETAIL_HEADING_ID}><table aria-labelledby={DETAIL_HEADING_ID}><thead><tr><th scope="col">Marca</th><th scope="col">{MARK_TIME_LABEL}</th><th scope="col">{RECORDED_TIME_LABEL}</th><th scope="col">Ubicación</th><th scope="col">Acciones</th></tr></thead><tbody>{detail.marks.map((mark) => {
           const under = underMark(mark)
           return <Fragment key={mark.id}>{mark.voided
             ? <tr className="record-voided"><td><s>{actionName(mark.action)}</s> <VoidedTag /></td><td><s>{markTime(mark)}</s></td><td>{recordedTime(mark)}</td><td>{markLocation(mark)}</td><td>{voidedNote(mark)}</td></tr>
@@ -165,12 +175,12 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
         return <li className="record" key={jornada.id} aria-labelledby={`jornada-${jornada.id}-person`}>
           <p className="record-title"><strong id={`jornada-${jornada.id}-person`}>{person}</strong><DayStateTag state={jornada.state} /></p>
           <p className="record-meta">{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Local'}</p>
-          <div className="record-actions"><button className="button button-link" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></div>
+          <div className="record-actions"><button id={dayButtonId(jornada.id)} className="button button-link" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></div>
           {detailIn(jornada.id)}
         </li>
       })}</ul> : <TableScroll labelledBy={LIST_HEADING_ID}><table aria-labelledby={LIST_HEADING_ID}><thead><tr><th scope="col">Empleado</th><th scope="col">Local</th><th scope="col">Estado</th><th scope="col">Acciones</th></tr></thead><tbody>{jornadas.map((jornada) => {
         const open = detailIn(jornada.id)
-        return <Fragment key={jornada.id}><tr><td>{peopleById.get(jornada.employeeId) ?? 'Empleado'}</td><td>{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Local'}</td><td><DayStateTag state={jornada.state} /></td><td><button className="button button-link" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></td></tr>
+        return <Fragment key={jornada.id}><tr><td>{peopleById.get(jornada.employeeId) ?? 'Empleado'}</td><td>{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Local'}</td><td><DayStateTag state={jornada.state} /></td><td><button id={dayButtonId(jornada.id)} className="button button-link" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></td></tr>
           {/* The day opens in a full-width row under its own; once read, the row is named by the day's title. */}
           {open && <tr aria-labelledby={detail && !detailLoading ? DETAIL_HEADING_ID : undefined}><td colSpan={4}>{open}</td></tr>}</Fragment>
       })}</tbody></table></TableScroll> : <Empty>No hay días cargados para esta fecha.</Empty>}
@@ -199,6 +209,11 @@ export function JornadaAuditSection({ open, audit, loading, error, onToggle, onR
       </li>)}</ol>
     </>}</div>}
   </section>
+}
+
+/** «Mañana (09:00 a 13:00 y 17:00 a 21:00)»: the name of a schedule with its hours. */
+function scheduleText(schedule: Jornada['scheduleSnapshot']): string {
+  return schedule.blocks.length ? `${schedule.name} (${schedule.blocks.map(formatBlock).join(' y ')})` : schedule.name
 }
 
 /** Reasons written by people; the system's own reconciliation notes are not shown. */
