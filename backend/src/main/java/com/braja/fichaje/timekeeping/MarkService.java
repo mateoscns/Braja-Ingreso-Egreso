@@ -135,7 +135,7 @@ public class MarkService {
         boolean admin = "ADMIN".equals(scope.role());
         record Found(JornadaController.MarkView view, UUID employeeId) { }
         Found mark = jdbc.query("SELECT m.id,m.jornada_id,m.action,m.sequence_number,m.accepted_at,m.occurred_at,m.recorded_at,m.location_status,m.latitude,m.longitude," +
-                        "m.voided_at,m.void_reason,j.employee_id FROM mark_events m JOIN jornadas j ON j.id=m.jornada_id AND j.company_id=m.company_id WHERE m.id=? AND m.company_id=?",
+                        "m.accuracy_meters,m.voided_at,m.void_reason,j.employee_id FROM mark_events m JOIN jornadas j ON j.id=m.jornada_id AND j.company_id=m.company_id WHERE m.id=? AND m.company_id=?",
                 rs -> rs.next() ? new Found(JornadaController.markView(rs, admin), UUID.fromString(rs.getString("employee_id"))) : null,
                 markId.toString(), scope.companyId().toString());
         if (mark == null) throw ApiException.notFound();
@@ -572,7 +572,7 @@ public class MarkService {
     /** A just-written mark: never voided. */
     private JornadaController.MarkView toView(UUID id, UUID jornadaId, MarkAction action, long sequence, Instant acceptedAt, Instant occurredAt,
                                                Instant recordedAt, String status, Double lat, Double lon) {
-        return new JornadaController.MarkView(id, jornadaId, action.name(), sequence, acceptedAt, occurredAt, recordedAt, status, lat, lon, false, null, null, List.of());
+        return new JornadaController.MarkView(id, jornadaId, action.name(), sequence, acceptedAt, occurredAt, recordedAt, status, lat, lon, false, null, null, List.of(), null);
     }
 
     private static java.sql.Timestamp timestamp(Instant instant) { return java.sql.Timestamp.from(instant); }

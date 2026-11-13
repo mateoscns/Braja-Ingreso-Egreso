@@ -37,6 +37,8 @@ export type Mark = {
   id: Id; jornadaId: Id; action: MarkAction; sequence: number; acceptedAt: string; occurredAt?: string | null;
   recordedAt?: string | null; locationStatus: 'PENDIENTE' | 'RECIBIDA' | 'SIN_UBICACION' | 'PURGADA' | 'NO_APLICA';
   latitude?: number | null; longitude?: number | null; deviations?: Deviation[];
+  /** The accuracy the phone reported with the location, in meters, as stored; only for the ADMIN and until the 90-day purge. */
+  accuracyMeters?: number | null;
   /** D-20261027-08: a voided mark stays listed and stops counting; voidedAt and voidReason reach only the ADMIN. */
   voided?: boolean; voidedAt?: string | null; voidReason?: string | null
 }
@@ -48,6 +50,8 @@ export type Jornada = {
   toleranceMinutes: number; sequence: number; marks: Mark[];
   /** Set only for CANCELADA; cancelReason reaches only the ADMIN. */
   cancelledAt?: string | null; cancelReason?: string | null
+  /** The local's point and radius frozen on the day, the ones its marks were judged with; only for the ADMIN, none without a point. */
+  geofenceLatitude?: number | null; geofenceLongitude?: number | null; geofenceRadiusMeters?: number | null
 }
 /** GET /jornadas; marks and deviations only with includeDetail=true. */
 export type JornadaSummary = {

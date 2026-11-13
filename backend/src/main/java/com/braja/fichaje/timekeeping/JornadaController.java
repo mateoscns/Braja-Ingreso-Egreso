@@ -19,7 +19,8 @@ import java.util.*;
 @RestController
 @RequestMapping("/api/v1/jornadas")
 public class JornadaController {
-    private static final String JORNADA_COLUMNS = "id,employee_id,site_id,local_date,state,next_sequence,schedule_snapshot,tolerance_minutes,cancelled_at,cancel_reason";
+    private static final String JORNADA_COLUMNS = "id,employee_id,site_id,local_date,state,next_sequence,schedule_snapshot,tolerance_minutes,cancelled_at,cancel_reason,"
+            + "site_geofence_latitude_snapshot,site_geofence_longitude_snapshot,site_geofence_radius_snapshot";
 
     private final JdbcTemplate jdbc;
     private final ScopeService scopes;
@@ -86,9 +87,12 @@ public class JornadaController {
     private List<JornadaView> jornadaViews(ScopeService.Scope scope, List<JornadaRow> rows) {
         boolean admin = "ADMIN".equals(scope.role());
         Map<UUID, List<MarkView>> marks = history.marks(scope, rows.stream().map(JornadaRow::id).toList());
-        // The cancellation reason is written by the ADMIN and may name a licence: only the ADMIN reads it.
+        // The cancellation reason is written by the ADMIN and may name a licence: only the ADMIN reads it. The geofence the day
+        // was judged with (its snapshot, D-20261030-02) is the local's exact point, also ADMIN-only (D-20261027-12): the ADMIN's
+        // day detail draws each mark against it (2026-11-13).
         return rows.stream().map(row -> new JornadaView(row.id(), row.employeeId(), row.siteId(), row.localDate(), row.state(), snapshot(row),
-                row.toleranceMinutes(), row.sequence(), marks.getOrDefault(row.id(), List.of()), row.cancelledAt(), admin ? row.cancelReason() : null)).toList();
+                row.toleranceMinutes(), row.sequence(), marks.getOrDefault(row.id(), List.of()), row.cancelledAt(), admin ? row.cancelReason() : null,
+                admin ? row.geofenceLatitude() : null, admin ? row.geofenceLongitude() : null, admin ? row.geofenceRadiusMeters() : null)).toList();
     }
 
     private OrganizationController.TemplateInput snapshot(JornadaRow row) {
@@ -99,37 +103,49 @@ public class JornadaController {
     /** Maps a jornadas row selected with {@link #JORNADA_COLUMNS}. */
     private static JornadaRow jornadaRow(java.sql.ResultSet rs) throws java.sql.SQLException {
         java.sql.Timestamp cancelledAt = rs.getTimestamp("cancelled_at");
+        Object radius = rs.getObject("site_geofence_radius_snapshot");
         return new JornadaRow(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("employee_id")), UUID.fromString(rs.getString("site_id")),
                 rs.getObject("local_date", LocalDate.class), rs.getString("state"), rs.getLong("next_sequence") - 1, rs.getString("schedule_snapshot"),
-                rs.getInt("tolerance_minutes"), cancelledAt == null ? null : cancelledAt.toInstant(), rs.getString("cancel_reason"));
+                rs.getInt("tolerance_minutes"), cancelledAt == null ? null : cancelledAt.toInstant(), rs.getString("cancel_reason"),
+                nullableDouble(rs.getObject("site_geofence_latitude_snapshot")), nullableDouble(rs.getObject("site_geofence_longitude_snapshot")),
+                radius == null ? null : ((Number) radius).intValue());
     }
 
     /**
-     * Maps a mark_events row (columns id..longitude, voided_at, void_reason). Coordinates and the void time and reason are only
-     * exposed to ADMIN; everyone sees whether the mark was voided (D-20261027-08).
+     * Maps a mark_events row (columns id..longitude, accuracy_meters, voided_at, void_reason). Coordinates, the accuracy the phone
+     * reported and the void time and reason are only exposed to ADMIN; everyone sees whether the mark was voided (D-20261027-08).
+     * The 90-day purge erases the accuracy with the point (PrivacyRetentionScheduler), so a purged mark has neither.
      */
     static MarkView markView(java.sql.ResultSet rs, boolean admin) throws java.sql.SQLException {
         java.sql.Timestamp voidedAt = rs.getTimestamp("voided_at");
         return new MarkView(UUID.fromString(rs.getString("id")), UUID.fromString(rs.getString("jornada_id")), rs.getString("action"), rs.getLong("sequence_number"),
                 rs.getTimestamp("accepted_at").toInstant(), rs.getTimestamp("occurred_at").toInstant(), rs.getTimestamp("recorded_at").toInstant(), rs.getString("location_status"),
                 admin ? nullableDouble(rs.getObject("latitude")) : null, admin ? nullableDouble(rs.getObject("longitude")) : null,
-                voidedAt != null, admin && voidedAt != null ? voidedAt.toInstant() : null, admin ? rs.getString("void_reason") : null, List.of());
+                voidedAt != null, admin && voidedAt != null ? voidedAt.toInstant() : null, admin ? rs.getString("void_reason") : null, List.of(),
+                admin ? nullableDouble(rs.getObject("accuracy_meters")) : null);
     }
 
     private static Double nullableDouble(Object value) { return value == null ? null : ((Number) value).doubleValue(); }
 
     private record JornadaRow(UUID id, UUID employeeId, UUID siteId, LocalDate localDate, String state, long sequence, String snapshot, int toleranceMinutes,
-                              Instant cancelledAt, String cancelReason) { }
+                              Instant cancelledAt, String cancelReason, Double geofenceLatitude, Double geofenceLongitude, Integer geofenceRadiusMeters) { }
     /** templateId is optional: without it the assignment in force is used, or 422 TEMPLATE_REQUIRED. */
     public record DeclareJornada(@NotNull UUID employeeId, @NotNull UUID siteId, @NotNull LocalDate localDate, UUID templateId) { }
     /** includeDetail=true adds marks and deviations (absent otherwise); employeeDisplayName is always present. */
     public record JornadaSummary(UUID id, UUID employeeId, UUID siteId, LocalDate localDate, String state, String employeeDisplayName,
                                  List<MarkView> marks, List<DeviationService.DeviationView> deviations) { }
-    /** cancelledAt is set only for a CANCELADA jornada; cancelReason is returned only to ADMIN (D-20261027-07). */
+    /**
+     * cancelledAt is set only for a CANCELADA jornada; cancelReason is returned only to ADMIN (D-20261027-07). The geofence fields
+     * are the site's center and radius frozen on the jornada, only for ADMIN and null when the site had no center that day.
+     */
     public record JornadaView(UUID id, UUID employeeId, UUID siteId, LocalDate localDate, String state,
                               OrganizationController.TemplateInput scheduleSnapshot, int toleranceMinutes, long sequence, List<MarkView> marks,
-                              Instant cancelledAt, String cancelReason) { }
-    /** Voided marks stay listed and keep their sequence; voidedAt and voidReason are returned only to ADMIN (D-20261027-08). */
+                              Instant cancelledAt, String cancelReason, Double geofenceLatitude, Double geofenceLongitude, Integer geofenceRadiusMeters) { }
+    /**
+     * Voided marks stay listed and keep their sequence; voidedAt and voidReason are returned only to ADMIN (D-20261027-08).
+     * accuracyMeters is the accuracy the phone reported, as stored (rounded up to the centimeter); only for ADMIN, until the purge.
+     */
     public record MarkView(UUID id, UUID jornadaId, String action, long sequence, Instant acceptedAt, Instant occurredAt, Instant recordedAt,
-                           String locationStatus, Double latitude, Double longitude, boolean voided, Instant voidedAt, String voidReason, List<Object> deviations) { }
+                           String locationStatus, Double latitude, Double longitude, boolean voided, Instant voidedAt, String voidReason, List<Object> deviations,
+                           Double accuracyMeters) { }
 }

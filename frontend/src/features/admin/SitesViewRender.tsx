@@ -7,7 +7,7 @@ import type { Site, SiteCoordinates } from '../../shared/api/types'
 import type { SiteLocationErrorKind } from './siteLocation'
 import type { GeocodeResult } from '../../shared/api/geocode'
 import { SiteMapPanel, type SiteMapPanelState } from './SiteMapPanel'
-import { mapRadiusMeters } from './siteMap'
+import { mapRadiusMeters, openStreetMapHref } from './siteMap'
 import { SiteZoneField } from './SiteZoneField'
 import { timeZoneLabel } from './siteZone'
 import { dateTime, SectionLink } from './adminRenderShared'
@@ -124,7 +124,7 @@ export function SitesViewRender({ sites, loading, loadError, error, notice, mess
   // The point that will be saved, with what says where it came from and, for a captured or typed point, its confirmation.
   const chosenPoint = (coordinates: SiteCoordinates, origin: string, confirmation: ReactNode) => <div className="site-location-selection">
     <span className="site-location-coordinates">Latitud {coordinates.latitude.toFixed(7)} · Longitud {coordinates.longitude.toFixed(7)}</span>
-    <a href={siteMapHref(coordinates)} target="_blank" rel="noreferrer noopener">Revisar este punto en el mapa</a>
+    <a href={openStreetMapHref(coordinates)} target="_blank" rel="noreferrer noopener">Revisar este punto en el mapa</a>
     <span className="field-hint">{origin}</span>
     {confirmation}
   </div>
@@ -235,9 +235,6 @@ function siteCoordinates(latitudeText: string, longitudeText: string): SiteCoord
   return { latitude, longitude }
 }
 
-function siteMapHref({ latitude, longitude }: SiteCoordinates) {
-  return `https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}#map=17/${latitude}/${longitude}`
-}
 
 /** The changes of a local's location, opened under its record: a part of that record, so an h3 over a list of records (4.12). */
 export function SiteLocationAuditSection({ siteId, siteName, timeZone, audit, loading, error, onRetry }: {

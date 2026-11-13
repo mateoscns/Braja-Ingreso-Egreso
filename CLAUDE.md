@@ -107,7 +107,7 @@ en un estado:
   `ADMIN`.
 - **Registro de decisiones**: `docs/DECISIONES.md`, filas `ID
   (D-AAAAMMDD-NN) | fecha | decisión | propuesta por | estado | motivo`. Al
-  2026-11-12: 76 filas, todas adoptadas y 0 propuestas (16 del 2026-10-14, 6
+  2026-11-13: 77 filas, todas adoptadas y 0 propuestas (16 del 2026-10-14, 6
   del 10-15, 5 del 10-16, 1 del 10-18, 6 del 10-19, 2 del 10-23, 12 del 10-27,
   1 del 10-29, 2 del 10-30, 15 del 11-02, 3 del 11-09, 3 del 11-11: el
   vocabulario visible de la interfaz, D-20261111-01, con su ajuste de persona
@@ -116,7 +116,8 @@ en un estado:
   día del empleado solo para mirar, D-20261112-01, el aviso de sesión por
   vencer del `ADMIN`, D-20261112-02, y el cambio de empresa con «Cambiar»,
   D-20261112-03, y la excepción a la regla 38 para fusionar el rediseño en
-  `main`, D-20261112-04). Las 15 del 2026-11-02
+  `main`, D-20261112-04; y 1 del 11-13: el mapa de cada marca para el `ADMIN`,
+  D-20261113-01). Las 15 del 2026-11-02
   (D-20261102-01 a -15) son propuestas de la IA durante la campaña #72 que
   Mateo adoptó con su aprobación general de ese día al plan de producción
   (`odd/tasks/production-readiness.md`); cada una lo dice en su motivo.
@@ -331,7 +332,14 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
    a 7 decimales como `MANUAL`, y la posición aproximada del dispositivo solo
    centra el mapa, nunca se guarda (D-20261109-01; guarda:
    `SitesViewRender.test.tsx` "SitesView map picker", `geocode.test.ts`,
-   `siteMap.test.ts`).
+   `siteMap.test.ts`). Desde el 2026-11-13 el `ADMIN` ve cada marca con ubicación
+   en un mapa bajo esa marca del día («Ver en el mapa»): el punto de la marca en
+   rojo, el local y su radio congelados en la jornada, y en texto la distancia, la
+   precisión que informó el celular y el veredicto con la regla del servidor
+   (distancia + precisión ≤ radio); la API agrega `accuracyMeters` a la marca y
+   `geofenceLatitude`, `geofenceLongitude` y `geofenceRadiusMeters` a la jornada,
+   solo para el `ADMIN` y sin precisión tras la purga. Guarda:
+   `MarkLocationMapSpecTest`, `MarkMap.test.tsx`, `markMap.test.ts`, `geo.test.ts`.
 4. **Todo desvío exige motivo y categoría, pero después de guardar la
    marca** (D-20261014-07, D-20261015-04): queda `MOTIVO_PENDIENTE` hasta
    `PUT /deviations/{id}/motive` (categoría `SALUD`, `TRANSPORTE`,
