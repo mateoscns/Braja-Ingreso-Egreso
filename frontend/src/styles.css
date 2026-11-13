@@ -1000,3 +1000,5 @@ html:has(.session-warning:not(:empty)) { scroll-padding-top: calc(env(safe-area-
 .mark-map-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); }
 /* The link stands alone like a control, a whole target. */
 .mark-map-actions > a { display: inline-flex; align-items: center; min-height: var(--target); }
+/* «Cerrar» is shorter than its target: its word starts at the left edge, level with the link when it wraps under it. */
+.mark-map-actions > .button-link { justify-content: flex-start; padding-left: 0; margin-left: calc(-1 * var(--border-width)); }
