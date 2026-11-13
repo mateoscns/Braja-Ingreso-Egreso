@@ -210,6 +210,8 @@ describe('EmployeeApp', () => {
       expect(block).toContainElement(screen.getByText('Estás trabajando desde las 09:00.'))
       expect(block).toContainElement(screen.getByText('09:00 a 17:00'))
       expect(block).toHaveTextContent('Local Centro · Tenés 5 minutos de tolerancia para entrar.')
+      // 2026-11-13, Mateo: how long each pause is, read before going out, next to the schedule.
+      expect(block).toContainElement(screen.getByText('Tenés 15 minutos de desayuno y 45 minutos de almuerzo.'))
       expect(screen.getByRole('region', { name: 'Tus marcas de hoy' })).not.toHaveTextContent('Tu horario')
     })
 
@@ -1077,6 +1079,7 @@ describe('EmployeeApp', () => {
       expect(within(now).getAllByRole('button').map((button) => button.textContent)).toEqual(['Volver a hoy'])
       for (const name of ['Me voy a desayunar', 'Me voy a almorzar', 'Marcar salida', 'Marcar entrada']) expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
       expect(screen.queryByText(/tolerancia/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/minutos de desayuno/)).not.toBeInTheDocument()
       expect(screen.getByText(/Local Centro/)).toBeInTheDocument()
 
       fireEvent.click(within(now).getByRole('button', { name: 'Volver a hoy' }))

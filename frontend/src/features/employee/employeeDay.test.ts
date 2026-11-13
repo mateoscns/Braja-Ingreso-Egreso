@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Deviation, Jornada, Mark } from '../../shared/api/types'
 import {
-  allowedActions, confirmationText, daySentence, daySlots, describeDeviation, exitConfirmation, markOptions, markLocationLabel, scheduledEnd, scheduledStart, zonedInstant
+  allowedActions, confirmationText, daySentence, daySlots, describeDeviation, exitConfirmation, markOptions, markLocationLabel, pauseAllowance, scheduledEnd,
+  scheduledStart, zonedInstant
 } from './employeeDay'
 
 const timeZone = 'America/Argentina/Buenos_Aires'
@@ -18,6 +19,35 @@ function jornada(state: Jornada['state'], marks: Mark[] = [], blocks: Jornada['s
 }
 
 const at = (iso: string) => new Date(iso)
+
+// 2026-11-13, Mateo: before going to lunch the person did not know how long the lunch was; only the return time, once out.
+describe('pauseAllowance', () => {
+  const limits = (breakfastLimitMinutes: number, lunchLimitMinutes: number): Jornada => {
+    const base = jornada('EN_CURSO')
+    return { ...base, scheduleSnapshot: { ...base.scheduleSnapshot, breakfastLimitMinutes, lunchLimitMinutes } }
+  }
+
+  it('says the minutes of breakfast and of lunch of the schedule of the day', () => {
+    expect(pauseAllowance(limits(15, 45))).toBe('Tenés 15 minutos de desayuno y 45 minutos de almuerzo.')
+  })
+
+  it('reads an hour or more in hours, like every other duration of the app', () => {
+    expect(pauseAllowance(limits(15, 60))).toBe('Tenés 15 minutos de desayuno y 1 hora de almuerzo.')
+    expect(pauseAllowance(limits(0, 90))).toBe('Tenés 1 h 30 min de almuerzo.')
+    expect(pauseAllowance(limits(0, 240))).toBe('Tenés 4 horas de almuerzo.')
+  })
+
+  it('names only the pause the schedule gives, and nothing when it gives none', () => {
+    expect(pauseAllowance(limits(0, 45))).toBe('Tenés 45 minutos de almuerzo.')
+    expect(pauseAllowance(limits(15, 0))).toBe('Tenés 15 minutos de desayuno.')
+    expect(pauseAllowance(limits(0, 0))).toBeNull()
+  })
+
+  it('says one minute in the singular', () => {
+    expect(pauseAllowance(limits(1, 0))).toBe('Tenés 1 minuto de desayuno.')
+    expect(pauseAllowance(limits(0, 1))).toBe('Tenés 1 minuto de almuerzo.')
+  })
+})
 
 describe('zonedInstant', () => {
   it('turns a wall-clock time of the site into the instant, also on the next day', () => {

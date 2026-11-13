@@ -6,7 +6,7 @@ import type { Deviation, Jornada, MarkAction, Site } from '../../shared/api/type
 import { formatBlock, formatDateTime, formatLocalDate, formatWorkDay, jornadaStateLabel } from '../../shared/format'
 import { forEmployee } from '../../shared/labels'
 import {
-  actionLabel, confirmationText, daySlots, describeDeviation, deviationName, locationOutcomeText,
+  actionLabel, confirmationText, daySlots, describeDeviation, deviationName, locationOutcomeText, pauseAllowance,
   type DaySlotNote, type LocationOutcome, type MarkOptions
 } from './employeeDay'
 
@@ -114,6 +114,8 @@ export function NowBlock({ sentence, jornada, site, options, busy, step, stepRef
   const marking = Boolean(options && (options.primary || step))
   // The tolerance is said in the present, for today; another day keeps only the name of the local.
   const place = jornada ? [site?.name, onToday ? '' : `Tenés ${jornada.toleranceMinutes} minutos de tolerancia para entrar.`].filter(Boolean).join(' · ') : ''
+  // How long each pause is, under the tolerance and also for today only: read before tapping «Me voy a almorzar» (2026-11-13).
+  const pauses = jornada && !onToday ? pauseAllowance(jornada) : null
   return <section className="now" aria-labelledby={marking ? headingId : undefined} aria-busy={marking ? busy : undefined}>
     {marking && <h2 id={headingId} className="visually-hidden">Marcar</h2>}
     {sentence && <p className="now-state">{sentence}</p>}
@@ -135,6 +137,7 @@ export function NowBlock({ sentence, jornada, site, options, busy, step, stepRef
     {jornada && <div className="now-context"><Icon name="clock" /><div>
       <p className="now-schedule"><strong>Tu horario</strong>{' '}{jornada.scheduleSnapshot.blocks.map((block, index) => <span key={`${block.start}-${index}`}>{formatBlock(block)}</span>)}</p>
       {place && <p className="now-place">{place}</p>}
+      {pauses && <p className="now-place">{pauses}</p>}
     </div></div>}
   </section>
 }
