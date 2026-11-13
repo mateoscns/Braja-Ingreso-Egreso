@@ -2,12 +2,25 @@
 # Deploys the checked-out commit on this server (CLAUDE.md rule 32). Run it on the VPS from the repository checkout:
 #
 #   bash deploy/deploy.sh             build and deploy HEAD
-#   bash deploy/deploy.sh --rollback  go back to the previously deployed images (no build)
+#   bash deploy/deploy.sh --force     the same, past the two release guards below (says which ones it skipped)
+#   bash deploy/deploy.sh --rollback  go back to the previously deployed images (no build, no guards: it is the fix)
 #
-# Order: preflight -> build images tagged with the git sha -> MySQL up -> backup (Flyway migrates when the backend
-# starts, so the backup always precedes the migration) -> start -> wait for GET /api/v1/health through Caddy ->
-# on failure, roll back to the previous images and say whether the database must be restored.
-# Re-running it for the same commit is safe: the build is cached and the containers stay as they are.
+# Order: preflight -> release guards -> build images tagged with the git sha -> shop-hours guard again (the build
+# takes minutes) -> MySQL up -> backup (Flyway migrates when the backend starts, so the backup always precedes the
+# migration) -> start -> wait for GET /api/v1/health through Caddy -> prune the build cache and old images, keeping
+# the previous image for a rollback; on failure, roll back to the previous images and say whether the database must
+# be restored. Re-running it for the same commit is safe: the build is cached and the containers stay as they are.
+#
+# Release guards (rule 31), each skipped by --force or BRAJA_DEPLOY_FORCE=true:
+#   - HEAD must be origin/main after a git fetch. Whether CI is green is not checked here (no GitHub API): it is a
+#     step of docs/CHECKLIST_RELEASE.md.
+#   - Not during shop hours: swapping the backend cuts the API for 30 to 60 s. Settings, as environment variables or
+#     in deploy/.env:
+#       BRAJA_DEPLOY_BLOCKED_DAYS   ISO weekdays, 1 = Monday, a range or a list   default: 1-6 (Monday to Saturday)
+#       BRAJA_DEPLOY_BLOCKED_FROM   HH:MM, inclusive                              default: 08:00
+#       BRAJA_DEPLOY_BLOCKED_UNTIL  HH:MM, exclusive                              default: 19:00
+#       BRAJA_DEPLOY_TIME_ZONE      IANA zone of the shop                         default: America/Argentina/Cordoba
+# BRAJA_DEPLOY_PRUNE=false keeps the build cache and dangling images (a machine that also builds other projects).
 set -euo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
@@ -16,11 +29,79 @@ HEALTH_TIMEOUT_SECONDS="${BRAJA_HEALTH_TIMEOUT_SECONDS:-300}"
 HEALTH_CONNECT_IP="${BRAJA_HEALTH_CONNECT_IP:-127.0.0.1}"
 MIN_FREE_KB=$((3 * 1024 * 1024))
 mode="deploy"
-case "${1:-}" in
-  "") ;;
-  --rollback) mode="rollback" ;;
-  *) die "usage: bash deploy/deploy.sh [--rollback]" ;;
-esac
+force="${BRAJA_DEPLOY_FORCE:-false}"
+for arg in "$@"; do
+  case "$arg" in
+    --rollback) mode="rollback" ;;
+    --force) force=true ;;
+    *) die "usage: bash deploy/deploy.sh [--force] [--rollback]" ;;
+  esac
+done
+
+# A setting from the environment, else from deploy/.env, else the default ($2).
+setting() {
+  local value="${!1:-}"
+  [ -n "$value" ] || value="$(env_get "$1")"
+  printf '%s' "${value:-$2}"
+}
+
+zone_exists() { [ -f "/usr/share/zoneinfo/$1" ]; }
+
+# True when weekday $1 (1-7) is in $2, a list of days or ranges such as "1-6" or "1,3,5".
+day_in() {
+  local day="$1" part parts
+  IFS=, read -ra parts <<< "$2"
+  for part in "${parts[@]}"; do
+    case "$part" in
+      [1-7]-[1-7]) if [ "$day" -ge "${part%-*}" ] && [ "$day" -le "${part#*-}" ]; then return 0; fi ;;
+      [1-7]) if [ "$day" = "$part" ]; then return 0; fi ;;
+      *) die "BRAJA_DEPLOY_BLOCKED_DAYS must list ISO weekdays (1 = Monday) or ranges, e.g. 1-6; found '$2'" ;;
+    esac
+  done
+  return 1
+}
+
+# Succeeds when now is inside the blocked shop-hours window and leaves the reason in SHOP_HOURS_REASON. Called
+# directly, never in $(...): a die on a bad setting must stop the deploy, not just a subshell.
+SHOP_HOURS_REASON=""
+in_shop_hours() {
+  local days from to tz now_day now_hm
+  days="$(setting BRAJA_DEPLOY_BLOCKED_DAYS 1-6)"
+  from="$(setting BRAJA_DEPLOY_BLOCKED_FROM 08:00)"
+  to="$(setting BRAJA_DEPLOY_BLOCKED_UNTIL 19:00)"
+  tz="$(setting BRAJA_DEPLOY_TIME_ZONE America/Argentina/Cordoba)"
+  [[ "$from" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || die "BRAJA_DEPLOY_BLOCKED_FROM must be HH:MM; found '$from'"
+  [[ "$to" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || die "BRAJA_DEPLOY_BLOCKED_UNTIL must be HH:MM; found '$to'"
+  # An unknown zone would make date fall back to UTC without a word.
+  zone_exists "$tz" || die "BRAJA_DEPLOY_TIME_ZONE '$tz' is not a time zone on this machine (/usr/share/zoneinfo)"
+  now_day="$(TZ="$tz" date +%u)"
+  now_hm="$(TZ="$tz" date +%H%M)"
+  day_in "$now_day" "$days" || return 1
+  [ $((10#$now_hm)) -ge $((10#${from/:/})) ] && [ $((10#$now_hm)) -lt $((10#${to/:/})) ] || return 1
+  SHOP_HOURS_REASON="it is $(TZ="$tz" date '+%A %H:%M') in $tz, inside the shop hours (days $days, $from to $to): the backend swap cuts the API for 30 to 60 s"
+}
+
+guard_shop_hours() {
+  in_shop_hours || return 0
+  if [ "$force" = true ]; then log "WARNING (forced): $SHOP_HOURS_REASON"; return 0; fi
+  die "$SHOP_HOURS_REASON. Deploy outside those hours, or pass --force for an urgent fix (a rollback needs no --force)"
+}
+
+guard_main() {
+  local head main
+  if ! git -C "$REPO_DIR" fetch --quiet origin main; then
+    [ "$force" = true ] || die "could not fetch origin/main, so HEAD cannot be checked against it; retry, or pass --force"
+    log "WARNING (forced): could not fetch origin/main; HEAD was not checked against it"
+    return 0
+  fi
+  head="$(git -C "$REPO_DIR" rev-parse HEAD)"
+  main="$(git -C "$REPO_DIR" rev-parse origin/main)"
+  [ "$head" != "$main" ] || { log "HEAD is origin/main ($(git -C "$REPO_DIR" rev-parse --short=12 HEAD)); check that its CI is green"; return 0; }
+  local reason="HEAD ($head) is not origin/main ($main)"
+  if git -C "$REPO_DIR" merge-base --is-ancestor HEAD origin/main; then reason="$reason: it is an older commit of main (git pull --ff-only)"; fi
+  if [ "$force" = true ]; then log "WARNING (forced): $reason"; return 0; fi
+  die "$reason. Only main with green CI is deployed (rule 31); pass --force to deploy it anyway"
+}
 
 preflight() {
   command -v docker >/dev/null || die "docker is not installed (run deploy/bootstrap-vps.sh)"
@@ -100,6 +181,16 @@ prune_old_images() {
   done
 }
 
+# Each build leaves cache and untagged images behind; without pruning, the disk fills up deploy after deploy. Dangling
+# images have no tag, so the previous braja-* image kept for the rollback is never one of them; cache used in the last
+# 7 days stays, so the next build of a small change is still fast. A failure here never fails a healthy deploy.
+prune_build_leftovers() {
+  [ "$(setting BRAJA_DEPLOY_PRUNE true)" = true ] || { log "BRAJA_DEPLOY_PRUNE=false: build cache and dangling images kept"; return 0; }
+  docker image prune -f >/dev/null 2>&1 || log "WARNING: docker image prune failed; check the disk with: docker system df"
+  docker builder prune -f --filter until=168h >/dev/null 2>&1 || log "WARNING: docker builder prune failed; check the disk with: docker system df"
+  log "Disk after pruning: $(df -Ph "$REPO_DIR" | awk 'NR==2 {print $4 " free of " $2}')"
+}
+
 diagnose() {
   log "Last backend log lines:"
   compose logs --tail 60 backend >&2 || true
@@ -127,6 +218,8 @@ if [ "$mode" = rollback ]; then
   exit 0
 fi
 
+guard_main
+guard_shop_hours
 tag="$(git -C "$REPO_DIR" rev-parse --short=12 HEAD)"
 log "Deploying $tag (currently deployed: ${current:-nothing})"
 
@@ -134,6 +227,9 @@ log "Building images braja-backend:$tag and braja-caddy:$tag"
 # One at a time: the Maven and npm builds together do not fit comfortably in 4 GB next to a running MySQL.
 BRAJA_IMAGE_TAG="$tag" compose build --pull backend
 BRAJA_IMAGE_TAG="$tag" compose build --pull caddy
+# A first build takes 8 to 12 minutes: started just before the shop opens, the swap would land inside its hours. The
+# images stay built, so running deploy.sh again later is quick.
+guard_shop_hours
 
 compose up -d --wait --wait-timeout 180 mysql
 if bootstrap_still_enabled && companies_exist; then
@@ -157,6 +253,7 @@ if wait_healthy; then
   fi
   disable_bootstrap "$tag"
   prune_old_images "$tag" "$(state_get PREVIOUS_TAG)"
+  prune_build_leftovers
   log "Deployed $tag (schema $(schema_version))"
   exit 0
 fi
