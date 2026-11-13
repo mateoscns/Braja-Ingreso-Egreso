@@ -202,12 +202,12 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
         return <li className="record" key={jornada.id} aria-labelledby={`jornada-${jornada.id}-person`}>
           <p className="record-title"><strong id={`jornada-${jornada.id}-person`}>{person}</strong><DayStateTag state={jornada.state} /></p>
           <p className="record-meta">{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Local'}</p>
-          <div className="record-actions"><button id={dayButtonId(jornada.id)} className="button button-link" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></div>
+          <div className="record-actions"><button id={dayButtonId(jornada.id)} className="button button-link" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading || markBusy !== ''} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></div>
           {detailIn(jornada.id)}
         </li>
       })}</ul> : <TableScroll labelledBy={LIST_HEADING_ID}><table aria-labelledby={LIST_HEADING_ID}><thead><tr><th scope="col">Empleado</th><th scope="col">Local</th><th scope="col">Estado</th><th scope="col">Acciones</th></tr></thead><tbody>{jornadas.map((jornada) => {
         const open = detailIn(jornada.id)
-        return <Fragment key={jornada.id}><tr><td>{peopleById.get(jornada.employeeId) ?? 'Empleado'}</td><td>{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Local'}</td><td><DayStateTag state={jornada.state} /></td><td><button id={dayButtonId(jornada.id)} className="button button-link" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></td></tr>
+        return <Fragment key={jornada.id}><tr><td>{peopleById.get(jornada.employeeId) ?? 'Empleado'}</td><td>{sites.find((site) => site.id === jornada.siteId)?.name ?? 'Local'}</td><td><DayStateTag state={jornada.state} /></td><td><button id={dayButtonId(jornada.id)} className="button button-link" aria-label={`Ver marcas de ${peopleById.get(jornada.employeeId) ?? 'empleado'}`} disabled={detailLoading || markBusy !== ''} onClick={() => onShowDetail(jornada.id)}>Ver marcas</button></td></tr>
           {/* The day opens in a full-width row under its own; once read, the row is named by the day's title. */}
           {open && <tr aria-labelledby={detail && !detailLoading ? DETAIL_HEADING_ID : undefined}><td colSpan={4}>{open}</td></tr>}</Fragment>
       })}</tbody></table></TableScroll> : <Empty>No hay días cargados para esta fecha.</Empty>}

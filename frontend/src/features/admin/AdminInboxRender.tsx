@@ -59,7 +59,7 @@ function inboxFilterSummary(applied: InboxFilterValues, employees: Employee[], s
   return `Filtros: ${parts.length ? parts.join(' · ') : 'todos'}`
 }
 
-export function AdminInboxRender({ narrow = false, appliedFilters = EMPTY_INBOX_FILTERS, coverage, onOpenJornada, items, employees, sites, filters, filterErrors = {}, filtered, onFiltersChange, onApplyFilters, onClearFilters, timeZones, nextCursor, loading, inboxLoadError, timeZoneLoadError, error, savedDecision = null, busy, savingAs = null, correction, correctionReason, correctionError, targetDeviation, failedDecision = null, onReload, onClassify, onRetry, onLoadMore, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
+export function AdminInboxRender({ narrow = false, appliedFilters = EMPTY_INBOX_FILTERS, coverage, onOpenJornada, items, employees, sites, filters, filterErrors = {}, filtered, onFiltersChange, onApplyFilters, onClearFilters, timeZones, nextCursor, loading, inboxLoadError, timeZoneLoadError, error, savedDecision = null, busy, paging = false, savingAs = null, correction, correctionReason, correctionError, targetDeviation, failedDecision = null, onReload, onClassify, onRetry, onLoadMore, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
   /** Phone width: the filters fold under one line that says which ones are applied, so the first case is in sight. */
   narrow?: boolean; appliedFilters?: InboxFilterValues
   /** The notice of days loaded (CoverageNotice) and the way to a deviation's jornada, both given by AdminApp. */
@@ -71,7 +71,7 @@ export function AdminInboxRender({ narrow = false, appliedFilters = EMPTY_INBOX_
   correctionError?: string
   onFiltersChange: (patch: Partial<InboxFilterValues>) => void; onApplyFilters: () => void; onClearFilters: () => void
   timeZones: Map<string, string>; nextCursor: string | null; loading: boolean; inboxLoadError: string; timeZoneLoadError: string
-  error: string; busy: string; correction: Correction; correctionReason: string; targetDeviation: string; failedDecision?: FailedDecision
+  error: string; busy: string; paging?: boolean; correction: Correction; correctionReason: string; targetDeviation: string; failedDecision?: FailedDecision
   savedDecision?: SavedDecision
   /** The decision being saved, so only its button reads «Guardando…» (issue #177: both did). */
   savingAs?: DeviationClassification | null
@@ -97,7 +97,7 @@ export function AdminInboxRender({ narrow = false, appliedFilters = EMPTY_INBOX_
       <DeviationList items={items} onOpenJornada={onOpenJornada} filtered={filtered} loading={loading} busy={busy} savingAs={savingAs} onClassify={onClassify} targetId={targetDeviation} timeZones={timeZones}
         correction={correction} correctionReason={correctionReason} correctionError={correctionError} failedDecision={failedDecision} savedDecision={savedDecision} onCorrectionReasonChange={onCorrectionReasonChange}
         onSubmitCorrection={onSubmitCorrection} onCancelCorrection={onCancelCorrection} />
-      {nextCursor && <div className="button-row case-more"><button className="button button-secondary" disabled={busy === 'page'} onClick={onLoadMore}>{busy === 'page' ? 'Cargando…' : 'Cargar anteriores'}</button></div>}
+      {nextCursor && <div className="button-row case-more"><button className="button button-secondary" disabled={paging} onClick={onLoadMore}>{paging ? 'Cargando…' : 'Cargar anteriores'}</button></div>}
     </>}
     </Panel>
   </>

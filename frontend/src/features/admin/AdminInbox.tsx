@@ -26,6 +26,10 @@ export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; 
   const [timeZoneLoadError, setTimeZoneLoadError] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
+  // «Cargar anteriores» has its own state (2026-11-13 audit): a decision ending while a page loaded released the shared `busy`
+  // and turned the button back on, and a second tap appended the same page twice. The ref also stops a tap in the same render.
+  const [paging, setPaging] = useState(false)
+  const pagingNow = useRef(false)
   // Which decision is saving: only its button reads «Guardando…» (issue #177: both did).
   const [savingAs, setSavingAs] = useState<DeviationClassification | null>(null)
   // A refused decision and a saved one are told inside the row of their case (design system 4.11), where the ADMIN pressed the
@@ -118,17 +122,17 @@ export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; 
     setCorrection(null); setCorrectionReason(''); correctionFields.reset()
   }
   async function loadMore() {
-    if (!nextCursor) return
+    if (!nextCursor || pagingNow.current) return
     const requestId = generation.current
-    setBusy('page'); setError('')
+    pagingNow.current = true; setPaging(true); setError('')
     try {
       const page = await api.get<{ items: Deviation[]; nextCursor?: string | null }>(`/inbox${queryString({ limit: 50, ...appliedFilters, cursor: nextCursor })}`)
       if (requestId !== generation.current) return
       setItems((current) => [...current, ...page.items]); setNextCursor(page.nextCursor ?? null)
-    } catch (reason) { if (requestId === generation.current) setError(errText(reason)) } finally { setBusy('') }
+    } catch (reason) { if (requestId === generation.current) setError(errText(reason)) } finally { pagingNow.current = false; setPaging(false) }
   }
   const filtered = Object.values(appliedFilters).some(Boolean)
-  return <AdminInboxRender narrow={narrow} appliedFilters={appliedFilters} coverage={coverage} onOpenJornada={onOpenJornada} items={items} employees={employees} sites={sites} filters={filters} filterErrors={filterFields.errors} filtered={filtered} onFiltersChange={changeFilters} onApplyFilters={applyFilters} onClearFilters={clearFilters} timeZones={timeZones} nextCursor={nextCursor} loading={loading} inboxLoadError={inboxLoadError} timeZoneLoadError={timeZoneLoadError} error={error} savedDecision={savedDecision} busy={busy} savingAs={savingAs} correction={correction} correctionReason={correctionReason} targetDeviation={targetDeviation} failedDecision={failedDecision}
+  return <AdminInboxRender narrow={narrow} appliedFilters={appliedFilters} coverage={coverage} onOpenJornada={onOpenJornada} items={items} employees={employees} sites={sites} filters={filters} filterErrors={filterFields.errors} filtered={filtered} onFiltersChange={changeFilters} onApplyFilters={applyFilters} onClearFilters={clearFilters} timeZones={timeZones} nextCursor={nextCursor} loading={loading} inboxLoadError={inboxLoadError} timeZoneLoadError={timeZoneLoadError} error={error} savedDecision={savedDecision} busy={busy} paging={paging} savingAs={savingAs} correction={correction} correctionReason={correctionReason} targetDeviation={targetDeviation} failedDecision={failedDecision}
     correctionError={correctionFields.errors.reason}
     onReload={() => void reload()} onClassify={requestClassification} onRetry={() => void reload()} onLoadMore={() => void loadMore()}
     onCorrectionReasonChange={(reason) => { setCorrectionReason(reason); correctionFields.clear('reason') }}
