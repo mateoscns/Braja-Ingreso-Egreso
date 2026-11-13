@@ -33,8 +33,9 @@ y los ajustes del deploy, validado por el CI del PR de release): hay backend, fr
 campaña de pruebas con su simulación, la pila de deploy de `deploy/`
 (`backend/Dockerfile`, compose, Caddy y scripts) y 66 decisiones adoptadas (0
 propuestas). La geocerca de sedes (issue #67) entró con el PR #69 el
-2026-10-30. No hay VPS, dominio, `.githooks`, checklist de release ni RTO, y la
-pila de `deploy/` no corrió nunca en un servidor real. Cada regla de §5 está
+2026-10-30. No hay VPS, dominio, `.githooks` ni RTO adoptado, y la pila de
+`deploy/` no corrió nunca en un servidor real (las checklists de salida y de
+release existen desde el 2026-11-13, §8). Cada regla de §5 está
 en un estado:
 
 - **`Guarda: …`**: se leyó el test o la restricción que la sostiene.
@@ -116,7 +117,9 @@ en un estado:
   día del empleado solo para mirar, D-20261112-01, el aviso de sesión por
   vencer del `ADMIN`, D-20261112-02, y el cambio de empresa con «Cambiar»,
   D-20261112-03, y la excepción a la regla 38 para fusionar el rediseño en
-  `main`, D-20261112-04). Las 15 del 2026-11-02
+  `main`, D-20261112-04). Al 2026-11-13 se suman 2 propuestas de la IA,
+  pendientes de Mateo: el servidor (D-20261113-01) y el RTO (D-20261113-02);
+  78 filas, 76 adoptadas. Las 15 del 2026-11-02
   (D-20261102-01 a -15) son propuestas de la IA durante la campaña #72 que
   Mateo adoptó con su aprobación general de ese día al plan de producción
   (`odd/tasks/production-readiness.md`); cada una lo dice en su motivo.
@@ -817,9 +820,13 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     `SessionCookieSecurityStartupTest`, `BootstrapAdminValidationTest`. Del lado
     del deploy, `deploy/deploy.sh` se niega a seguir sin Docker, sin
     `deploy/.env` en modo 600, sin `BRAJA_DOMAIN`, con cambios sin commitear, con
-    menos de 3 GB libres o con un compose inválido
-    (`[sin guarda: implementado, sin test]`). Que no haya otra propiedad sin
-    validar no lo prueba nada.
+    menos de 3 GB libres o con un compose inválido y, desde el 2026-11-13, si
+    `HEAD` no es `origin/main` o si es horario del local (lunes a sábado de 08:00
+    a 19:00 en Córdoba, configurable), salvo `--force` (reglas 31 y 32);
+    `bootstrap-vps.sh` se detiene si el reloj no queda sincronizado por NTP (la
+    hora de cada marca es la del servidor, regla 1)
+    (`[sin guarda: implementado, sin test]`; solo se probó la lógica pura en una
+    PC). Que no haya otra propiedad sin validar no lo prueba nada.
 30. **Backend y jobs comparten imagen y un único bloque de entorno.** Los jobs
     son `@Scheduled` dentro del backend, que en producción es una sola imagen
     (`backend/Dockerfile`) con un solo `env_file` (`deploy/.env`) en
@@ -829,17 +836,24 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
 31. **Imágenes versionadas por sha, publicadas solo con CI verde en `main`.**
     `deploy.sh` construye `braja-backend:<sha>` y `braja-caddy:<sha>` (12
     caracteres de `git rev-parse`) en el propio servidor y guarda la anterior
-    para el rollback (2026-11-02, PR #92). Destino que falta: no hay registro de
-    imágenes ni CI que las publique, y el deploy no comprueba que el commit esté
-    en `main` con CI verde; solo exige un checkout sin cambios
-    (`deploy/README.md` lo pide como paso manual). `[sin guarda: destino]`
+    para el rollback (2026-11-02, PR #92). Desde el 2026-11-13 hace `git fetch` y
+    se niega a desplegar si `HEAD` no es `origin/main`, salvo `--force`. Destino
+    que falta: no hay registro de imágenes ni CI que las publique, y el deploy no
+    ve si el CI de ese commit está verde (no llama a la API de GitHub): es un
+    paso manual de `docs/CHECKLIST_RELEASE.md`. `[sin guarda: destino]`
 32. **Deploy por script, nunca a mano**: `deploy/deploy.sh` (2026-11-02, PR #92)
     hace preflight, construye las imágenes, levanta MySQL, toma un backup antes
     de migrar (Flyway migra al arrancar el backend, así que el backup siempre
     precede a la migración), arranca, espera hasta 5 min a que
     `GET /api/v1/health` responda `{"status":"UP"}` a través de Caddy con
     certificado válido y, si no, vuelve solo a las imágenes anteriores sin
-    deshacer la migración (regla 20). Destino que falta: no hay backend nuevo al
+    deshacer la migración (regla 20). Desde el 2026-11-13 no despliega en horario
+    del local salvo `--force` (lo vuelve a mirar después del build, antes del
+    cambio de backend; `--rollback` no lo pide) y, tras un deploy sano, borra las
+    imágenes sin etiqueta y la caché de build sin usar hace 7 días, además de las
+    imágenes `braja-*` viejas salvo la anterior (2026-11-13: nada limpiaba la
+    caché y el disco se llenaba deploy tras deploy). Destino que falta: no hay
+    backend nuevo al
     lado del viejo (el contenedor se reemplaza y hay un corte mientras arranca),
     ningún test automático corre los scripts y nunca se corrió en un VPS (solo
     la prueba local de `deploy/README.md`). `[sin guarda: implementado, sin test]`
@@ -849,11 +863,23 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     opcional con `BRAJA_BACKUP_OFFHOST_CMD`, D-20261102-12), `restore.sh` (pide
     confirmación y hace antes un backup de seguridad); healthchecks de MySQL y del
     backend y `restart: unless-stopped` en los tres contenedores (2026-11-02, PR
-    #92). Destino que falta: no hay VPS (lo paga Braja, D-20261014-10; las
-    credenciales las tiene Mateo), el cron del backup diario se instala a mano
-    (`deploy/README.md` §8), la copia fuera del servidor no está configurada,
-    los reinicios no tienen tope (Docker solo espacia los reintentos) y no hubo
-    un simulacro de restauración. `[sin guarda: destino]`
+    #92). Desde el 2026-11-13 el bootstrap también instala rclone, exige el reloj
+    sincronizado, instala el cron del backup en `/etc/cron.d/braja-backup`
+    (diario a las 06:15 UTC, `BRAJA_BACKUP_SCHEDULE`), reinicia solo tras una
+    actualización que lo pide a las 07:30 UTC (04:30 en Córdoba) y desactiva el
+    login de root cuando `braja` tiene una clave usable, dándole `sudo`; MySQL
+    guarda los binlogs 7 días y no 30; `backup.sh` avisa a un monitor de latido
+    opcional (`BRAJA_BACKUP_HEARTBEAT_URL`, `/fail` si falló la copia o queda
+    poco disco); la recuperación está en `deploy/RECOVERY.md` (2026-11-13: un
+    servidor armado con el runbook solo tenía los backups de cada deploy). El
+    dump no está cifrado: la copia de afuera va por un remoto `crypt` de rclone
+    y `deploy/.env` se guarda aparte, en el gestor de contraseñas
+    (`deploy/README.md`). Destino que falta: no hay VPS (lo paga Braja,
+    D-20261014-10; las credenciales las tiene Mateo), la copia fuera del
+    servidor y los monitores no están configurados, los reinicios de Docker no
+    tienen tope (solo espacia los reintentos), no hubo un simulacro de
+    restauración y ningún script de `deploy/` corrió en un VPS.
+    `[sin guarda: destino]`
 34. **Los errores de Caddy bajo la API respetan el formato JSON de la API**,
     sin redirects de barra final. `deploy/caddy/Caddyfile` (2026-11-02, PR #92)
     pasa `/api` y `/api/*` al backend sin reescribir la ruta ni redirigir la
@@ -1016,8 +1042,12 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
   `0be9c05` el 2026-11-02):
   - Operación: no hay VPS ni dominio, y la pila de `deploy/` nunca corrió en un
     servidor real (reglas 31 a 34); no hubo simulacro de restauración; la copia
-    de backups fuera del servidor no está configurada; no hay RTO ni checklist
-    de release (§8). Lo que sigue a cargo de Mateo está en `docs/PENDIENTES.md`.
+    de backups fuera del servidor y los monitores no están configurados; el RTO
+    está propuesto y no adoptado (D-20261113-02, §8). Desde el 2026-11-13 existen
+    `docs/CHECKLIST_SALIDA.md`, `docs/CHECKLIST_RELEASE.md`,
+    `deploy/RECOVERY.md` y, para el local, `docs/SI_LA_APP_NO_ANDA.md` (con el
+    contacto por completar). Lo que sigue a cargo de Mateo está en
+    `docs/PENDIENTES.md`.
   - Web Push en un iPhone real (regla 38); acuerdo escrito con Braja sobre reuso
     del código con otros clientes.
   - Issue #71 (asignado a Enrique, sin `status:approved` al 2026-11-02):
@@ -1132,10 +1162,14 @@ si cada clon hace `git config core.hooksPath .githooks`**. Hoy no existe
 - **Release checklist y runbook de backup/restore (RPO 24 h, RTO a definir)
   gatean releases**: el runbook existe desde el 2026-11-02 (`deploy/README.md`:
   deploy, backup, restauración y rollback; RPO 24 h por el backup diario,
-  D-20261102-12); la checklist de release y el RTO no existen todavía. Un ítem
-  sin marcar necesita excepción explícita del dueño, no un salto silencioso.
-  El deploy toma un backup nuevo antes de cada migración (`deploy/deploy.sh`,
-  regla 32); no mira la antigüedad de un backup anterior.
+  D-20261102-12). Desde el 2026-11-13 existen las checklists
+  (`docs/CHECKLIST_SALIDA.md` una vez, `docs/CHECKLIST_RELEASE.md` en cada
+  actualización) y la recuperación ante la pérdida del servidor
+  (`deploy/RECOVERY.md`); el RTO de 15 min y 4 h está propuesto, pendiente de
+  OK del dueño (D-20261113-02). Un ítem sin marcar necesita excepción
+  explícita del dueño, no un salto silencioso. El deploy toma un backup nuevo
+  antes de cada migración (`deploy/deploy.sh`, regla 32); no mira la
+  antigüedad de un backup anterior (la checklist de release sí lo pide).
 - **Merge**: merge commit tras CI verde, fijado al commit verificado (§1).
   `main` exige los checks "Backend (Java 21 + MySQL 8.4)", "Frontend
   (Node 24)" (D-20261019-06) y "Backend campaign (MySQL 8.4)" (D-20261109-03)
