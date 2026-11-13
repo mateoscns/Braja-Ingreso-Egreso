@@ -84,6 +84,14 @@ describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {
     expect(/display:\s*([^;]+)/.exec(rule('.nav-sub', wide))?.[1].trim()).toBe('block')
   })
 
+  // Issue #171 (2026-11-12): over 1600 px the workspace was centred with a white margin on each side while the top bar spans the
+  // whole width, so the rail floated away from the left edge. The rail stays at the edge; only the content keeps a width cap.
+  it('en una pantalla ancha el menú queda pegado al borde izquierdo y solo el contenido tiene ancho máximo', () => {
+    const wide = media(1024)
+    expect(selectorsOf(rulesNaming('workspace').filter(({ declarations }) => /max-width|margin/.test(declarations)))).toEqual([])
+    expect(rule('.main-content', wide)).toMatch(/max-width:\s*calc\(1600px - var\(--rail-width\)\)/)
+  })
+
   // Rewritten in slice C1: the bar is a grid of three named areas (the brand and «Cerrar sesión» on the dark row, the company
   // and the person under it on phones, all three in one row from 1024 px). It has no fixed height, so a larger text or a long
   // company name makes it taller instead of cutting it, and it scrolls away with the page: no rule makes it sticky or fixed.
