@@ -77,6 +77,7 @@ export function EmployeeApp() {
   const loadSequence = useRef(0)
   const pendingSequence = useRef(0)
   const markSequence = useRef(0)
+  const casesSequence = useRef(0)
   const markInFlight = useRef(false)
   /** When the day was last read, and the local date of each local then: a new date or a long absence reads it again. */
   const lastLoad = useRef({ at: 0, day: '' })
@@ -225,7 +226,11 @@ export function EmployeeApp() {
     setBusy(true); setSending(true); setMarkError(''); setConfirmation(null); setMarkFailed(false); setFailedMark(null); setStep(null)
     // The location may settle before submitMark returns; it is applied once the mark id is known.
     const located: { markId: string; early: LocationResult | null } = { markId: '', early: null }
-    const onLocation = (result: LocationResult) => { if (located.markId) applyLocation(located.markId, result); else located.early = result }
+    // A sent location can create «Fuera del local» on the server (issue #188), so the cases are read again after it.
+    const onLocation = (result: LocationResult) => {
+      if (located.markId) applyLocation(located.markId, result); else located.early = result
+      if (result === 'SENT') void refreshCasesAfterMark(markRequest)
+    }
     let attempt: MarkAttempt | null = null
     let confirmed = false
     try {
@@ -260,9 +265,11 @@ export function EmployeeApp() {
   /** Not awaited (2026-11-13 audit): the cases and «Para explicar» follow the mark without holding its buttons or its message. */
   async function refreshCasesAfterMark(markRequest: number) {
     const loadRequest = loadSequence.current
+    // Only the latest read applies: the one after the receipt can answer after the one after the location.
+    const casesRequest = ++casesSequence.current
     try {
       const refreshedDay = await loadEmployeeDayData(api, sites, date)
-      if (markRequest !== markSequence.current || loadRequest !== loadSequence.current) return
+      if (markRequest !== markSequence.current || loadRequest !== loadSequence.current || casesRequest !== casesSequence.current) return
       setDeviations(refreshedDay.deviations)
       // A failed background refresh keeps the pending list already on screen.
       if (!refreshedDay.pendingMotivesError) applyPendingMotives(refreshedDay.pendingMotives, refreshedDay.pendingMotivesTruncated, '')

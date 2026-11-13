@@ -374,6 +374,26 @@ describe('EmployeeApp', () => {
       expect(box).not.toHaveTextContent('✔')
     })
 
+    // 2026-11-13, issue #188: a mark 129 m away created «Fuera del local» once its location arrived, and the screen never asked for the motive.
+    it('pide el motivo de «fuera del local» apenas llega la ubicación, sin tocar «Actualizar»', async () => {
+      const outside: Deviation = { ...pendingDeviation, id: 'deviation-outside', type: 'FUERA_DE_SEDE', pushEligible: false }
+      const serverCases: Deviation[] = []
+      configureSingle(jornadas[0])
+      const base = mocks.apiGet.getMockImplementation()!
+      mocks.apiGet.mockImplementation((path: string) => path.startsWith('/deviations?') ? Promise.resolve(path.startsWith('/deviations?status=') ? serverCases.filter((item) => item.status === 'MOTIVO_PENDIENTE') : serverCases) : base(path))
+      render(<EmployeeApp />)
+      fireEvent.click(await breakfastButton())
+      await screen.findByText(/Listo: tu salida a desayunar/)
+      const section = await screen.findByRole('region', { name: 'Para explicar' })
+      await waitFor(() => expect(section).toHaveTextContent('No tenés nada para explicar.'))
+
+      serverCases.push(outside)
+      const onLocation = mocks.submitMark.mock.calls[0][3] as (result: 'SENT' | 'MISSING') => void
+      act(() => onLocation('SENT'))
+
+      await waitFor(() => expect(screen.getByRole('region', { name: 'Para explicar' })).toHaveTextContent('Fuera del local'))
+    })
+
     it('avisa cuando la ubicación no llegó', async () => {
       configureSingle(jornadas[0])
       render(<EmployeeApp />)
