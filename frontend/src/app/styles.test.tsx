@@ -1467,7 +1467,8 @@ describe('puntos de corte, colores forzados, salto al contenido y foco por códi
     const wide = rule('.main-content', media(768))
     expect(wide).not.toMatch(/(?<![\w-])padding\s*:/)
     expect(value(wide, 'padding-top')).toBe('38px')
-    for (const side of ['padding-right', 'padding-left']) expect(value(wide, side), side).toBe('clamp(22px, 4vw, 64px)')
+    // Never less than the phone's safe area on that side (the WebKit audit below).
+    for (const side of ['right', 'left']) expect(value(wide, `padding-${side}`), side).toBe(`max(clamp(22px, 4vw, 64px), env(safe-area-inset-${side}))`)
   })
 
   // Forced colours drop fills and box shadows (the second pixel of a chosen edge); borders stay, in the text colour. So a chosen
@@ -1531,6 +1532,118 @@ describe('puntos de corte, colores forzados, salto al contenido y foco por códi
     expect(value(rule(buttons, wide), 'align-self')).toBe('flex-start')
     expect(value(rule(buttons, wide), 'margin-top')).toBe('calc(var(--font-size-body) * var(--line-height-body) + var(--space-1))')
     expect(value(rule('.field'), 'gap')).toBe('var(--space-1)')
+  })
+})
+
+// The WebKit audit after issue #173 (2026-11-12): every layout check had run in Chrome, which lets a select with a percentage width
+// shrink to nothing when a column is sized by its content; WebKit sizes it by its longest option. What WebKit and Safari on an
+// iPhone do differently is pinned here by pattern, so a new rule or screen that repeats it fails wherever it is written.
+describe('Safari en el iPhone (WebKit): lo que en Chrome no se ve', () => {
+  const value = (declarations: string, property: string) => new RegExp(`(?:^|[;\\s])${property}:\\s*([^;]+)`).exec(declarations)?.[1].trim()
+  /** The arguments of a CSS function, split at its own commas. */
+  const argumentsOf = (call: string) => splitSelectors(call.slice(call.indexOf('(') + 1, call.lastIndexOf(')')))
+  /** The minimum of each track of a grid-template-columns value; a bare fr track has an auto minimum. */
+  function trackMinimums(columns: string): string[] {
+    const tracks: string[] = []
+    let depth = 0
+    let current = ''
+    for (const character of columns.trim()) {
+      if (character === '(') depth += 1
+      if (character === ')') depth -= 1
+      if (/\s/.test(character) && depth === 0) {
+        if (current) tracks.push(current)
+        current = ''
+      } else current += character
+    }
+    if (current) tracks.push(current)
+    return tracks.flatMap((track) => {
+      if (track.startsWith('repeat(')) return trackMinimums(argumentsOf(track)[1])
+      if (track.startsWith('minmax(')) return [argumentsOf(track)[0]]
+      return [/^\d*\.?\d+fr$/.test(track) ? 'auto' : track]
+    })
+  }
+
+  // A column whose minimum is its content grows with a select's longest option in WebKit. Only these hold no field: the brand and
+  // «Cerrar sesión» of the top bar, «Buscar» next to the address, and the tag and «Ir» of a step. The context strip spans the
+  // brand's column on a phone and holds the company switch, so its own width never counts there.
+  it('solo la marca, «Cerrar sesión», «Buscar» y el pie de un paso tienen una columna que crece con su contenido', () => {
+    const contentSized = allRules().filter(({ declarations }) => {
+      const columns = value(declarations, 'grid-template-columns')
+      return columns !== undefined && trackMinimums(columns).some((minimum) => /^(?:auto|min-content|max-content|fit-content)/.test(minimum))
+    })
+
+    expect(selectorsOf(contentSized)).toEqual(['.site-map-search', '.topbar', '.topbar', '.step'])
+    expect(value(rule('.topbar-context'), 'contain')).toBe('inline-size')
+  })
+
+  // Under 16 px Safari zooms the page when a field takes focus, and a select is as wide as its longest option unless its place
+  // says otherwise: every one of them is in a field of the system (FormField, Fieldset) or is the company switch.
+  it('todo campo de texto y toda lista desplegable está en un campo del sistema o es el selector de empresa', () => {
+    const insideOf = (before: string, tag: string) => before.lastIndexOf(`<${tag}`) > before.lastIndexOf(`</${tag}>`)
+    const outside = appSourcePaths().flatMap((path) => {
+      const text = readSource(path)
+      return [...text.matchAll(/<(input|select|textarea)\b[^>]*/g)]
+        .filter((match) => !/type="(?:checkbox|radio|hidden)"/.test(match[0]) && !match[0].includes('className="company-switch"'))
+        .filter((match) => !['FormField', 'Fieldset'].some((tag) => insideOf(text.slice(0, match.index), tag)))
+        .map((match) => `${path}: <${match[1]}`)
+    })
+
+    expect(outside).toEqual([])
+    for (const selector of [TEXT_BOX, '.company-switch']) expect(ruleListing(selector).declarations).toMatch(/font-size:\s*var\(--font-size-body\)/)
+    for (const selector of ['.field select', '.company-switch']) {
+      expect(value(rule(selector), 'max-width'), selector).toBe('100%')
+      expect(value(rule(selector), 'text-overflow'), selector).toBe('ellipsis')
+    }
+    // An inline form puts its fields straight in its own column, inside a record or a wrapping row: its content never widens them.
+    expect(value(rule('.inline-form'), 'min-width')).toBe('0')
+  })
+
+  // A word longer than the screen (a name, a local, a schedule, a company) widens the page as a long option did. Where such a
+  // text is written it may break anywhere; only what is never written by a person stays on one line.
+  it('una palabra larga de un nombre se corta antes de ensanchar la página', () => {
+    const nowrap = allRules().filter(({ declarations }) => /white-space:\s*nowrap/.test(declarations))
+    const names = ['h1, h2, h3', '.topbar-who', '.choice-text', '.check', '.record', '.history-card', '.history-items li', '.case',
+      '.motive-fact', '.motive-said', '.now-context', '.message-body', '.site-map-results .button']
+
+    expect(selectorsOf(nowrap)).toEqual(['.visually-hidden', '.skip-link:not(:focus)', '.status-chip'])
+    for (const selector of names) expect(value(rule(selector), 'overflow-wrap'), selector).toBe('anywhere')
+  })
+
+  // Safari on iOS centres the value of a date or a time and gives an empty one no line (no placeholder is drawn): the value starts
+  // where typed text starts, as in @tailwindcss/forms. Its own rule: a browser that does not know the pseudo-element drops the
+  // whole rule it is in.
+  it('una fecha o una hora se lee desde la izquierda como el texto de los demás campos, también vacía', () => {
+    const dateValue = rule('.field input::-webkit-date-and-time-value')
+
+    expect(value(dateValue, 'text-align')).toBe('start')
+    expect(value(dateValue, 'min-height')).toBe('calc(var(--line-height-body) * 1em)')
+    expect(allSelectors().filter((selector) => selector.includes('::-webkit-'))).toEqual(['.field input::-webkit-date-and-time-value', '.fold > summary::-webkit-details-marker'])
+  })
+
+  // With viewport-fit=cover the page reaches under the rounded corners and the island of a phone lying down, which takes about
+  // 47 px on each side; the ADMIN's content kept 16 to 34 px there. Safari enlarges text by itself when the phone turns unless
+  // text-size-adjust says 100% (never none: that also blocks the reader's own text size). Pinch zoom stays allowed: inside the
+  // installed app it is the only way to enlarge the text.
+  it('apaisado, el contenido no queda bajo la isla del iPhone, el texto no se agranda solo al girar y se puede ampliar', () => {
+    for (const block of [css, media(768)]) {
+      for (const side of ['left', 'right']) {
+        expect(value(rule('.main-content', block), `padding-${side}`), side).toMatch(new RegExp(`^max\\(.+, env\\(safe-area-inset-${side}\\)\\)$`))
+      }
+    }
+    expect(value(rule('html'), '-webkit-text-size-adjust')).toBe('100%')
+    expect(value(rule('html'), 'text-size-adjust')).toBe('100%')
+    expect(css).not.toMatch(/text-size-adjust:\s*none/)
+    const viewport = /<meta name="viewport" content="([^"]+)"/.exec(readSource('../index.html'))?.[1] ?? ''
+    expect(viewport.split(/,\s*/)).toEqual(['width=device-width', 'initial-scale=1.0', 'viewport-fit=cover'])
+  })
+
+  // Safari's bars come and go while the page scrolls: 100vh is the screen without them, so a page of that height runs under them.
+  it('toda altura en vh tiene después la misma en dvh', () => {
+    const missing = allRules().flatMap(({ selectors, declarations }) => [...declarations.matchAll(/([\w-]+):\s*([^;]*\d+vh[^;]*)/g)]
+      .filter((match) => !declarations.includes(`${match[1]}: ${match[2].trim().replace(/(\d+)vh/g, '$1dvh')}`))
+      .map((match) => `${selectors.join(', ')} { ${match[1]} }`))
+
+    expect(missing).toEqual([])
   })
 })
 
