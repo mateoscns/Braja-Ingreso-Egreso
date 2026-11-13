@@ -288,7 +288,11 @@ export class ApiClient {
     if (response.status === 204 || response.headers.get('content-length') === '0') return undefined as T
     const contentType = response.headers.get('content-type') ?? ''
     if (!contentType.includes('json')) return undefined as T
-    return await response.json() as T
+    // The signal also covers the body (2026-11-13 audit): an abort while it streams ends as the same failure as before the headers.
+    try { return await response.json() as T } catch (reason) {
+      if (init.signal?.aborted) throw abortFailure(init.signal)
+      throw reason
+    }
   }
 }
 

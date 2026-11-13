@@ -1142,6 +1142,34 @@ describe('EmployeeApp', () => {
       expect(mocks.apiGet.mock.calls.map(([path]) => String(path))).toContain('/jornadas/mine?localDate=2026-10-21')
     })
 
+    it('no recarga mientras la persona tiene un motivo escrito a medias', async () => {
+      configureSingle(jornadas[0], [pendingDeviation])
+      render(<EmployeeApp />)
+      const section = await screen.findByRole('region', { name: 'Para explicar' })
+      fireEvent.change(await within(section).findByLabelText('Contá qué pasó'), { target: { value: 'El colectivo no' } })
+      const first = dayLoads()
+
+      vi.setSystemTime(new Date(NOW.getTime() + 10 * 60_000))
+      showApp('visible')
+      await act(async () => { await Promise.resolve() })
+      expect(dayLoads()).toBe(first)
+      expect(within(section).getByLabelText('Contá qué pasó')).toHaveValue('El colectivo no')
+    })
+
+    it('no recarga mientras se mira otro día', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      await breakfastButton()
+      fireEvent.change(within(screen.getByRole('region', { name: 'Ver otros días' })).getByLabelText('Día'), { target: { value: '2026-10-15' } })
+      await screen.findByText(/Estás viendo el 15 oct 2026/)
+      const first = dayLoads()
+
+      vi.setSystemTime(new Date(NOW.getTime() + 10 * 60_000))
+      showApp('visible')
+      await act(async () => { await Promise.resolve() })
+      expect(dayLoads()).toBe(first)
+    })
+
     it('no recarga mientras una marca está en camino', async () => {
       configureSingle(jornadas[0])
       mocks.submitMark.mockReturnValueOnce(new Promise(() => undefined))

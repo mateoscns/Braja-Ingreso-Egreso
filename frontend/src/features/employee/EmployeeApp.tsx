@@ -166,6 +166,8 @@ export function EmployeeApp() {
   /** Not while a mark or a motive is on its way or being edited, nor while another day is shown: those keep what is on screen. */
   reloadIfStale.current = (backOnScreen) => {
     if (!session?.activeCompanyId || date || loading || !lastLoad.current.at || markInFlight.current || savingMotive || editingMotives.length) return
+    // A motive half written keeps its form, its focus and the keyboard: the day is read again once it is sent or left empty.
+    if (Object.values(motiveValues).some((value) => value.category || value.text.trim())) return
     const newDate = localDates(sites) !== lastLoad.current.day
     if (newDate || (backOnScreen && Date.now() - lastLoad.current.at >= STALE_AFTER_MS)) void load()
   }

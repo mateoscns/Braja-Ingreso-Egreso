@@ -487,6 +487,18 @@ describe('ApiClient: plazo de las consultas', () => {
     expect(await pending).toBeInstanceOf(TimeoutError)
   })
 
+  it('una respuesta que llega y se corta a mitad del cuerpo también termina en TimeoutError', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => Promise.resolve({
+      ok: true, status: 200, headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => new Promise((_resolve, reject) => { init.signal?.addEventListener('abort', () => reject(init.signal?.reason)) })
+    } as unknown as Response)))
+    const pending = new ApiClient().get('/employees').catch((reason: unknown) => reason)
+
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(await pending).toBeInstanceOf(TimeoutError)
+  })
+
   it('una consulta que responde a tiempo no deja el plazo corriendo', async () => {
     vi.useFakeTimers()
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } })))
