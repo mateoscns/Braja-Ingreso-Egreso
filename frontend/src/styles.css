@@ -447,7 +447,6 @@ input:is([type="date"], [type="time"], [type="datetime-local"]):focus-within { o
 /* Four destinations by task (D-20261111-02). Under 1024 px they are a bar fixed at the bottom of the screen, the only thing fixed
    on it: each destination is its icon over its name, as tall as the bar. The bar keeps the phone's bottom safe area under its
    items, and the content keeps the bar's height clear. From 1024 px the same markup is a column on the left (further down). */
-.workspace { max-width: 1600px; margin: 0 auto; }
 .nav {
   position: fixed; z-index: 10; right: 0; bottom: 0; left: 0;
   padding-right: env(safe-area-inset-right); padding-bottom: env(safe-area-inset-bottom); padding-left: env(safe-area-inset-left);
@@ -501,7 +500,9 @@ html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-room) + var(--spac
   .nav-link[aria-current="true"] { color: var(--text); background: transparent; font-weight: var(--font-weight-heavy); }
   .nav-sub { display: block; }
   .nav-sub .nav-link { padding-left: calc(var(--space-5) - var(--bar-width) + 2rem); }
-  .main-content { padding-bottom: var(--space-7); }
+  /* The rail stays at the left edge at every width, like the top bar; only the content keeps the cap of 1600 px it had with the
+     rail, left-aligned next to it (issue #171: the whole workspace was centred and the rail floated away from the edge). */
+  .main-content { max-width: calc(1600px - var(--rail-width)); padding-bottom: var(--space-7); }
   html:has(.nav) { scroll-padding-bottom: 0; }
 }
 @media (min-width: 1024px) and (hover: hover) {
