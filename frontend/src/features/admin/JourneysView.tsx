@@ -8,7 +8,7 @@ import type { Employee, Jornada, JornadaAudit, Mark, MarkAction, Site } from '..
 import { useWideTable } from '../../app/useBreakpoint'
 import { revealAndFocus, useFocusRequest } from '../../app/revealAndFocus'
 import { useFieldErrors } from '../../app/useFieldErrors'
-import { CANCEL_BUTTON_ID, CANCEL_FORM_ID, dayButtonId, DETAIL_HEADING_ID, DETAIL_ID, FORGOTTEN_FORM_ID, JourneysViewRender, markButtonId, markFormId, markMessageKey, type JourneyRow } from './JourneysViewRender'
+import { CANCEL_BUTTON_ID, CANCEL_FORM_ID, dayButtonId, DETAIL_HEADING_ID, DETAIL_ID, FORGOTTEN_FORM_ID, JourneysViewRender, markButtonId, markFormId, markMapButtonId, markMapPanelId, markMessageKey, type JourneyRow } from './JourneysViewRender'
 import { errText } from './adminShared'
 import { AdminHistory } from './AdminHistory'
 import { historyDayButtonId } from './AdminHistoryRender'
@@ -99,6 +99,18 @@ export function JourneysView({ openJornada, searchArrival = 0 }: { openJornada?:
   // The «Ver marcas» that opened the day: «Cerrar» gives the focus back to it (#177).
   const detailOpener = useRef('')
   const focusLater = useFocusRequest(markBusy === '' && !detailLoading)
+  // The mark whose map is open under it (2026-11-13), one at a time: opening it takes the focus to it, closing it gives the
+  // focus back to its «Ver en el mapa». It closes with its day.
+  const [mapMarkId, setMapMarkId] = useState('')
+  function toggleMarkMap(mark: Mark) {
+    if (mapMarkId === mark.id) { setMapMarkId(''); return }
+    setMapMarkId(mark.id); focusLater({ id: markMapPanelId(mark.id) })
+  }
+  function closeMarkMap() {
+    const markId = mapMarkId
+    setMapMarkId('')
+    if (markId) focusLater({ id: markMapButtonId(markId) })
+  }
   async function loadAudit(jornadaId: string) {
     const requestId = ++auditRequest.current
     setAudit(null); setAuditError(''); setAuditLoading(true)
@@ -118,7 +130,7 @@ export function JourneysView({ openJornada, searchArrival = 0 }: { openJornada?:
   async function loadJourneys(requestedDate = date, preserveNotice = false) {
     const requestId = ++journeyRequest.current
     detailRequest.current += 1
-    setJourneysLoading(true); setJourneysError(''); setError(''); if (!preserveNotice) setNotice(''); setDetail(null); setDetailFor(''); setDetailLoading(false)
+    setJourneysLoading(true); setJourneysError(''); setError(''); if (!preserveNotice) setNotice(''); setDetail(null); setDetailFor(''); setDetailLoading(false); setMapMarkId('')
     try {
       const rows = await api.get<JourneyRow[]>(`/jornadas${queryString({ from: requestedDate, to: requestedDate })}`)
       if (requestId !== journeyRequest.current) return
@@ -197,7 +209,7 @@ export function JourneysView({ openJornada, searchArrival = 0 }: { openJornada?:
   async function openDetail(jornadaId: string, opener: string) {
     detailOpener.current = opener
     setReveal({ kind: 'detail' })
-    setNotice(''); setMessageAt('')
+    setNotice(''); setMessageAt(''); setMapMarkId('')
     await showDetail(jornadaId)
   }
   /**
@@ -209,7 +221,7 @@ export function JourneysView({ openJornada, searchArrival = 0 }: { openJornada?:
     detailRequest.current += 1
     closeAudit()
     setDetail(null); setDetailFor(''); setDetailLoading(false); setReveal(null); setMessageAt(''); setError(''); setNotice('')
-    setEditingMarkId(''); setVoidingMarkId(''); setVoidReason(''); setCancelOpen(false); setCancelReason('')
+    setEditingMarkId(''); setVoidingMarkId(''); setVoidReason(''); setCancelOpen(false); setCancelReason(''); setMapMarkId('')
     forgottenFields.reset(); correctionFields.reset(); voidFields.reset(); cancelFields.reset()
     const back = [detailOpener.current, dayButtonId(jornadaId)].find((id) => id && document.getElementById(id))
     if (back) focusLater({ id: back })
@@ -311,7 +323,7 @@ export function JourneysView({ openJornada, searchArrival = 0 }: { openJornada?:
     setDate(value)
     if (!value) {
       journeyRequest.current += 1; detailRequest.current += 1
-      setDateError('Elegí una fecha para ver los días cargados.'); setJornadas([]); setJourneysError(''); setJourneysLoading(false); setDetail(null); setDetailFor(''); setDetailLoading(false)
+      setDateError('Elegí una fecha para ver los días cargados.'); setJornadas([]); setJourneysError(''); setJourneysLoading(false); setDetail(null); setDetailFor(''); setDetailLoading(false); setMapMarkId('')
       return
     }
     setDateError('')
@@ -324,6 +336,7 @@ export function JourneysView({ openJornada, searchArrival = 0 }: { openJornada?:
     cancelOpen={cancelOpen} cancelReason={cancelReason} voidingMarkId={voidingMarkId} voidReason={voidReason}
     forgottenErrors={forgottenFields.errors} correctionErrors={correctionFields.errors} voidError={voidFields.errors.reason} cancelError={cancelFields.errors.reason}
     auditOpen={Boolean(detail) && auditFor === detail?.id} audit={audit} auditLoading={auditLoading} auditError={auditError} onToggleAudit={toggleAudit} onRetryAudit={() => { if (auditFor) void loadAudit(auditFor) }}
+    mapMarkId={mapMarkId} onToggleMarkMap={toggleMarkMap} onCloseMarkMap={closeMarkMap}
     onBeginCancel={() => { setCancelOpen(true); setCancelReason(''); cancelFields.reset(); setReveal({ kind: 'form', id: CANCEL_FORM_ID }) }} onCancelReasonChange={(value) => { setCancelReason(value); cancelFields.clear('reason') }} onConfirmCancel={(event) => void cancelJornada(event)} onAbortCancel={() => { setCancelOpen(false); setCancelReason(''); cancelFields.reset(); setReveal({ kind: 'trigger', id: CANCEL_BUTTON_ID }) }}
     onBeginVoid={beginVoid} onVoidReasonChange={(value) => { setVoidReason(value); voidFields.clear('reason') }} onConfirmVoid={(event, mark) => void voidMark(event, mark)} onAbortVoid={abortVoid}
     onDateChange={changeDate} onRetryDependencies={() => void loadDependencies(date)} onReloadJourneys={() => void loadJourneys(date)} onShowDetail={(id) => void openDetail(id, dayButtonId(id))} onCloseDetail={closeDetail}

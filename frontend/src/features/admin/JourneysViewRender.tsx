@@ -10,6 +10,8 @@ import type { Deviation, Jornada, JornadaAudit, JornadaAuditEntry, JornadaStatus
 import { formatBlock } from '../../shared/format'
 import { adminCategoryName as categoryName, adminDeviationName as deviationName, adminDeviationStatusName as statusName, adminMarkLocationName as locationName, adminMarkName as actionName } from '../../shared/labels'
 import { dateTime, stateLabel } from './adminRenderShared'
+import { markGeofence } from './markMap'
+import { MarkMapPanel } from './MarkMapPanel'
 
 /** L30: cancel and void reasons are kept as free-text audit, so the form warns against health data. */
 const HEALTH_DATA_HINT = 'No escribas datos de salud; alcanza con «Licencia».'
@@ -35,6 +37,11 @@ export const markButtonId = (kind: MarkFormKind, markId: string) => `mark-${mark
 /** Where the result or error of a form shows: inside the form while it is open, next to its mark once it closed. The other
     places are 'forgotten', 'cancel' and 'detail' (a day that could not be read). */
 export const markMessageKey = (kind: MarkFormKind, markId: string) => `${kind}:${markId}`
+/** The map of a mark (2026-11-13): it opens under its mark and takes the focus; «Cerrar» gives it back to «Ver en el mapa». */
+export const markMapPanelId = (markId: string) => `mark-${markId}-map`
+export const markMapButtonId = (markId: string) => `mark-${markId}-map-button`
+/** A mark the map can show: it has its point and still counts for the day (a voided one no longer does, D-20261027-08). */
+const hasPoint = (mark: Mark) => !mark.voided && typeof mark.latitude === 'number' && typeof mark.longitude === 'number'
 /** The title of the list of the date: the table and the phone list are named by it. */
 const LIST_HEADING_ID = 'jornadas-list-title'
 
@@ -55,7 +62,7 @@ function journeysTitle(date: string) {
   return `Días de trabajo del ${formattedDate}`
 }
 
-export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas, loading, journeysLoading, journeysDate, journeysError, dependencyError, error, notice, messageAt, detail, detailFor, detailLoading, markBusy, date, dateError, peopleById, detailSite, detailTimeZone, forgotAction, forgotOccurredAt, forgotReason, editingMarkId, correctedAction, correctedOccurredAt, correctionReason, cancelOpen, cancelReason, voidingMarkId, voidReason, forgottenErrors = {}, correctionErrors = {}, voidError, cancelError, auditOpen, audit, auditLoading, auditError, onToggleAudit, onRetryAudit, onDateChange, onRetryDependencies, onReloadJourneys, onShowDetail, onCloseDetail = () => undefined, onForgotActionChange, onForgotOccurredAtChange, onForgotReasonChange, onAddForgottenMark, onBeginMarkCorrection, onCorrectedActionChange, onCorrectedOccurredAtChange, onCorrectionReasonChange, onCorrectMark, onCancelMarkCorrection, onBeginCancel, onCancelReasonChange, onConfirmCancel, onAbortCancel, onBeginVoid, onVoidReasonChange, onConfirmVoid, onAbortVoid }: {
+export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas, loading, journeysLoading, journeysDate, journeysError, dependencyError, error, notice, messageAt, detail, detailFor, detailLoading, markBusy, date, dateError, peopleById, detailSite, detailTimeZone, forgotAction, forgotOccurredAt, forgotReason, editingMarkId, correctedAction, correctedOccurredAt, correctionReason, cancelOpen, cancelReason, voidingMarkId, voidReason, forgottenErrors = {}, correctionErrors = {}, voidError, cancelError, auditOpen, audit, auditLoading, auditError, onToggleAudit, onRetryAudit, mapMarkId = '', onToggleMarkMap = () => undefined, onCloseMarkMap = () => undefined, onDateChange, onRetryDependencies, onReloadJourneys, onShowDetail, onCloseDetail = () => undefined, onForgotActionChange, onForgotOccurredAtChange, onForgotReasonChange, onAddForgottenMark, onBeginMarkCorrection, onCorrectedActionChange, onCorrectedOccurredAtChange, onCorrectionReasonChange, onCorrectMark, onCancelMarkCorrection, onBeginCancel, onCancelReasonChange, onConfirmCancel, onAbortCancel, onBeginVoid, onVoidReasonChange, onConfirmVoid, onAbortVoid }: {
   /** The search of earlier days (AdminHistory), a fold under the list of the date. */
   daySearch?: ReactNode
   /** Under 768 px: the days and the marks of a day are lists instead of tables. */
@@ -81,6 +88,8 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
   onBeginCancel: () => void; onCancelReasonChange: (value: string) => void; onConfirmCancel: (event: FormEvent<HTMLFormElement>) => void; onAbortCancel: () => void
   onBeginVoid: (mark: Mark) => void; onVoidReasonChange: (value: string) => void; onConfirmVoid: (event: FormEvent<HTMLFormElement>, mark: Mark) => void; onAbortVoid: () => void
   auditOpen: boolean; audit: JornadaAudit | null; auditLoading: boolean; auditError: string; onToggleAudit: () => void; onRetryAudit: () => void
+  /** The mark whose map is open under it ('' for none); one map at a time. */
+  mapMarkId?: string; onToggleMarkMap?: (mark: Mark) => void; onCloseMarkMap?: () => void
 }) {
   const cancellable = detail?.state === 'NO_INGRESO' && detail.marks.every((mark) => mark.voided)
   // A result or error shows where its form is (design system 4.7), never at the top of the page.
@@ -91,7 +100,18 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
   // Correcting changes the mark (secondary); voiding takes it out of the day (the one danger style, outlined).
   // Without the local's zone a time cannot be typed: the buttons that need one say why, with the message above the marks.
   const zoneReason = detailTimeZone ? undefined : ZONE_MISSING_ID
-  const markButtons = (mark: Mark, className: string) => <div className={className}><button id={markButtonId('correct', mark.id)} className="button button-secondary" aria-label={`Corregir marca ${actionName(mark.action)} de ${markTime(mark)}`} aria-describedby={zoneReason} disabled={markBusy !== '' || !detailTimeZone} onClick={() => onBeginMarkCorrection(mark)}>Corregir</button><button id={markButtonId('void', mark.id)} className="button button-danger" aria-label={`Anular marca ${actionName(mark.action)} de ${markTime(mark)}`} disabled={markBusy !== ''} onClick={() => onBeginVoid(mark)}>Anular</button></div>
+  // «Ver en el mapa» is a link button (it opens something to look at, it changes nothing); open, it reads «Ocultar mapa».
+  const mapButton = (mark: Mark) => {
+    if (!hasPoint(mark)) return null
+    const open = mark.id === mapMarkId
+    return <button type="button" id={markMapButtonId(mark.id)} className="button button-link" aria-expanded={open} aria-controls={open ? markMapPanelId(mark.id) : undefined}
+      aria-label={`${open ? 'Ocultar mapa de' : 'Ver en el mapa'} la marca ${actionName(mark.action)} de ${markTime(mark)}`} onClick={() => onToggleMarkMap(mark)}>{open ? 'Ocultar mapa' : 'Ver en el mapa'}</button>
+  }
+  const markMap = (mark: Mark) => detail && mark.id === mapMarkId && hasPoint(mark)
+    ? <MarkMapPanel id={markMapPanelId(mark.id)} headingId={`${markMapPanelId(mark.id)}-title`} mark={{ latitude: mark.latitude as number, longitude: mark.longitude as number }}
+      accuracyMeters={mark.accuracyMeters} geofence={markGeofence(detail)} mapLabel={`Mapa de la marca ${actionName(mark.action)} de ${markTime(mark)}`} onClose={onCloseMarkMap} />
+    : null
+  const markButtons = (mark: Mark, className: string, lead?: ReactNode) => <div className={className}>{lead}<button id={markButtonId('correct', mark.id)} className="button button-secondary" aria-label={`Corregir marca ${actionName(mark.action)} de ${markTime(mark)}`} aria-describedby={zoneReason} disabled={markBusy !== '' || !detailTimeZone} onClick={() => onBeginMarkCorrection(mark)}>Corregir</button><button id={markButtonId('void', mark.id)} className="button button-danger" aria-label={`Anular marca ${actionName(mark.action)} de ${markTime(mark)}`} disabled={markBusy !== ''} onClick={() => onBeginVoid(mark)}>Anular</button></div>
   const voidedNote = (mark: Mark) => `${mark.voidedAt ? `Anulada el ${dateTime(mark.voidedAt, detailTimeZone)}` : 'Anulada'}${mark.voidReason ? ` · ${mark.voidReason}` : ''}`
   // Backing out of a form is a link button: it never borrows the look, or the word, of the action it backs out of.
   const voidForm = (mark: Mark) => <form id={markFormId('void', mark.id)} className="inline-form" aria-label={`Anular la marca ${actionName(mark.action)} de ${markTime(mark)}`} noValidate onSubmit={(event) => onConfirmVoid(event, mark)}>
@@ -107,10 +127,16 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
     <div className="button-row"><button className="button button-primary" disabled={markBusy === mark.id}>{markBusy === mark.id ? 'Guardando…' : 'Guardar corrección de marca'}</button><button type="button" className="button button-link" disabled={markBusy === mark.id} onClick={onCancelMarkCorrection}>Cancelar</button></div>
   </form>
   /** What opens under a mark: its open form, or else the result of the form that closed on it. */
-  const underMark = (mark: Mark) => mark.voided ? messagesAt(markMessageKey('void', mark.id))
+  const formUnderMark = (mark: Mark) => mark.voided ? messagesAt(markMessageKey('void', mark.id))
     : mark.id === voidingMarkId ? voidForm(mark)
     : mark.id === editingMarkId ? correctionForm(mark)
     : messagesAt(markMessageKey('void', mark.id)) ?? messagesAt(markMessageKey('correct', mark.id))
+  /** Its map, when open, then its form or result. */
+  const underMark = (mark: Mark) => {
+    const map = markMap(mark)
+    const form = formUnderMark(mark)
+    return map || form ? <>{map}{form}</> : null
+  }
   const detailBlock = detailLoading ? <Panel title="Detalle"><Loading label="Consultando marcas…" /></Panel>
     : detail ? jornadaDetail(detail) : messagesAt('detail')
   // The detail goes in the row of its day; while that row is not on screen (the list is reloading, failed or is of another
@@ -140,14 +166,15 @@ export function JourneysViewRender({ daySearch, narrow = false, sites, jornadas,
           {/* The table's «Registrada» column, so no information depends on the width of the screen. */}
           <p className="record-meta"><span>{`${MARK_TIME_LABEL}: `}{mark.voided ? <s>{markTime(mark)}</s> : markTime(mark)}</span><span>{`${RECORDED_TIME_LABEL}: ${recordedTime(mark)}`}</span></p>
           <p className="record-meta">{mark.voided ? voidedNote(mark) : markLocation(mark)}</p>
-          {!mark.voided && markButtons(mark, 'record-actions')}
+          {/* On a phone «Ver en el mapa» leads the row of the mark's buttons, a whole target like them. */}
+          {!mark.voided && markButtons(mark, 'record-actions', mapButton(mark))}
           {underMark(mark)}
         </li>)}</ul>
         : <TableScroll labelledBy={DETAIL_HEADING_ID}><table aria-labelledby={DETAIL_HEADING_ID}><thead><tr><th scope="col">Marca</th><th scope="col">{MARK_TIME_LABEL}</th><th scope="col">{RECORDED_TIME_LABEL}</th><th scope="col">Ubicación</th><th scope="col">Acciones</th></tr></thead><tbody>{detail.marks.map((mark) => {
           const under = underMark(mark)
           return <Fragment key={mark.id}>{mark.voided
             ? <tr className="record-voided"><td><s>{actionName(mark.action)}</s> <VoidedTag /></td><td><s>{markTime(mark)}</s></td><td>{recordedTime(mark)}</td><td>{markLocation(mark)}</td><td>{voidedNote(mark)}</td></tr>
-            : <tr><td>{actionName(mark.action)}</td><td>{markTime(mark)}</td><td>{recordedTime(mark)}</td><td>{markLocation(mark)}</td><td>{markButtons(mark, 'button-row')}</td></tr>}
+            : <tr><td>{actionName(mark.action)}</td><td>{markTime(mark)}</td><td>{recordedTime(mark)}</td><td>{markLocation(mark)}{mapButton(mark)}</td><td>{markButtons(mark, 'button-row')}</td></tr>}
             {/* The form of a mark, or its result, in a full-width row right under it (design system 4.12). */}
             {under && <tr><td colSpan={5}>{under}</td></tr>}</Fragment>
         })}</tbody></table></TableScroll>}

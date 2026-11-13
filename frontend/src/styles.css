@@ -979,3 +979,24 @@ html:has(.session-warning:not(:empty)) { scroll-padding-top: calc(env(safe-area-
 /* «Hoy» (issue #177, Enrique: «Demasiado espacio entre el texto y el label»): under the date, the text of a day without rows or of
    a load sits 16 px under the box, the space of a form between a field and what follows it (.form-stack), and not 24 px. */
 .toolbar + .empty-state, .toolbar + .loading { padding-top: 0; }
+/* ===== «Hoy»: the map of a mark (2026-11-13) ===== */
+/* Opened under its mark like a form of it (.inline-form gives the bar, the gap and the space above): the verdict and its
+   sentences, what the map shows, the map and its link, one under the other and never wider than the column. */
+.mark-map-facts { display: grid; gap: var(--space-1); min-width: 0; max-width: var(--measure); }
+.mark-map-facts > p { margin: 0; overflow-wrap: anywhere; }
+/* The verdict is what the ADMIN came for: the strongest line, in the colour of the text (its words say inside or outside). */
+.mark-map-verdict { color: var(--text); font-weight: var(--font-weight-heavy); }
+.mark-map-legend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); margin: 0; padding: 0; list-style: none; color: var(--text-muted); }
+.mark-map-legend > li { display: inline-flex; align-items: center; gap: var(--space-2); }
+/* The two keys of the legend copy the two points of the map: a dot ringed in white, red for the mark and ink for the local. */
+.mark-map-key { flex-shrink: 0; width: 1em; height: 1em; border: var(--border-width-strong) solid var(--surface); border-radius: 50%; outline: var(--border-width) solid var(--border); }
+.mark-map-key-mark { background: var(--bad); }
+.mark-map-key-local { background: var(--brand); }
+/* A map of about 240 px on a phone, 320 px from 768 px: the facts above it and its link under it stay in one screenful. */
+.site-map-canvas.mark-map-canvas { height: 15rem; }
+@media (min-width: 768px) {
+  .site-map-canvas.mark-map-canvas { height: 20rem; }
+}
+.mark-map-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); }
+/* The link stands alone like a control, a whole target. */
+.mark-map-actions > a { display: inline-flex; align-items: center; min-height: var(--target); }

@@ -43,6 +43,11 @@ export const DEVICE_POSITION_ZOOM = 16
 export const SEARCH_RESULT_ZOOM = 18
 const DEFAULT_RADIUS_METERS = 100
 
+/** OpenStreetMap with a pin on the point, close to it: the link of the «Locales» form and of the map of a mark in «Hoy». */
+export function openStreetMapHref({ latitude, longitude }: SiteCoordinates): string {
+  return `https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}#map=17/${latitude}/${longitude}`
+}
+
 /** Seven decimals, the precision the database keeps (about 1 cm). */
 export function roundCoordinate(value: number): number {
   return Number(value.toFixed(7))
