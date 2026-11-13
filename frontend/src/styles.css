@@ -120,7 +120,9 @@
 * { box-sizing: border-box; }
 /* WCAG 2.4.11: scrolling to a focused control leaves it clear of the band under the phone's status bar (below). The top bar
    scrolls away with the page, so it needs no room of its own; the ADMIN's bottom bar keeps its own (html:has(.nav), below). */
-html { scroll-padding-top: calc(env(safe-area-inset-top) + 8px); }
+/* Safari on an iPhone enlarges the text by itself when the phone turns; 100 % keeps the sizes of the tokens and still lets the
+   reader zoom (a value of none would block that too). */
+html { scroll-padding-top: calc(env(safe-area-inset-top) + 8px); -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body { margin: 0; min-width: 320px; min-height: 100vh; min-height: 100dvh; background: var(--surface); line-height: var(--line-height-body); }
 /* The installed app on an iPhone draws its clock and battery in white over the page (index.html: black-translucent). The top
    bar is dark under them while the page is at its top, and scrolls away; this band keeps the area of the status bar dark after
@@ -137,8 +139,9 @@ a { color: var(--brand); text-decoration: underline; }
 /* The brand is a lockup, not a line of text: where it is a link (the ADMIN's top bar) its name says so, not an underline. */
 a.brand { text-decoration: none; }
 h1, h2, h3, p { margin-top: 0; }
-/* Headings take the family of the page: one stack, three sizes, no letter-spacing. */
-h1, h2, h3 { font-weight: var(--font-weight-heavy); }
+/* Headings take the family of the page: one stack, three sizes, no letter-spacing. A heading can hold a name («Hola, …», «Marcas
+   de …»): a word longer than the screen breaks instead of widening the page. */
+h1, h2, h3 { font-weight: var(--font-weight-heavy); overflow-wrap: anywhere; }
 h1 { font-size: var(--font-size-display); line-height: var(--line-height-tight); margin-bottom: .55rem; }
 h2 { font-size: var(--font-size-title); line-height: var(--line-height-heading); margin: 0; }
 h3 { font-size: var(--font-size-body-lg); line-height: var(--line-height-heading); }
@@ -244,6 +247,9 @@ fieldset.field > .message, .site-map-panel > .message { margin: 0; }
 /* WebKit does not let a select shrink below its option: on an iPhone the long name of a province widened the page and Safari
    shrank it whole (issue #173). The select keeps the width of its field and cuts its text there; the list shows it whole. */
 .field select { max-width: 100%; text-overflow: ellipsis; }
+/* Safari on iOS centres the value of a date or a time and gives an empty one no line: it starts where typed text starts, one line
+   tall. A rule of its own: a browser that does not know the pseudo-element drops the whole rule it is in. */
+.field input::-webkit-date-and-time-value { min-height: calc(var(--line-height-body) * 1em); text-align: start; }
 /* A textarea starts with room for about three lines and can only be stretched downwards. */
 .field textarea { min-height: 5.5rem; resize: vertical; }
 /* Invalid: an edge of 2 px in the error colour, besides the text under the field. The second pixel is drawn inside, as on a
@@ -336,7 +342,7 @@ input:is([type="date"], [type="time"], [type="datetime-local"]):focus-within { o
 .choice small { color: var(--text-muted); font-size: var(--font-size-body); }
 /* The words of a tile: its title over its help line («Salud» / «estuviste enfermo o en el médico», the shift of a day and its
    date), after the radio when it has one, the help in the muted colour of the rule above. */
-.choice-text { display: grid; min-width: 0; }
+.choice-text { display: grid; min-width: 0; overflow-wrap: anywhere; }
 /* One column; two where there is room for them. */
 .choice-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
 @media (min-width: 600px) {
@@ -413,6 +419,9 @@ input:is([type="date"], [type="time"], [type="datetime-local"]):focus-within { o
   grid-area: context; display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-4); min-width: 0;
   padding: var(--space-1) max(var(--gutter), env(safe-area-inset-right)) var(--space-1) max(var(--gutter), env(safe-area-inset-left));
   color: var(--text-muted); background: var(--surface-tint); border-bottom: var(--border-width) solid var(--rule);
+  /* On a phone the strip spans the brand's column, which is as wide as its content at least: in WebKit the company switch counts
+     as wide as its longest company, and a long one widened the bar past the screen. The strip takes the width of the bar. */
+  contain: inline-size;
 }
 /* Inline text, not a flex row: a long name wraps as a sentence and the spaces around «·» are kept. */
 .topbar-who { min-width: 0; margin: 0; padding: var(--space-1) 0; overflow-wrap: anywhere; }
@@ -428,7 +437,7 @@ input:is([type="date"], [type="time"], [type="datetime-local"]):focus-within { o
 /* The company switch: a select with its label in sight, on one line while it fits. */
 .company-switch-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); min-width: 0; max-width: 100%; }
 .company-switch-label { font-weight: var(--font-weight-strong); }
-.company-switch { width: auto; min-width: 0; max-width: 100%; }
+.company-switch { width: auto; min-width: 0; max-width: 100%; text-overflow: ellipsis; }
 /* What the top bar's controls have to say (the install help, the wait and the error of a company switch) opens under the bar,
    across the page, in its flow; the area takes no room while it is empty. */
 .topbar-notices:not(:empty) { padding: 0 max(var(--gutter), env(safe-area-inset-right)) 0 max(var(--gutter), env(safe-area-inset-left)); }
@@ -477,10 +486,17 @@ input:is([type="date"], [type="time"], [type="datetime-local"]):focus-within { o
 /* The parts of «Configuración» are listed on the rail only; on a phone its page leads to them. */
 .nav-sub { display: none; }
 /* WCAG 2.4.11: the end of the content, and a control scrolled into view, stay above the bar. */
-.main-content { min-width: 0; padding: 26px 16px; padding-bottom: calc(var(--bottom-nav-room) + var(--space-5)); }
+/* The sides never get less than the phone's safe area: lying down, its rounded corners and island take about 47 px on each side. */
+.main-content {
+  min-width: 0; padding: 26px 16px; padding-right: max(16px, env(safe-area-inset-right)); padding-left: max(16px, env(safe-area-inset-left));
+  padding-bottom: calc(var(--bottom-nav-room) + var(--space-5));
+}
 /* More room around the content from a tablet. Longhands: the bottom padding is the room of the bar, above and below. */
 @media (min-width: 768px) {
-  .main-content { padding-top: 38px; padding-right: clamp(22px, 4vw, 64px); padding-left: clamp(22px, 4vw, 64px); }
+  .main-content {
+    padding-top: 38px; padding-right: max(clamp(22px, 4vw, 64px), env(safe-area-inset-right));
+    padding-left: max(clamp(22px, 4vw, 64px), env(safe-area-inset-left));
+  }
 }
 html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-room) + var(--space-2)); }
 /* From 1024 px the same list is a column on the left, in the page: the four destinations and, under «Configuración», its parts
@@ -563,7 +579,7 @@ html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-room) + var(--spac
    this way (useWideTable in app/useBreakpoint.ts). The class names are the old ones until each screen slice renames them to
    record-*. */
 .history-list { display: flex; flex-direction: column; }
-.history-card { display: grid; gap: var(--space-2); min-width: 0; padding: var(--space-3) 0; border-bottom: var(--border-width) solid var(--rule); }
+.history-card { display: grid; gap: var(--space-2); min-width: 0; padding: var(--space-3) 0; border-bottom: var(--border-width) solid var(--rule); overflow-wrap: anywhere; }
 /* A lone button of a record («Ver marcas») keeps the width of its words, as in the table. */
 .history-card > .button { justify-self: start; }
 /* The title line: the identifier, then what qualifies it (local, state tag), wrapping under it on a narrow row. */
@@ -608,7 +624,7 @@ html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-room) + var(--spac
 .check {
   display: inline-flex; align-items: flex-start; gap: var(--space-2);
   min-width: var(--target); min-height: var(--target); padding: calc((var(--target) - var(--target-floor)) / 2) 0;
-  color: var(--text); cursor: pointer;
+  color: var(--text); cursor: pointer; overflow-wrap: anywhere;
 }
 /* The box takes the cursor of its label: a hand, or the "not allowed" sign when it is disabled. */
 input[type=checkbox], input[type=radio] { flex: 0 0 auto; width: var(--target-floor); height: var(--target-floor); margin: 0; accent-color: var(--brand); cursor: inherit; }
@@ -714,7 +730,7 @@ td .button-row { gap: var(--space-2); }
 }
 /* An inline form opens in place, under the row or the button that opened it (design system 4.7): a bar on its left, no box.
    Inside a wrapping row (a mark of the phone list) it takes a line of its own. */
-.inline-form { display: grid; gap: var(--space-4); flex-basis: 100%; width: 100%; margin-top: var(--space-4); padding-left: var(--space-4); border-left: var(--bar-width) solid var(--border); }
+.inline-form { display: grid; gap: var(--space-4); flex-basis: 100%; width: 100%; min-width: 0; margin-top: var(--space-4); padding-left: var(--space-4); border-left: var(--bar-width) solid var(--border); }
 /* Its result is one more step of the form, spaced by the form's gap and not by a margin on top of it (slice E6, every screen). */
 .inline-form > .message { margin: 0; }
 
@@ -765,7 +781,7 @@ td .button-row { gap: var(--space-2); }
 .now-step { display: grid; gap: var(--space-3); }
 .now-step-text { margin: 0; font-size: var(--font-size-body-lg); line-height: var(--line-height-body); }
 /* The schedule: the clock, the blocks in 18 px bold, then the local and the tolerance in the muted colour. */
-.now-context { display: flex; align-items: flex-start; gap: var(--space-2); color: var(--text-muted); }
+.now-context { display: flex; align-items: flex-start; gap: var(--space-2); color: var(--text-muted); overflow-wrap: anywhere; }
 .now-context > .icon { margin-top: .1875em; }
 .now-schedule { display: flex; flex-wrap: wrap; gap: 0 var(--space-2); margin: 0; color: var(--text); font-size: var(--font-size-body-lg); font-weight: var(--font-weight-heavy); line-height: var(--line-height-heading); }
 .now-schedule > strong { font-weight: var(--font-weight-strong); }
