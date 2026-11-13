@@ -56,7 +56,8 @@ const CONFLICT_MESSAGES: Record<string, string> = {
   ACCOUNT_SHARED: 'Esta persona también tiene acceso en otra empresa o como ADMIN, así que su contraseña no se puede restablecer desde acá. Pedí ayuda al soporte de Fichaje Braja.',
   EMPLOYEE_INACTIVE: 'El empleado está dado de baja; reactivalo antes de restablecer la contraseña.',
   JORNADA_HAS_MARKS: 'El día de trabajo ya tiene marcas y no se puede cancelar. Corregí o anulá sus marcas.',
-  JORNADA_CANCELLED: 'Este día de trabajo fue cancelado por el administrador y no admite marcas.',
+  // Both roles read it (issue #177), so it names nobody.
+  JORNADA_CANCELLED: 'Este día de trabajo fue cancelado y no admite marcas.',
   MARK_VOIDED: 'Esa marca ya fue anulada y no se puede modificar.',
   ASSIGNMENT_EXISTS: 'Esa persona ya tiene un horario en ese local desde ese día. Elegí otro día.',
   TEMPLATE_IN_USE: 'Ese horario ya se usa, así que no puede pasar a otro local. Creá un horario nuevo para ese local.',
@@ -78,7 +79,8 @@ function messageForStatus(status: number, code?: string, context: ApiErrorContex
   if (status === 409 && code && Object.hasOwn(CONFLICT_MESSAGES, code)) return CONFLICT_MESSAGES[code]
   if (status === 409) return 'La información cambió o la acción ya fue procesada. Actualizá la vista.'
   if (status === 422 && code && Object.hasOwn(VALIDATION_MESSAGES, code)) return VALIDATION_MESSAGES[code]
-  if (status === 422) return 'Revisá los datos ingresados.'
+  // A 422 without a code of its own names no field; each screen says under its fields what it checks itself (issue #177).
+  if (status === 422) return 'Hay un dato que el sistema no aceptó. Revisá lo que cargaste y volvé a intentar.'
   // The reverse proxy answers bodies over 1 MB, with or without a Problem body.
   if (status === 413) return 'Los datos enviados son demasiado grandes. Acortá los textos y volvé a intentar.'
   if (status === 429) return `Hubo demasiados intentos. Esperá ${waitText(context.retryAfterSeconds)} y probá otra vez.`
@@ -86,7 +88,9 @@ function messageForStatus(status: number, code?: string, context: ApiErrorContex
   if (status === 503 && code === 'AUTHENTICATION_UNAVAILABLE') return 'El sistema no está disponible en este momento. Probá de nuevo en unos minutos.'
   // The reverse proxy answers 503 SERVICE_UNAVAILABLE with Retry-After while the backend restarts during a deploy.
   if (status === 503) return `El sistema se está actualizando o no está disponible por un momento. Probá de nuevo en ${waitText(context.retryAfterSeconds)}.`
-  return 'No se pudo completar la operación. Revisá tu conexión y reintentá.'
+  // A failure of the system (500 and any other answer): the connection worked, so it is not blamed (issue #177). The employee
+  // and the ADMIN both read it, so it sends to no one in particular.
+  return 'Algo falló en el sistema. Probá de nuevo en un rato. Si sigue pasando, pedí ayuda.'
 }
 
 /** The same failure send() reports when fetch itself is aborted by that signal. */

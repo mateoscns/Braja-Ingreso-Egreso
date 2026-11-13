@@ -214,7 +214,13 @@ describe('describeDeviation', () => {
   it('counts the minutes against the schedule of a loaded day', () => {
     expect(describeDeviation(base, jornada('EN_CURSO'), timeZone)).toBe('Llegaste 18 minutos tarde (tu entrada era 08:00).')
     expect(describeDeviation({ ...base, type: 'EGRESO_TEMPRANO', occurredAt: '2026-11-09T19:40:00Z' }, jornada('EGRESADA'), timeZone)).toBe('Saliste 20 minutos antes (tu salida era 17:00).')
-    expect(describeDeviation({ ...base, type: 'EGRESO_TARDIO', occurredAt: '2026-11-09T21:01:00Z' }, jornada('EGRESADA'), timeZone)).toBe('Marcaste la salida 61 minutos después de tu horario (tu salida era 17:00).')
+    expect(describeDeviation({ ...base, type: 'EGRESO_TARDIO', occurredAt: '2026-11-09T21:01:00Z' }, jornada('EGRESADA'), timeZone)).toBe('Marcaste la salida 1 h 1 min después de tu horario (tu salida era 17:00).')
+  })
+
+  // Issue #177: «Saliste 449 minutos antes» was hard to read; from an hour on, hours and minutes.
+  it('says a long difference in hours and minutes', () => {
+    expect(describeDeviation({ ...base, type: 'EGRESO_TEMPRANO', occurredAt: '2026-11-09T12:31:00Z' }, jornada('EGRESADA'), timeZone)).toBe('Saliste 7 h 29 min antes (tu salida era 17:00).')
+    expect(describeDeviation({ ...base, occurredAt: '2026-11-09T13:00:00Z' }, jornada('EN_CURSO'), timeZone)).toBe('Llegaste 2 horas tarde (tu entrada era 08:00).')
   })
 
   it('measures a long pause from its marks', () => {

@@ -3,7 +3,7 @@ import { Icon, type IconName } from '../../app/icons'
 import { reveal } from '../../app/revealAndFocus'
 import { Empty, FormField, LoadFailure, Loading, PageMessage, Panel, Status, StatusTag, type StatusTone } from '../../app/ui'
 import type { Deviation, Jornada, MarkAction, Site } from '../../shared/api/types'
-import { formatBlock, formatDateTime, formatLocalDate, jornadaStateLabel } from '../../shared/format'
+import { formatBlock, formatDateTime, formatLocalDate, formatWorkDay, jornadaStateLabel } from '../../shared/format'
 import { forEmployee } from '../../shared/labels'
 import {
   actionLabel, confirmationText, daySlots, describeDeviation, deviationName, locationOutcomeText,
@@ -38,7 +38,8 @@ const MARK_ICONS: Record<MarkAction, IconName> = {
 
 /** The greeting is the h1 of the page; the state of the day is said in the "now" block under it. */
 export function DayHeading({ name }: { name: string }) {
-  return <div className="employee-heading"><h1>Hola, {name}</h1></div>
+  // Without a name the greeting is a neutral «Hola» (issue #177: the fallback was «bienvenido», in the masculine).
+  return <div className="employee-heading"><h1>{name ? `Hola, ${name}` : 'Hola'}</h1></div>
 }
 
 export function JourneyPicker({ jornadas, sites, selectedId, disabled, onSelect }: {
@@ -229,6 +230,7 @@ function MotiveRecord(props: MotivePanelProps & { item: Deviation; pending: bool
   const { item, pending, jornadas, sites, editingIds, onEdit } = props
   const open = pending || editingIds.includes(item.id)
   const zone = siteZone(item, jornadas, sites)
+  const day = jornadas.find((jornada) => jornada.id === item.jornadaId)
   const openerRef = useRef<HTMLButtonElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const wasOpen = useRef(open)
@@ -242,8 +244,9 @@ function MotiveRecord(props: MotivePanelProps & { item: Deviation; pending: bool
   const opener = item.status === 'PENDIENTE_REVISION' ? 'Corregir motivo' : canAddFirstMotive(item) ? 'Agregar motivo' : ''
   const summary = <div className="motive-summary">
     <p className="record-title"><strong>{deviationName[item.type]}</strong><StatusTag {...STATUS_TAGS[item.status]}>{statusName[item.status]}</StatusTag></p>
-    <p className="record-meta">{formatDateTime(item.occurredAt ?? item.createdAt, zone)}</p>
-    <p className="motive-fact">{describeDeviation(item, jornadas.find((jornada) => jornada.id === item.jornadaId), zone)}{pending ? ' ¿Qué pasó?' : ''}</p>
+    {/* The day of work the case belongs to, when that day is loaded; otherwise when it happened (issue #177). */}
+    <p className="record-meta">{day ? `Día de trabajo del ${formatWorkDay(day.localDate)}` : formatDateTime(item.occurredAt ?? item.createdAt, zone)}</p>
+    <p className="motive-fact">{describeDeviation(item, day, zone)}{pending ? ' ¿Qué pasó?' : ''}</p>
   </div>
   if (pending) return <li className="record"><MotiveForm {...props} formRef={formRef} todo>{summary}</MotiveForm></li>
   return <li className="record">

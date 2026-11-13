@@ -26,6 +26,8 @@ export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; 
   const [timeZoneLoadError, setTimeZoneLoadError] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
+  // Which decision is saving: only its button reads «Guardando…» (issue #177: both did).
+  const [savingAs, setSavingAs] = useState<DeviationClassification | null>(null)
   // A refused decision and a saved one are told inside the row of their case (design system 4.11), where the ADMIN pressed the
   // button: a saved one used to show at the top of the section, far from a case lower down (T12).
   const [failedDecision, setFailedDecision] = useState<FailedDecision>(null)
@@ -83,7 +85,7 @@ export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; 
   // correction form closes, once the row's buttons are enabled again.
   const focusLater = useFocusRequest(busy === '')
   async function classify(item: Deviation, classification: DeviationClassification, reason?: string) {
-    setBusy(item.id); setError(''); setSavedDecision(null); setFailedDecision(null)
+    setBusy(item.id); setSavingAs(classification); setError(''); setSavedDecision(null); setFailedDecision(null)
     try {
       const updated = await api.put<Deviation>(`/admin/deviations/${encodeURIComponent(item.id)}/classification`, {
         classification, ...(reason?.trim() ? { correctionReason: reason.trim() } : {})
@@ -97,7 +99,7 @@ export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; 
       // The pressed button was disabled while it waited and lost the focus: its refusal, in the row (and in the correction
       // form when one is open), takes it (slice F1's note).
       correctionFields.focusProblem(caseRowId(item.id))
-    } finally { setBusy('') }
+    } finally { setBusy(''); setSavingAs(null) }
   }
   function requestClassification(item: Deviation, classification: DeviationClassification) {
     if (item.status === 'JUSTIFICADO' || item.status === 'NO_JUSTIFICADO') {
@@ -126,7 +128,7 @@ export function AdminInbox({ coverage, onOpenJornada }: { coverage?: ReactNode; 
     } catch (reason) { if (requestId === generation.current) setError(errText(reason)) } finally { setBusy('') }
   }
   const filtered = Object.values(appliedFilters).some(Boolean)
-  return <AdminInboxRender narrow={narrow} appliedFilters={appliedFilters} coverage={coverage} onOpenJornada={onOpenJornada} items={items} employees={employees} sites={sites} filters={filters} filterErrors={filterFields.errors} filtered={filtered} onFiltersChange={changeFilters} onApplyFilters={applyFilters} onClearFilters={clearFilters} timeZones={timeZones} nextCursor={nextCursor} loading={loading} inboxLoadError={inboxLoadError} timeZoneLoadError={timeZoneLoadError} error={error} savedDecision={savedDecision} busy={busy} correction={correction} correctionReason={correctionReason} targetDeviation={targetDeviation} failedDecision={failedDecision}
+  return <AdminInboxRender narrow={narrow} appliedFilters={appliedFilters} coverage={coverage} onOpenJornada={onOpenJornada} items={items} employees={employees} sites={sites} filters={filters} filterErrors={filterFields.errors} filtered={filtered} onFiltersChange={changeFilters} onApplyFilters={applyFilters} onClearFilters={clearFilters} timeZones={timeZones} nextCursor={nextCursor} loading={loading} inboxLoadError={inboxLoadError} timeZoneLoadError={timeZoneLoadError} error={error} savedDecision={savedDecision} busy={busy} savingAs={savingAs} correction={correction} correctionReason={correctionReason} targetDeviation={targetDeviation} failedDecision={failedDecision}
     correctionError={correctionFields.errors.reason}
     onReload={() => void reload()} onClassify={requestClassification} onRetry={() => void reload()} onLoadMore={() => void loadMore()}
     onCorrectionReasonChange={(reason) => { setCorrectionReason(reason); correctionFields.clear('reason') }}

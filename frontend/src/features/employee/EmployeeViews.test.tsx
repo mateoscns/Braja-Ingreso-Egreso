@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LoadFailure } from '../../app/ui'
 import type { Deviation, Jornada, Site } from '../../shared/api/types'
-import { DayMarksPanel, MarkFeedback, MotivePanel, OtherDayPanel } from './EmployeeViews'
+import { DayHeading, DayMarksPanel, MarkFeedback, MotivePanel, OtherDayPanel } from './EmployeeViews'
 
 // The real LoadFailure, watched: a failed load must go through it (slice F3).
 vi.mock('../../app/ui', async (importOriginal) => {
@@ -152,6 +152,42 @@ describe('líneas de espera y cargas fallidas', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('No pudimos cargar lo que tenés para explicar. Servidor no disponible.')
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
     expect(onRetry).toHaveBeenCalledTimes(1)
+  })
+})
+
+// Issue #177: a case showed when it was recorded, not the day of work it belongs to.
+describe('un caso dice a qué día de trabajo pertenece', () => {
+  const day: Jornada = {
+    id: 'j-1', employeeId: 'e-1', siteId: site.id, localDate: '2026-11-09', state: 'EGRESADA', toleranceMinutes: 5, sequence: 1,
+    scheduleSnapshot: { siteId: site.id, name: 'Mañana', blocks: [{ startDayOffset: 0, start: '08:00', end: '16:00', endDayOffset: 0 }], breakfastLimitMinutes: 15, lunchLimitMinutes: 45 },
+    marks: []
+  }
+
+  it('con su día cargado, nombra el día de la semana de ese día de trabajo', () => {
+    render(<MotivePanel {...motiveProps({ items: [deviation], jornadas: [day] })} />)
+    const item = screen.getByRole('listitem')
+    expect(within(item).getByText('Día de trabajo del lunes 9 nov')).toBeInTheDocument()
+    expect(item).toHaveTextContent('Llegaste 20 minutos tarde (tu entrada era 08:00). ¿Qué pasó?')
+  })
+
+  it('sin su día cargado, conserva la fecha y la hora del hecho', () => {
+    render(<MotivePanel {...motiveProps({ items: [deviation] })} />)
+    const item = screen.getByRole('listitem')
+    expect(item).toHaveTextContent(/9 nov.? 2026, 08:20/)
+    expect(item).not.toHaveTextContent('Día de trabajo del')
+  })
+})
+
+// Issue #177: with no name to greet, the fallback was «bienvenido», in the masculine.
+describe('el saludo', () => {
+  it('sin nombre saluda con un «Hola» neutro', () => {
+    render(<DayHeading name="" />)
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Hola$/)
+  })
+
+  it('con nombre lo agrega al saludo', () => {
+    render(<DayHeading name="Lucía Pérez" />)
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Hola, Lucía Pérez$/)
   })
 })
 
