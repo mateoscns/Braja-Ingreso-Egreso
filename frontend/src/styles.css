@@ -488,7 +488,12 @@ input:is([type="date"], [type="time"], [type="datetime-local"]):focus-within { o
 .main-content {
   min-width: 0; padding: 26px 16px; padding-right: max(16px, env(safe-area-inset-right)); padding-left: max(16px, env(safe-area-inset-left));
   padding-bottom: calc(var(--bottom-nav-room) + var(--space-5));
+  /* 2026-11-13 audit: a long word the owner typed (a name, a local, a horario) in a hint, a label or a folded filter widened the
+     phone page; every text of the ADMIN screens may break before it does. */
+  overflow-wrap: anywhere;
 }
+/* A table keeps its columns: there a long word scrolls its own box (.table-scroll) instead of squeezing short words mid-word. */
+.main-content table { overflow-wrap: break-word; }
 /* More room around the content from a tablet. Longhands: the bottom padding is the room of the bar, above and below. */
 @media (min-width: 768px) {
   .main-content {
@@ -767,7 +772,8 @@ td .button-row { gap: var(--space-2); }
    the same row. The motive of a case in «Para revisar» hangs from the same hairline. */
 .motive-summary { display: grid; gap: var(--space-1); min-width: 0; }
 .motive-fact { margin: 0; color: var(--text); font-size: var(--font-size-body-lg); line-height: var(--line-height-heading); overflow-wrap: anywhere; }
-.motive-said { margin: var(--space-1) 0 0; padding-left: var(--space-3); border-left: var(--border-width-strong) solid var(--rule); overflow-wrap: anywhere; }
+/* The lines the employee wrote stay lines (2026-11-13 audit: a motive in several lines read as one run of text). */
+.motive-said { margin: var(--space-1) 0 0; padding-left: var(--space-3); border-left: var(--border-width-strong) solid var(--rule); overflow-wrap: anywhere; white-space: pre-line; }
 .inline-form-todo { border-left-color: var(--warn); }
 /* A form that is the whole row starts at the top of the row. */
 .record > .inline-form:first-child { margin-top: 0; }
