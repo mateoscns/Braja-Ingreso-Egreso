@@ -1043,6 +1043,149 @@ describe('EmployeeApp', () => {
     })
   })
 
+  // 2026-11-13 audit of the employee screen.
+  describe('el día sigue al día y la marca no se traba', () => {
+    const dayLoads = () => mocks.apiGet.mock.calls.filter(([path]) => String(path).startsWith('/jornadas/mine?')).length
+    const showApp = (state: 'visible' | 'hidden') => {
+      Object.defineProperty(document, 'visibilityState', { value: state, configurable: true })
+      act(() => { document.dispatchEvent(new Event('visibilitychange')) })
+    }
+    afterEach(() => { Reflect.deleteProperty(document, 'visibilityState') })
+
+    it('cuando la marca se confirma deja de decir «Enviando» y libera los botones aunque los casos tarden en actualizarse', async () => {
+      configureSingle(jornadas[0])
+      const base = mocks.apiGet.getMockImplementation()!
+      let hold = false
+      mocks.apiGet.mockImplementation((path: string) => hold && path.startsWith('/deviations') ? new Promise(() => undefined) : base(path))
+      render(<EmployeeApp />)
+      const button = await breakfastButton()
+      hold = true
+      fireEvent.click(button)
+
+      expect(await screen.findByText('Listo: tu salida a desayunar quedó registrada a las 10:05.')).toBeInTheDocument()
+      await waitFor(() => expect(screen.queryByText('Enviando tu marca… esperá un momento.')).not.toBeInTheDocument())
+      await waitFor(() => within(screen.getByRole('region', { name: 'Marcar' })).getAllByRole('button').forEach((item) => expect(item).toBeEnabled()))
+    })
+
+    it('mientras se lee el día después de confirmar, los botones esperan sin decir que la marca se está enviando', async () => {
+      configureSingle(jornadas[0])
+      const base = mocks.apiGet.getMockImplementation()!
+      let answerDay: ((value: Jornada) => void) | null = null
+      let hold = false
+      mocks.apiGet.mockImplementation((path: string) => hold && path === `/jornadas/${jornadas[0].id}` ? new Promise((resolve) => { answerDay = resolve }) : base(path))
+      render(<EmployeeApp />)
+      const button = await breakfastButton()
+      hold = true
+      fireEvent.click(button)
+
+      expect(await screen.findByText('Listo: tu salida a desayunar quedó registrada a las 10:05.')).toBeInTheDocument()
+      expect(screen.queryByText('Enviando tu marca… esperá un momento.')).not.toBeInTheDocument()
+      within(screen.getByRole('region', { name: 'Marcar' })).getAllByRole('button').forEach((item) => expect(item).toBeDisabled())
+
+      await act(async () => { answerDay?.(jornadas[0]) })
+      await waitFor(() => within(screen.getByRole('region', { name: 'Marcar' })).getAllByRole('button').forEach((item) => expect(item).toBeEnabled()))
+    })
+
+    it('si no se puede preparar la marca, lo dice y no deja los botones trabados', async () => {
+      configureSingle(jornadas[0])
+      mocks.createMarkAttempt.mockImplementationOnce(() => { throw new TypeError('crypto.randomUUID is not a function') })
+      const { container } = render(<EmployeeApp />)
+      fireEvent.click(await breakfastButton())
+
+      await waitFor(() => expect(container.querySelector('.mark-feedback .message-error')).not.toBeNull())
+      expect(mocks.submitMark).not.toHaveBeenCalled()
+      expect(screen.queryByText('Enviando tu marca… esperá un momento.')).not.toBeInTheDocument()
+      within(screen.getByRole('region', { name: 'Marcar' })).getAllByRole('button').forEach((item) => expect(item).toBeEnabled())
+    })
+
+    it('al volver a la app después de un rato recarga el día; al volver enseguida no', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      await breakfastButton()
+      const first = dayLoads()
+
+      vi.setSystemTime(new Date(NOW.getTime() + 60_000))
+      showApp('visible')
+      await act(async () => { await Promise.resolve() })
+      expect(dayLoads()).toBe(first)
+
+      vi.setSystemTime(new Date(NOW.getTime() + 6 * 60_000))
+      showApp('hidden')
+      expect(dayLoads()).toBe(first)
+      showApp('visible')
+      await waitFor(() => expect(dayLoads()).toBeGreaterThan(first))
+    })
+
+    it('al volver a la app al otro día carga el día nuevo', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      await breakfastButton()
+      const first = dayLoads()
+
+      vi.setSystemTime(new Date('2026-10-21T10:00:00Z'))
+      showApp('visible')
+      await waitFor(() => expect(dayLoads()).toBeGreaterThan(first))
+      expect(mocks.apiGet.mock.calls.map(([path]) => String(path))).toContain('/jornadas/mine?localDate=2026-10-21')
+    })
+
+    it('con la app abierta, al pasar la medianoche carga el día nuevo', async () => {
+      vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+      vi.setSystemTime(NOW)
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      await breakfastButton()
+      const first = dayLoads()
+
+      vi.setSystemTime(new Date('2026-10-21T03:00:30Z'))
+      await act(async () => { vi.advanceTimersByTime(30_000) })
+      await waitFor(() => expect(dayLoads()).toBeGreaterThan(first))
+      expect(mocks.apiGet.mock.calls.map(([path]) => String(path))).toContain('/jornadas/mine?localDate=2026-10-21')
+    })
+
+    it('no recarga mientras la persona tiene un motivo escrito a medias', async () => {
+      configureSingle(jornadas[0], [pendingDeviation])
+      render(<EmployeeApp />)
+      const section = await screen.findByRole('region', { name: 'Para explicar' })
+      fireEvent.change(await within(section).findByLabelText('Contá qué pasó'), { target: { value: 'El colectivo no' } })
+      const first = dayLoads()
+
+      vi.setSystemTime(new Date(NOW.getTime() + 10 * 60_000))
+      showApp('visible')
+      await act(async () => { await Promise.resolve() })
+      expect(dayLoads()).toBe(first)
+      expect(within(section).getByLabelText('Contá qué pasó')).toHaveValue('El colectivo no')
+    })
+
+    it('no recarga mientras se mira otro día', async () => {
+      configureSingle(jornadas[0])
+      render(<EmployeeApp />)
+      await breakfastButton()
+      fireEvent.change(within(screen.getByRole('region', { name: 'Ver otros días' })).getByLabelText('Día'), { target: { value: '2026-10-15' } })
+      await screen.findByText(/Estás viendo el 15 oct 2026/)
+      const first = dayLoads()
+
+      vi.setSystemTime(new Date(NOW.getTime() + 10 * 60_000))
+      showApp('visible')
+      await act(async () => { await Promise.resolve() })
+      expect(dayLoads()).toBe(first)
+    })
+
+    it('no recarga mientras una marca está en camino', async () => {
+      configureSingle(jornadas[0])
+      mocks.submitMark.mockReturnValueOnce(new Promise(() => undefined))
+      render(<EmployeeApp />)
+      fireEvent.click(await breakfastButton())
+      await screen.findByText('Enviando tu marca… esperá un momento.')
+      const first = dayLoads()
+
+      vi.setSystemTime(new Date(NOW.getTime() + 10 * 60_000))
+      showApp('visible')
+      await act(async () => { await Promise.resolve() })
+      expect(dayLoads()).toBe(first)
+      expect(screen.getByText('Enviando tu marca… esperá un momento.')).toBeInTheDocument()
+    })
+  })
+
   describe('Ver otros días', () => {
     it('elige otro día al final de la pantalla y vuelve a hoy con un botón', async () => {
       configureSingle(jornadas[0])
