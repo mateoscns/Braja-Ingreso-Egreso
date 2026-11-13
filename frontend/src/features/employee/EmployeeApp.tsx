@@ -22,6 +22,12 @@ import {
 type FailedMark = { attempt: MarkAttempt; knownMarkIds: string[] }
 
 const CLOCK_TICK_MS = 30_000
+/** Back on the screen after this long, the day is read again (2026-11-13 audit: a day loaded by the ADMIN meanwhile, or yesterday's
+    finished day, stayed on screen with nothing to tap). */
+const STALE_AFTER_MS = 5 * 60_000
+/** Today's date in every local (in the device's zone before the locals are known), to notice when it changes. */
+const localDates = (sites: Site[]) => (sites.length ? sites.map((site) => site.timeZone) : [Intl.DateTimeFormat().resolvedOptions().timeZone])
+  .map((timeZone) => localCalendarDate(timeZone, new Date())).join('|')
 
 function outcomeOf(status: Mark['locationStatus']): LocationOutcome | null {
   if (status === 'RECIBIDA') return 'SENT'
@@ -53,6 +59,9 @@ export function EmployeeApp() {
   const [loadFailed, setLoadFailed] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [busy, setBusy] = useState(false)
+  // «Enviando tu marca…» lasts until the server answers; `busy` keeps the buttons waiting a moment longer, until the day is read
+  // again, so they never offer the mark just made (2026-11-13 audit: both showed at once, and for as long as the cases took).
+  const [sending, setSending] = useState(false)
   const [markError, setMarkError] = useState('')
   const [confirmation, setConfirmation] = useState<MarkConfirmation | null>(null)
   const [pendingAttempt, setPendingAttempt] = useState<MarkAttempt | null>(null)
@@ -69,6 +78,9 @@ export function EmployeeApp() {
   const pendingSequence = useRef(0)
   const markSequence = useRef(0)
   const markInFlight = useRef(false)
+  /** When the day was last read, and the local date of each local then: a new date or a long absence reads it again. */
+  const lastLoad = useRef({ at: 0, day: '' })
+  const reloadIfStale = useRef<(backOnScreen: boolean) => void>(() => undefined)
   const feedbackRef = useRef<HTMLDivElement>(null)
   const stepRef = useRef<HTMLDivElement>(null)
   /** Location results known on this device before the server list shows them (it still says PENDIENTE for a moment). */
@@ -90,6 +102,13 @@ export function EmployeeApp() {
     const timer = window.setInterval(() => setNow(new Date()), CLOCK_TICK_MS)
     return () => window.clearInterval(timer)
   }, [])
+  // Coming back to the app reads the day again when it is old or another date; the clock tick catches midnight with the app open.
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') reloadIfStale.current(true) }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [])
+  useEffect(() => { reloadIfStale.current(false) }, [now])
 
   function withKnownLocations(jornada: Jornada): Jornada {
     if (!jornada.marks.some((mark) => mark.locationStatus === 'PENDIENTE' && knownLocations.current.has(mark.id))) return jornada
@@ -105,6 +124,7 @@ export function EmployeeApp() {
       const dayData = await loadEmployeeDayData(api, availableSites, date)
       if (requestId !== loadSequence.current) return null
       const loaded = dayData.jornadas.map(withKnownLocations)
+      lastLoad.current = { at: Date.now(), day: localDates(availableSites) }
       setSites(availableSites); setJornadas(loaded)
       // A cancelled jornada stays listed, but the first one that still accepts marks is selected by default.
       setSelectedId((current) => loaded.some((jornada) => jornada.id === current) ? current
@@ -143,6 +163,12 @@ export function EmployeeApp() {
     if (!session?.activeCompanyId) return
     void load()
   }, [date, session?.activeCompanyId])
+  /** Not while a mark or a motive is on its way or being edited, nor while another day is shown: those keep what is on screen. */
+  reloadIfStale.current = (backOnScreen) => {
+    if (!session?.activeCompanyId || date || loading || !lastLoad.current.at || markInFlight.current || savingMotive || editingMotives.length) return
+    const newDate = localDates(sites) !== lastLoad.current.day
+    if (newDate || (backOnScreen && Date.now() - lastLoad.current.at >= STALE_AFTER_MS)) void load()
+  }
   const selected = jornadas.find((jornada) => jornada.id === selectedId)
   const selectedSite = sites.find((site) => site.id === selected?.siteId)
   if (!session || !active) return null
@@ -194,38 +220,51 @@ export function EmployeeApp() {
     const jornadaId = selectedId
     const knownMarkIds = (jornadas.find((jornada) => jornada.id === jornadaId)?.marks ?? []).map((item) => item.id)
     const markRequest = ++markSequence.current
-    setBusy(true); setMarkError(''); setConfirmation(null); setMarkFailed(false); setFailedMark(null); setStep(null)
-    const attempt = pendingAttempt?.jornadaId === jornadaId && pendingAttempt.action === action ? pendingAttempt : createMarkAttempt(jornadaId, action)
-    setPendingAttempt(attempt)
+    setBusy(true); setSending(true); setMarkError(''); setConfirmation(null); setMarkFailed(false); setFailedMark(null); setStep(null)
     // The location may settle before submitMark returns; it is applied once the mark id is known.
     const located: { markId: string; early: LocationResult | null } = { markId: '', early: null }
     const onLocation = (result: LocationResult) => { if (located.markId) applyLocation(located.markId, result); else located.early = result }
+    let attempt: MarkAttempt | null = null
+    let confirmed = false
     try {
+      // Inside the try (2026-11-13 audit): a browser that cannot make the key left the buttons locked for good.
+      attempt = pendingAttempt?.jornadaId === jornadaId && pendingAttempt.action === action ? pendingAttempt : createMarkAttempt(jornadaId, action)
+      setPendingAttempt(attempt)
       const receipt = await submitMark(api, attempt, undefined, onLocation)
       located.markId = receipt.id
+      setSending(false)
       setConfirmation({ markId: receipt.id, action, acceptedAt: receipt.acceptedAt, location: receipt.locationStatus === 'RECIBIDA' ? 'SENT' : 'PENDING' })
       if (located.early) applyLocation(receipt.id, located.early)
       setPendingAttempt(null)
+      confirmed = true
+      // The buttons wait for the day as the server has it now, so they never offer again the mark just made.
       try {
         const refreshed = withKnownLocations(await api.get<Jornada>(`/jornadas/${encodeURIComponent(jornadaId)}`))
-        setJornadas((current) => current.map((item) => item.id === refreshed.id ? refreshed : item))
+        if (markRequest === markSequence.current) setJornadas((current) => current.map((item) => item.id === refreshed.id ? refreshed : item))
       } catch { /* La marca confirmada sigue valiendo aunque falle la actualización de pantalla. */ }
-      try {
-        const refreshedDay = await loadEmployeeDayData(api, sites, date)
-        setDeviations(refreshedDay.deviations)
-        // A failed background refresh keeps the pending list already on screen.
-        if (!refreshedDay.pendingMotivesError) applyPendingMotives(refreshedDay.pendingMotives, refreshedDay.pendingMotivesTruncated, '')
-      } catch { /* La marca no depende de actualizar la bandeja. */ }
     } catch (reason) {
       setMarkError(markFailureMessage(reason)); setMarkFailed(true)
       // That key is bound to other content on the server; the next try needs a new one.
       const conflict = reason instanceof ApiError && reason.code === 'IDEMPOTENCY_CONFLICT'
       if (conflict) setPendingAttempt(null)
-      const failed = conflict ? null : { attempt, knownMarkIds }
+      const failed = conflict || !attempt ? null : { attempt, knownMarkIds }
       setFailedMark(failed)
-      void refreshAfterFailedMark(jornadaId, markRequest, failed)
+      if (attempt) void refreshAfterFailedMark(jornadaId, markRequest, failed)
     }
-    finally { markInFlight.current = false; setBusy(false); setFeedbackFocus((count) => count + 1) }
+    finally { markInFlight.current = false; setBusy(false); setSending(false); setFeedbackFocus((count) => count + 1) }
+    if (confirmed) void refreshCasesAfterMark(markRequest)
+  }
+
+  /** Not awaited (2026-11-13 audit): the cases and «Para explicar» follow the mark without holding its buttons or its message. */
+  async function refreshCasesAfterMark(markRequest: number) {
+    const loadRequest = loadSequence.current
+    try {
+      const refreshedDay = await loadEmployeeDayData(api, sites, date)
+      if (markRequest !== markSequence.current || loadRequest !== loadSequence.current) return
+      setDeviations(refreshedDay.deviations)
+      // A failed background refresh keeps the pending list already on screen.
+      if (!refreshedDay.pendingMotivesError) applyPendingMotives(refreshedDay.pendingMotives, refreshedDay.pendingMotivesTruncated, '')
+    } catch { /* La marca no depende de actualizar la bandeja. */ }
   }
 
   /** When the failed mark shows up in the refreshed day, it did arrive: the error becomes its confirmation. */
@@ -335,7 +374,7 @@ export function EmployeeApp() {
       <DayHeading name={name} />
       {!loading && !loadFailed && jornadas.length > 1 && <JourneyPicker jornadas={jornadas} sites={sites} selectedId={selectedId} disabled={busy}
         onSelect={(id) => { setSelectedId(id); setPendingAttempt(null); setConfirmation(null); setStep(null) }} />}
-      <MarkFeedback feedbackRef={feedbackRef} sending={busy} error={markError} showRefresh={markFailed && !loading} onRefresh={() => void refreshAfterUnknown()} confirmation={confirmation} timeZone={zone} />
+      <MarkFeedback feedbackRef={feedbackRef} sending={sending} error={markError} showRefresh={markFailed && !loading} onRefresh={() => void refreshAfterUnknown()} confirmation={confirmation} timeZone={zone} />
       {sections}
       <OtherDayPanel date={date} disabled={busy} loading={loading} onDate={chooseDate} onToday={() => setDate('')} />
     </main>

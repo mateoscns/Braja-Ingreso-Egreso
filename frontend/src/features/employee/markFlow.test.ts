@@ -1,6 +1,28 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { submitMark } from './markFlow'
+import { createMarkAttempt, submitMark } from './markFlow'
 import { ApiClient, ApiError, TimeoutError } from '../../shared/api/client'
+
+// 2026-11-13 audit: crypto.randomUUID needs Safari 15.4; on an older iPhone the mark never started and the buttons stayed locked.
+describe('createMarkAttempt', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
+  it('crea una clave UUID nueva en cada intento', () => {
+    const first = createMarkAttempt('j-1', 'INGRESO')
+    const second = createMarkAttempt('j-1', 'INGRESO')
+    expect(first).toMatchObject({ jornadaId: 'j-1', action: 'INGRESO' })
+    expect(first.idempotencyKey).toMatch(UUID_V4)
+    expect(second.idempotencyKey).not.toBe(first.idempotencyKey)
+  })
+
+  it('también crea la clave en un navegador sin crypto.randomUUID', () => {
+    const real = globalThis.crypto
+    vi.stubGlobal('crypto', { getRandomValues: real.getRandomValues.bind(real) })
+    const keys = [createMarkAttempt('j-1', 'EGRESO'), createMarkAttempt('j-1', 'EGRESO')].map((attempt) => attempt.idempotencyKey)
+    for (const key of keys) expect(key).toMatch(UUID_V4)
+    expect(keys[0]).not.toBe(keys[1])
+  })
+})
 
 describe('submitMark', () => {
   it('no confirma hasta obtener respuesta del servidor y conserva la clave al reintentar', async () => {

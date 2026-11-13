@@ -77,6 +77,19 @@ describe('ApiClient', () => {
       message: 'Esa persona ya tiene un horario en ese local desde ese día. Elegí otro día.'
     })
   })
+
+  // 2026-11-13 audit: Object.hasOwn needs Safari 15.4; on an older iPhone every 409 showed «Object.hasOwn is not a function».
+  it('explica un conflicto conocido también en un navegador sin Object.hasOwn', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 409, code: 'ASSIGNMENT_EXISTS' }),
+      { status: 409, headers: { 'Content-Type': 'application/problem+json' } })))
+    const hasOwn = Object.hasOwn
+    Reflect.deleteProperty(Object, 'hasOwn')
+    // The matchers use Object.hasOwn themselves: the failure is caught first and checked once it is back.
+    let failure: unknown
+    try { await new ApiClient().get('/employees') } catch (reason) { failure = reason }
+    finally { Object.defineProperty(Object, 'hasOwn', { value: hasOwn, configurable: true, writable: true }) }
+    expect(failure).toMatchObject({ message: 'Esa persona ya tiene un horario en ese local desde ese día. Elegí otro día.' })
+  })
 })
 
 describe('ApiClient: mensajes de error', () => {
@@ -439,5 +452,45 @@ describe('ApiClient: observer of answered requests', () => {
     const client = new ApiClient()
     client.onResponse(() => { throw new Error('listener') })
     await expect(client.get('/session')).resolves.toEqual({ ok: true })
+  })
+})
+
+// 2026-11-13 audit: only the mark had a deadline; a stalled connection left «Preparando…» or «Cargando tu día…» forever.
+describe('ApiClient: plazo de las consultas', () => {
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
+  const hanging = () => vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+    init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+  }))
+
+  it('una consulta sin respuesta se corta a los 30 segundos con TimeoutError', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', hanging())
+    const pending = new ApiClient().get('/session').catch((reason: unknown) => reason)
+
+    await vi.advanceTimersByTimeAsync(29_999)
+    expect(await Promise.race([pending.then(() => 'settled'), Promise.resolve('pending')])).toBe('pending')
+    await vi.advanceTimersByTimeAsync(1)
+    expect(await pending).toBeInstanceOf(TimeoutError)
+  })
+
+  it('una consulta con su propia señal usa esa y no el plazo general', async () => {
+    vi.useFakeTimers()
+    const fetchMock = hanging()
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+    const pending = new ApiClient().get('/session', { signal: controller.signal }).catch((reason: unknown) => reason)
+
+    expect(fetchMock.mock.calls[0][1].signal).toBe(controller.signal)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(await Promise.race([pending.then(() => 'settled'), Promise.resolve('pending')])).toBe('pending')
+    controller.abort(new DOMException('timeout', 'TimeoutError'))
+    expect(await pending).toBeInstanceOf(TimeoutError)
+  })
+
+  it('una consulta que responde a tiempo no deja el plazo corriendo', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } })))
+    await expect(new ApiClient().get('/session')).resolves.toEqual({ ok: true })
+    expect(vi.getTimerCount()).toBe(0)
   })
 })
