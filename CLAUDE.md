@@ -107,7 +107,7 @@ en un estado:
   `ADMIN`.
 - **Registro de decisiones**: `docs/DECISIONES.md`, filas `ID
   (D-AAAAMMDD-NN) | fecha | decisión | propuesta por | estado | motivo`. Al
-  2026-11-13: 77 filas, todas adoptadas y 0 propuestas (16 del 2026-10-14, 6
+  2026-11-13: 78 filas, todas adoptadas y 0 propuestas (16 del 2026-10-14, 6
   del 10-15, 5 del 10-16, 1 del 10-18, 6 del 10-19, 2 del 10-23, 12 del 10-27,
   1 del 10-29, 2 del 10-30, 15 del 11-02, 3 del 11-09, 3 del 11-11: el
   vocabulario visible de la interfaz, D-20261111-01, con su ajuste de persona
@@ -116,8 +116,8 @@ en un estado:
   día del empleado solo para mirar, D-20261112-01, el aviso de sesión por
   vencer del `ADMIN`, D-20261112-02, y el cambio de empresa con «Cambiar»,
   D-20261112-03, y la excepción a la regla 38 para fusionar el rediseño en
-  `main`, D-20261112-04; y 1 del 11-13: el mapa de cada marca para el `ADMIN`,
-  D-20261113-01). Las 15 del 2026-11-02
+  `main`, D-20261112-04; y 2 del 11-13: el mapa de cada marca para el `ADMIN`,
+  D-20261113-01, y la duración de cada pausa en la pantalla del empleado, D-20261113-02). Las 15 del 2026-11-02
   (D-20261102-01 a -15) son propuestas de la IA durante la campaña #72 que
   Mateo adoptó con su aprobación general de ese día al plan de producción
   (`odd/tasks/production-readiness.md`); cada una lo dice en su motivo.
@@ -135,7 +135,7 @@ en un estado:
 - **Reglas del dueño que no se discuten**: D-20261014-01 (sin atribución de
   IA), -02 (software propio, sin SaaS de terceros), -03 (alcance cerrado),
   -04 (altas solo por `ADMIN`, sin límite de empleados) y -09
-  (multi-empresa y multi-sede). Las otras 67 filas también rigen; las que
+  (multi-empresa y multi-sede). Las otras 73 filas también rigen; las que
   cambian una regla de §5 se citan ahí.
 - **Una decisión nueva** la propone quien la detecta (Mateo, Enrique o la
   IA) como fila `propuesta`; hasta que Mateo la adopte no se cita como
