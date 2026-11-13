@@ -33,6 +33,21 @@ describe('componentes compartidos de interfaz', () => {
     expect(screen.queryByRole('button', { name: 'Salir' })).not.toBeInTheDocument()
   })
 
+  // Issue #177, follow-up F of slice G2: under 1024 px the bar is two rows, the brand and «Cerrar sesión» on the dark one and the
+  // company, the person and this device's controls under them, but Tab went brand, the controls under it, then «Cerrar sesión».
+  // The markup follows the rows of the phone; from 1024 px, one row, the stylesheet keeps the order of what is seen (reading-flow).
+  it('en el orden del documento «Cerrar sesión» va después de la marca y antes de la empresa y sus controles, como en el teléfono', () => {
+    render(<AppHeader companyName="Braja" name="Lucía" home="#/para-revisar" onSignOut={vi.fn()}><CompanySwitcher memberships={memberships} activeCompanyId="company-1" onSelect={vi.fn()} /></AppHeader>)
+    const follows = (first: Element, second: Element) => Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
+    const brand = screen.getByRole('link', { name: 'Fichaje Braja, inicio' })
+    const signOut = screen.getByRole('button', { name: 'Cerrar sesión' })
+
+    expect(follows(brand, signOut)).toBe(true)
+    expect(follows(signOut, screen.getByText('Lucía'))).toBe(true)
+    expect(follows(signOut, screen.getByRole('combobox', { name: 'Empresa activa' }))).toBe(true)
+    expect(follows(signOut, screen.getByRole('button', { name: 'Cambiar' }))).toBe(true)
+  })
+
   // Finding F-28: the brand was a link to '#inicio', which led nowhere, and «FichajeBraja» was read as one word.
   it('la marca dice "Fichaje Braja" con un espacio y es un enlace solo donde lleva a algún lado (el ADMIN)', () => {
     const { rerender } = render(<AppHeader companyName="Braja" name="Lucía" onSignOut={vi.fn()} />)

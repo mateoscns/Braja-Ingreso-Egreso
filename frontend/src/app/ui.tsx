@@ -205,7 +205,9 @@ export function TopbarNotice({ children }: { children: ReactNode }) {
 /**
  * The top bar: the brand and «Cerrar sesión» on the dark row; the company, the person and this device's controls (`children`:
  * the install help, the company switch) in the context area, a strip under the row on phones. It is not sticky and has no fixed
- * height. `home` is where the brand leads; without it the brand is text.
+ * height. `home` is where the brand leads; without it the brand is text. The markup is in the order of the two rows of a phone
+ * (brand, «Cerrar sesión», context), so Tab and a screen reader go as the eye does there (issue #177); the grid areas put the
+ * context in the middle of the one row from 1024 px, where the stylesheet keeps Tab in the row's order (reading-flow).
  */
 export function AppHeader({ companyName, name, onSignOut, home, children }: {
   companyName: string; name: string; onSignOut: () => void; home?: string; children?: ReactNode
@@ -214,11 +216,11 @@ export function AppHeader({ companyName, name, onSignOut, home, children }: {
   return <>
     <header className="topbar">
       <Brand home={home} />
+      <button type="button" className="button button-link topbar-out" onClick={onSignOut}>Cerrar sesión</button>
       <div className="topbar-context">
         <p className="topbar-who"><span className="topbar-company">{companyName}<span aria-hidden="true"> · </span></span><span>{name}</span></p>
         <TopbarNotices.Provider value={notices}>{children}</TopbarNotices.Provider>
       </div>
-      <button type="button" className="button button-link topbar-out" onClick={onSignOut}>Cerrar sesión</button>
     </header>
     <div className="topbar-notices" ref={setNotices} />
   </>

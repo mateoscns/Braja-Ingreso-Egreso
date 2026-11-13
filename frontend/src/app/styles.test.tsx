@@ -117,6 +117,10 @@ describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {
     expect(phone).toMatch(/display:\s*grid/)
     expect(areas(phone).replace(/\s+/g, ' ')).toBe('"brand out" "context context"')
     expect(areas(wide).replace(/\s+/g, ' ')).toBe('"brand context out"')
+    // Issue #177: the markup is in the order of the phone's rows (brand, «Cerrar sesión», context); on the one row from 1024 px,
+    // where the context is in the middle, Tab follows the row as it is seen where the browser knows reading-flow (Chrome).
+    expect(phone).not.toMatch(/reading-flow/)
+    expect(wide).toMatch(/reading-flow:\s*grid-rows\s*(?:;|$)/)
     for (const area of ['brand', 'context', 'out']) {
       expect(allRules().some(({ declarations }) => new RegExp(`grid-area:\\s*${area}\\s*(?:;|$)`).test(declarations)), area).toBe(true)
     }
@@ -697,6 +701,54 @@ describe('campos, casillas y opciones: una sola forma', () => {
     expect(rule('.tramo-fields:has(.field-error)')).toMatch(/align-items:\s*start/)
   })
 
+  // Issue #177 (2026-11-12, Enrique on «Dar de alta un empleado» at desktop width: «Los labels o input tienen que estar a la misma
+  // altura»): «Minutos de tolerancia», with a hint of one line, and «Contraseña provisoria», with two lines and then «Generar
+  // contraseña», put their boxes at different heights. From 600 px every child of a two-column form takes the same five rows
+  // (label, hint, control, error, what follows) and a field is a subgrid of them, so the parts of a row line up whatever the hint.
+  it('en un formulario de dos columnas las etiquetas, las ayudas y los recuadros de una fila van a la misma altura', () => {
+    const wide = media(600)
+    const value = (declarations: string, property: string) => new RegExp(`(?:^|[;\\s])${property}:\\s*([^;]+)`).exec(declarations)?.[1].trim()
+    const field = ':is(.form-grid, .form-grid > .form-stack) > div.field'
+    const grid = rule('.form-grid', wide)
+    const child = rule('.form-grid > *', wide)
+    const stack = rule('.form-grid > .form-stack:has(> div.field)', wide)
+
+    expect(value(grid, 'grid-template-columns')).toBe('repeat(2, minmax(0, 1fr))')
+    // The rows have no gap, so an empty one (a row of fields without hints, without errors) takes no room at all.
+    expect(value(grid, 'row-gap')).toBe('0')
+    expect(value(child, 'grid-row')).toBe('span 5')
+    // The 16 px between the rows of the form is the margin of each child, except the ones of the first row. A group written as a
+    // fieldset clears its margins with fieldset.field, so both rules weigh more than that one (a group lost its 16 px).
+    expect(value(rule('.form-grid > :is(*, fieldset.field)', wide), 'margin-top')).toBe('var(--space-4)')
+    expect(value(rule('.form-grid > :first-child:is(*, fieldset.field), .form-grid > :first-child:not(.field-wide) + :not(.field-wide)', wide), 'margin-top')).toBe('0')
+    expect(css.indexOf('.form-grid > :is(*, fieldset.field)')).toBeGreaterThan(css.indexOf('.field-group, fieldset.field {'))
+    // A field written with FormField shares the rows; its column never grows with a select's longest option (issue #173).
+    for (const declarations of [rule(field, wide), stack]) {
+      expect(value(declarations, 'display')).toBe('grid')
+      expect(value(declarations, 'grid-template-rows')).toBe('subgrid')
+      expect(value(declarations, 'grid-template-columns')).toBe('minmax(0, 1fr)')
+      expect(value(declarations, 'row-gap')).toBe('0')
+    }
+    // Each part in its row, at the top of it (a taller neighbour never stretches a box), 4 px under the part above it.
+    expect(value(rule(`${field} > *`, wide), 'grid-row')).toBe('3')
+    expect(value(rule(`${field} > *`, wide), 'align-self')).toBe('start')
+    expect(value(rule(`${field} > *`, wide), 'margin-top')).toBe('var(--space-1)')
+    expect(value(rule(`${field} > .field-label`, wide), 'grid-row')).toBe('1')
+    expect(value(rule(`${field} > .field-label`, wide), 'margin-top')).toBe('0')
+    expect(value(rule(`${field} > .field-hint`, wide), 'grid-row')).toBe('2')
+    expect(value(rule(`${field} > .field-error`, wide), 'grid-row')).toBe('4')
+    // A field with something of its own under it («Generar contraseña»): the field takes four rows and the rest the fifth; a stack
+    // without a field stays a stack, or its parts would all fall in the fifth row.
+    expect(value(rule('.form-grid > .form-stack > div.field', wide), 'grid-row')).toBe('1 / span 4')
+    expect(value(rule('.form-grid > .form-stack:has(> div.field) > :not(div.field)', wide), 'grid-row')).toBe('5')
+    expect(value(rule('.form-grid > .form-stack:has(> div.field) > :not(div.field)', wide), 'margin-top')).toBe('var(--space-4)')
+    // One column, under 600 px, is the flex column of a field as it was.
+    expect(value(rule('.field'), 'display')).toBe('flex')
+    expect(value(rule('.form-grid'), 'gap')).toBe('var(--space-4)')
+    // The alignment at the foot of two forms was the first try at this; the rows replace it.
+    expect(css).not.toMatch(/\.form-grid\.(?:work-days-form|employee-edit-form)/)
+  })
+
   it('un campo deshabilitado se sigue leyendo: texto y fondo de los tokens, sin transparencia', () => {
     const disabled = ruleListing('.field :is(input:not([type=checkbox], [type=radio]), select, textarea):disabled').declarations
 
@@ -911,6 +963,15 @@ describe('mensajes, etiquetas de estado, secciones, plegables, vacío y carga', 
     expect(spinner).toMatch(/border:\s*3px solid var\(--rule\)/)
     expect(spinner).toMatch(/border-top-color:\s*var\(--brand\)/)
     expect(spinner).toMatch(/animation:\s*spin \.9s linear infinite/)
+  })
+
+  // Issue #177 (2026-11-12, Enrique on «Hoy»: «Demasiado espacio entre el texto y el label»): «No hay días cargados para esta
+  // fecha.» stood 24 px under the box of «Fecha», its own 8 px over the 16 px of the date's row. The text after a field goes 16 px
+  // under it, as in a form (.form-stack); the line of a load takes the same place, so nothing moves when the answer comes.
+  it('el texto de vacío o de carga debajo de la fecha de «Hoy» queda a la distancia de un campo al texto que sigue', () => {
+    expect(rule('.toolbar')).toMatch(/margin:\s*0 0 var\(--space-4\)/)
+    expect(rule('.toolbar + .empty-state, .toolbar + .loading')).toMatch(/padding-top:\s*0\s*(?:;|$)/)
+    expect(rule('.empty-state')).toMatch(/padding:\s*var\(--space-2\) 0/)
   })
 
   it('el error de un campo pone su triángulo en la primera línea del texto', () => {
@@ -1533,6 +1594,25 @@ describe('puntos de corte, colores forzados, salto al contenido y foco por códi
     expect(value(rule(buttons, wide), 'margin-top')).toBe('calc(var(--font-size-body) * var(--line-height-body) + var(--space-1))')
     expect(value(rule('.field'), 'gap')).toBe('var(--space-1)')
   })
+
+  // Issue #177, follow-up C of slice G2: with three fields of 10 rem on the first line and the fourth sharing the next one with
+  // «Aplicar» and «Limpiar» (a bar of 600 to 733 px of screen), an error in «Hasta» put the buttons at the foot of its error. In
+  // that span the buttons move down by a label and its gap, to the box of the field beside them, with the error in it or above.
+  it('con un error en los filtros, cuando el cuarto campo comparte la línea con los botones, los botones van a la altura de su recuadro', () => {
+    // A query cannot read a variable: 24 and 36 px are two and three gaps of --space-3 (12 px), asserted below.
+    const opening = '@container (min-width: calc(30rem + 24px)) and (max-width: calc(40rem + 35.98px)) {'
+    const start = css.indexOf(opening)
+    expect(start).toBeGreaterThan(0)
+    const shared = css.slice(start + opening.length, css.indexOf('\n}', start))
+    const buttons = '.filter-bar:has(.field-error) > .button-row'
+
+    expect(value(rule(buttons, shared), 'align-self')).toBe('flex-start')
+    expect(value(rule(buttons, shared), 'margin-top')).toBe('calc(var(--font-size-body) * var(--line-height-body) + var(--space-1))')
+    // The span is the one of three fields and their two gaps up to four fields and their three: the basis of a field and the gap.
+    expect(value(rule('.filter-bar > .field'), 'flex')).toBe('1 1 10rem')
+    expect(value(rule('.filter-bar'), 'gap')).toBe('var(--space-3)')
+    expect(css).toMatch(/--space-3:\s*12px;/)
+  })
 })
 
 // The WebKit audit after issue #173 (2026-11-12): every layout check had run in Chrome, which lets a select with a percentage width
@@ -1717,7 +1797,8 @@ describe('una sola hoja para un solo marcado', () => {
   }
   // Written in the markup with no rule of their own, on purpose.
   const WITHOUT_A_RULE: Record<string, string> = {
-    'mark-feedback': 'the slot of the result of a mark: tests find the result inside it; its focus rule is the one of [tabindex="-1"]'
+    'mark-feedback': 'the slot of the result of a mark: tests find the result inside it; its focus rule is the one of [tabindex="-1"]',
+    'employee-edit-form': 'the edit form of a person: its rule lined its boxes up at their foot; every two-column form lines its fields up by parts now (#177)'
   }
   // Named by the stylesheet and written by a library, not by the markup.
   const WRITTEN_BY_A_LIBRARY: Record<string, string> = {

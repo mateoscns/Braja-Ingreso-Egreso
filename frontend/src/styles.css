@@ -178,7 +178,7 @@ h3 { font-size: var(--font-size-body-lg); line-height: var(--line-height-heading
 .form-stack > .button-link { align-self: flex-start; }
 /* Right after a field it acts on that field («Mostrar contraseña»): it moves up to it, still 4 px clear of the box. */
 .form-stack > .field + .button-link { margin-top: calc(-1 * var(--space-3)); }
-/* One column on a phone; two from 600 px (below, after .field-wide). */
+/* One column on a phone; two from 600 px, aligned by the parts of their fields (at the end of the sheet, issue #177). */
 .form-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
 /* One field (FormField in app/ui.tsx): label, hint, control, error, in that order. The hint is read before typing and the
    keyboard of a phone does not cover it; the error sits under the control it is about. */
@@ -259,11 +259,6 @@ fieldset.field > .message, .site-map-panel > .message { margin: 0; }
    70 % (measured 2026-11-11), and Safari on iOS is known to fade every field (not checked on a device). */
 .field :is(input:not([type=checkbox], [type=radio]), select, textarea):disabled, .company-switch:disabled {
   color: var(--text-muted); background: var(--surface-tint); opacity: 1;
-}
-/* Two columns where each field gets about 270 px; a wide field takes the whole row of the two (in one column it needs nothing). */
-@media (min-width: 600px) {
-  .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .field-wide { grid-column: 1 / -1; }
 }
 
 /* ===== Focus ===== */
@@ -406,7 +401,8 @@ input:is([type="date"], [type="time"], [type="datetime-local"]):focus-within { o
 /* The top bar (AppHeader in app/ui.tsx), the only dark surface of the app. Three areas: the brand and «Cerrar sesión» on the dark
    row, and the context (company, person, this device's controls) as a strip under it on phones and tablets; one dark row from
    1024 px. It scrolls away with the page and has no fixed height: a larger text or a long company name makes it taller, never
-   cuts it. Each area keeps the page gutter and the phone's safe areas itself, so the strip runs from edge to edge. */
+   cuts it. Each area keeps the page gutter and the phone's safe areas itself, so the strip runs from edge to edge. The markup is
+   in the order of the phone's rows: brand, «Cerrar sesión», context. */
 .topbar {
   display: grid; grid-template-columns: minmax(min-content, 1fr) minmax(0, max-content); grid-template-areas: "brand out" "context context";
   grid-template-rows: minmax(3.5rem, auto) auto; align-items: center; column-gap: var(--space-3);
@@ -444,7 +440,9 @@ input:is([type="date"], [type="time"], [type="datetime-local"]):focus-within { o
 .topbar-notices .message { margin: var(--space-3) 0 0; }
 .install-help { min-width: 0; }
 @media (min-width: 1024px) {
-  .topbar { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "brand context out"; grid-template-rows: minmax(3.5rem, auto); column-gap: var(--space-5); }
+  /* The markup follows the two rows of a phone (brand, «Cerrar sesión», context; issue #177). In the one row the context is in the
+     middle: Tab follows the row as it is seen where the browser knows reading-flow (Chrome); elsewhere it keeps the markup's. */
+  .topbar { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "brand context out"; grid-template-rows: minmax(3.5rem, auto); column-gap: var(--space-5); reading-flow: grid-rows; }
   .topbar-context { justify-content: flex-end; padding: var(--space-1) 0; color: var(--on-brand-muted); background: transparent; border-bottom: 0; }
   .topbar-context .button-link { color: var(--on-brand); }
   .topbar-context :focus-visible { outline-color: var(--lime); }
@@ -728,6 +726,13 @@ td .button-row { gap: var(--space-2); }
 @container (min-width: 56rem) {
   .filter-bar:has(.field-error) > .button-row { align-self: flex-start; margin-top: calc(var(--font-size-body) * var(--line-height-body) + var(--space-1)); }
 }
+/* Issue #177 (follow-up C of slice G2): where three fields fill the first line and the fourth shares the next one with the buttons
+   (from three fields of 10 rem and their two gaps of 12 px to four fields and their three), the buttons move down the same way,
+   to the box of the field beside them, with the error in it or in the line above. A query cannot read a variable: 24 and 36 px
+   are those gaps. Where the four fields fill a line the buttons have a line of their own and stay at its foot. */
+@container (min-width: calc(30rem + 24px)) and (max-width: calc(40rem + 35.98px)) {
+  .filter-bar:has(.field-error) > .button-row { align-self: flex-start; margin-top: calc(var(--font-size-body) * var(--line-height-body) + var(--space-1)); }
+}
 /* An inline form opens in place, under the row or the button that opened it (design system 4.7): a bar on its left, no box.
    Inside a wrapping row (a mark of the phone list) it takes a line of its own. */
 .inline-form { display: grid; gap: var(--space-4); flex-basis: 100%; width: 100%; min-width: 0; margin-top: var(--space-4); padding-left: var(--space-4); border-left: var(--bar-width) solid var(--border); }
@@ -919,9 +924,8 @@ html:has(.session-warning:not(:empty)) { scroll-padding-top: calc(env(safe-area-
 /* The two forms of «Días de trabajo» (slice E3): a message inside them (the preview, an error, a result) is one more step of the
    form, spaced by the form's own gap and not by a margin on top of it. */
 .work-days-form .message { margin: 0; }
-/* The single day: its lead keeps a step above the form, and the boxes of a row stay level when one field has a hint («Horario»). */
+/* The single day: its lead keeps a step above the form. */
 .fold > .muted + .work-days-form { margin-top: var(--space-4); }
-.form-grid.work-days-form { align-items: end; }
 /* The point of a mark, under the word of its location: a second line in the muted colour, figures of one width. */
 .mark-coordinates { display: block; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 /* 2026-11-09 integrated check of PR #107, small modifiers from existing tokens: the folded inbox filters on phones. */
@@ -933,9 +937,6 @@ html:has(.session-warning:not(:empty)) { scroll-padding-top: calc(env(safe-area-
    cell across the form, right above its buttons, spaced by their own gap and not by margins (design system 4.7). */
 .form-result { display: grid; gap: var(--space-4); min-width: 0; }
 .form-result > .message { margin: 0; }
-/* The edit form under a person: «Nombre» has no hint and «Minutos de tolerancia» has one, so the boxes of the row line up at
-   their foot, as in the single day of «Días de trabajo». */
-.form-grid.employee-edit-form { align-items: end; }
 /* A provisional password, shown once (D-20261027-09): a result, with the bar and fill of a success message and no box. In the
    monospace face, where 1, l and I or 0 and O differ, and large enough to read it aloud or copy it by hand; it keeps to one
    line at 320 px and grows from 600 px. A record or a form opens it after its own lines. */
@@ -946,3 +947,35 @@ html:has(.session-warning:not(:empty)) { scroll-padding-top: calc(env(safe-area-
 @media (min-width: 600px) {
   .issued-password-code { font-size: var(--font-size-display); }
 }
+/* ===== Two-column forms: the fields of a row line up part by part (issue #177) ===== */
+/* Enrique, 2026-11-12, on «Dar de alta un empleado»: «Los labels o input tienen que estar a la misma altura». Two columns where
+   each field gets about 270 px, and a wide field takes the whole row of the two. Every child of the form takes the same five
+   rows of the grid (label, hint, control, error, what follows) and a field of FormField is a subgrid of them, so in a row the
+   labels share a line, the hints the next one and the boxes the next one, whatever the length of a hint; the error and what
+   follows the box go under it. A group written as a fieldset is not a subgrid (its legend cannot take a row) and takes the five
+   rows whole. The rows have no gap, so an empty one (a row of fields without hints) takes no room: each part keeps its 4 px as a
+   margin, and each child the 16 px between the rows of the form, except the ones of the first row. It comes after .inline-form,
+   whose gap it replaces in the edit form of a person. Under 600 px a field stays the flex column it was. */
+@media (min-width: 600px) {
+  .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 0; }
+  .field-wide { grid-column: 1 / -1; }
+  .form-grid > * { grid-row: span 5; }
+  /* fieldset.field clears the margins of the browser (above): the :is() lifts these two rules over it. */
+  .form-grid > :is(*, fieldset.field) { margin-top: var(--space-4); }
+  .form-grid > :first-child:is(*, fieldset.field), .form-grid > :first-child:not(.field-wide) + :not(.field-wide) { margin-top: 0; }
+  /* The column of a field never grows with its content: WebKit sizes a select by its longest option (issue #173). */
+  :is(.form-grid, .form-grid > .form-stack) > div.field { display: grid; grid-template-rows: subgrid; grid-template-columns: minmax(0, 1fr); row-gap: 0; }
+  /* At the top of its row, so a taller part beside it (a textarea) never stretches a box. */
+  :is(.form-grid, .form-grid > .form-stack) > div.field > * { grid-row: 3; align-self: start; margin-top: var(--space-1); }
+  :is(.form-grid, .form-grid > .form-stack) > div.field > .field-label { grid-row: 1; margin-top: 0; }
+  :is(.form-grid, .form-grid > .form-stack) > div.field > .field-hint { grid-row: 2; }
+  :is(.form-grid, .form-grid > .form-stack) > div.field > .field-error { grid-row: 4; }
+  /* A field with something of its own under it («Contraseña provisoria» and «Generar contraseña»): the field takes the first four
+     rows and the rest the fifth, 16 px under the field as in the stack it is. A stack with no field in it stays a stack. */
+  .form-grid > .form-stack:has(> div.field) { display: grid; grid-template-rows: subgrid; grid-template-columns: minmax(0, 1fr); row-gap: 0; }
+  .form-grid > .form-stack > div.field { grid-row: 1 / span 4; }
+  .form-grid > .form-stack:has(> div.field) > :not(div.field) { grid-row: 5; align-self: start; margin-top: var(--space-4); }
+}
+/* «Hoy» (issue #177, Enrique: «Demasiado espacio entre el texto y el label»): under the date, the text of a day without rows or of
+   a load sits 16 px under the box, the space of a form between a field and what follows it (.form-stack), and not 24 px. */
+.toolbar + .empty-state, .toolbar + .loading { padding-top: 0; }
