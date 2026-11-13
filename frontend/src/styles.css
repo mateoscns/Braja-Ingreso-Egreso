@@ -176,7 +176,7 @@ h3 { font-size: var(--font-size-body-lg); line-height: var(--line-height-heading
 /* Right after a field it acts on that field («Mostrar contraseña»): it moves up to it, still 4 px clear of the box. */
 .form-stack > .field + .button-link { margin-top: calc(-1 * var(--space-3)); }
 /* One column on a phone; two from 600 px (below, after .field-wide). */
-.form-grid { display: grid; grid-template-columns: 1fr; gap: var(--space-4); }
+.form-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
 /* One field (FormField in app/ui.tsx): label, hint, control, error, in that order. The hint is read before typing and the
    keyboard of a phone does not cover it; the error sits under the control it is about. */
 .field { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
@@ -241,6 +241,9 @@ fieldset.field > .message, .site-map-panel > .message { margin: 0; }
 /* One line of text is as tall as a button, so a field next to one lines up with it. min-height, never height: larger text or
    wider text spacing is not cut. */
 .field :is(input:not([type=checkbox], [type=radio]), select), .company-switch { min-height: var(--target); }
+/* WebKit does not let a select shrink below its option: on an iPhone the long name of a province widened the page and Safari
+   shrank it whole (issue #173). The select keeps the width of its field and cuts its text there; the list shows it whole. */
+.field select { max-width: 100%; text-overflow: ellipsis; }
 /* A textarea starts with room for about three lines and can only be stretched downwards. */
 .field textarea { min-height: 5.5rem; resize: vertical; }
 /* Invalid: an edge of 2 px in the error colour, besides the text under the field. The second pixel is drawn inside, as on a
@@ -535,7 +538,7 @@ html:has(.nav) { scroll-padding-bottom: calc(var(--bottom-nav-room) + var(--spac
 .empty-state { max-width: var(--measure); padding: var(--space-2) 0; color: var(--text-muted); text-align: left; font-size: var(--font-size-body); }
 /* Two sections, one under the other and side by side from 1024 px: the space above goes to the grid (it collapses with the
    heading's), not to each section. */
-.content-grid { display: grid; grid-template-columns: 1fr; gap: 19px; align-items: start; margin-top: var(--space-6); }
+.content-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 19px; align-items: start; margin-top: var(--space-6); }
 .content-grid > .panel { margin-top: 0; }
 @media (min-width: 1024px) {
   .content-grid { grid-template-columns: minmax(0, .9fr) minmax(360px, 1.1fr); }

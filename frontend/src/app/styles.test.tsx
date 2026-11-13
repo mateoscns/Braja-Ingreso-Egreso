@@ -84,6 +84,19 @@ describe('estilos de accesibilidad (WCAG 2.2 AA)', () => {
     expect(/display:\s*([^;]+)/.exec(rule('.nav-sub', wide))?.[1].trim()).toBe('block')
   })
 
+  // Issue #173 (2026-11-12, Mateo on a real iPhone): choosing «Córdoba, Santa Fe, Entre Ríos, Corrientes, Misiones, Chaco,
+  // Formosa y Santiago del Estero» in «Hora del local» shrank the whole page in Safari. WebKit does not let a select shrink below
+  // its option, and a «1fr» column (minmax(auto, 1fr)) grows with its widest content: the page got wider than the screen.
+  it('ninguna columna de grilla crece con su contenido y una lista desplegable no pasa el ancho de su campo', () => {
+    const bareFr = allRules().filter(({ declarations }) => {
+      const columns = /grid-template-columns:\s*([^;]+)/.exec(declarations)?.[1] ?? ''
+      return /(?:^|[\s,(])\d*\.?\d+fr/.test(columns.replace(/minmax\([^()]*(?:\([^()]*\)[^()]*)*\)/g, ''))
+    })
+    expect(selectorsOf(bareFr)).toEqual([])
+    expect(rule('.field select')).toMatch(/max-width:\s*100%/)
+    expect(rule('.field select')).toMatch(/text-overflow:\s*ellipsis/)
+  })
+
   // Issue #171 (2026-11-12): over 1600 px the workspace was centred with a white margin on each side while the top bar spans the
   // whole width, so the rail floated away from the left edge. The rail stays at the edge; only the content keeps a width cap.
   it('en una pantalla ancha el menú queda pegado al borde izquierdo y solo el contenido tiene ancho máximo', () => {
@@ -1438,7 +1451,7 @@ describe('puntos de corte, colores forzados, salto al contenido y foco por códi
   // What the old narrow blocks did is the base now, and the wide side moved to a block of the system: 520 px went to 600 px,
   // 760 px to 768 px and 1050 px to 1024 px.
   it('lo que cambiaba en las pantallas angostas es la regla de base y lo ancho va a un bloque del sistema', () => {
-    expect(value(rule('.form-grid'), 'grid-template-columns')).toBe('1fr')
+    expect(value(rule('.form-grid'), 'grid-template-columns')).toBe('minmax(0, 1fr)')
     expect(value(rule('.form-grid', media(600)), 'grid-template-columns')).toBe('repeat(2, minmax(0, 1fr))')
     // A wide field takes the whole row where the form has two columns; in one column it needs no rule.
     expect(allSelectors().filter((selector) => selector === '.field-wide')).toHaveLength(1)
@@ -1447,7 +1460,7 @@ describe('puntos de corte, colores forzados, salto al contenido y foco por códi
     expect(value(rule('.page-title-row'), 'align-items')).toBe('flex-start')
     expect(value(rule('.page-title-row', media(600)), 'flex-wrap')).toBe('nowrap')
     expect(value(rule('.page-title-row', media(768)), 'align-items')).toBe('flex-end')
-    expect(value(rule('.content-grid'), 'grid-template-columns')).toBe('1fr')
+    expect(value(rule('.content-grid'), 'grid-template-columns')).toBe('minmax(0, 1fr)')
     expect(value(rule('.content-grid', media(1024)), 'grid-template-columns')).toBe('minmax(0, .9fr) minmax(360px, 1.1fr)')
     // The content's own padding on a phone, and the wider one from 768 px in longhands, so the room kept for the bottom bar stays.
     expect(rule('.main-content')).toMatch(/padding:\s*26px 16px\s*;/)
