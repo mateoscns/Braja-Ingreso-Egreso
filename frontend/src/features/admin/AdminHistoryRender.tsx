@@ -10,6 +10,8 @@ import { dateTime, stateLabel } from './adminRenderShared'
 export type HistoryFilterValues = { employeeId: string; siteId: string; from: string; to: string }
 /** The filter form, where the focus goes when a filter is wrong. */
 export const HISTORY_FILTERS_ID = 'history-filters'
+/** «Ver marcas» of a day found: the day's «Cerrar» gives the focus back to it. */
+export const historyDayButtonId = (jornadaId: string) => `history-${jornadaId}-show`
 
 export function AdminHistoryRender({ open, onOpenChange, employees, sites, loadingOptions, optionsFailed = false, onRetryOptions = () => undefined, filters, filterErrors = {}, rows, loading, error, opening, onFiltersChange, onSearch, onOpenDay }: {
   /** The fold is open; onOpenChange follows the owner opening or closing it. */
@@ -51,7 +53,7 @@ export function AdminHistoryRender({ open, onOpenChange, employees, sites, loadi
           {marks.length ? <ul className="history-items" aria-label="Marcas">{marks.map((mark) => <li key={mark.id}><strong>{mark.voided ? <s>{actionName(mark.action)}</s> : actionName(mark.action)}</strong><span>{dateTime(mark.occurredAt ?? mark.acceptedAt, timeZone)}</span><small>{mark.voided ? `Anulada${mark.voidReason ? ` · ${mark.voidReason}` : ''}` : locationName(mark.locationStatus)}</small></li>)}</ul> : <p className="muted small-copy">Sin marcas.</p>}
           {deviations.length ? <ul className="history-items" aria-label="Casos">{deviations.map((item) => <li key={item.id}><strong>{deviationName(item.type)}</strong><span>{dateTime(item.occurredAt ?? item.createdAt, timeZone)}</span>{item.sourceMarkAction && <small>Marca: {actionName(item.sourceMarkAction)}</small>}<span className={`status-chip status-${item.status.toLowerCase()}`}>{statusName(item.status)}</span>{item.category && <small>{categoryName(item.category)}{item.motiveText ? ` · ${item.motiveText}` : ''}</small>}</li>)}</ul> : <p className="muted small-copy">Sin casos.</p>}
           {/* The same detail as a day of the list: its marks and the actions on them. */}
-          <button className="button button-secondary" aria-label={`Ver marcas de ${person} del ${formatLocalDate(row.localDate)}`} disabled={opening} onClick={() => onOpenDay(row.id)}>Ver marcas</button>
+          <button id={historyDayButtonId(row.id)} className="button button-secondary" aria-label={`Ver marcas de ${person} del ${formatLocalDate(row.localDate)}`} disabled={opening} onClick={() => onOpenDay(row.id)}>Ver marcas</button>
         </article>
       })}</div>}
     </Panel>

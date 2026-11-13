@@ -181,8 +181,9 @@ describe('the lookups of the ADMIN screens', () => {
     expect(adminMarkLocationName('PENDIENTE')).toBe('Ubicación pendiente')
     expect(adminMarkLocationName('RECIBIDA')).toBe('Ubicación recibida')
     expect(adminMarkLocationName('SIN_UBICACION')).toBe('Sin ubicación')
-    expect(adminMarkLocationName('PURGADA')).toBe('Ubicación depurada')
-    expect(adminMarkLocationName('NO_APLICA')).toBe('No aplica')
+    // Issue #177: «Ubicación depurada» and «No aplica» did not say what happened to the mark.
+    expect(adminMarkLocationName('PURGADA')).toBe('Ubicación borrada a los 90 días')
+    expect(adminMarkLocationName('NO_APLICA')).toBe('Cargada a mano')
     expect(adminMarkLocationName('OTRO')).toBe('—')
   })
 })

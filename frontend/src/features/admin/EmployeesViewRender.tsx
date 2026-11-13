@@ -1,12 +1,18 @@
 import { Fragment, type FormEvent, type ReactNode } from 'react'
+import { Icon } from '../../app/icons'
 import { Empty, Fieldset, FieldsSummary, FormField, LoadFailure, Loading, PageHeading, PageMessage, Panel, StatusTag, TableScroll } from '../../app/ui'
 import type { FieldErrors } from '../../app/useFieldErrors'
 import type { Employee, Site, Template, TemplateAssignment } from '../../shared/api/types'
 import { formatLocalDate } from '../../shared/format'
 import { PASSWORD_LENGTH_HINT, PASSWORD_MAX_CHARACTERS } from '../../shared/password'
+import { SectionLink } from './adminRenderShared'
+import type { AdminSection } from './setupStatus'
 
 const TOLERANCE_LABEL = 'Minutos de tolerancia'
-const TOLERANCE_HINT = 'Son los minutos que puede llegar tarde o salir antes o después sin que te avisemos.'
+// «Avisos» are the push of D-20261014-15, sent only for a missing entry and a late arrival (rule 8): a case is what appears.
+const TOLERANCE_HINT = 'Son los minutos que puede llegar tarde o salir antes o después sin que aparezca un caso en Para revisar.'
+/** What unticking «Activo» does (rule 7): read with the box, since the save used to say nothing about it (#177). */
+const ACTIVE_HINT = 'Sin marcar, no puede entrar ni marcar; su historial queda.'
 const who = (person: Employee) => person.dni ? `DNI ${person.dni}` : 'identificador interno'
 const LIST_HEADING_ID = 'employees-title'
 
@@ -36,7 +42,8 @@ export const focusIds = {
   assignmentForm: (id: string) => `employee-${id}-assignment-form`,
   resetButton: (id: string) => `employee-${id}-reset`,
   /** The sentence that says what a reset does: it takes the focus, so it is read, and Enter cannot confirm by accident. */
-  resetNote: (id: string) => `employee-${id}-reset-note`
+  resetNote: (id: string) => `employee-${id}-reset-note`,
+  activeHint: (id: string) => `employee-${id}-active-hint`
 }
 
 /** The fields of the add form a submit can find wrong. */
@@ -59,10 +66,18 @@ function IssuedPasswordPanel({ issued, onDismiss }: { issued: IssuedPassword; on
   </section>
 }
 
-export function EmployeesViewRender({ employees, sites, loading, loadError, error, notice, messageAt = '', busy, dni, displayName, siteIds, tolerance, temporaryPassword, generatedPassword = false, draft, cards = false, assignmentsFor = '', assignmentsPanel, createErrors = {}, editErrors = {}, onReload, onCreate, onDniChange, onDisplayNameChange, onToggleSite, onToleranceChange, onTemporaryPasswordChange, onGeneratePassword = () => undefined, onSave, onDraftChange, onStartEditing, onCancelEditing, onOpenAssignments, resetTarget, issuedPassword, onAskReset, onConfirmReset, onCancelReset, onDismissIssuedPassword }: {
+export function EmployeesViewRender({ employees, sites, loading, loadError, error, notice, messageAt = '', createdEmployee = null, onNavigate, onShowCreateForm = () => undefined, onAssignCreated = () => undefined, busy, dni, displayName, siteIds, tolerance, temporaryPassword, generatedPassword = false, draft, cards = false, assignmentsFor = '', assignmentsPanel, createErrors = {}, editErrors = {}, onReload, onCreate, onDniChange, onDisplayNameChange, onToggleSite, onToleranceChange, onTemporaryPasswordChange, onGeneratePassword = () => undefined, onSave, onDraftChange, onStartEditing, onCancelEditing, onOpenAssignments, resetTarget, issuedPassword, onAskReset, onConfirmReset, onCancelReset, onDismissIssuedPassword }: {
   employees: Employee[]; sites: Site[]; loading: boolean; loadError: string; error: string; notice: string; busy: boolean
   /** The form whose result `error` and `notice` are (messageKeys); they show there and nowhere else. */
   messageAt?: string
+  /** The person the add form just created: its result says what is still missing for them to clock in (#177). */
+  createdEmployee?: Employee | null
+  /** Follows a link to another section (AdminApp.navigate); without it the link changes the address. */
+  onNavigate?: (section: AdminSection) => void
+  /** The action of the heading: brings the add form into view with the keyboard on its first field. */
+  onShowCreateForm?: () => void
+  /** The next step «Asignarle un horario» of the person just created: opens their horarios under their record. */
+  onAssignCreated?: (id: string) => void
   dni: string; displayName: string; siteIds: string[]; tolerance: string; temporaryPassword: string; draft: Employee | null
   /** The temporary password field holds a generated one (shown again after the employee is created). */
   generatedPassword?: boolean
@@ -94,7 +109,8 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
     <FormField label="Nombre"><input aria-label={`Nombre del empleado con ${who(saved)}`} value={edit.displayName} onChange={(event) => onDraftChange({ displayName: event.target.value })} /></FormField>
     <FormField label={TOLERANCE_LABEL} hint={TOLERANCE_HINT}><input aria-label={`${TOLERANCE_LABEL} del empleado con ${who(saved)}`} type="number" inputMode="numeric" min="0" max="240" value={edit.toleranceMinutes} onChange={(event) => onDraftChange({ toleranceMinutes: Number(event.target.value) })} /></FormField>
     <Fieldset legend="Locales donde trabaja" className="field-wide" error={editErrors.siteIds}><div className="check-list">{sites.map((site) => <label key={site.id} className="check"><input type="checkbox" aria-label={`${site.name} (${who(saved)})`} checked={edit.siteIds.includes(site.id)} onChange={() => toggleDraftSite(edit, site.id)} />{site.name}</label>)}</div></Fieldset>
-    <div className="field-wide"><label className="check"><input type="checkbox" aria-label={`Activo (${who(saved)})`} checked={edit.active} onChange={(event) => onDraftChange({ active: event.target.checked })} />Activo</label></div>
+    <div className="field-wide"><label className="check"><input type="checkbox" aria-label={`Activo (${who(saved)})`} aria-describedby={focusIds.activeHint(saved.id)} checked={edit.active} onChange={(event) => onDraftChange({ active: event.target.checked })} />Activo</label>
+      <span className="field-hint" id={focusIds.activeHint(saved.id)}>{ACTIVE_HINT}</span></div>
     {messagesAt(messageKeys.edit(saved.id)) && <div className="field-wide form-result">{messagesAt(messageKeys.edit(saved.id))}</div>}
     <div className="field-wide button-row"><button className="button button-primary" disabled={busy}>{busy ? 'Guardando…' : 'Guardar'}</button><button type="button" className="button button-link" disabled={busy} onClick={onCancelEditing}>Cancelar</button></div>
   </form>
@@ -135,10 +151,21 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
     {under(saved)}
   </li>)}</ul>
 
-  const createResult = messagesAt(messageKeys.create)
+  // A new person has no horario and no days loaded yet (#177): the result of the form says so, with the way to each step. The
+  // horario is assigned here, in the horarios of the person; the days are loaded in «Días de trabajo», after the horario.
+  const nextSteps = createdEmployee && messageAt === messageKeys.create && notice && !error ? <div className="form-stack">
+    <p className="muted">{`Para que ${createdEmployee.displayName} pueda marcar faltan dos pasos: asignarle un horario y después cargarle los días de trabajo.`}</p>
+    <div className="button-row">
+      <button type="button" className="button button-link" aria-label={`Asignarle un horario a ${createdEmployee.displayName}`} onClick={() => onAssignCreated(createdEmployee.id)}>Asignarle un horario</button>
+      <SectionLink section="workdays" onNavigate={onNavigate}>Cargar días de trabajo</SectionLink>
+    </div>
+  </div> : null
+  const createResult = messagesAt(messageKeys.create) && <>{messagesAt(messageKeys.create)}{nextSteps}</>
   const createdPassword = issuedPassword?.reason === 'created' ? <IssuedPasswordPanel issued={issuedPassword} onDismiss={onDismissIssuedPassword} /> : null
   return <>
-    <PageHeading title="Equipo" subtitle="Cada persona entra con su DNI. Acá la das de alta, elegís en qué locales trabaja y qué horario tiene." />
+    {/* The add form sits after the whole list: the heading reaches it without scrolling (#177). */}
+    <PageHeading title="Equipo" subtitle="Cada persona entra con su DNI. Acá la das de alta, elegís en qué locales trabaja y qué horario tiene."
+      action={<button type="button" className="button button-primary" onClick={onShowCreateForm}><Icon name="plus" />Dar de alta un empleado</button>} />
     {/* Written out instead of Panel: its title names the table, or the list on a phone. */}
     <section className="panel" aria-labelledby={LIST_HEADING_ID}>
       <div className="panel-heading"><h2 id={LIST_HEADING_ID}>{loading || loadError ? 'Empleados' : `Empleados (${employees.length})`}</h2></div>
@@ -169,7 +196,7 @@ export function EmployeesViewRender({ employees, sites, loading, loadError, erro
  * D-20261015-02: history (newest start first) and a new horario from a day; the horarios are those of the employee's locales.
  * It opens under the record of the employee, so it is a part of that record and not a section of the page: an h3 with «Cerrar».
  */
-export function TemplateAssignmentsRender({ employee, sites, templates, assignments, loading, loadError, error, notice = '', fieldErrors = {}, busy, templateId, validFrom, onTemplateChange, onValidFromChange, onSubmit, onRetry, onClose }: {
+export function TemplateAssignmentsRender({ employee, sites, templates, assignments, loading, loadError, error, notice = '', fieldErrors = {}, busy, templateId, validFrom, onTemplateChange, onValidFromChange, onSubmit, onRetry, onClose, onNavigate }: {
   employee: Employee; sites: Site[]; templates: Template[]; assignments: TemplateAssignment[]; loading: boolean; loadError: string; error: string
   /** The result of the last assignment, shown inside its form. */
   notice?: string
@@ -178,6 +205,8 @@ export function TemplateAssignmentsRender({ employee, sites, templates, assignme
   busy: boolean
   templateId: string; validFrom: string; onTemplateChange: (value: string) => void; onValidFromChange: (value: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void; onRetry: () => void; onClose: () => void
+  /** Follows the link to «Horarios» when the locals of the person have none (AdminApp.navigate). */
+  onNavigate?: (section: AdminSection) => void
 }) {
   const siteName = (id: string) => sites.find((site) => site.id === id)?.name ?? 'Local'
   const headingId = `${employeeDetailId(employee.id)}-title`
@@ -187,7 +216,7 @@ export function TemplateAssignmentsRender({ employee, sites, templates, assignme
     {loading ? <Loading label="Cargando horarios…" /> : loadError ? <LoadFailure message={loadError} onRetry={onRetry} /> : <>
       {assignments.length ? <ul className="record-list" aria-label={`Historial de horarios de ${employee.displayName}`}>{assignments.map((item) => <li key={item.id} className="record">{`${item.templateName} · ${siteName(item.siteId)} · desde ${formatLocalDate(item.validFrom)}`}</li>)}</ul> : <Empty>Todavía no tiene horarios asignados.</Empty>}
       <form id={focusIds.assignmentForm(employee.id)} className="form-grid" noValidate onSubmit={onSubmit}>
-        <FormField label="Horario" hint={templates.length === 0 ? 'No hay horarios en los locales de esta persona. Crealos en Horarios.' : undefined} error={fieldErrors.templateId}><select required value={templateId} onChange={(event) => onTemplateChange(event.target.value)}><option value="">Elegí un horario</option>{templates.map((template) => <option key={template.id} value={template.id}>{`${template.name} · ${siteName(template.siteId)}`}</option>)}</select></FormField>
+        <FormField label="Horario" hint={templates.length === 0 ? <>No hay horarios en los locales de esta persona. <SectionLink section="plantillas" onNavigate={onNavigate} inline>Crear un horario en Horarios</SectionLink></> : undefined} error={fieldErrors.templateId}><select required value={templateId} onChange={(event) => onTemplateChange(event.target.value)}><option value="">Elegí un horario</option>{templates.map((template) => <option key={template.id} value={template.id}>{`${template.name} · ${siteName(template.siteId)}`}</option>)}</select></FormField>
         <FormField label="Desde el día" error={fieldErrors.validFrom}><input type="date" required value={validFrom} onChange={(event) => onValidFromChange(event.target.value)} /></FormField>
         {(error || notice) && <div className="field-wide form-result">{error && <PageMessage kind="error">{error}</PageMessage>}{notice && <PageMessage kind="success">{notice}</PageMessage>}</div>}
         <div className="field-wide button-row"><button className="button button-primary" disabled={busy}>{busy ? 'Guardando…' : 'Asignar horario'}</button></div>

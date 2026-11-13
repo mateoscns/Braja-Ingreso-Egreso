@@ -6,6 +6,7 @@ import { Icon, type IconName } from '../../app/icons'
 import { Empty, FormField, LoadFailure, Loading, PageMessage, Panel, StatusTag, type StatusTone } from '../../app/ui'
 import type { FieldErrors } from '../../app/useFieldErrors'
 import type { Deviation, Employee, Site } from '../../shared/api/types'
+import { describeDeviation } from '../../shared/deviationFacts'
 import { formatLocalDate } from '../../shared/format'
 import { adminCategoryName as categoryName, adminDeviationName as deviationName, adminDeviationStatusName as statusName, adminMarkName as actionName } from '../../shared/labels'
 import { dateTime } from './adminRenderShared'
@@ -58,7 +59,7 @@ function inboxFilterSummary(applied: InboxFilterValues, employees: Employee[], s
   return `Filtros: ${parts.length ? parts.join(' · ') : 'todos'}`
 }
 
-export function AdminInboxRender({ narrow = false, appliedFilters = EMPTY_INBOX_FILTERS, coverage, onOpenJornada, items, employees, sites, filters, filterErrors = {}, filtered, onFiltersChange, onApplyFilters, onClearFilters, timeZones, nextCursor, loading, inboxLoadError, timeZoneLoadError, error, savedDecision = null, busy, correction, correctionReason, correctionError, targetDeviation, failedDecision = null, onReload, onClassify, onRetry, onLoadMore, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
+export function AdminInboxRender({ narrow = false, appliedFilters = EMPTY_INBOX_FILTERS, coverage, onOpenJornada, items, employees, sites, filters, filterErrors = {}, filtered, onFiltersChange, onApplyFilters, onClearFilters, timeZones, nextCursor, loading, inboxLoadError, timeZoneLoadError, error, savedDecision = null, busy, savingAs = null, correction, correctionReason, correctionError, targetDeviation, failedDecision = null, onReload, onClassify, onRetry, onLoadMore, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
   /** Phone width: the filters fold under one line that says which ones are applied, so the first case is in sight. */
   narrow?: boolean; appliedFilters?: InboxFilterValues
   /** The notice of days loaded (CoverageNotice) and the way to a deviation's jornada, both given by AdminApp. */
@@ -72,6 +73,8 @@ export function AdminInboxRender({ narrow = false, appliedFilters = EMPTY_INBOX_
   timeZones: Map<string, string>; nextCursor: string | null; loading: boolean; inboxLoadError: string; timeZoneLoadError: string
   error: string; busy: string; correction: Correction; correctionReason: string; targetDeviation: string; failedDecision?: FailedDecision
   savedDecision?: SavedDecision
+  /** The decision being saved, so only its button reads «Guardando…» (issue #177: both did). */
+  savingAs?: DeviationClassification | null
   onReload: () => void; onClassify: (item: Deviation, classification: DeviationClassification) => void; onRetry: () => void; onLoadMore: () => void
   onCorrectionReasonChange: (reason: string) => void; onSubmitCorrection: (item: Deviation) => void; onCancelCorrection: () => void
 }) {
@@ -83,7 +86,7 @@ export function AdminInboxRender({ narrow = false, appliedFilters = EMPTY_INBOX_
     <div className="button-row"><button className="button button-primary" disabled={loading}>Aplicar</button><button type="button" className="button button-secondary" disabled={loading} onClick={onClearFilters}>Limpiar</button></div>
   </form>
   return <>
-    <div className="page-title-row"><div><h1 tabIndex={-1}>Para revisar</h1><p className="muted">Revisá motivos y resolvé cada caso. Los avisos no incluyen datos privados.</p></div><button className="button button-secondary" disabled={loading} onClick={onReload}>{loading ? 'Actualizando…' : 'Actualizar'}</button></div>
+    <div className="page-title-row"><div><h1 tabIndex={-1}>Para revisar</h1><p className="muted">Llegadas tarde, salidas antes, pausas largas y marcas fuera del local. Leé qué pasó y decidí si está justificado.</p></div><button className="button button-secondary" disabled={loading} onClick={onReload}>{loading ? 'Actualizando…' : 'Actualizar'}</button></div>
     {error && <PageMessage kind="error">{error}</PageMessage>}
     {timeZoneLoadError && <PageMessage kind="error">No se pudieron cargar las zonas horarias de los locales: {timeZoneLoadError} Las horas se muestran en la zona horaria de este dispositivo.</PageMessage>}
     {targetDeviation && items.some((item) => item.id === targetDeviation) && <PageMessage kind="success">Abriste el caso indicado por el aviso.</PageMessage>}
@@ -91,7 +94,7 @@ export function AdminInboxRender({ narrow = false, appliedFilters = EMPTY_INBOX_
     {narrow ? <details className="fold filter-fold"><summary>{inboxFilterSummary(appliedFilters, employees, sites)}</summary>{filterForm}</details> : filterForm}
     <Panel title="Casos recientes">{inboxLoadError ? <LoadFailure message={inboxLoadError} onRetry={onRetry} /> : <>
       {!loading && items.length > 0 && <p className="muted">{caseCount(items, Boolean(nextCursor))}</p>}
-      <DeviationList items={items} onOpenJornada={onOpenJornada} filtered={filtered} loading={loading} busy={busy} onClassify={onClassify} targetId={targetDeviation} timeZones={timeZones}
+      <DeviationList items={items} onOpenJornada={onOpenJornada} filtered={filtered} loading={loading} busy={busy} savingAs={savingAs} onClassify={onClassify} targetId={targetDeviation} timeZones={timeZones}
         correction={correction} correctionReason={correctionReason} correctionError={correctionError} failedDecision={failedDecision} savedDecision={savedDecision} onCorrectionReasonChange={onCorrectionReasonChange}
         onSubmitCorrection={onSubmitCorrection} onCancelCorrection={onCancelCorrection} />
       {nextCursor && <div className="button-row case-more"><button className="button button-secondary" disabled={busy === 'page'} onClick={onLoadMore}>{busy === 'page' ? 'Cargando…' : 'Cargar anteriores'}</button></div>}
@@ -100,8 +103,8 @@ export function AdminInboxRender({ narrow = false, appliedFilters = EMPTY_INBOX_
   </>
 }
 
-function DeviationList({ items, onOpenJornada, filtered, loading, busy, onClassify, targetId, timeZones, correction, correctionReason, correctionError, failedDecision, savedDecision, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
-  items: Deviation[]; onOpenJornada?: (item: Deviation) => void; filtered: boolean; loading: boolean; busy: string; onClassify: (item: Deviation, classification: DeviationClassification) => void
+function DeviationList({ items, onOpenJornada, filtered, loading, busy, savingAs, onClassify, targetId, timeZones, correction, correctionReason, correctionError, failedDecision, savedDecision, onCorrectionReasonChange, onSubmitCorrection, onCancelCorrection }: {
+  items: Deviation[]; onOpenJornada?: (item: Deviation) => void; filtered: boolean; loading: boolean; busy: string; savingAs: DeviationClassification | null; onClassify: (item: Deviation, classification: DeviationClassification) => void
   targetId: string; timeZones: Map<string, string>; correction: Correction; correctionReason: string; correctionError?: string; failedDecision: FailedDecision; savedDecision: SavedDecision
   onCorrectionReasonChange: (reason: string) => void; onSubmitCorrection: (item: Deviation) => void; onCancelCorrection: () => void
 }) {
@@ -112,13 +115,14 @@ function DeviationList({ items, onOpenJornada, filtered, loading, busy, onClassi
     const tag = CASE_TAGS[item.status] ?? CASE_TAGS.MOTIVO_PENDIENTE
     const saving = busy === item.id
     const occurredAt = item.occurredAt ?? item.createdAt
+    const timeZone = item.siteId ? timeZones.get(item.siteId) : undefined
     const correcting = correction?.deviationId === item.id
     const failure = failedDecision?.deviationId === item.id ? <PageMessage kind="error">{failedDecision.message}</PageMessage> : null
     const decided = item.status === 'JUSTIFICADO' || item.status === 'NO_JUSTIFICADO'
     const saved = savedDecision?.deviationId === item.id && decided ? <PageMessage kind="success">{`Guardado: ${statusName(item.status)}.`}</PageMessage> : null
     // Nothing in a row at rest is filled: the two decisions weigh the same, and the only filled button is the save of an open form.
     const decide = (classification: DeviationClassification, label: string, icon?: IconName, id?: string) =>
-      <button type="button" id={id} className="button button-secondary" disabled={saving} onClick={() => onClassify(item, classification)}>{saving ? 'Guardando…' : <>{icon && <Icon name={icon} />}{label}</>}</button>
+      <button type="button" id={id} className="button button-secondary" disabled={saving} onClick={() => onClassify(item, classification)}>{saving && savingAs === classification ? 'Guardando…' : <>{icon && <Icon name={icon} />}{label}</>}</button>
     const target = targetId === item.id
     // tabIndex -1 on the case a notification opened: it takes the focus once, by script (design system 4.11).
     return <li className={`case case-${tag.tone}${target ? ' case-target' : ''}`} key={item.id} id={caseRowId(item.id)} tabIndex={target ? -1 : undefined} aria-labelledby={`deviation-${item.id}-person`}>
@@ -128,8 +132,13 @@ function DeviationList({ items, onOpenJornada, filtered, loading, busy, onClassi
           {onOpenJornada && <button type="button" className="button button-link" aria-label={`Ver el día de ${named || 'la persona'}`} onClick={() => onOpenJornada(item)}>Ver el día</button>}
         </div>
         <p className="case-title"><strong>{deviationName(item.type)}</strong><StatusTag {...tag}>{statusName(item.status)}</StatusTag></p>
-        <p className="record-meta"><time dateTime={occurredAt}>{dateTime(occurredAt, item.siteId ? timeZones.get(item.siteId) : undefined)}</time>{item.sourceMarkAction && <span>Marca: {actionName(item.sourceMarkAction)}</span>}</p>
+        {/* What happened, in the third person (issue #177). The inbox loads no day of work, so the sentence uses the time of the
+            fact, as the employee's does when their day is not loaded. */}
+        <p className="motive-fact">{describeDeviation(item, undefined, timeZone, 'admin')}</p>
+        <p className="record-meta"><time dateTime={occurredAt}>{dateTime(occurredAt, timeZone)}</time>{item.sourceMarkAction && <span>Marca: {actionName(item.sourceMarkAction)}</span>}</p>
         {item.category && <p className="motive-said"><b>Motivo:</b> {categoryName(item.category)}{item.motiveText ? ` · ${item.motiveText}` : ''}</p>}
+        {/* D-20261027-02: decided before the explanation arrives, the case goes back to review when it does. */}
+        {item.status === 'MOTIVO_PENDIENTE' && <p className="muted">Todavía puede explicarlo; si lo hace, vuelve a revisión.</p>}
       </div>
       <div className="case-actions">
         {item.status === 'JUSTIFICADO' ? decide('NO_JUSTIFICADO', 'Corregir a no justificado', undefined, caseCorrectButtonId(item.id)) :

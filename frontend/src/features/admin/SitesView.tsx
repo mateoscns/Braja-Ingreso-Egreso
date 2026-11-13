@@ -11,6 +11,7 @@ import { useFieldErrors, useProblemFocus } from '../../app/useFieldErrors'
 import { SITE_MAP_CONFIRM_ID, SITE_MAP_PANEL_ID } from './SiteMapPanel'
 import { siteFocusIds, SitesViewRender, siteMessageKeys, type SiteField, type SiteLocationAuditResponse, type SiteLocationEditDraft, type SiteMapState } from './SitesViewRender'
 import { errText } from './adminShared'
+import type { AdminSection } from './setupStatus'
 
 type LocationCaptureTarget = { kind: 'create' } | { kind: 'edit'; siteId: string }
 
@@ -38,7 +39,8 @@ function pointCheck(latitudeText: string, longitudeText: string, words: { pair: 
   return { coordinates, error: coordinates ? '' : words.range }
 }
 
-export function SitesView() {
+/** `onNavigate` follows the link of the next step to «Horarios» (AdminApp.navigate). */
+export function SitesView({ onNavigate }: { onNavigate?: (section: AdminSection) => void } = {}) {
   const [sites, setSites] = useState<Site[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -46,6 +48,8 @@ export function SitesView() {
   const [notice, setNotice] = useState('')
   // The form whose result error and notice are (siteMessageKeys): it shows there, never at the top of the page (design system 4.7).
   const [messageAt, setMessageAt] = useState('')
+  // The local the add form just created: its result says it still needs its horario (#177).
+  const [createdSite, setCreatedSite] = useState<Site | null>(null)
   const [name, setName] = useState('')
   const [timeZone, setTimeZone] = useState('America/Argentina/Buenos_Aires')
   const [siteLocation, setSiteLocation] = useState<SiteCoordinates | null>(null)
@@ -398,7 +402,7 @@ export function SitesView() {
     } catch (reason) { setError(errText(reason)); editFields.focusProblem(formId) } finally { setBusy(false) }
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setError(''); setNotice(''); setMessageAt(siteMessageKeys.create)
+    event.preventDefault(); setError(''); setNotice(''); setMessageAt(siteMessageKeys.create); setCreatedSite(null)
     // The checks of before, in their words and all at once: the name the browser asked for, the distance, the point (in the
     // location group) and its confirmation. The zone keeps its message above the button: its field (SiteZoneField) has no
     // error of its own yet.
@@ -424,14 +428,14 @@ export function SitesView() {
         locationSource: coordinates ? createLocationSource : null,
         geofenceRadiusMeters
       })
-      setSites((current) => [...current, created]); setLoadError(''); setName(''); setCreateRadiusMeters('100'); clearLocation(); setNotice('Local creado.')
+      setSites((current) => [...current, created]); setCreatedSite(created); setLoadError(''); setName(''); setCreateRadiusMeters('100'); clearLocation(); setNotice('Local creado.')
       // «Crear local» was disabled while it sent and lost the focus (slice G2): it goes back to the emptied form, shown from its
       // top (the form is taller than a phone, and «nearest» left its first field above the screen).
       focusLater({ id: siteFocusIds.createForm, into: true, block: 'start' })
     }
     catch (reason) { setError(errText(reason)); createFields.focusProblem(siteFocusIds.createForm) } finally { setBusy(false) }
   }
-  return <SitesViewRender sites={sites} loading={loading} loadError={loadError} error={error} notice={notice} messageAt={messageAt} name={name} timeZone={timeZone} busy={busy}
+  return <SitesViewRender sites={sites} loading={loading} loadError={loadError} error={error} notice={notice} messageAt={messageAt} createdSite={createdSite} onNavigate={onNavigate} name={name} timeZone={timeZone} busy={busy}
     createRadiusMeters={createRadiusMeters} createLatitude={createLatitude} createLongitude={createLongitude} createLocationSource={createLocationSource}
     siteMap={siteMap} createPointFromMap={createPointFromMap} onOpenMap={openSiteMap} onCloseMap={leaveSiteMap} onMapPick={pickSiteMapPoint}
     onMapQueryChange={(query) => setSiteMap((current) => current ? { ...current, query, queryError: '' } : current)} onMapSearch={() => void searchSiteMap()}

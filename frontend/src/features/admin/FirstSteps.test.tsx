@@ -256,7 +256,7 @@ describe('Ver jornada desde un desvío', () => {
     expect(card).not.toHaveTextContent(/secuencia/)
     fireEvent.click(within(card).getByRole('button', { name: 'Ver el día de Lucía Pérez' }))
 
-    expect(await screen.findByText('Horario asignado: Mañana · tolerancia 5 min')).toBeInTheDocument()
+    expect(await screen.findByText('Horario asignado: Mañana (09:00 a 17:00) · tolerancia 5 min')).toBeInTheDocument()
     expect(screen.getByLabelText('Fecha')).toHaveValue('2026-10-16')
     expect(apiMocks.get).toHaveBeenCalledWith('/jornadas?from=2026-10-16&to=2026-10-16')
     expect(screen.getByLabelText('¿Qué marca faltó?')).toHaveValue('EGRESO')

@@ -150,8 +150,8 @@ describe('Horarios: a schedule a shop owner understands', () => {
   it('explains the pause minutes, including what 0 means', async () => {
     render(<SchedulesView />)
     await screen.findByText('Mañana')
-    expect(form().getByLabelText('Minutos para desayunar')).toHaveAccessibleDescription('Si la pausa dura más, te avisamos en Para revisar. Con 0, te avisamos de cualquier pausa.')
-    expect(form().getByLabelText('Minutos para almorzar')).toHaveAccessibleDescription('Si la pausa dura más, te avisamos en Para revisar. Con 0, te avisamos de cualquier pausa.')
+    expect(form().getByLabelText('Minutos para desayunar')).toHaveAccessibleDescription('Si la pausa dura más, aparece un caso en Para revisar. Con 0, aparece un caso por cualquier pausa.')
+    expect(form().getByLabelText('Minutos para almorzar')).toHaveAccessibleDescription('Si la pausa dura más, aparece un caso en Para revisar. Con 0, aparece un caso por cualquier pausa.')
     fireEvent.change(form().getByLabelText('Minutos para desayunar'), { target: { value: '300' } })
     fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
     expect(form().getByLabelText('Minutos para desayunar')).toHaveAccessibleDescription('Poné un número de 0 a 240.')
@@ -288,6 +288,29 @@ describe('Horarios: a schedule a shop owner understands', () => {
       fireEvent.click(within(types).getByRole('radio', { name: /^Cortado/ }))
       expect(within(types).getByRole('radio', { name: /^Cortado/ })).toBeChecked()
       expect(within(types).getByRole('radio', { name: /^Corrido/ })).not.toBeChecked()
+    })
+
+    // #177: after changing a time of the chosen type, no tile stayed chosen (after screenshots of the redesign).
+    it('keeps the tile chosen while the hours keep its shape, and says «horario a medida» when they no longer fit any', async () => {
+      render(<SchedulesView />)
+      await screen.findByText('Mañana')
+      const types = form().getByRole('group', { name: '¿Cómo es este horario?' })
+      const tramo1 = within(form().getByRole('group', { name: 'Tramo 1' }))
+      fireEvent.change(tramo1.getByLabelText('Entra a las'), { target: { value: '08:00' } })
+      expect(within(types).getByRole('radio', { name: /^Corrido/ })).toBeChecked()
+      expect(types).toHaveAccessibleDescription('Elegí el que más se parece. Después podés cambiar las horas.')
+
+      // A second tramo is not a «Corrido» any more; no other tile is chosen for the owner.
+      fireEvent.click(form().getByRole('button', { name: 'Agregar otro tramo' }))
+      for (const radio of within(types).getAllByRole('radio')) expect(radio).not.toBeChecked()
+      expect(types).toHaveAccessibleDescription('Elegí el que más se parece. Después podés cambiar las horas. Es un horario a medida. Si elegís una de estas opciones, se cambian las horas.')
+
+      fireEvent.change(form().getByLabelText('Nombre del horario'), { target: { value: 'Partido' } })
+      fireEvent.click(form().getByRole('button', { name: 'Crear horario' }))
+      await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith('/templates', expect.objectContaining({
+        name: 'Partido',
+        blocks: [{ startDayOffset: 0, start: '08:00', end: '17:00', endDayOffset: 0 }, expect.objectContaining({ startDayOffset: 0, endDayOffset: 0 })]
+      })))
     })
 
     it('lists each horario as a record whose action is a link under it', async () => {

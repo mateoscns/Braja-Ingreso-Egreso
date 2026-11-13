@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiClient, ApiError, TimeoutError } from './client'
 
+// Issue #177: «Revisá los datos ingresados.» did not say what to do. A 422 without a code of its own has no field to name,
+// so it says the system refused a value and asks to check what was entered; a coded 422 keeps its own message.
+const VALIDATION_FALLBACK = 'Hay un dato que el sistema no aceptó. Revisá lo que cargaste y volvé a intentar.'
+
 describe('ApiClient', () => {
   afterEach(() => vi.unstubAllGlobals())
 
@@ -39,7 +43,7 @@ describe('ApiClient', () => {
     vi.stubGlobal('fetch', fetchMock)
     const client = new ApiClient()
 
-    await expect(client.get('/deviations')).rejects.toMatchObject({ message: 'Revisá los datos ingresados.' })
+    await expect(client.get('/deviations')).rejects.toMatchObject({ message: VALIDATION_FALLBACK })
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ cache: 'no-store' })
   })
 
@@ -144,7 +148,7 @@ describe('ApiClient: códigos de error conocidos', () => {
     [409, 'ACCOUNT_SHARED', 'Esta persona también tiene acceso en otra empresa o como ADMIN, así que su contraseña no se puede restablecer desde acá. Pedí ayuda al soporte de Fichaje Braja.'],
     [409, 'EMPLOYEE_INACTIVE', 'El empleado está dado de baja; reactivalo antes de restablecer la contraseña.'],
     [409, 'JORNADA_HAS_MARKS', 'El día de trabajo ya tiene marcas y no se puede cancelar. Corregí o anulá sus marcas.'],
-    [409, 'JORNADA_CANCELLED', 'Este día de trabajo fue cancelado por el administrador y no admite marcas.'],
+    [409, 'JORNADA_CANCELLED', 'Este día de trabajo fue cancelado y no admite marcas.'],
     [409, 'MARK_VOIDED', 'Esa marca ya fue anulada y no se puede modificar.'],
     [403, 'PASSWORD_CHANGE_REQUIRED', 'Tenés que cambiar tu contraseña provisoria antes de continuar.']
   ])('un %i %s tiene un mensaje específico', async (status, code, message) => {
@@ -345,9 +349,10 @@ describe('ApiClient: autenticación no disponible', () => {
     })
   })
 
-  it('a 500 keeps the generic message', async () => {
+  // Issue #177: the generic message blamed the connection («Revisá tu conexión») for a failure of the system.
+  it('a 500 says the system failed, not the connection', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ status: 500 }), { status: 500, headers: { 'Content-Type': 'application/problem+json' } })))
-    await expect(new ApiClient().get('/x')).rejects.toMatchObject({ message: 'No se pudo completar la operación. Revisá tu conexión y reintentá.' })
+    await expect(new ApiClient().get('/x')).rejects.toMatchObject({ message: 'Algo falló en el sistema. Probá de nuevo en un rato. Si sigue pasando, pedí ayuda.' })
   })
 })
 
@@ -374,7 +379,7 @@ describe('ApiClient: codes of the production backend and proxy', () => {
 
   it('a 422 with an unknown code keeps the generic validation message', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(coded(422, 'VALIDATION_ERROR')))
-    await expect(new ApiClient().get('/x')).rejects.toMatchObject({ message: 'Revisá los datos ingresados.' })
+    await expect(new ApiClient().get('/x')).rejects.toMatchObject({ message: VALIDATION_FALLBACK })
   })
 })
 

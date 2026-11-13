@@ -96,7 +96,9 @@ export function adminCategoryName(category: MotiveCategory): string { return for
  * (markLocationLabel in features/employee/employeeDay.ts), and that hides the states the ADMIN gets a name for.
  */
 const adminMarkLocation: Record<Mark['locationStatus'], string> = {
-  PENDIENTE: 'Ubicación pendiente', RECIBIDA: 'Ubicación recibida', SIN_UBICACION: 'Sin ubicación', PURGADA: 'Ubicación depurada', NO_APLICA: 'No aplica'
+  // Issue #177: «No aplica» and «Ubicación depurada» did not say what happened. NO_APLICA is a mark the ADMIN loaded (the
+  // employee reads «Cargada por tu encargado»); PURGADA is a location deleted after 90 days (CLAUDE.md, rule 3).
+  PENDIENTE: 'Ubicación pendiente', RECIBIDA: 'Ubicación recibida', SIN_UBICACION: 'Sin ubicación', PURGADA: 'Ubicación borrada a los 90 días', NO_APLICA: 'Cargada a mano'
 }
 export function adminMarkLocationName(status: string): string {
   return (adminMarkLocation as Record<string, string>)[status] ?? '—'

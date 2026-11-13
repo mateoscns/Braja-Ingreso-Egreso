@@ -508,6 +508,20 @@ describe('EmployeeApp', () => {
     expect(screen.queryByText('DNI 30123456')).not.toBeInTheDocument()
   })
 
+  // Issue #177: with no name and no DNI the greeting read «Hola, bienvenido», in the masculine.
+  it('sin nombre ni DNI saluda con un «Hola» neutro', async () => {
+    mocks.useSession.mockReturnValue({
+      session: {
+        accountId: 'account-1', dni: '', memberships: [{ companyId: 'company-1', companyName: 'Braja', role: 'EMPLOYEE' }],
+        activeCompanyId: 'company-1', mustChangePassword: false
+      },
+      signOut: vi.fn(), activateCompany: vi.fn()
+    })
+    render(<EmployeeApp />)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Hola' })).toBeInTheDocument()
+    expect(screen.queryByText(/bienvenid/)).not.toBeInTheDocument()
+  })
+
   describe('Para explicar', () => {
     it('dice qué pasó contra el horario del día y pregunta qué pasó', async () => {
       configureApi([{ ...pendingDeviation, occurredAt: '2026-10-20T12:18:00Z' }])

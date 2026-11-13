@@ -6,7 +6,10 @@ import type { Employee, Site, Template } from '../../shared/api/types'
 import { checkScheduleDraft, type ScheduleDraft } from './scheduleDraft'
 import { joinNames, MAX_TRAMOS, SCHEDULE_TYPES, scheduleChips, tramoHints, type DayOffsets, type ScheduleTypeId, type Tramo } from './scheduleTramos'
 
-const PAUSE_HINT = 'Si la pausa dura más, te avisamos en Para revisar. Con 0, te avisamos de cualquier pausa.'
+// «Avisos» are the push of D-20261014-15, sent only for a missing entry and a late arrival (rule 8): a long pause is a case.
+const PAUSE_HINT = 'Si la pausa dura más, aparece un caso en Para revisar. Con 0, aparece un caso por cualquier pausa.'
+/** Said with the three types when the hours fit none of them (#177): no tile is chosen then. */
+const CUSTOM_TYPE_HINT = 'Es un horario a medida. Si elegís una de estas opciones, se cambian las horas.'
 export const EDIT_WARNING = 'Los días que ya cargaste mantienen el horario anterior.'
 
 /** Where the result of saving a horario shows: the form that created it, or the record of the one that changed. */
@@ -60,6 +63,7 @@ export function ScheduleEditor({ draft, busy, disabled = false, disabledReason =
   const ids = useId()
   const pauseHintId = `${ids}-pause`
   const typesHintId = `${ids}-types`
+  const customTypeId = `${ids}-custom`
   const reasonId = `${ids}-disabled`
   const check = checkScheduleDraft(draft)
   const show = draft.showErrors
@@ -75,9 +79,10 @@ export function ScheduleEditor({ draft, busy, disabled = false, disabledReason =
       <span className="field-hint">Para otro local, elegilo en «Horarios de este local». Lo que escribiste se mantiene.</span>
     </div>}
     {/* One choice among three, each with a line of explanation: radios in option tiles (design system 4.5). */}
-    {showTypes && <fieldset className="field" aria-describedby={typesHintId}>
+    {showTypes && <fieldset className="field" aria-describedby={draft.type ? typesHintId : `${typesHintId} ${customTypeId}`}>
       <legend className="field-label">¿Cómo es este horario?</legend>
       <span id={typesHintId} className="field-hint">Elegí el que más se parece. Después podés cambiar las horas.</span>
+      {!draft.type && <span id={customTypeId} className="field-hint">{CUSTOM_TYPE_HINT}</span>}
       <div className="choice-list">{SCHEDULE_TYPES.map((type) => <label key={type.id} className="choice">
         <input type="radio" name={`${ids}-type`} value={type.id} checked={draft.type === type.id} disabled={busy} onChange={() => onPickType(type.id)} />
         {/* The colon is only heard: the tile shows the word over its help, and its name still reads «Cortado: De 09:00…». */}

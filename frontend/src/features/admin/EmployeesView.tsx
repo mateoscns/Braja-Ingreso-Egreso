@@ -10,13 +10,15 @@ import { PASSWORD_MIN_CHARACTERS, PASSWORD_TOO_LONG_MESSAGE, passwordTooLong } f
 import { EmployeesViewRender, employeeDetailId, focusIds, ISSUED_PASSWORD_ID, messageKeys, TemplateAssignmentsRender, type CreateField, type IssuedPassword } from './EmployeesViewRender'
 import { generateTemporaryPassword } from './temporaryPassword'
 import { errText } from './adminShared'
+import type { AdminSection } from './setupStatus'
 
 /** The shortest DNI the field takes (the server keeps 7 to 12 digits, DniNormalizer). */
 const DNI_MIN_CHARACTERS = 7
 /** Minutes of tolerance as the field asked the browser: a whole number from 0 to 240. */
 const wholeMinutes = (value: string) => /^\d{1,3}$/.test(value.trim()) && Number(value) <= 240
 
-export function EmployeesView() {
+/** `onNavigate` follows the links of the next steps to another section (AdminApp.navigate). */
+export function EmployeesView({ onNavigate }: { onNavigate?: (section: AdminSection) => void } = {}) {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [sites, setSites] = useState<Site[]>([])
   const [loading, setLoading] = useState(true)
@@ -25,6 +27,8 @@ export function EmployeesView() {
   const [notice, setNotice] = useState('')
   // The form whose result error and notice are (messageKeys): it shows there, never at the top of the page (design system 4.7).
   const [messageAt, setMessageAt] = useState('')
+  // The person the add form just created: its result says what is still missing for them to clock in (#177).
+  const [createdEmployee, setCreatedEmployee] = useState<Employee | null>(null)
   const [busy, setBusy] = useState(false)
   const [dni, setDni] = useState(''); const [displayName, setDisplayName] = useState(''); const [siteIds, setSiteIds] = useState<string[]>([])
   const [tolerance, setTolerance] = useState('5'); const [temporaryPassword, setTemporaryPassword] = useState('')
@@ -97,7 +101,7 @@ export function EmployeesView() {
   useEffect(() => { void reload() }, [])
   function toggleSite(id: string) { setSiteIds((current) => current.includes(id) ? current.filter((siteId) => siteId !== id) : [...current, id]); createFields.clear('siteIds') }
   async function create(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setError(''); setNotice(''); setMessageAt(messageKeys.create)
+    event.preventDefault(); setError(''); setNotice(''); setMessageAt(messageKeys.create); setCreatedEmployee(null)
     // The checks the browser made (required, the DNI's 7 characters, 0 to 240 whole minutes, a password of 12 characters), the
     // byte limit of the password, and the local that kept the button disabled: all at once, each under its field.
     const valid = createFields.check(focusIds.createForm, {
@@ -113,7 +117,7 @@ export function EmployeesView() {
     try {
       const sentPassword = temporaryPassword
       const created = await api.post<Employee>('/employees', { dni: dni.trim(), displayName: displayName.trim(), siteIds, toleranceMinutes: Number(tolerance), ...(sentPassword ? { temporaryPassword: sentPassword } : {}) })
-      setEmployees((current) => [...current, created]); setDni(''); setDisplayName(''); setSiteIds(onlySite(sites)); setTolerance('5'); setTemporaryPassword(''); setGeneratedPassword(false)
+      setEmployees((current) => [...current, created]); setCreatedEmployee(created); setDni(''); setDisplayName(''); setSiteIds(onlySite(sites)); setTolerance('5'); setTemporaryPassword(''); setGeneratedPassword(false)
       // An account that already existed keeps its password and the one sent is not used (OrganizationService.createEmployee).
       const issued = Boolean(sentPassword) && created.mustChangePassword !== false
       if (sentPassword && !issued) setNotice('Empleado creado. Ese DNI ya tenía cuenta: sigue entrando con su contraseña de siempre.')
@@ -138,7 +142,12 @@ export function EmployeesView() {
     setBusy(true)
     try {
       const updated = await api.patch<Employee>(`/employees/${encodeURIComponent(draft.id)}`, { displayName: draft.displayName, siteIds: draft.siteIds, toleranceMinutes: draft.toleranceMinutes, active: draft.active })
-      setEmployees((current) => current.map((entry) => entry.id === updated.id ? updated : entry)); setDraft(null); setNotice('Cambios del empleado guardados.')
+      // Deactivating or reactivating says what happened (#177): a person inactive cannot sign in nor clock in (rule 7).
+      const before = employees.find((entry) => entry.id === updated.id)
+      const saved = before && before.active !== updated.active
+        ? updated.active ? `${updated.displayName} quedó activo otra vez.` : `${updated.displayName} quedó inactivo.`
+        : 'Cambios del empleado guardados.'
+      setEmployees((current) => current.map((entry) => entry.id === updated.id ? updated : entry)); setDraft(null); setNotice(saved)
       focusLater({ id: focusIds.editButton(updated.id) })
     } catch (reason) { setError(errText(reason)); editFields.focusProblem(formId) } finally { setBusy(false) }
   }
@@ -161,7 +170,7 @@ export function EmployeesView() {
     loading={assignmentsLoading} loadError={assignmentsLoadError} error={assignmentError} notice={messageAt === messageKeys.assignments ? notice : ''} busy={assignmentBusy} templateId={assignmentTemplateId} validFrom={assignmentValidFrom}
     fieldErrors={assignmentFields.errors}
     onTemplateChange={(value) => { setAssignmentTemplateId(value); assignmentFields.clear('templateId') }} onValidFromChange={(value) => { setAssignmentValidFrom(value); assignmentFields.clear('validFrom') }} onSubmit={(event) => void assignTemplate(event)}
-    onRetry={() => void openAssignments(assignmentsEmployee.id)} onClose={() => { focusLater({ id: focusIds.schedulesButton(assignmentsEmployee.id) }); closeAssignments() }} /> : null
+    onRetry={() => void openAssignments(assignmentsEmployee.id)} onNavigate={onNavigate} onClose={() => { focusLater({ id: focusIds.schedulesButton(assignmentsEmployee.id) }); closeAssignments() }} /> : null
   // D-20261027-09: the temporary password lives only in this state; it is never written to browser storage and is
   // gone when the ADMIN dismisses the panel or leaves the view.
   const [resetTarget, setResetTarget] = useState<string | null>(null)
@@ -204,7 +213,14 @@ export function EmployeesView() {
     else if (issuedPassword?.employeeId) focusLater({ id: focusIds.resetButton(issuedPassword.employeeId) })
     setIssuedPassword(null)
   }
-  return <EmployeesViewRender employees={employees} sites={sites} loading={loading} loadError={loadError} error={error} notice={notice} messageAt={messageAt} busy={busy} dni={dni} displayName={displayName} siteIds={siteIds} tolerance={tolerance} temporaryPassword={temporaryPassword} draft={draft}
+  /** The next step of a person just created: their horarios open under their record, with the keyboard on their «Horarios». */
+  function assignCreated(id: string) {
+    void openAssignments(id)
+    focusLater({ id: focusIds.schedulesButton(id) })
+  }
+  return <EmployeesViewRender employees={employees} sites={sites} loading={loading} loadError={loadError} error={error} notice={notice} messageAt={messageAt} busy={busy}
+    createdEmployee={createdEmployee} onNavigate={onNavigate} onAssignCreated={assignCreated}
+    onShowCreateForm={() => focusLater({ id: focusIds.createForm, into: true, block: 'start' })} dni={dni} displayName={displayName} siteIds={siteIds} tolerance={tolerance} temporaryPassword={temporaryPassword} draft={draft}
     generatedPassword={generatedPassword} cards={cards} assignmentsFor={assignmentsFor} assignmentsPanel={assignmentsPanel} onOpenAssignments={(id) => void openAssignments(id)}
     createErrors={createFields.errors} editErrors={editFields.errors}
     onReload={() => void reload()} onCreate={create} onDniChange={(value) => { setDni(value); createFields.clear('dni') }} onDisplayNameChange={(value) => { setDisplayName(value); createFields.clear('displayName') }}

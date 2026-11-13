@@ -308,7 +308,7 @@ export function EmployeeApp() {
     setMotiveValues((current) => { const next = { ...current }; delete next[id]; return next })
     clearMotiveError(id)
   }
-  const name = session.displayName?.trim() || (session.dni ? `DNI ${session.dni}` : 'bienvenido')
+  const name = session.displayName?.trim() || (session.dni ? `DNI ${session.dni}` : '')
   const sentence = loading || loadFailed ? ''
     : date ? `Estás viendo el ${formatLocalDate(date)}.${jornadas.length ? '' : ' Ese día no tenés un día de trabajo cargado.'}`
     : daySentence(selected, zone, now)
