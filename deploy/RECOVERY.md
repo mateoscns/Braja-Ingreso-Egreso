@@ -5,7 +5,7 @@ dentro de los contenedores. Lo que hace el local mientras tanto está en `docs/S
 
 ## Objetivos
 
-Propuestos el 2026-11-13, pendientes de OK de Mateo (D-20261113-02):
+Propuestos el 2026-11-13, pendientes de OK de Mateo (D-20261115-02):
 
 | Caso | RTO (volver a andar) | RPO (cuánto se puede perder) |
 |---|---|---|

@@ -108,7 +108,7 @@ en un estado:
   `ADMIN`.
 - **Registro de decisiones**: `docs/DECISIONES.md`, filas `ID
   (D-AAAAMMDD-NN) | fecha | decisión | propuesta por | estado | motivo`. Al
-  2026-11-12: 76 filas, todas adoptadas y 0 propuestas (16 del 2026-10-14, 6
+  2026-11-14: 79 filas, todas adoptadas y 0 propuestas (16 del 2026-10-14, 6
   del 10-15, 5 del 10-16, 1 del 10-18, 6 del 10-19, 2 del 10-23, 12 del 10-27,
   1 del 10-29, 2 del 10-30, 15 del 11-02, 3 del 11-09, 3 del 11-11: el
   vocabulario visible de la interfaz, D-20261111-01, con su ajuste de persona
@@ -117,9 +117,12 @@ en un estado:
   día del empleado solo para mirar, D-20261112-01, el aviso de sesión por
   vencer del `ADMIN`, D-20261112-02, y el cambio de empresa con «Cambiar»,
   D-20261112-03, y la excepción a la regla 38 para fusionar el rediseño en
-  `main`, D-20261112-04). Al 2026-11-13 se suman 2 propuestas de la IA,
-  pendientes de Mateo: el servidor (D-20261113-01) y el RTO (D-20261113-02);
-  78 filas, 76 adoptadas. Las 15 del 2026-11-02
+  `main`, D-20261112-04; y 2 del 11-13: el mapa de cada marca para el `ADMIN`,
+  D-20261113-01, y la duración de cada pausa en la pantalla del empleado, D-20261113-02;
+  y 1 del 11-14: la passkey para confirmar cada marca, D-20261114-01, todavía sin
+  implementar, issue #190). Al 2026-11-15 se suman 2 propuestas, pendientes del
+  OK de Mateo: el servidor Hostinger (D-20261115-01) y el RTO (D-20261115-02);
+  81 filas, 79 adoptadas. Las 15 del 2026-11-02
   (D-20261102-01 a -15) son propuestas de la IA durante la campaña #72 que
   Mateo adoptó con su aprobación general de ese día al plan de producción
   (`odd/tasks/production-readiness.md`); cada una lo dice en su motivo.
@@ -137,7 +140,7 @@ en un estado:
 - **Reglas del dueño que no se discuten**: D-20261014-01 (sin atribución de
   IA), -02 (software propio, sin SaaS de terceros), -03 (alcance cerrado),
   -04 (altas solo por `ADMIN`, sin límite de empleados) y -09
-  (multi-empresa y multi-sede). Las otras 67 filas también rigen; las que
+  (multi-empresa y multi-sede). Las otras 74 filas también rigen; las que
   cambian una regla de §5 se citan ahí.
 - **Una decisión nueva** la propone quien la detecta (Mateo, Enrique o la
   IA) como fila `propuesta`; hasta que Mateo la adopte no se cita como
@@ -334,7 +337,14 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
    a 7 decimales como `MANUAL`, y la posición aproximada del dispositivo solo
    centra el mapa, nunca se guarda (D-20261109-01; guarda:
    `SitesViewRender.test.tsx` "SitesView map picker", `geocode.test.ts`,
-   `siteMap.test.ts`).
+   `siteMap.test.ts`). Desde el 2026-11-13 el `ADMIN` ve cada marca con ubicación
+   en un mapa bajo esa marca del día («Ver en el mapa»): el punto de la marca en
+   rojo, el local y su radio congelados en la jornada, y en texto la distancia, la
+   precisión que informó el celular y el veredicto con la regla del servidor
+   (distancia + precisión ≤ radio); la API agrega `accuracyMeters` a la marca y
+   `geofenceLatitude`, `geofenceLongitude` y `geofenceRadiusMeters` a la jornada,
+   solo para el `ADMIN` y sin precisión tras la purga. Guarda:
+   `MarkLocationMapSpecTest`, `MarkMap.test.tsx`, `markMap.test.ts`, `geo.test.ts`.
 4. **Todo desvío exige motivo y categoría, pero después de guardar la
    marca** (D-20261014-07, D-20261015-04): queda `MOTIVO_PENDIENTE` hasta
    `PUT /deviations/{id}/motive` (categoría `SALUD`, `TRANSPORTE`,
@@ -1043,7 +1053,7 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
   - Operación: no hay VPS ni dominio, y la pila de `deploy/` nunca corrió en un
     servidor real (reglas 31 a 34); no hubo simulacro de restauración; la copia
     de backups fuera del servidor y los monitores no están configurados; el RTO
-    está propuesto y no adoptado (D-20261113-02, §8). Desde el 2026-11-13 existen
+    está propuesto y no adoptado (D-20261115-02, §8). Desde el 2026-11-13 existen
     `docs/CHECKLIST_SALIDA.md`, `docs/CHECKLIST_RELEASE.md`,
     `deploy/RECOVERY.md` y, para el local, `docs/SI_LA_APP_NO_ANDA.md` (con el
     contacto por completar). Lo que sigue a cargo de Mateo está en
@@ -1166,7 +1176,7 @@ si cada clon hace `git config core.hooksPath .githooks`**. Hoy no existe
   (`docs/CHECKLIST_SALIDA.md` una vez, `docs/CHECKLIST_RELEASE.md` en cada
   actualización) y la recuperación ante la pérdida del servidor
   (`deploy/RECOVERY.md`); el RTO de 15 min y 4 h está propuesto, pendiente de
-  OK del dueño (D-20261113-02). Un ítem sin marcar necesita excepción
+  OK del dueño (D-20261115-02). Un ítem sin marcar necesita excepción
   explícita del dueño, no un salto silencioso. El deploy toma un backup nuevo
   antes de cada migración (`deploy/deploy.sh`, regla 32); no mira la
   antigüedad de un backup anterior (la checklist de release sí lo pide).

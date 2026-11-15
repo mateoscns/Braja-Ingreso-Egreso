@@ -1683,10 +1683,17 @@ describe('Safari en el iPhone (WebKit): lo que en Chrome no se ve', () => {
   it('una palabra larga de un nombre se corta antes de ensanchar la página', () => {
     const nowrap = allRules().filter(({ declarations }) => /white-space:\s*nowrap/.test(declarations))
     const names = ['h1, h2, h3', '.topbar-who', '.choice-text', '.check', '.record', '.history-card', '.history-items li', '.case',
-      '.motive-fact', '.motive-said', '.now-context', '.message-body', '.site-map-results .button']
+      '.motive-fact', '.motive-said', '.now-context', '.message-body', '.site-map-results .button', '.main-content']
 
     expect(selectorsOf(nowrap)).toEqual(['.visually-hidden', '.skip-link:not(:focus)', '.status-chip'])
     for (const selector of names) expect(value(rule(selector), 'overflow-wrap'), selector).toBe('anywhere')
+    // 2026-11-13 audit: a hint, a label or a folded filter outside those boxes widened the phone page; a table keeps its columns.
+    expect(value(rule('.main-content table'), 'overflow-wrap')).toBe('break-word')
+  })
+
+  // 2026-11-13 audit: a motive written in several lines read as one run of text under «Motivo» and «Tu explicación».
+  it('un motivo escrito en varias líneas se lee en esas líneas', () => {
+    expect(value(rule('.motive-said'), 'white-space')).toBe('pre-line')
   })
 
   // Safari on iOS centres the value of a date or a time and gives an empty one no line (no placeholder is drawn): the value starts

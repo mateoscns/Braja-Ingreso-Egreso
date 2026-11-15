@@ -13,7 +13,7 @@ necesita una excepción explícita de Mateo (`CLAUDE.md` §8), no un salto silen
   que dejó D-20261112-04: su excepción a la regla 38 deja de valer en este deploy. Como mínimo M-7 (Android
   instalado), M-9 (iPhone con VoiceOver y avisos), M-11 (mapa con el dedo) y M-12 (iPhone con muesca). Si los avisos
   fallan de forma sostenida en el iPhone, se aplica el plan B de D-20261014-13; no antes.
-- [ ] **Servidor elegido y creado** (`deploy/README.md` §1, propuesta D-20261113-01): Ubuntu 24.04, 2 vCPU, 4 GB, con
+- [ ] **Servidor elegido y creado** (`deploy/README.md` §1, propuesta D-20261115-01): Ubuntu 24.04, 2 vCPU, 4 GB, con
   IPv4 pública.
 - [ ] **DNS**: `nslookup <dominio>` devuelve la IPv4 del servidor; no hay registro `AAAA`; TTL de 300 s si el dominio
   es propio.

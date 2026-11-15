@@ -38,4 +38,43 @@ describe('ServiceWorkerUpdate', () => {
     expect(screen.getByRole('status')).toBe(region)
     expect(region).toHaveTextContent('Hay una versión nueva')
   })
+
+  // 2026-11-13 audit: an installed app resumed from the background never navigates, so it never looked for a new version.
+  it('busca una versión nueva cada hora y cada vez que la app vuelve a la pantalla', () => {
+    vi.useFakeTimers()
+    try {
+      const register = vi.fn<RegisterServiceWorker>(() => vi.fn(() => Promise.resolve()))
+      const view = render(<ServiceWorkerUpdate register={register} />)
+      const update = vi.fn(() => Promise.resolve())
+      act(() => { register.mock.calls[0][0].onRegisteredSW?.('/sw.js', { update } as unknown as ServiceWorkerRegistration) })
+      expect(update).not.toHaveBeenCalled()
+
+      act(() => { vi.advanceTimersByTime(60 * 60 * 1000) })
+      expect(update).toHaveBeenCalledTimes(1)
+
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+      act(() => { document.dispatchEvent(new Event('visibilitychange')) })
+      expect(update).toHaveBeenCalledTimes(2)
+
+      Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+      act(() => { document.dispatchEvent(new Event('visibilitychange')) })
+      expect(update).toHaveBeenCalledTimes(2)
+
+      view.unmount()
+      act(() => { vi.advanceTimersByTime(60 * 60 * 1000) })
+      expect(update).toHaveBeenCalledTimes(2)
+    } finally { vi.useRealTimers(); Reflect.deleteProperty(document, 'visibilityState') }
+  })
+
+  it('una búsqueda de versión que falla sin conexión no rompe nada', () => {
+    vi.useFakeTimers()
+    try {
+      const register = vi.fn<RegisterServiceWorker>(() => vi.fn(() => Promise.resolve()))
+      render(<ServiceWorkerUpdate register={register} />)
+      const update = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')))
+      act(() => { register.mock.calls[0][0].onRegisteredSW?.('/sw.js', { update } as unknown as ServiceWorkerRegistration) })
+      expect(() => act(() => { vi.advanceTimersByTime(60 * 60 * 1000) })).not.toThrow()
+      expect(update).toHaveBeenCalledTimes(1)
+    } finally { vi.useRealTimers() }
+  })
 })

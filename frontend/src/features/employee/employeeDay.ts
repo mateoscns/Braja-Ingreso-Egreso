@@ -1,4 +1,5 @@
 import type { Jornada, Mark, MarkAction } from '../../shared/api/types'
+import { formatDuration } from '../../shared/format'
 import { countedMarks, formatTime, markInstant, scheduledEnd } from '../../shared/jornadaTime'
 import { confirmedMark, daySlotName, forEmployee, markButtonLabel, type DaySlotKind } from '../../shared/labels'
 
@@ -44,6 +45,13 @@ export function markOptions(jornada: Jornada, timeZone: string, now: Date): Mark
   const nearEnd = end !== null && now.getTime() >= end.getTime() - EXIT_SUGGESTION_MS
   const primary: MarkAction = nearEnd ? 'EGRESO' : pauses.find((action) => limitOf(action) > 0) ?? pauses[0] ?? 'EGRESO'
   return { primary, others: pauses.filter((action) => action !== primary), exit: primary === 'EGRESO' ? null : 'EGRESO' }
+}
+
+/** How long each pause of the day's schedule is, read before going out (2026-11-13); null when the schedule gives none. */
+export function pauseAllowance(jornada: Jornada): string | null {
+  const { breakfastLimitMinutes: breakfast, lunchLimitMinutes: lunch } = jornada.scheduleSnapshot
+  const parts = [breakfast > 0 ? `${formatDuration(breakfast)} de desayuno` : '', lunch > 0 ? `${formatDuration(lunch)} de almuerzo` : ''].filter(Boolean)
+  return parts.length ? `Tenés ${parts.join(' y ')}.` : null
 }
 
 /** Question shown before an exit marked earlier than the end of the shift; null when no confirmation is needed. */

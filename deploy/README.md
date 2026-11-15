@@ -29,7 +29,7 @@ runbook ya no se vende y el CX23 figura sin stock. Opciones (precios a verificar
 | Otro proveedor con 2 vCPU y 4 GB en América | Latencia menor. | Este runbook no se probó ahí; revisar que dé IPv4 y Ubuntu 24.04. |
 
 Menos de 4 GB no alcanza: el build de Maven y el de npm corren al lado de MySQL. La elección del proveedor es una
-propuesta pendiente de Mateo (D-20261113-01). Al crearlo, cargar tu clave SSH pública (sin clave, el bootstrap deja el
+propuesta pendiente de Mateo (D-20261115-01). Al crearlo, cargar tu clave SSH pública (sin clave, el bootstrap deja el
 login por contraseña activo para no dejarte afuera). Anotar la IPv4 pública.
 
 ## 2. DNS

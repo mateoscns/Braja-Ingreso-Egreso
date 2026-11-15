@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../../app/icons'
 
-type RegisterOptions = { immediate?: boolean; onNeedRefresh?: () => void }
+type RegisterOptions = {
+  immediate?: boolean; onNeedRefresh?: () => void
+  onRegisteredSW?: (swUrl: string, registration: ServiceWorkerRegistration | undefined) => void
+}
+/** How often an open app asks for a new version (2026-11-13 audit: a resumed installed app never asked). */
+export const UPDATE_CHECK_MS = 60 * 60 * 1000
 /** Same shape as `registerSW` from `virtual:pwa-register`, injected so the banner can be tested without the plugin. */
 export type RegisterServiceWorker = (options: RegisterOptions) => (reloadPage?: boolean) => Promise<void>
 
@@ -17,10 +22,21 @@ export function ServiceWorkerUpdate({ register }: { register: RegisterServiceWor
   const [updating, setUpdating] = useState(false)
   const updateSW = useRef<((reloadPage?: boolean) => Promise<void>) | null>(null)
 
+  const registration = useRef<ServiceWorkerRegistration | null>(null)
+
   useEffect(() => {
     if (updateSW.current) return
-    updateSW.current = register({ immediate: true, onNeedRefresh: () => setNeedRefresh(true) })
+    updateSW.current = register({ immediate: true, onNeedRefresh: () => setNeedRefresh(true), onRegisteredSW: (_url, found) => { registration.current = found ?? null } })
   }, [register])
+  // An installed app resumed from the background never navigates, so the browser never looks for a new version: it asks every
+  // hour and each time the app comes back to the screen. A failed check (no signal) is simply tried again later.
+  useEffect(() => {
+    const check = () => { void registration.current?.update().catch(() => undefined) }
+    const onVisible = () => { if (document.visibilityState === 'visible') check() }
+    const timer = window.setInterval(check, UPDATE_CHECK_MS)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible) }
+  }, [])
 
   return <div className="update-banner message message-info" role="status" aria-atomic="true">
     {needRefresh && <>

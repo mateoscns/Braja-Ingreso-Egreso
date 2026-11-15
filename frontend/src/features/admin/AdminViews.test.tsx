@@ -477,6 +477,25 @@ describe('administración de desvíos y marcas', () => {
     })))
   })
 
+  // 2026-11-13 audit: «Ver marcas» stayed on while a correction was saving, and the day saved came back over the one opened.
+  it('mientras se guarda una corrección no se puede abrir otro día', async () => {
+    let answer!: (value: unknown) => void
+    apiMocks.post.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve }))
+    render(<JourneysView />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Ver marcas/ }))
+    await screen.findByText('Horario asignado: Mañana (09:00 a 17:00) · tolerancia 5 min')
+
+    const markRow = await screen.findByRole('row', { name: /Entrada/ })
+    fireEvent.click(within(markRow).getByRole('button', { name: /^Corregir marca/ }))
+    fireEvent.change(screen.getByLabelText('Motivo de corrección de marca'), { target: { value: 'Se verificó la hora con la persona.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar corrección de marca' }))
+    await screen.findByRole('button', { name: 'Guardando…' })
+    for (const button of screen.getAllByRole('button', { name: /^Ver marcas/ })) expect(button).toBeDisabled()
+
+    await act(async () => { answer({}) })
+    await waitFor(() => { for (const button of screen.getAllByRole('button', { name: /^Ver marcas/ })) expect(button).toBeEnabled() })
+  })
+
   describe('marcas que no encajan con la jornada en los formularios de ADMIN', () => {
     const staleEmployeeText = /El estado del día de trabajo cambió y esa marca ya no corresponde/
     const adminText = 'La hora o la acción no encajan con las demás marcas del día. Revisá el orden.'
@@ -917,6 +936,32 @@ describe('administración de desvíos y marcas', () => {
       pick('Local', 's-1')
       fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }))
       expect(await screen.findByText('Ningún caso coincide con los filtros aplicados.')).toBeInTheDocument()
+    })
+
+    // 2026-11-13 audit: a decision saved while a page was loading turned «Cargar anteriores» back on, and a second tap appended
+    // the same page twice.
+    it('mientras carga una página, una decisión no vuelve a habilitar «Cargar anteriores» ni la pide dos veces', async () => {
+      let answerPage: (page: { items: unknown[]; nextCursor: null }) => void = () => {}
+      apiMocks.get.mockImplementation((path: string) => {
+        if (path === '/inbox?limit=50') return Promise.resolve({ items: [{ ...deviation, status: 'PENDIENTE_REVISION' }], nextCursor: 'c1' })
+        if (path === '/inbox?limit=50&cursor=c1') return new Promise((resolve) => { answerPage = resolve })
+        return Promise.resolve(path === '/sites' ? [site] : [employee])
+      })
+      apiMocks.put.mockResolvedValue({ ...deviation, status: 'JUSTIFICADO' })
+      render(<AdminInbox />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Cargar anteriores' }))
+      expect(await screen.findByRole('button', { name: 'Cargando…' })).toBeDisabled()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Justificado' }))
+      await waitFor(() => expect(apiMocks.put).toHaveBeenCalledTimes(1))
+      await screen.findByText(/Guardado/)
+      const more = screen.getByRole('button', { name: 'Cargando…' })
+      expect(more).toBeDisabled()
+      fireEvent.click(more)
+
+      answerPage({ items: [], nextCursor: null })
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Cargando…' })).not.toBeInTheDocument())
+      expect(inboxCalls().filter((path) => path.includes('cursor=c1'))).toHaveLength(1)
     })
 
     it('mantiene las acciones de clasificación sobre los resultados filtrados', async () => {

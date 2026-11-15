@@ -69,6 +69,9 @@ const VALIDATION_MESSAGES: Record<string, string> = {
   PASSWORD_TOO_LONG: PASSWORD_TOO_LONG_MESSAGE
 }
 
+/** Object.hasOwn needs Safari 15.4 (2026-11-13 audit): an older iPhone showed «Object.hasOwn is not a function» on every 409. */
+const hasOwn = (record: object, key: string) => Object.prototype.hasOwnProperty.call(record, key)
+
 function messageForStatus(status: number, code?: string, context: ApiErrorContext = {}): string {
   if (status === 401 && context.login && code !== 'SESSION_EXPIRED') return 'El DNI o la contraseña son incorrectos.'
   if (status === 401 && context.login) return 'No se pudo iniciar sesión. Reintentá.'
@@ -76,9 +79,9 @@ function messageForStatus(status: number, code?: string, context: ApiErrorContex
   if (status === 401) return 'Tu sesión venció. Iniciá sesión nuevamente.'
   if (status === 403 && code === 'PASSWORD_CHANGE_REQUIRED') return 'Tenés que cambiar tu contraseña provisoria antes de continuar.'
   if (status === 403) return 'No tenés permiso para realizar esta acción.'
-  if (status === 409 && code && Object.hasOwn(CONFLICT_MESSAGES, code)) return CONFLICT_MESSAGES[code]
+  if (status === 409 && code && hasOwn(CONFLICT_MESSAGES, code)) return CONFLICT_MESSAGES[code]
   if (status === 409) return 'La información cambió o la acción ya fue procesada. Actualizá la vista.'
-  if (status === 422 && code && Object.hasOwn(VALIDATION_MESSAGES, code)) return VALIDATION_MESSAGES[code]
+  if (status === 422 && code && hasOwn(VALIDATION_MESSAGES, code)) return VALIDATION_MESSAGES[code]
   // A 422 without a code of its own names no field; each screen says under its fields what it checks itself (issue #177).
   if (status === 422) return 'Hay un dato que el sistema no aceptó. Revisá lo que cargaste y volvé a intentar.'
   // The reverse proxy answers bodies over 1 MB, with or without a Problem body.
@@ -125,6 +128,9 @@ export type SessionExpiredListener = () => void
  */
 export type ResponseListener = () => void
 
+/** How long a query waits for its answer before it gives up. */
+export const GET_DEADLINE_MS = 30_000
+
 const LOGIN_URL = '/api/v1/session'
 const PASSWORD_URL = '/api/v1/session/password'
 
@@ -135,8 +141,17 @@ export class ApiClient {
   private readonly passwordChangeListeners = new Set<SessionExpiredListener>()
   private readonly responseListeners = new Set<ResponseListener>()
 
+  /**
+   * A query without a signal of its own gets one that gives up after GET_DEADLINE_MS (2026-11-13 audit: on a stalled
+   * connection «Preparando…» or «Cargando tu día…» stayed forever). It ends as a TimeoutError, which every screen already tells
+   * apart; a write never gets one here, so a long batch is not cut while the server still works on it.
+   */
   async get<T>(path: string, options: RequestOptions = {}): Promise<T> {
-    return this.request<T>('GET', path, undefined, options)
+    if (options.signal) return this.request<T>('GET', path, undefined, options)
+    const deadline = new AbortController()
+    const timer = setTimeout(() => deadline.abort(new DOMException('The query took too long.', 'TimeoutError')), GET_DEADLINE_MS)
+    try { return await this.request<T>('GET', path, undefined, { ...options, signal: deadline.signal }) }
+    finally { clearTimeout(timer) }
   }
 
   async post<T>(path: string, body?: unknown, headers: Record<string, string> = {}, options: MutationOptions = {}): Promise<T> {
@@ -273,7 +288,11 @@ export class ApiClient {
     if (response.status === 204 || response.headers.get('content-length') === '0') return undefined as T
     const contentType = response.headers.get('content-type') ?? ''
     if (!contentType.includes('json')) return undefined as T
-    return await response.json() as T
+    // The signal also covers the body (2026-11-13 audit): an abort while it streams ends as the same failure as before the headers.
+    try { return await response.json() as T } catch (reason) {
+      if (init.signal?.aborted) throw abortFailure(init.signal)
+      throw reason
+    }
   }
 }
 

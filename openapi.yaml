@@ -1523,6 +1523,15 @@ components:
               items: { $ref: '#/components/schemas/Mark' }
             cancelledAt: { type: [string, 'null'], format: date-time, description: Set only for a CANCELADA jornada. }
             cancelReason: { type: [string, 'null'], maxLength: 2000, description: Cancellation reason; only returned to ADMIN. }
+            geofenceLatitude:
+              type: [number, 'null']
+              minimum: -90
+              maximum: 90
+              description: >-
+                Center of the site's area frozen on this jornada (the snapshot every mark of the day is judged against,
+                D-20261030-02). Only returned to ADMIN; omitted when the site had no center for this jornada (2026-11-13).
+            geofenceLongitude: { type: [number, 'null'], minimum: -180, maximum: 180, description: See geofenceLatitude. }
+            geofenceRadiusMeters: { type: [integer, 'null'], minimum: 50, maximum: 500, description: Radius frozen with geofenceLatitude; only returned to ADMIN. }
     JornadaCancellation:
       type: object
       required: [jornadaId, state, cancelledAt, cancelledBy, cancelReason]
@@ -1600,6 +1609,14 @@ components:
         locationStatus: { type: string, enum: [PENDIENTE, RECIBIDA, SIN_UBICACION, PURGADA, NO_APLICA] }
         latitude: { type: [number, 'null'], minimum: -90, maximum: 90, description: Only returned to an authorized ADMIN and only before 90-day purge. }
         longitude: { type: [number, 'null'], minimum: -180, maximum: 180, description: Only returned to an authorized ADMIN and only before 90-day purge. }
+        accuracyMeters:
+          type: [number, 'null']
+          minimum: 0
+          maximum: 100000
+          description: >-
+            Accuracy the phone reported with the location, in meters, as stored (rounded up to the centimeter) and as the geofence
+            judged it. Only returned to an authorized ADMIN and only before the 90-day purge, which erases it with the point; omitted
+            for a mark without location (2026-11-13).
         voided: { type: boolean, description: True when an ADMIN voided the mark (D-20261027-08); a voided mark no longer counts for the jornada. }
         voidedAt: { type: [string, 'null'], format: date-time, description: Server time of the void; only returned to ADMIN. }
         voidReason: { type: [string, 'null'], maxLength: 2000, description: Void reason; only returned to ADMIN. }
