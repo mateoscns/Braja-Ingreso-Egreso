@@ -43,6 +43,11 @@ done
 
 [ -e "$ENV_FILE" ] && die "$ENV_FILE already exists; it is never overwritten. Delete it by hand only if you mean to replace every secret."
 command -v openssl >/dev/null || die "openssl is required"
+# The file is created by and for the user running this script (mode 600): created by root, the deploy user could not
+# read it and deploy.sh would stop. On the server, run this as the deploy user (braja), never through sudo.
+if [ "$(id -u)" = 0 ]; then
+  echo "gen-secrets: WARNING: running as root, so only root can read $ENV_FILE; on the server run it as the deploy user" >&2
+fi
 
 ask() { # ask VAR "question": prompts only when the value is still empty and there is a terminal
   local name="$1" question="$2" answer
@@ -146,5 +151,11 @@ mkdir -p "$(dirname "$ENV_FILE")"
 # Refuses to replace a file that appeared meanwhile (set -o noclobber).
 ( set -o noclobber; cat "$tmp" > "$ENV_FILE" ) || die "$ENV_FILE appeared while generating; nothing was overwritten"
 chmod 600 "$ENV_FILE"
-echo "Created $ENV_FILE (mode 600) with new secrets for $DOMAIN. No secret was printed."
+echo "Created $ENV_FILE (mode 600, owner $(id -un)) with new secrets for $DOMAIN. No secret was printed."
 echo "Next: bash deploy/deploy.sh"
+if [ "$DOMAIN" != localhost ]; then
+  echo "After the first healthy deploy (it removes the first ADMIN's password from the file), copy the file off this"
+  echo "server into the password manager without printing it, e.g. from your own computer:"
+  echo "  scp <user>@<server-ip>:<path-to>/deploy/.env ./braja.env   (attach it to the password manager entry, then delete it)"
+  echo "Without BRAJA_HEALTH_ENCRYPTION_KEY_BASE64 a restored backup cannot read the stored SALUD motives."
+fi
