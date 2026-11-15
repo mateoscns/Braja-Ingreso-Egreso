@@ -44,9 +44,20 @@ mkdir -p "$BACKUP_DIR"; chmod 700 "$BACKUP_DIR"
 # for the confirmation a scheduled backup waits too, and fails (and alerts) after BRAJA_BACKUP_LOCK_TIMEOUT_SECONDS.
 take_backup_lock "$BACKUP_DIR"
 decrypted=""
+# The tag to start the backend with, and whether an exit must start it again: true only between stopping it and
+# dropping the database (the real data is still there). Once dropped, a backend would migrate an empty database.
+tag=""
+restart_backend=false
 on_exit() {
+  local status=$?
   restore_check_cleanup
   [ -z "$decrypted" ] || rm -f "$decrypted"
+  if [ "$restart_backend" = true ]; then
+    log "Nothing was restored; starting the backend again ($tag)"
+    BRAJA_IMAGE_TAG="$tag" compose up -d --wait --wait-timeout 300 backend \
+      || log "ERROR: the backend did not become healthy; see: docker compose -p braja logs backend"
+  fi
+  return "$status"
 }
 trap on_exit EXIT
 trap 'exit 130' INT
@@ -113,15 +124,15 @@ read -r answer || true
 tag="$(state_get CURRENT_TAG)"; tag="${tag:-latest}"
 # Stopped before the safety backup, so no mark is accepted after it and then lost with the replaced database.
 log "Stopping the backend"
+restart_backend=true
 compose stop backend
 
 log "Safety backup of the current database"
-if ! safety="$(BRAJA_RESTORE_IN_PROGRESS=1 bash "$DEPLOY_DIR/backup.sh" --allow-offhost-failure </dev/null)"; then
-  BRAJA_IMAGE_TAG="$tag" compose up -d backend || true
-  die "the safety backup failed; nothing was restored and the backend was started again"
-fi
+safety="$(BRAJA_RESTORE_IN_PROGRESS=1 bash "$DEPLOY_DIR/backup.sh" --allow-offhost-failure </dev/null)" \
+  || die "the safety backup failed; nothing was restored"
 log "Safety backup: $safety"
 
+restart_backend=false
 log "Recreating the database $database"
 mysql_root -e "DROP DATABASE IF EXISTS \`$database\`; CREATE DATABASE \`$database\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;" </dev/null
 log "Loading $backup"
