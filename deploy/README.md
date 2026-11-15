@@ -21,7 +21,7 @@ Checklists: `docs/CHECKLIST_SALIDA.md` (la primera vez) y `docs/CHECKLIST_RELEAS
 
 El servidor es un **Hostinger VPS KVM 2** (2 vCPU, 8 GB de RAM, 100 GB NVMe) con **Ubuntu 24.04 de la pestaña Plain
 OS**, sin paneles ni plantillas de aplicaciones, y con su **IPv4 pública** (el acceso es solo por IPv4, D-20261102-12).
-Es una propuesta pendiente de Mateo (D-20261115-01). Qué elegir y qué no en hPanel, el firewall del panel, el DNS, la
+El centro de datos es el de Brasil (D-20261115-01, adoptada). Qué elegir y qué no en hPanel, el firewall del panel, el DNS, la
 consola web si falla SSH y todos los pasos hasta la entrega, con la salida esperada de cada uno:
 **[`HOSTINGER_GO_LIVE.md`](HOSTINGER_GO_LIVE.md)**.
 

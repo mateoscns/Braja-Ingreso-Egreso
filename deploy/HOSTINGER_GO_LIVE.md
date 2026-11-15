@@ -14,7 +14,7 @@ chat, en un mail ni en un issue.
 
 | Hace falta | Quién | Para qué paso |
 |---|---|---|
-| OK de Mateo a D-20261115-01 (Hostinger KVM 2) y el `<SHA_DE_MAIN>` aprobado, con CI verde | Mateo | Contratar, 5, 10, 15 |
+| El `<SHA_DE_MAIN>` aprobado, con CI verde (el servidor ya está decidido: Hostinger KVM 2 en Brasil, D-20261115-01) | Mateo | 5, 10, 15 |
 | El dominio o subdominio (alternativa A o B, abajo) | Mateo | 3 |
 | DNI, nombre y sede del primer `ADMIN`; un mail de contacto para los avisos push (`mailto:`) | Mateo con Braja | 11 |
 | Intervalo del backup: decidido, cada hora a los 15 minutos (D-20261115-04, el valor por defecto del bootstrap); una vez por día es la opción, solo si Mateo lo cambia (`RECOVERY.md`, «Intervalo de backup») | Mateo | 5 |
@@ -53,7 +53,7 @@ consulta a Mateo.
 | Elegir | No elegir |
 |---|---|
 | **VPS KVM 2**: 2 vCPU, 8 GB de RAM, 100 GB NVMe, 1 IPv4 y 1 IPv6. | KVM 1 (1 vCPU, 4 GB): el compose le da al backend `cpus: 1.5` y Docker rechaza más CPU de las que tiene el servidor, así que no arranca sin cambiar el compose (no probado en un KVM 1). Un plan mayor, sin evidencia ([Recursos](#6-recursos-medir-y-decidir)). |
-| **Ubicación**: la decide Mateo (latencia, precio, dónde quedan los datos). Brasil es la única de Sudamérica para VPS. La ubicación **no se puede cambiar después**. | Elegir a la ligera: mudarse es crear otro VPS y reinstalar. |
+| **Ubicación**: **Brasil** (D-20261115-01), la única de Sudamérica para VPS. La ubicación **no se puede cambiar después**. | Elegir a la ligera: mudarse es crear otro VPS y reinstalar. |
 | **Sistema**: pestaña **Plain OS**, **Ubuntu 24.04** (sin software ni escritorio). | Pestañas **Control Panel**, **Application** y **Docker Application**: CloudPanel, Coolify, Dokploy, Easypanel, Portainer, cPanel, «Ubuntu 24.04 with Docker» y similares. Duplican Docker, Caddy o el firewall, y algunas cobran licencia. Tampoco Ubuntu 22.04 ni 26.04. |
 | **Clave SSH**: pegar la clave **pública** (`~/.ssh/id_ed25519.pub`) durante la configuración inicial. | Pegar la clave privada (el archivo sin `.pub`). |
 | **Contraseña de root**: una larga, generada por el gestor, guardada ahí. Es la entrada de la Web Console si falla SSH. | Una contraseña reutilizada o anotada fuera del gestor. |

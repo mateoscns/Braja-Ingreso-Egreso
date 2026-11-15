@@ -16,16 +16,16 @@ del comando, captura) en el issue de la salida. Un ítem sin marcar necesita una
   backend frontend` no devuelve nada. Una biblioteca sin usar no resuelve la suplantación.
 - [x] **Intervalo del backup decidido**: cada hora, a los 15 minutos (D-20261115-04, adoptada el 2026-11-15); RPO de
   hasta 1 h. Es el valor por defecto de `bootstrap-vps.sh`.
-- [ ] **Decisiones propuestas resueltas**: Mateo adoptó o cambió D-20261115-01 (servidor) y D-20261115-02 (RTO y
-  RPO).
+- [x] **Servidor decidido**: Hostinger VPS KVM 2 en Brasil (D-20261115-01, adoptada el 2026-11-15).
+- [ ] **RTO decidido**: Mateo adoptó o cambió D-20261115-02 (RTO y RPO).
 - [ ] **El commit está en `main` con CI verde.** En GitHub, el último commit de `main` tiene en verde «Backend (Java 21
   + MySQL 8.4)», «Backend campaign (MySQL 8.4)» y «Frontend (Node 24)». Anotar su sha.
 - [ ] **Pruebas en teléfonos reales M-1 a M-14** de `docs/UX_UI_GUIDELINES.md` §10, con su evidencia. Son el requisito
   que dejó D-20261112-04: su excepción a la regla 38 deja de valer en este deploy. Como mínimo M-7 (Android
   instalado), M-9 (iPhone con VoiceOver y avisos), M-11 (mapa con el dedo) y M-12 (iPhone con muesca). Si los avisos
   fallan de forma sostenida en el iPhone, se aplica el plan B de D-20261014-13; no antes.
-- [ ] **Servidor contratado** por Enrique (`deploy/HOSTINGER_GO_LIVE.md`, propuesta D-20261115-01): Hostinger VPS
-  KVM 2 de referencia (2 vCPU, 8 GB de RAM, 100 GB de disco), Ubuntu Server 24.04 LTS limpio, IPv4 pública, sin
+- [ ] **Servidor contratado** por Enrique (`deploy/HOSTINGER_GO_LIVE.md`, D-20261115-01): Hostinger VPS
+  KVM 2 en Brasil (2 vCPU, 8 GB de RAM, 100 GB de disco), Ubuntu Server 24.04 LTS limpio, IPv4 pública, sin
   paneles que dupliquen Docker, Caddy o el firewall.
 - [ ] **Recursos reales comprobados** en el servidor, sin asumir el plan: `nproc`, `free -h` y `df -h /` coinciden con
   lo contratado (en el KVM 2: 2 vCPU, unos 8 GB de RAM y unos 100 GB de disco) y `lsb_release -d` dice Ubuntu 24.04.

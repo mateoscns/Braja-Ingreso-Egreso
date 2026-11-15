@@ -5,8 +5,8 @@ almuerzo) para Braja, multi-empresa y multi-sede. Stack: PWA React + Vite +
 TypeScript, Java 21 + Spring Boot 3 (MVC) + JdbcTemplate, MySQL 8.4 + Flyway,
 sesión HTTP en MySQL. Producción: Docker Compose + Caddy en un VPS (`deploy/`,
 D-20261102-12); al 2026-11-02 la pila existe pero nunca corrió en un VPS (§7).
-Al 2026-11-15 el servidor propuesto es un Hostinger VPS KVM 2 que contrata y
-configura Enrique (D-20261115-01, propuesta, pendiente de OK del dueño).
+Al 2026-11-15 el servidor adoptado es un Hostinger VPS KVM 2 en Brasil, que
+contrata y configura Enrique (D-20261115-01).
 
 Este archivo se carga en cada sesión y es contexto autoritativo para
 cualquier cambio. Está escrito para el asistente de IA tanto como para las
@@ -122,12 +122,12 @@ en un estado:
   `main`, D-20261112-04; y 2 del 11-13: el mapa de cada marca para el `ADMIN`,
   D-20261113-01, y la duración de cada pausa en la pantalla del empleado, D-20261113-02;
   y 1 del 11-14: la passkey para confirmar cada marca, D-20261114-01, todavía sin
-  implementar, issue #190). Al 2026-11-15 se suman 2 filas propuestas,
-  pendientes del OK de Mateo: el servidor Hostinger (D-20261115-01) y el RTO y
-  el RPO (D-20261115-02); y Mateo adoptó la excepción temporal a la passkey
-  para salir sin ella (D-20261115-03) y el backup cada hora (D-20261115-04) con
-  su copia externa en Backblaze B2 (D-20261115-05); 84 filas, 82 adoptadas y
-  2 propuestas (`grep -c '^| D-' docs/DECISIONES.md`).
+  implementar, issue #190). Al 2026-11-15 queda 1 fila propuesta,
+  pendiente del OK de Mateo: el RTO y el RPO (D-20261115-02); y Mateo adoptó el
+  servidor Hostinger KVM 2 en Brasil (D-20261115-01), la excepción temporal a la
+  passkey para salir sin ella (D-20261115-03) y el backup cada hora (D-20261115-04) con
+  su copia externa en Backblaze B2 (D-20261115-05); 84 filas, 83 adoptadas y
+  1 propuesta (`grep -c '^| D-' docs/DECISIONES.md`).
   Las 15 del 2026-11-02
   (D-20261102-01 a -15) son propuestas de la IA durante la campaña #72 que
   Mateo adoptó con su aprobación general de ese día al plan de producción
@@ -146,9 +146,9 @@ en un estado:
 - **Reglas del dueño que no se discuten**: D-20261014-01 (sin atribución de
   IA), -02 (software propio, sin SaaS de terceros), -03 (alcance cerrado),
   -04 (altas solo por `ADMIN`, sin límite de empleados) y -09
-  (multi-empresa y multi-sede). Las otras 77 filas adoptadas también rigen; las
-  que cambian una regla de §5 se citan ahí. Las 2 propuestas (D-20261115-01 y
-  -02) no rigen hasta que Mateo las adopte.
+  (multi-empresa y multi-sede). Las otras 78 filas adoptadas también rigen; las
+  que cambian una regla de §5 se citan ahí. La propuesta (D-20261115-02) no rige
+  hasta que Mateo la adopte.
 - **Una decisión nueva** la propone quien la detecta (Mateo, Enrique o la
   IA) como fila `propuesta`; hasta que Mateo la adopte no se cita como
   decisión del dueño ni se implementa como definitiva.
@@ -903,8 +903,8 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     remoto `crypt` de rclone queda como alternativa documentada, no recomendada;
     `deploy/.env` se guarda aparte, en el gestor de contraseñas
     (`deploy/README.md`). Destino que falta: no hay VPS (lo paga Braja,
-    D-20261014-10; las credenciales las tiene Mateo; al 2026-11-15 se propone un
-    Hostinger VPS KVM 2 que contrata y configura Enrique, D-20261115-01, con su
+    D-20261014-10; las credenciales las tiene Mateo; al 2026-11-15 se adoptó un
+    Hostinger VPS KVM 2 en Brasil que contrata y configura Enrique, D-20261115-01, con su
     guía en `deploy/HOSTINGER_GO_LIVE.md`), la copia fuera del
     servidor y los monitores no están configurados, los reinicios de Docker no
     tienen tope (solo espacia los reintentos), no hubo un simulacro de
@@ -1223,8 +1223,8 @@ si cada clon hace `git config core.hooksPath .githooks`**. Hoy no existe
 2. [x] El dueño adoptó las 66 filas de `docs/DECISIONES.md` (adopciones del
    2026-10-14 al 2026-11-02; las 15 del 2026-11-02, D-20261102-01 a -15, con su
    aprobación general de ese día al plan de producción, que puede vetar fila por
-   fila). Al 2026-11-15 el registro tiene 84 filas: 82 adoptadas y 2 propuestas
-   (D-20261115-01 y -02), pendientes de su OK.
+   fila). Al 2026-11-15 el registro tiene 84 filas: 83 adoptadas y 1 propuesta
+   (D-20261115-02), pendiente de su OK.
 3. [ ] Portar `DecisionesDelDuenoTest` (frases de atribución sin ID → falla).
 4. [~] Toolchain: Java 21 y Node 24 fijados en CI (PR #4) y en las imágenes de
    `deploy/` (`eclipse-temurin:21`, `node:24`). Los `<…>` de este archivo se
