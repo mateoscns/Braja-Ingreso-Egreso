@@ -190,7 +190,7 @@ imprevistos. Si Hostinger no está disponible, el servidor nuevo se crea en otro
 | 1 | Avisarle a Braja: papel hasta nuevo aviso. | 5 min |
 | 2 | Crear el VPS nuevo (Ubuntu 24.04, 2 vCPU, 4 GB, IPv4) con la clave SSH. Anotar la IPv4. | 5 min |
 | 3 | DNS: cambiar el registro `A` del dominio a la IPv4 nueva. Va **antes del deploy**: `deploy.sh` espera el certificado de Let's Encrypt, que exige que el dominio apunte al servidor nuevo. Con TTL de 300 s llega en minutos. | 5 min + propagación |
-| 4 | Bootstrap (`README.md` §3) con el mismo `BRAJA_BACKUP_SCHEDULE` que tenía el servidor anterior. Probar `ssh braja@<IP_DEL_VPS> sudo true`. Comprobar `age --version`. | 5 a 10 min |
+| 4 | Bootstrap en sus dos pasos (`README.md` §3) con el mismo `BRAJA_BACKUP_SCHEDULE` que tenía el servidor anterior. Probar desde otra terminal `ssh -t braja@<IP_DEL_VPS> 'sudo -v && docker ps'` (pide la contraseña de `braja`). Comprobar `age --version`. | 5 a 10 min |
 | 5 | Como `braja`: `git clone https://github.com/mateoscns/Braja-Ingreso-Egreso.git ~/fichaje` y `git -C ~/fichaje checkout <commit que estaba desplegado>`. | 1 min |
 | 6 | Volver a poner `deploy/.env`: pegar la copia del gestor en `~/fichaje/deploy/.env` y `chmod 600 ~/fichaje/deploy/.env`. Tiene que decir `BRAJA_BOOTSTRAP_ENABLED='false'`; si la copia es anterior al primer deploy, cambiarlo a `false` y dejar vacío `BRAJA_BOOTSTRAP_PASSWORD` (la base se va a restaurar). | 5 min |
 | 7 | Volver a poner rclone: pegar la configuración en `~/.config/rclone/rclone.conf` (o rehacerla con `rclone config`) y `chmod 600`. Comprobar que `rclone lsf offsite:braja-backups` lista los backups. | 5 min |

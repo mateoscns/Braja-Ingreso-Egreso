@@ -49,7 +49,7 @@ del comando, captura) en el issue de la salida. Un ítem sin marcar necesita una
 ## El deploy
 
 - [ ] **Fuera del horario del local** (lunes a sábado de 08:00 a 19:00 en Córdoba). `deploy.sh` lo comprueba solo.
-- [ ] `bash deploy/deploy.sh` termina con `Deployed <sha>`, el mismo sha anotado arriba.
+- [ ] `bash deploy/deploy.sh --sha <sha>` termina con `Deployed <sha>`, el mismo sha anotado arriba.
 - [ ] `curl -fsS https://<dominio>/api/v1/health` responde `{"status":"UP"}` desde afuera del servidor.
 - [ ] **Copia de `deploy/.env` en el gestor de contraseñas**, tomada después del deploy (el deploy apaga el bootstrap
   y borra su contraseña del archivo), junto con la contraseña y la sal del remoto `crypt` y las credenciales del
@@ -58,7 +58,7 @@ del comando, captura) en el issue de la salida. Un ítem sin marcar necesita una
 ## Después del deploy
 
 - [ ] **El monitor avisa**: con el backend detenido (`docker compose -p braja stop backend`) llega el mail del monitor;
-  `bash deploy/deploy.sh` lo vuelve a levantar y el monitor queda en verde.
+  `bash deploy/deploy.sh --sha <sha>` lo vuelve a levantar y el monitor queda en verde.
 - [ ] **Simulacro de restauración**: `bash deploy/backup.sh`, después `bash deploy/restore.sh <ese archivo>`; anotar
   cuánto tardó. La base todavía casi no tiene datos: es el mejor momento.
 - [ ] **Primer `ADMIN`**: entra en `https://<dominio>` con el DNI y la contraseña del paso de secretos.

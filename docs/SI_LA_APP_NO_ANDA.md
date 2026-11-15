@@ -65,6 +65,10 @@ andaba.
 
 Guardá la planilla en papel: es la prueba de las horas de ese día.
 
+**Si Mateo te avisa que se perdió el servidor**, faltan además las marcas que se hicieron en la app entre la última copia
+de seguridad y la caída (hasta un día entero si la copia es diaria). Esas no están en el papel: hay que preguntarle a
+cada persona sus horas de ese rato y cargarlas igual, con el motivo «Perdida en la caída del servidor».
+
 ---
 
 ## Planilla en papel

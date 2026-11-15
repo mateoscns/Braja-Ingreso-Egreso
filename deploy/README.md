@@ -8,29 +8,27 @@ hace con los scripts de esta carpeta; nada a mano dentro de los contenedores. Se
 | `docker-compose.yml` | MySQL 8.4 (sin puerto publicado), backend (con sus jobs) y Caddy (80/443). Proyecto `braja`. |
 | `caddy/Caddyfile` | HTTPS automático, `/api/*` al backend, errores de `/api` en JSON, cabeceras de seguridad, caché de la PWA. |
 | `gen-secrets.sh` | Crea `deploy/.env` (modo 600) con secretos nuevos. Nunca lo pisa ni imprime un secreto. |
-| `deploy.sh` | Chequeos de release (`main`, fuera de horario), backup, build con el sha, arranque, compuerta de salud, limpieza y rollback. |
-| `backup.sh` / `restore.sh` | Backup programado comprimido (14 días), copia cifrada fuera del servidor, latido al monitor y restauración con confirmación. |
-| `bootstrap-vps.sh` | Prepara un Ubuntu 24.04 limpio: Docker, rclone, reloj sincronizado, firewall, reinicio automático, cron del backup, SSH. |
+| `deploy.sh` | Chequeos de release (`--sha` aprobado, `main`, fuera de horario), backup, build con el sha, arranque, compuerta de salud, limpieza y rollback. |
+| `backup.sh` / `restore.sh` | Backup programado comprimido y probado en una base descartable (14 días y siempre los 3 últimos), copia cifrada con `age` fuera del servidor, latido al monitor; prueba de restauración sin tocar nada (`--check`) y restauración con confirmación. |
+| `bootstrap-vps.sh` | Prepara un Ubuntu 24.04 limpio en dos pasos: Docker, rclone, age, reloj sincronizado, firewall, reinicio automático, cron del backup; y aparte, SSH solo con clave. |
 | `RECOVERY.md` | Qué hacer si se cae la app o se pierde el servidor, paso a paso y con tiempos. |
+| `HOSTINGER_GO_LIVE.md` | La salida en el VPS de Hostinger: qué elegir en hPanel, firewall, DNS y cada paso con su salida esperada. |
 | `demo.sh` + `demo/compose.demo.yml` | Modo demo sin VPS: la misma pila en una PC, publicada con un túnel de Cloudflare (ver al final). |
 
 Checklists: `docs/CHECKLIST_SALIDA.md` (la primera vez) y `docs/CHECKLIST_RELEASE.md` (cada actualización).
 
-## 1. Comprar el VPS
+## 1. Contratar el VPS
 
-Ubuntu 24.04, 2 vCPU, 4 GB de RAM y **IPv4 pública** (algunos proveedores ofrecen crear el servidor solo con IPv6 para
-ahorrar: no sirve, el acceso es solo por IPv4, D-20261102-12). Al 2026-11-13 el Hetzner CX22 que recomendaba este
-runbook ya no se vende y el CX23 figura sin stock. Opciones (precios a verificar al contratar):
+El servidor es un **Hostinger VPS KVM 2** (2 vCPU, 8 GB de RAM, 100 GB NVMe) con **Ubuntu 24.04 de la pestaña Plain
+OS**, sin paneles ni plantillas de aplicaciones, y con su **IPv4 pública** (el acceso es solo por IPv4, D-20261102-12).
+Es una propuesta pendiente de Mateo (D-20261115-01). Qué elegir y qué no en hPanel, el firewall del panel, el DNS, la
+consola web si falla SSH y todos los pasos hasta la entrega, con la salida esperada de cada uno:
+**[`HOSTINGER_GO_LIVE.md`](HOSTINGER_GO_LIVE.md)**.
 
-| Opción | Pros | Contras |
-|---|---|---|
-| **Hetzner CPX22** (2 vCPU AMD, 4 GB, Europa) | El más barato con 4 GB; el resto del runbook está escrito para este tamaño. | En Alemania o Finlandia: unos 250 ms de ida y vuelta desde Córdoba. Una marca es un solo pedido, así que se nota poco. |
-| DigitalOcean Basic 2 vCPU / 4 GB (Nueva York) | Menos latencia (unos 150 ms) y soporte en inglés con buena documentación. | Cuesta bastante más por el mismo tamaño. |
-| Otro proveedor con 2 vCPU y 4 GB en América | Latencia menor. | Este runbook no se probó ahí; revisar que dé IPv4 y Ubuntu 24.04. |
-
-Menos de 4 GB no alcanza: el build de Maven y el de npm corren al lado de MySQL. La elección del proveedor es una
-propuesta pendiente de Mateo (D-20261115-01). Al crearlo, cargar tu clave SSH pública (sin clave, el bootstrap deja el
-login por contraseña activo para no dejarte afuera). Anotar la IPv4 pública.
+Con otro plan o proveedor, el mínimo es 2 vCPU y 4 GB: con menos memoria el build de Maven y el de npm no entran al lado
+de MySQL, y con 1 vCPU el compose no arranca (le da al backend `cpus: 1.5`). Al crearlo, cargar tu clave SSH pública
+(sin clave, el paso 2 del bootstrap se niega a cerrar el login por contraseña, para no dejarte afuera). Anotar la IPv4
+pública.
 
 ## 2. DNS
 
@@ -42,44 +40,59 @@ HTTPS es obligatorio: sin él no funcionan ni la push ni la geolocalización. Ha
 Cargar solo el registro `A`, **sin `AAAA`**: por IPv6, Docker le muestra a Caddy la IP de su gateway y no la del
 cliente, y el límite de login por IP (regla 21) trataría a todos como uno. Comprobar antes de seguir:
 `nslookup <dominio>` tiene que devolver la IP del VPS. Los puertos 80 y 443 tienen que estar abiertos (el bootstrap
-lo hace) para que Let's Encrypt emita el certificado. Con dominio propio, poner el TTL del registro en 300 s: si hay
-que mudarse a otro servidor (`RECOVERY.md`), el cambio llega en minutos y no en horas.
+abre ufw; en Hostinger, también el firewall del panel) para que Let's Encrypt emita el certificado. Con dominio propio,
+poner el TTL del registro en 300 s: si hay que mudarse a otro servidor (`RECOVERY.md`), el cambio llega en minutos y no
+en horas.
 
 ## 3. Bootstrap del servidor
 
+En dos pasos; el detalle, con la salida esperada, está en `HOSTINGER_GO_LIVE.md` (paso 5).
+
 ```bash
+# Paso 1: como root, con terminal (pide elegir la contraseña de sudo de braja). No toca SSH.
 scp deploy/bootstrap-vps.sh root@<ip>:/root/
-ssh root@<ip> 'bash /root/bootstrap-vps.sh braja'
+ssh -t root@<ip> 'bash /root/bootstrap-vps.sh braja'
+# Paso 2: SOLO desde una segunda sesión, como braja con su clave, con la primera todavía abierta.
+scp deploy/bootstrap-vps.sh braja@<ip>:
+ssh -t braja@<ip> 'sudo bash bootstrap-vps.sh --harden-ssh braja'
+# Después, desde una tercera terminal: ssh -t braja@<ip> 'sudo -v && docker ps' anda y ssh root@<ip> es rechazado.
 ```
 
-Hace, en orden:
+El paso 1 hace, en orden:
 
-- Docker y el plugin compose desde el repo de Docker; `rclone` y `cron` desde Ubuntu.
+- Docker y el plugin compose desde el repo de Docker; `rclone`, `age` y `cron` desde Ubuntu.
 - **Reloj**: activa NTP (`timedatectl set-ntp true`) y espera hasta 60 s a que el reloj quede sincronizado; si no,
   se detiene con un error. Cada marca toma la hora del servidor (regla 1): sin reloj sincronizado no se despliega.
 - 2 GB de swap y ufw (solo 22, 80 y 443).
 - Actualizaciones automáticas de seguridad, con **reinicio automático a las 07:30 UTC (04:30 en Córdoba)** cuando una
   actualización lo pide (kernel, libc). Los contenedores vuelven solos. El corte dura uno o dos minutos.
-- El usuario `braja` en el grupo `docker`, y el **cron del backup** para él en `/etc/cron.d/braja-backup`: todos los
-  días a las 06:15 UTC (03:15 en Córdoba), con el log en `~braja/braja-backups/backup.log`.
-- SSH: si hay clave, desactiva el login por contraseña. Si `braja` tiene una clave usable
-  (`~braja/.ssh/authorized_keys` no vacío, suyo y sin permisos de escritura para otros), le da `sudo` sin contraseña
-  y **desactiva el login de root** (`PermitRootLogin no`). Si no, deja root con clave y avisa. Antes de cerrar la
-  sesión de root, probar desde otra terminal: `ssh braja@<ip> sudo true`.
+- El usuario `braja` en los grupos `docker` y `sudo` (`sudo` pide su contraseña; no hay `sudo` sin contraseña), le
+  copia las claves SSH de root y pide elegir su contraseña: guardarla en el gestor. Y el **cron del backup** para él en
+  `/etc/cron.d/braja-backup`: todos los días a las 06:15 UTC (03:15 en Córdoba), con el log en
+  `~braja/braja-backups/backup.log`.
+- SSH: no lo toca.
 
-Se puede correr de nuevo sin romper nada (por ejemplo para cambiar el horario del backup). Con root desactivado:
-`ssh braja@<ip> 'sudo bash bootstrap-vps.sh braja'` (copiar antes el script a `~braja`). Opciones, como variables
-de entorno; el reloj del servidor está en UTC y Argentina es UTC−3 todo el año:
+El paso 2 desactiva el login por contraseña y el de root, y se niega si `braja` no entró recién con su clave (lo busca
+en los registros de `sshd`), no lo corre a través de su `sudo` o no llega a Docker. Vuelta atrás:
+`sudo rm /etc/ssh/sshd_config.d/01-braja-hardening.conf && sudo systemctl reload ssh`, o desde la consola web del
+proveedor como root.
+
+Los dos pasos se pueden correr de nuevo sin romper nada (por ejemplo para cambiar el horario del backup). Con root
+desactivado, el paso 1 va por `sudo`: `ssh -t braja@<ip> 'sudo bash bootstrap-vps.sh braja'`. Opciones, como variables
+de entorno; a través de `sudo` van después de él (`sudo env VARIABLE=valor bash …`), porque `sudo` descarta las del
+entorno. El reloj del servidor está en UTC y Argentina es UTC−3 todo el año:
 
 | Variable | Por defecto | Para qué |
 |---|---|---|
-| `BRAJA_BACKUP_SCHEDULE` | `15 6 * * *` | Horario del backup (cron, 5 campos). Cada hora: `0 * * * *`. |
+| `BRAJA_BACKUP_SCHEDULE` | `15 6 * * *` | Horario del backup (cron, 5 campos). Cada hora (pendiente de Mateo): `0 * * * *`. |
 | `BRAJA_REBOOT_TIME` | `07:30` | Hora del reinicio automático (HH:MM, UTC). |
 | `BRAJA_REPO_DIR` | `~braja/fichaje` | Dónde está el clon que usa el cron. |
-| `BRAJA_PERMIT_ROOT_LOGIN` | `no` | `prohibit-password` para dejar entrar a root con clave. |
+| `BRAJA_PERMIT_ROOT_LOGIN` | `no` | Solo paso 2: `prohibit-password` para dejar entrar a root con clave. |
+| `BRAJA_SSH_KEY_LOGIN_VERIFIED` | — | Solo paso 2: `yes` saltea la búsqueda en los registros de `sshd`, si se perdieron; solo después de entrar como `braja` con la clave. |
 | `BRAJA_TIME_SYNC_TIMEOUT_SECONDS` | `60` | Cuánto esperar la sincronización del reloj. |
 
-Por ejemplo, backup cada hora: `ssh root@<ip> 'BRAJA_BACKUP_SCHEDULE="0 * * * *" bash /root/bootstrap-vps.sh braja'`.
+Por ejemplo, backup cada hora: `ssh -t root@<ip> 'BRAJA_BACKUP_SCHEDULE="0 * * * *" bash /root/bootstrap-vps.sh braja'`,
+o con root ya desactivado: `ssh -t braja@<ip> 'sudo env BRAJA_BACKUP_SCHEDULE="0 * * * *" bash bootstrap-vps.sh braja'`.
 
 Ojo: los puertos que publica Docker no pasan por ufw. Por eso el compose publica solo 80 y 443; nunca agregues
 `ports:` a MySQL ni al backend.
@@ -106,26 +119,30 @@ No se sube a git (`.gitignore`) ni se pega en ningún chat. Guardarlo en el gest
 ## 6. Deploy
 
 ```bash
-bash deploy/deploy.sh
+bash deploy/deploy.sh --sha <commit aprobado>
 ```
 
 Hace, en orden:
 
 1. Chequeos: Docker, 3 GB libres, `.env` en modo 600, checkout sin cambios.
-2. **Chequeos de release** (regla 31): hace `git fetch` y exige que `HEAD` sea `origin/main`; y se niega a desplegar
+2. **Chequeos de release** (regla 31): con `--sha`, exige que `HEAD` sea ese commit (el de `main` que Mateo aprobó con
+   CI verde; `--force` no saltea esta comprobación). Sin `--sha` avisa que el commit no está fijado. Después hace
+   `git fetch` y exige que `HEAD` sea `origin/main`; y se niega a desplegar
    en **horario del local**, de lunes a sábado de 08:00 a 19:00 (hora de Córdoba), porque el cambio de backend corta
    la API de 30 a 60 s. Si el build terminó ya dentro del horario, vuelve a mirar y se detiene antes del cambio (las
    imágenes quedan construidas: la próxima corrida es rápida). Que el CI de ese commit esté verde no lo puede ver: es
    un paso de `docs/CHECKLIST_RELEASE.md`.
 3. Build de `braja-backend:<sha>` y `braja-caddy:<sha>` (la primera vez, de 8 a 12 min con 2 vCPU).
-4. MySQL arriba y **backup antes de migrar** (Flyway migra al arrancar el backend).
+4. MySQL arriba y **backup antes de migrar** (Flyway migra al arrancar el backend), probado en una base descartable;
+   si el backup falla, el deploy se detiene.
 5. Arranque y espera de hasta 5 minutos a que `https://<dominio>/api/v1/health` responda `{"status":"UP"}` a través
    de Caddy con un certificado válido (el backend tarda unos 21 s).
 6. Limpieza: borra las imágenes `braja-*` viejas salvo la anterior (la del rollback), las imágenes sin etiqueta y la
    caché de build sin usar hace más de 7 días. Sin esto el disco se llena deploy tras deploy.
 
-Correrlo de nuevo con el mismo commit no cambia nada. `--force` (o `BRAJA_DEPLOY_FORCE=true`) saltea los dos
-chequeos de release y dice cuál salteó: solo para un arreglo urgente. `--rollback` no los necesita.
+Correrlo de nuevo con el mismo commit no cambia nada. `--force` (o `BRAJA_DEPLOY_FORCE=true`) saltea los chequeos de
+`main` y de horario, nunca el de `--sha`, y dice cuál salteó: solo para un arreglo urgente autorizado por Mateo.
+`--rollback` no los necesita.
 
 | Variable (en el entorno o en `deploy/.env`) | Por defecto | Para qué |
 |---|---|---|
@@ -143,19 +160,36 @@ Android).
 
 ## 8. Backup y restauración
 
-Backup a mano: `bash deploy/backup.sh` (deja `~/braja-backups/braja-<fecha>.sql.gz`, modo 600, guarda 14 días; tarda
-alrededor de un segundo y pesa unos 124 KB con los datos de prueba). El backup programado ya lo instaló el bootstrap
-(`/etc/cron.d/braja-backup`, paso 3); su log es `~/braja-backups/backup.log`. Para ver cuándo corrió el último:
-`ls -lt ~/braja-backups | head -3`.
+Backup a mano: `bash deploy/backup.sh`. Deja `~/braja-backups/braja-<fecha>.sql.gz` con su `.sha256` (modo 600) y
+solo lo cuenta como bueno después de cargarlo en una base descartable (`braja_restore_check`) y comparar sus tablas con
+las de la base real; tarda unos segundos (6,8 s con 20.003 filas de prueba). Guarda 14 días y siempre los 3 más nuevos.
+El backup programado ya lo instaló el bootstrap (`/etc/cron.d/braja-backup`, paso 3); su log es
+`~/braja-backups/backup.log`. Para ver cuándo corrió el último: `ls -lt ~/braja-backups | head -3`. Detalle de qué
+comprueba, disco lleno y rotación: `RECOVERY.md`, «Backups: cómo funcionan».
 
 El RPO es el intervalo del cron: con el backup diario, perder el servidor pierde hasta 24 h de marcas; con uno por
-hora, hasta una hora. Con estos tamaños, uno por hora cuesta poco (14 días son unos 40 MB).
+hora, hasta una hora (la elección es de Mateo: `RECOVERY.md`, «Intervalo de backup»).
 
 ### Copia fuera del servidor, cifrada
 
 Sin copia afuera, perder el VPS pierde también los backups (regla 33). **El dump no está cifrado** y contiene DNI,
 nombres, puntos de GPS, hashes de contraseñas y las sesiones abiertas (cookies válidas por 30 días): la copia afuera va
-siempre cifrada, con un remoto `crypt` de rclone. Nunca `scp` ni una carpeta sincronizada sin cifrar. Como `braja`:
+siempre cifrada, en un almacenamiento de otro proveedor (no de Hostinger). Nunca `scp` ni una carpeta sincronizada sin
+cifrar.
+
+**Recomendado: `age` con clave pública.** Las claves se generan en la PC de Mateo, nunca en el VPS; en `deploy/.env` van
+solo las públicas, así que el servidor puede cifrar pero no descifrar (`RECOVERY.md`, «Cifrado y custodia de claves»):
+
+```bash
+BRAJA_BACKUP_AGE_RECIPIENTS='age1...mateo age1...respaldo'
+BRAJA_BACKUP_OFFHOST_CMD='rclone copy "$1" offsite:braja-backups'
+```
+
+Con `rclone config`, el remoto `offsite` es el almacenamiento elegido (Backblaze B2 o Cloudflare R2, con una credencial
+que sube pero no borra y una regla del bucket que borra lo de más de 30 días). Afuera queda `braja-<fecha>.sql.gz.age`.
+
+**Alternativa: un remoto `crypt` de rclone**, sin `age` (el VPS guarda la contraseña del `crypt` y puede leer los
+backups de afuera). Como `braja`:
 
 ```bash
 rclone config
@@ -177,15 +211,25 @@ Si la copia falla, el backup del cron termina con error y el monitor avisa (abaj
 
 ### Restaurar
 
-Reemplaza **toda** la base; antes hace un backup de seguridad del estado actual y pide escribir `RESTORE` (unos 4 s con
-los datos de prueba):
+Probar un backup sin tocar nada (lo carga en la base descartable, muestra sus filas al lado de las reales y la borra):
+
+```bash
+bash deploy/restore.sh --check ~/braja-backups/braja-<fecha>.sql.gz
+bash deploy/restore.sh --check <archivo>.sql.gz.age --identity <clave privada age>   # una copia bajada de afuera
+```
+
+Una vez por mes, con un archivo de afuera (`HOSTINGER_GO_LIVE.md`, paso 21): prueba también la clave y el
+almacenamiento. La clave privada se pega en el servidor solo para eso y se borra después con `shred -u`.
+
+Reemplazar **toda** la base, solo con una operación aprobada por Mateo: primero prueba el backup en la base descartable,
+muestra qué va a reemplazar (proyecto, contenedor, volumen, base y filas), pide escribir `RESTORE`, hace un backup de
+seguridad del estado actual y, al terminar, compara las filas de cada tabla (26 s con 20.003 filas de prueba):
 
 ```bash
 bash deploy/restore.sh ~/braja-backups/braja-<fecha>.sql.gz
 ```
 
-Desde la copia de afuera: `rclone copy braja-crypt:braja-<fecha>.sql.gz ~/braja-backups/` y después lo mismo. Perder el
-servidor entero: `RECOVERY.md`.
+Perder el servidor entero: `RECOVERY.md`.
 
 ## Monitoreo
 
@@ -204,7 +248,7 @@ de usarlos es de Mateo.
   DNS o el servidor entero.
 
 Probar los dos una vez: apagar el backend (`docker compose -p braja stop backend`) fuera de horario y ver que llega el
-mail; volver con `bash deploy/deploy.sh`.
+mail; volver con `bash deploy/deploy.sh --sha <commit desplegado>`.
 
 ## Custodia de claves
 
@@ -217,18 +261,19 @@ Sin las claves de esa copia, un backup restaurado no sirve del todo:
   teléfono tiene que volver a activar los avisos.
 
 Reglas: guardar la copia apenas termina el primer deploy (el deploy apaga el bootstrap y borra su contraseña del
-archivo) y otra vez cada vez que cambia `deploy/.env`. Guardar también la contraseña y la sal del remoto `crypt` (sin
-ellas los backups de afuera no se pueden abrir) y las credenciales del almacenamiento. Nunca en el mismo lugar que los
-backups: quien consiga uno no tiene que conseguir también el otro.
+archivo) y otra vez cada vez que cambia `deploy/.env`. Guardar también las dos claves privadas `age` (o la contraseña y
+la sal del remoto `crypt`: sin ellas los backups de afuera no se pueden abrir), las credenciales del almacenamiento y la
+contraseña de `sudo` de `braja`. Nunca en el mismo lugar que los backups: quien consiga uno no tiene que conseguir
+también el otro.
 
 ## 9. Actualizar
 
 ```bash
-cd ~/fichaje && git pull --ff-only && bash deploy/deploy.sh
+cd ~/fichaje && git pull --ff-only && bash deploy/deploy.sh --sha <commit aprobado>
 ```
 
 Seguir `docs/CHECKLIST_RELEASE.md`. Solo se despliega lo que está en `main` con CI verde (regla 31): el deploy
-comprueba `main` y el horario; el CI se mira en GitHub.
+comprueba el commit aprobado, `main` y el horario; el CI se mira en GitHub.
 
 ## 10. Rollback
 
