@@ -17,15 +17,15 @@
 #
 # Optional settings, as environment variables (the server clock is UTC; Argentina is UTC-3 with no daylight saving):
 #   BRAJA_REPO_DIR                   checkout the cron runs backup.sh from        default: ~<deploy-user>/fichaje
-#   BRAJA_BACKUP_SCHEDULE            cron schedule of the backup, 5 fields        default: "15 6 * * *" (03:15 Cordoba)
-#                                    e.g. hourly: "0 * * * *"
+#   BRAJA_BACKUP_SCHEDULE            cron schedule of the backup, 5 fields        default: "15 * * * *" (every hour, D-20261115-04)
+#                                    e.g. once a day at 03:15 Cordoba: "15 6 * * *"
 #   BRAJA_REBOOT_TIME                reboot after a security upgrade that needs it, HH:MM   default: 07:30 (04:30 Cordoba)
 #   BRAJA_PERMIT_ROOT_LOGIN          step 2: "no" or "prohibit-password"          default: no
 #   BRAJA_TIME_SYNC_TIMEOUT_SECONDS  wait for the clock to synchronize            default: 60
 #   BRAJA_SSH_KEY_LOGIN_VERIFIED     step 2: "yes" skips only the sshd log check, for a server whose sshd logs are gone;
 #                                    set it only after logging in as the deploy user with its key yourself
 #
-#   ssh -t root@<ip> 'BRAJA_BACKUP_SCHEDULE="0 * * * *" bash /root/bootstrap-vps.sh braja'
+#   ssh -t root@<ip> 'BRAJA_BACKUP_SCHEDULE="15 6 * * *" bash /root/bootstrap-vps.sh braja'
 #   Through sudo, settings go after it (sudo drops the caller's environment): sudo env BRAJA_...=value bash ...
 set -euo pipefail
 
@@ -159,7 +159,7 @@ harden_ssh() {
 export DEBIAN_FRONTEND=noninteractive
 
 [[ "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || die "the deploy user must be a plain user name (lowercase letters, digits, _ and -)"
-BACKUP_SCHEDULE="${BRAJA_BACKUP_SCHEDULE:-15 6 * * *}"
+BACKUP_SCHEDULE="${BRAJA_BACKUP_SCHEDULE:-15 * * * *}"
 REBOOT_TIME="${BRAJA_REBOOT_TIME:-07:30}"
 PERMIT_ROOT_LOGIN="${BRAJA_PERMIT_ROOT_LOGIN:-no}"
 TIME_SYNC_TIMEOUT="${BRAJA_TIME_SYNC_TIMEOUT_SECONDS:-60}"

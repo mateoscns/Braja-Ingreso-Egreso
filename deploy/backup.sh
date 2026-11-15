@@ -94,9 +94,16 @@ mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
 take_backup_lock "$BACKUP_DIR"
 # Leftovers of a run killed outright (power loss, kill -9) never count as backups; with the lock held, no other run is
-# writing them.
+# writing them. The plain copies restore.sh restores from (restore-*) are leftovers too, unless the restore that made
+# them is the one running this. An encrypted copy is a leftover only next to the local backup it was made from: a
+# braja-*.sql.gz.age without one may be an off-site copy downloaded here to restore it, and is kept.
 find "$BACKUP_DIR" -maxdepth 1 -type f \( -name 'braja-*.partial' -o -name 'braja-*.partial.sha256' \
-  -o -name 'braja-*.sql.gz.age' -o -name 'braja-*.age.partial' \) -delete
+  -o -name 'braja-*.age.partial' \) -delete
+# BRAJA_RESTORE_IN_PROGRESS=1: restore.sh runs this as its safety backup while it restores from a restore-* copy.
+[ "${BRAJA_RESTORE_IN_PROGRESS:-}" = 1 ] || find "$BACKUP_DIR" -maxdepth 1 -type f -name 'restore-*' -delete
+find "$BACKUP_DIR" -maxdepth 1 -type f -name 'braja-*.sql.gz.age' | while read -r leftover; do
+  [ ! -f "${leftover%.age}" ] || rm -f "$leftover"
+done
 
 file="$BACKUP_DIR/braja-$(date -u +%Y%m%dT%H%M%SZ).sql.gz"
 [ ! -e "$file" ] || die "$file already exists; run it again in a second"

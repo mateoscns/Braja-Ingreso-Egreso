@@ -14,7 +14,7 @@
 #
 # Replace steps: check the file (gzip, trailer, checksum) -> load it into the throwaway database first (a dump that
 # does not load never gets to drop the real one) -> show the target (compose project, container, volume, database,
-# current rows) -> confirmation -> safety backup -> stop the backend -> DROP and CREATE the database (so tables added
+# current rows) -> confirmation -> stop the backend -> safety backup -> DROP and CREATE the database (so tables added
 # by newer migrations go too) -> load -> compare every table's rows with the throwaway load -> start the backend with
 # the image tag currently deployed and wait until it is healthy. Backups and restores are serialized (lib.sh).
 set -euo pipefail
@@ -110,13 +110,17 @@ answer=""
 read -r answer || true
 [ "$answer" = "RESTORE" ] || die "not confirmed; nothing was changed"
 
-log "Safety backup of the current database"
-safety="$(bash "$DEPLOY_DIR/backup.sh" --allow-offhost-failure </dev/null)"
-log "Safety backup: $safety"
-
 tag="$(state_get CURRENT_TAG)"; tag="${tag:-latest}"
+# Stopped before the safety backup, so no mark is accepted after it and then lost with the replaced database.
 log "Stopping the backend"
 compose stop backend
+
+log "Safety backup of the current database"
+if ! safety="$(BRAJA_RESTORE_IN_PROGRESS=1 bash "$DEPLOY_DIR/backup.sh" --allow-offhost-failure </dev/null)"; then
+  BRAJA_IMAGE_TAG="$tag" compose up -d backend || true
+  die "the safety backup failed; nothing was restored and the backend was started again"
+fi
+log "Safety backup: $safety"
 
 log "Recreating the database $database"
 mysql_root -e "DROP DATABASE IF EXISTS \`$database\`; CREATE DATABASE \`$database\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;" </dev/null
