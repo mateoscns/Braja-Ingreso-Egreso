@@ -40,13 +40,13 @@ Objetivo: la app anda en producción el lunes 16 de noviembre de 2026 en un VPS 
 | T7 | Acuerdo de soporte de una página con Braja | S3 | Mateo | pendiente |
 | T8 | Cargar locales, horarios, equipo y días reales; instalar la app en cada celular el lunes | S3 | Mateo con Braja | pendiente (domingo y lunes) |
 | T9 | Incorporar `main` (`784820d`) al PR #179 y renumerar D-20261113-01/-02 a D-20261115-01/-02 | S6 | parent, inline | hecho (519ecc7) |
-| T10 | Docs: quitar Hetzner como proveedor elegido, conteos de decisiones, checklists, `SI_LA_APP_NO_ANDA`, CLAUDE.md | S6 | agente A, delegado (paralelo, superficie disjunta) | pendiente |
-| T11 | `deploy/HOSTINGER_GO_LIVE.md` y §1 de `deploy/README.md` | S7, S12 | agente B, delegado (paralelo) | pendiente |
-| T12 | Seguridad del VPS: `bootstrap-vps.sh`, `gen-secrets.sh`, compose y Caddy; informe | S8 | agente C, delegado (paralelo) | pendiente |
-| T13 | Backups, restauración y continuidad: `backup.sh`, `restore.sh`, `deploy.sh`, `lib.sh`, `RECOVERY.md` | S9 | agente D, delegado (paralelo) | pendiente |
-| T14 | QA de punta a punta y matriz PASS/FAIL/NOT TESTED; instrucciones de pruebas físicas | S10 | agente E, delegado (solo lectura, worktree aparte) | pendiente |
-| T15 | Revisión adversarial independiente del diff final | S11 | agente F, delegado (no autor) | pendiente |
-| T16 | Decisión de passkeys A o B (S5) | S5 | Mateo | pendiente |
+| T10 | Docs: quitar Hetzner como proveedor elegido, conteos de decisiones, checklists, `SI_LA_APP_NO_ANDA`, CLAUDE.md | S6 | agente A, delegado (paralelo, superficie disjunta) | hecho (e33ff22, ajustes en 1d9977d) |
+| T11 | `deploy/HOSTINGER_GO_LIVE.md` y §1 de `deploy/README.md` | S7, S12 | agente B, delegado (paralelo) | hecho (1d9977d); sin probar en un VPS real |
+| T12 | Seguridad del VPS: `bootstrap-vps.sh`, `gen-secrets.sh`, compose y Caddy; informe | S8 | agente C, delegado (paralelo) | hecho (b5ccc74); probado en contenedor Ubuntu 24.04, sin systemd ni ufw reales |
+| T13 | Backups, restauración y continuidad: `backup.sh`, `restore.sh`, `deploy.sh`, `lib.sh`, `RECOVERY.md` | S9 | agente D, delegado (paralelo) | hecho (d737195); probado en contenedores; incluye la corrección de restauración del parent |
+| T14 | QA de punta a punta y matriz PASS/FAIL/NOT TESTED; instrucciones de pruebas físicas | S10 | agente E, delegado (solo lectura, worktree aparte) | en curso |
+| T15 | Revisión adversarial independiente del diff final | S11 | agente F, delegado (no autor) | en curso (sobre 1d9977d) |
+| T16 | Decisión de passkeys A o B (S5) | S5 | Mateo | hecho: alternativa B (D-20261115-03); falta la aceptación escrita de Braja |
 
 ## Log
 
@@ -697,3 +697,4 @@ Objetivo: la app anda en producción el lunes 16 de noviembre de 2026 en un VPS 
   > - Back
 
 - L4 (2026-11-15): estado al empezar. `origin/main` = `784820d6c76dde849b2693b2be60be59108b00ba`. PRs abiertos: #179 (draft, `9a1d127` sobre la base `d35d413`) y #194 (WebAuthn4J, no entra en este release). Issue abierto: #190 (passkeys, asignado a mateoscns). El #179 no toca `backend/` ni `frontend/` (`git diff origin/main HEAD -- backend frontend` vacío tras el merge). Merge de `main` en el #179 con conflictos en `CLAUDE.md` y `docs/DECISIONES.md`, resueltos dejando las filas de `main` y renumerando las propuestas a D-20261115-01 (servidor Hostinger) y D-20261115-02 (RTO y RPO).
+- L5 (2026-11-15): Mateo eligió la alternativa B de passkeys («B: sin passkeys, temporal»), registrada como D-20261115-03, adoptada. Commits: b5ccc74 (seguridad: sudo con contraseña, SSH en un segundo paso con login por clave probado), e33ff22 (docs y la decisión B), d737195 (backups verificados por carga, copia externa cifrada con age, restore --check, deploy --sha), 1d9977d (guía de Hostinger y runbooks). Revisión del parent sobre el trabajo de D: el backup de seguridad de restore.sh podía rotar y borrar el archivo que se restauraba después del DROP DATABASE; corregido restaurando desde una copia privada. deploy/.env.template no se leyó (el harness lo deniega): Mateo decide si suma BRAJA_BACKUP_AGE_RECIPIENTS, BRAJA_BACKUP_KEEP_MIN, BRAJA_BACKUP_VERIFY_RESTORE y BRAJA_RESTORE_AGE_IDENTITY comentadas.
