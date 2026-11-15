@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 # Deploys the checked-out commit on this server (CLAUDE.md rule 32). Run it on the VPS from the repository checkout:
 #
-#   bash deploy/deploy.sh             build and deploy HEAD
-#   bash deploy/deploy.sh --force     the same, past the two release guards below (says which ones it skipped)
-#   bash deploy/deploy.sh --rollback  go back to the previously deployed images (no build, no guards: it is the fix)
+#   bash deploy/deploy.sh --sha <commit>  build and deploy HEAD, only if it is the approved commit (recommended)
+#   bash deploy/deploy.sh                 build and deploy HEAD
+#   bash deploy/deploy.sh --force         the same, past the two release guards below (says which ones it skipped)
+#   bash deploy/deploy.sh --rollback      go back to the previously deployed images (no build, no guards: it is the fix)
 #
 # Order: preflight -> release guards -> build images tagged with the git sha -> shop-hours guard again (the build
-# takes minutes) -> MySQL up -> backup (Flyway migrates when the backend starts, so the backup always precedes the
-# migration) -> start -> wait for GET /api/v1/health through Caddy -> prune the build cache and old images, keeping
-# the previous image for a rollback; on failure, roll back to the previous images and say whether the database must
-# be restored. Re-running it for the same commit is safe: the build is cached and the containers stay as they are.
+# takes minutes) -> MySQL up -> backup, checked by loading it into a throwaway database (Flyway migrates when the
+# backend starts, so the backup always precedes the migration; a failed backup stops the deploy) -> start -> wait for
+# GET /api/v1/health through Caddy -> prune the build cache and old images, keeping the previous image for a rollback;
+# on failure, roll back to the previous images and say whether the database must be restored. Migrations are never
+# undone (rule 20). Re-running it for the same commit is safe: the build is cached and the containers stay as they are.
+#
+# --sha <commit>: HEAD must be that commit (7 to 40 hex characters). --force never skips this guard.
 #
 # Release guards (rule 31), each skipped by --force or BRAJA_DEPLOY_FORCE=true:
 #   - HEAD must be origin/main after a git fetch. Whether CI is green is not checked here (no GitHub API): it is a
@@ -30,13 +34,21 @@ HEALTH_CONNECT_IP="${BRAJA_HEALTH_CONNECT_IP:-127.0.0.1}"
 MIN_FREE_KB=$((3 * 1024 * 1024))
 mode="deploy"
 force="${BRAJA_DEPLOY_FORCE:-false}"
-for arg in "$@"; do
-  case "$arg" in
+expected_sha=""
+usage() { die "usage: bash deploy/deploy.sh [--sha <approved commit>] [--force] | --rollback"; }
+while [ "$#" -gt 0 ]; do
+  case "$1" in
     --rollback) mode="rollback" ;;
     --force) force=true ;;
-    *) die "usage: bash deploy/deploy.sh [--force] [--rollback]" ;;
+    --sha) [ "$#" -ge 2 ] || usage; expected_sha="$2"; shift ;;
+    *) usage ;;
   esac
+  shift
 done
+if [ -n "$expected_sha" ]; then
+  [[ "$expected_sha" =~ ^[0-9a-f]{7,40}$ ]] || die "--sha must be a commit id (7 to 40 lowercase hex characters); found '$expected_sha'"
+  [ "$mode" = deploy ] || die "--sha applies to a deploy, not to --rollback"
+fi
 
 # A setting from the environment, else from deploy/.env, else the default ($2).
 setting() {
@@ -85,6 +97,18 @@ guard_shop_hours() {
   in_shop_hours || return 0
   if [ "$force" = true ]; then log "WARNING (forced): $SHOP_HOURS_REASON"; return 0; fi
   die "$SHOP_HOURS_REASON. Deploy outside those hours, or pass --force for an urgent fix (a rollback needs no --force)"
+}
+
+# --sha names the main commit Mateo approved for release (the merge commit whose CI is green). If main moved after that,
+# or the checkout is another commit, the deploy stops. --force never skips it: --sha was passed on purpose.
+guard_expected_sha() {
+  local head
+  [ -n "$expected_sha" ] || { log "No --sha given: the deployed commit is not pinned to an approved one (recommended: --sha <commit>)"; return 0; }
+  head="$(git -C "$REPO_DIR" rev-parse HEAD)"
+  case "$head" in
+    "$expected_sha"*) log "HEAD $head is the approved commit $expected_sha" ;;
+    *) die "HEAD ($head) is not the approved commit $expected_sha; check out the approved commit (git checkout $expected_sha) or get the new one approved" ;;
+  esac
 }
 
 guard_main() {
@@ -218,6 +242,7 @@ if [ "$mode" = rollback ]; then
   exit 0
 fi
 
+guard_expected_sha
 guard_main
 guard_shop_hours
 tag="$(git -C "$REPO_DIR" rev-parse --short=12 HEAD)"
