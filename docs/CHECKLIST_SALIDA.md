@@ -14,8 +14,10 @@ del comando, captura) en el issue de la salida. Un ítem sin marcar necesita una
   de la salida.
 - [ ] **El PR #194 (WebAuthn4J) no es parte de este release.** En el commit a desplegar, `git grep -il webauthn --
   backend frontend` no devuelve nada. Una biblioteca sin usar no resuelve la suplantación.
+- [x] **Intervalo del backup decidido**: cada hora, a los 15 minutos (D-20261115-04, adoptada el 2026-11-15); RPO de
+  hasta 1 h. Es el valor por defecto de `bootstrap-vps.sh`.
 - [ ] **Decisiones propuestas resueltas**: Mateo adoptó o cambió D-20261115-01 (servidor) y D-20261115-02 (RTO y
-  RPO), y eligió el intervalo del backup (diario o cada hora).
+  RPO).
 - [ ] **El commit está en `main` con CI verde.** En GitHub, el último commit de `main` tiene en verde «Backend (Java 21
   + MySQL 8.4)», «Backend campaign (MySQL 8.4)» y «Frontend (Node 24)». Anotar su sha.
 - [ ] **Pruebas en teléfonos reales M-1 a M-14** de `docs/UX_UI_GUIDELINES.md` §10, con su evidencia. Son el requisito
@@ -35,16 +37,24 @@ del comando, captura) en el issue de la salida. Un ítem sin marcar necesita una
   es propio.
 - [ ] **Bootstrap** (`deploy/README.md` §3) terminado sin error, y en el servidor:
   - `timedatectl` dice `System clock synchronized: yes`;
-  - `cat /etc/cron.d/braja-backup` muestra el horario elegido (diario o cada hora: decide Mateo);
+  - `cat /etc/cron.d/braja-backup` muestra `15 * * * *` (cada hora, D-20261115-04) y la salida del bootstrap dijo
+    `Backup schedule: '15 * * * *'`;
   - `cat /etc/apt/apt.conf.d/52braja-auto-reboot` muestra la hora de reinicio (fuera del horario del local);
   - desde una segunda sesión, `ssh braja@<IP_DEL_VPS>` entra con su clave y tiene el acceso administrativo que
     indica `deploy/README.md` §3 antes de cerrar la sesión de root; recién después `ssh root@<IP_DEL_VPS>` es
     rechazado.
 - [ ] **Secretos**: `deploy/.env` creado con `gen-secrets.sh`, modo 600 (`stat -c %a deploy/.env` da `600`).
-- [ ] **Copia afuera cifrada** (`deploy/README.md` §8): `bash deploy/backup.sh` termina sin aviso de copia,
-  `rclone ls braja-crypt:` lista el archivo y `rclone ls offsite:braja-backups` muestra nombres ilegibles.
-- [ ] **Monitores** (`deploy/README.md`, «Monitoreo»; decide Mateo por D-20261014-02): el latido del backup está en
-  verde después de ese backup, y el monitor de `https://<dominio>/api/v1/health` está creado.
+- [ ] **Copia afuera cifrada con `age`** (`deploy/README.md` §8; el remoto `crypt` de rclone es solo la alternativa):
+  `deploy/.env` tiene `BRAJA_BACKUP_AGE_RECIPIENTS` con las dos claves públicas; `bash deploy/backup.sh` dice
+  `Encrypted for 2 age recipient(s); this server cannot decrypt it`, termina sin aviso de copia, y
+  `rclone lsf offsite:braja-backups` lista archivos `braja-*.sql.gz.age`.
+- [ ] **Las dos claves privadas `age`** (`braja-backup-mateo.key` y `braja-backup-respaldo.key`, `deploy/RECOVERY.md`,
+  «Cifrado y custodia de claves») están en el gestor de contraseñas, la de respaldo también impresa en el sobre
+  cerrado, y ninguna en el VPS. Una copia bajada de afuera a `~/braja-restore/` abre con
+  `bash deploy/restore.sh --check ~/braja-restore/<archivo>.age --identity <clave>`.
+- [ ] **Monitores** (`deploy/README.md`, «Monitoreo»; decide Mateo por D-20261014-02): el latido del backup, con
+  período de 1 hora y un margen, está en verde después de ese backup, y el monitor de
+  `https://<dominio>/api/v1/health` está creado.
 
 ## El deploy
 
@@ -52,8 +62,8 @@ del comando, captura) en el issue de la salida. Un ítem sin marcar necesita una
 - [ ] `bash deploy/deploy.sh --sha <sha>` termina con `Deployed <sha>`, el mismo sha anotado arriba.
 - [ ] `curl -fsS https://<dominio>/api/v1/health` responde `{"status":"UP"}` desde afuera del servidor.
 - [ ] **Copia de `deploy/.env` en el gestor de contraseñas**, tomada después del deploy (el deploy apaga el bootstrap
-  y borra su contraseña del archivo), junto con la contraseña y la sal del remoto `crypt` y las credenciales del
-  almacenamiento. En un lugar distinto de los backups.
+  y borra su contraseña del archivo), junto con las dos claves privadas `age` (o, solo con la alternativa `crypt`, su
+  contraseña y su sal) y las credenciales del almacenamiento. En un lugar distinto de los backups.
 
 ## Después del deploy
 

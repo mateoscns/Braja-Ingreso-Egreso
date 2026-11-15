@@ -16,7 +16,7 @@ Propuestos el 2026-11-13 (D-20261115-02, propuesta, pendiente de OK de Mateo):
 | Caso | RTO (volver a andar) | RPO (cuánto se puede perder) |
 |---|---|---|
 | A. La app se cae y el servidor sigue (contenedor caído, deploy malo, disco lleno) | 15 min | nada: la base sigue en el servidor |
-| B. Se pierde el servidor (borrado, roto, cuenta suspendida, Hostinger no disponible) | 4 h | el intervalo del backup: hasta 24 h con uno diario, hasta 1 h con uno por hora |
+| B. Se pierde el servidor (borrado, roto, cuenta suspendida, Hostinger no disponible) | 4 h | el intervalo del backup: hasta 1 h con el backup cada hora (D-20261115-04), hasta 24 h con el diario de la alternativa |
 
 Son **objetivos, no resultados**: ninguno se midió en el VPS de Hostinger. Se dan por cumplidos recién después de un
 simulacro en el servidor real (caso A: detener el backend fuera de horario y medir hasta `UP`; caso B: el
@@ -49,9 +49,9 @@ snapshot borra las marcas posteriores, y con ese backup se pueden recuperar.
 
 ## Backups: cómo funcionan
 
-- **Programación**: el bootstrap instala `/etc/cron.d/braja-backup` (`BRAJA_BACKUP_SCHEDULE`; por defecto una vez por
-  día a las 06:15 UTC). Log: `~/braja-backups/backup.log`. Además, `deploy.sh` toma uno antes de cada deploy (antes de
-  que Flyway migre) y `restore.sh` uno de seguridad antes de reemplazar la base.
+- **Programación**: el bootstrap instala `/etc/cron.d/braja-backup` (`BRAJA_BACKUP_SCHEDULE`; por defecto cada hora,
+  a los 15 minutos, D-20261115-04). Log: `~/braja-backups/backup.log`. Además, `deploy.sh` toma uno antes de cada deploy (antes de
+  que Flyway migre) y `restore.sh` uno de seguridad antes de reemplazar la base, con el backend ya detenido.
 - **Qué comprueba cada backup** antes de contarlo como bueno: que el gzip esté completo, que termine con la línea
   `-- Dump completed` de mysqldump, su suma SHA-256 y que se pueda cargar en una base descartable
   (`braja_restore_check`, en el mismo MySQL) con las mismas tablas que la base real. Hasta pasar todo eso es un
@@ -107,7 +107,7 @@ evitarlo, usar credenciales que puedan subir pero no borrar (en Backblaze B2, un
   URL; uno que falla (dump, comprobaciones, cifrado, copia afuera, disco por debajo de `BRAJA_DISK_MIN_FREE_MB`, o
   `BRAJA_BACKUP_OFFHOST_CMD` sin configurar) avisa a `<url>/fail`. Si el cron deja de correr o el servidor se apaga,
   el servicio manda el mail porque no llegó el latido a tiempo. Configurar el período igual al del cron y un margen
-  (1 día + 1 h, o 1 h + 15 min).
+  (1 h + 15 min con el horario por defecto, o 1 día + 1 h con el diario).
 - **Monitor de la app** (UptimeRobot o Better Stack, `README.md` «Monitoreo»): mail si
   `https://<dominio>/api/v1/health` deja de responder `UP`.
 - Un llamado de Braja (`docs/SI_LA_APP_NO_ANDA.md`).
@@ -119,17 +119,19 @@ backup al lado de las de la base real y la borra. No cambia nada y no corta el s
 hacerlo a mano una vez por mes con un archivo bajado de afuera (`--identity`) prueba además la clave privada y el
 almacenamiento externo.
 
-## Intervalo de backup: decisión pendiente de Mateo
+## Intervalo de backup
 
 | Opción | Cron (`BRAJA_BACKUP_SCHEDULE`) | Pérdida máxima si se pierde el servidor | Espacio |
 |---|---|---|---|
-| Diario (actual) | `15 6 * * *` | hasta 24 h de marcas | unos 3 MB en 14 días con los datos de prueba |
-| Cada hora (recomendada) | `0 * * * *` | hasta 1 h de marcas | unos 65 MB en 14 días; afuera, unos 140 MB en 30 días |
+| Cada hora (actual, D-20261115-04) | `15 * * * *` | hasta 1 h de marcas | unos 65 MB en 14 días; afuera, unos 140 MB en 30 días |
+| Diario (alternativa) | `15 6 * * *` | hasta 24 h de marcas | unos 3 MB en 14 días con los datos de prueba |
 
 Lo perdido en ese intervalo **no está en papel**: son marcas que el empleado hizo en la app y vio confirmadas. Con el
 backup diario, perder el servidor a la tarde pierde las marcas de todo el día y hay que reconstruirlas preguntando a
-cada empleado. Con datos de este tamaño, el backup horario cuesta segundos y pocos megas: se recomienda el horario. Se
-cambia corriendo de nuevo el bootstrap con `BRAJA_BACKUP_SCHEDULE="0 * * * *"` y ajustando el período del latido.
+cada empleado. Con datos de este tamaño, el backup horario cuesta segundos y pocos megas: por eso Mateo adoptó el
+horario el 2026-11-15 (D-20261115-04), que es el valor por defecto del bootstrap. Pasar al diario (o volver al horario)
+es correr de nuevo el bootstrap con `BRAJA_BACKUP_SCHEDULE="15 6 * * *"` (o `"15 * * * *"`) y ajustar el período del
+latido; cambiarlo es una decisión de Mateo.
 
 ## Almacenamiento externo: decisión pendiente de Mateo
 
@@ -144,7 +146,7 @@ Hostinger. Los archivos salen cifrados, así que el proveedor no puede leerlos; 
 | Google Drive de una cuenta dedicada | gratis hasta 15 GB | Donde Google lo ubique | Simple; no hay credencial de «subir sin borrar» |
 | Una PC propia por SFTP (rclone) | sin costo | En Argentina | Depende de que esa PC esté prendida y accesible; más trabajo de mantenimiento |
 
-Recomendación: Backblaze B2 o R2 con credencial de sólo escritura y retención de 30 días por regla del bucket.
+Elegido (D-20261115-05, 2026-11-15): Backblaze B2, con una clave de aplicación sin permiso de borrado y retención de 30 días por regla del bucket. Las demás filas quedan como alternativas.
 
 ## A. La app no responde y el servidor sigue
 
@@ -194,16 +196,16 @@ imprevistos. Si Hostinger no está disponible, el servidor nuevo se crea en otro
 | 5 | Como `braja`: `git clone https://github.com/mateoscns/Braja-Ingreso-Egreso.git ~/fichaje` y `git -C ~/fichaje checkout <commit que estaba desplegado>`. | 1 min |
 | 6 | Volver a poner `deploy/.env`: pegar la copia del gestor en `~/fichaje/deploy/.env` y `chmod 600 ~/fichaje/deploy/.env`. Tiene que decir `BRAJA_BOOTSTRAP_ENABLED='false'`; si la copia es anterior al primer deploy, cambiarlo a `false` y dejar vacío `BRAJA_BOOTSTRAP_PASSWORD` (la base se va a restaurar). | 5 min |
 | 7 | Volver a poner rclone: pegar la configuración en `~/.config/rclone/rclone.conf` (o rehacerla con `rclone config`) y `chmod 600`. Comprobar que `rclone lsf offsite:braja-backups` lista los backups. | 5 min |
-| 8 | **Bajar el backup antes del deploy**: `rclone lsf offsite:braja-backups \| sort \| tail -n 3`, elegir el último y `rclone copy offsite:braja-backups/<archivo>.age ~/braja-backups/`. Antes y no después: el deploy y la restauración suben backups nuevos de la base vacía, que quedan como los más recientes. Anotar el nombre del archivo bueno. | 2 min |
-| 9 | Copiar la clave privada al servidor sólo para la restauración: `(umask 077; cat > ~/restore.key)`, pegarla y terminar con Ctrl-D. Probar el backup sin tocar nada: `bash deploy/restore.sh --check ~/braja-backups/<archivo>.age --identity ~/restore.key` (levanta MySQL si hace falta; la base real todavía está vacía). | 3 min |
+| 8 | **Bajar el backup antes del deploy**: `rclone lsf offsite:braja-backups \| sort \| tail -n 3`, elegir el último y `mkdir -p ~/braja-restore && rclone copy offsite:braja-backups/<archivo>.age ~/braja-restore/`, en una carpeta aparte y nunca en `~/braja-backups/`, la de los backups locales. Antes y no después: el deploy y la restauración suben backups nuevos de la base vacía, que quedan como los más recientes. Anotar el nombre del archivo bueno. | 2 min |
+| 9 | Copiar la clave privada al servidor sólo para la restauración: `(umask 077; cat > ~/restore.key)`, pegarla y terminar con Ctrl-D. Probar el backup sin tocar nada: `bash deploy/restore.sh --check ~/braja-restore/<archivo>.age --identity ~/restore.key` (levanta MySQL si hace falta; la base real todavía está vacía). | 3 min |
 | 10 | Deploy: `cd ~/fichaje && bash deploy/deploy.sh --sha <commit>`. En horario del local, agregar `--force` (es una emergencia). Arranca con la base vacía y crea el esquema. | 10 a 15 min |
-| 11 | Restaurar: `bash deploy/restore.sh ~/braja-backups/<archivo>.age --identity ~/restore.key`. Revisar lo que muestra (proyecto `braja`, volumen `braja_mysql-data`, base `braja`, filas actuales y del backup) y escribir `RESTORE`. Si el backup es de un esquema anterior, Flyway migra al arrancar. | 2 min |
+| 11 | Restaurar: `bash deploy/restore.sh ~/braja-restore/<archivo>.age --identity ~/restore.key`. Revisar lo que muestra (proyecto `braja`, volumen `braja_mysql-data`, base `braja`, filas actuales y del backup) y escribir `RESTORE`; recién entonces detiene el backend, hace el backup de seguridad y reemplaza la base. Si el backup es de un esquema anterior, Flyway migra al arrancar. | 2 min |
 | 12 | Borrar la clave privada del servidor: `shred -u ~/restore.key`. | 1 min |
 | 13 | Comprobar (abajo). | 10 min |
 | 14 | Avisarle a Braja que volvió; el `ADMIN` carga lo anotado en papel y lo perdido desde el último backup. | 5 min |
 
-Con el `crypt` de rclone en lugar de `age`: en el paso 8, `rclone copy braja-crypt:<archivo>.sql.gz ~/braja-backups/`,
-y en los pasos 9 y 11, el archivo `.sql.gz` sin `--identity`.
+Con el `crypt` de rclone en lugar de `age`: en el paso 8, `mkdir -p ~/braja-restore && rclone copy braja-crypt:<archivo>.sql.gz ~/braja-restore/`,
+y en los pasos 9 y 11, `~/braja-restore/<archivo>.sql.gz` sin `--identity`.
 
 ### Comprobar
 

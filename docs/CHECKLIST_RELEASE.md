@@ -15,9 +15,9 @@ Se sigue **en cada actualización** del servidor, después de la salida a produc
 - [ ] **Verificación manual** de `docs/UX_UI_GUIDELINES.md` §10 para lo que cambió, con su evidencia (M-14 siempre que
   cambien textos; M-7 y M-9 en teléfonos reales si cambia algo de la marca, la ubicación o los avisos).
 - [ ] **Hay un backup reciente afuera**: el latido del backup está en verde, y `rclone lsf offsite:braja-backups | sort
-  | tail -n 1` (con el `crypt` de rclone, `rclone lsf braja-crypt: | sort | tail -n 1`) es de hace menos de 25 h (backup
-  diario) o de 2 h (cada hora). El deploy toma uno propio antes de migrar, pero este comprueba que la copia de afuera
-  anda. Si se perdiera el servidor, las marcas hechas después de ese backup se pierden con él (`deploy/RECOVERY.md`,
+  | tail -n 1` muestra un `braja-<fecha>.sql.gz.age` de hace menos de 2 h (backup cada hora, D-20261115-04; la fecha
+  del nombre está en UTC). Con la alternativa `crypt` de rclone, `rclone lsf braja-crypt: | sort | tail -n 1`. El
+  deploy toma uno propio antes de migrar, pero este comprueba que la copia de afuera anda. Si se perdiera el servidor, las marcas hechas después de ese backup se pierden con él (`deploy/RECOVERY.md`,
   caso B).
 - [ ] **Fuera del horario del local** (lunes a sábado de 08:00 a 19:00 en Córdoba; `deploy.sh` lo comprueba). Un
   arreglo urgente en horario va con `--force` y se le avisa antes a Braja: la app se corta de 30 a 60 s.
@@ -39,8 +39,10 @@ Se sigue **en cada actualización** del servidor, después de la salida a produc
 
 ## Cada mes, aunque no haya release
 
-- [ ] **Prueba de restauración con un archivo de afuera**: bajar el último backup del almacenamiento externo y correr
-  `bash deploy/restore.sh --check <archivo>.sql.gz.age --identity <clave privada age>` (`deploy/HOSTINGER_GO_LIVE.md`,
-  paso 21; la clave se pega en el servidor solo para esto y se borra con `shred -u`). No cambia la base ni corta el
+- [ ] **Prueba de restauración con un archivo de afuera**: bajar el último backup del almacenamiento externo a una
+  carpeta aparte (`mkdir -p ~/braja-restore && rclone copy offsite:braja-backups/<archivo>.age ~/braja-restore/`, nunca
+  a `~/braja-backups/`) y correr
+  `bash deploy/restore.sh --check ~/braja-restore/<archivo>.sql.gz.age --identity <clave privada age>`
+  (`deploy/HOSTINGER_GO_LIVE.md`, paso 21; la clave se pega en el servidor solo para esto y se borra con `shred -u`). No cambia la base ni corta el
   servicio. Tiene que terminar con `Nothing was changed: the throwaway database was dropped. … can be restored.` Anotar
   la fecha y el tiempo en el issue de operación.

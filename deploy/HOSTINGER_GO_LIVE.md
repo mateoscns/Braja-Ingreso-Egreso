@@ -17,8 +17,8 @@ chat, en un mail ni en un issue.
 | OK de Mateo a D-20261115-01 (Hostinger KVM 2) y el `<SHA_DE_MAIN>` aprobado, con CI verde | Mateo | Contratar, 5, 10, 15 |
 | El dominio o subdominio (alternativa A o B, abajo) | Mateo | 3 |
 | DNI, nombre y sede del primer `ADMIN`; un mail de contacto para los avisos push (`mailto:`) | Mateo con Braja | 11 |
-| Intervalo del backup: por defecto diario a las 03:15 de Córdoba; uno por hora está pendiente de Mateo (`RECOVERY.md`, «Intervalo de backup») | Mateo | 5 |
-| Almacenamiento externo de **otro proveedor**, no de Hostinger (por ejemplo Backblaze B2 o Cloudflare R2, con credenciales que suben pero no borran; `RECOVERY.md`, «Almacenamiento externo»; decide Mateo) | Mateo | 13 |
+| Intervalo del backup: decidido, cada hora a los 15 minutos (D-20261115-04, el valor por defecto del bootstrap); una vez por día es la opción, solo si Mateo lo cambia (`RECOVERY.md`, «Intervalo de backup») | Mateo | 5 |
+| Bucket de **Backblaze B2** (D-20261115-05), no de Hostinger, con una clave de aplicación que sube pero no borra y una regla que borra lo de más de 30 días (`RECOVERY.md`, «Almacenamiento externo») | Mateo | 13 |
 | Dos pares de claves `age` generados en la PC de Mateo, nunca en el VPS (`RECOVERY.md`, «Cifrado y custodia de claves»); al VPS van solo las dos claves públicas `age1…` | Mateo | 13, 21 |
 | Cuentas de los dos monitores por mail (`README.md`, «Monitoreo»; decide Mateo) | Mateo | 14 |
 | Un gestor de contraseñas donde Mateo guarda `deploy/.env`, las claves privadas `age`, la contraseña de root y la contraseña de `sudo` de `braja` | Mateo | 5, 11, 13, 18 |
@@ -76,7 +76,7 @@ buscarlo en el panel y anotar dónde estaba.
 | Firewall administrado | **Security** → **Firewall** | Paso 4. |
 | DNS de un dominio de Hostinger | **Domains** → **DNS** (DNS Zone Editor) | Paso 3. |
 | Uso de recursos | **Backups & Monitoring** → **Server Usage** | CPU, RAM, disco y tráfico; 24 h, semana, mes o año; hora GMT+0. |
-| Consola si falla SSH | **Overview** → **Web Console** (abre otra pestaña; permitir ventanas emergentes) | Suele entrar sola como root; si pide usuario, `root` y su contraseña. La configuración de SSH no la afecta. |
+| Consola si falla SSH | **Overview** → **Web Console** (abre otra pestaña; permitir ventanas emergentes) | Suele entrar sola como root; si pide usuario, `root` y su contraseña. Que la configuración de SSH no la afecte no está en la documentación de Hostinger **(sin verificar)**: se comprueba en el paso 5.3, con S1 todavía abierta. |
 | Modo de emergencia | **Settings** → **Emergency mode** | Si el sistema no arranca. Dura hasta 24 h; los archivos quedan bajo `/mnt`. |
 | Backups y snapshots | **Backups & Monitoring** → **Snapshots & Backups**; estado en **Latest actions** | [Sección 8](#8-backups-y-snapshots-de-hostinger). |
 
@@ -193,7 +193,8 @@ scp bootstrap-vps.sh root@<IP_DEL_VPS>:/root/
 bash /root/bootstrap-vps.sh braja; echo "exit=$?"
 ```
 
-Solo si Mateo eligió el backup por hora: `BRAJA_BACKUP_SCHEDULE="0 * * * *" bash /root/bootstrap-vps.sh braja; echo "exit=$?"`.
+El backup queda cada hora, a los 15 minutos (D-20261115-04, el valor por defecto). Solo si Mateo lo cambia a una vez por
+día: `BRAJA_BACKUP_SCHEDULE="15 6 * * *" bash /root/bootstrap-vps.sh braja; echo "exit=$?"`.
 Sin `| tee`: un pipe esconde el código de salida.
 
 A mitad del paso pide elegir la contraseña de `sudo` de `braja` (`New password:` y `Retype new password:`): generarla en
@@ -202,7 +203,7 @@ el gestor, guardarla ahí y pegarla. SSH nunca la acepta después del paso 2; so
 - Esperado, entre otras líneas: `[bootstrap] Clock synchronized: …`, `Docker Compose version v…`, la tabla de `ufw` con
   `22/tcp`, `80/tcp`, `443/tcp` y `443/udp` en `ALLOW IN`, `[bootstrap] Deploy user: braja`,
   `[bootstrap] Copied root's authorized SSH keys to braja`, `[bootstrap] Choose the password braja types for sudo …`,
-  `passwd: password updated successfully`, `[bootstrap] Backup schedule: '15 6 * * *' (server time), log: /home/braja/braja-backups/backup.log`,
+  `passwd: password updated successfully`, `[bootstrap] Backup schedule: '15 * * * *' (server time), log: /home/braja/braja-backups/backup.log`,
   `[bootstrap] Note: /home/braja/fichaje is not cloned yet; …`,
   `[bootstrap] SSH: unchanged (password and root logins still work). Step 2, keeping THIS session open:`,
   `[bootstrap] Done…` y `exit=0`.
@@ -248,7 +249,20 @@ ssh -t braja@<IP_DEL_VPS> "sudo sshd -T | grep -Ei '^(passwordauthentication|per
 - Error: con S1 abierta, volver atrás con `rm /etc/ssh/sshd_config.d/01-braja-hardening.conf && systemctl reload ssh`
   (o, sin S1, desde la Web Console como root) y revisar el mensaje del paso 2.
 
-Recién con las tres comprobaciones bien se cierra S1. Desde acá todo se hace como `braja`: `ssh braja@<IP_DEL_VPS>`.
+**La Web Console sigue entrando como root**, también con S1 todavía abierta. Es la única entrada si SSH falla, y la
+documentación de Hostinger no dice que no dependa de SSH (ver [Fuentes](#fuentes)). En hPanel, **Overview** → **Web
+Console** (si pide usuario, `root` y su contraseña del gestor) y, ahí:
+
+```bash
+whoami
+```
+
+- Esperado: `root`. Cerrar la pestaña de la Web Console; S1 sigue abierta.
+- Error (no abre, no acepta `root` o se queda vacía): en S1, volver atrás con
+  `rm /etc/ssh/sshd_config.d/01-braja-hardening.conf && systemctl reload ssh`, no cerrar S1 y avisarle a Mateo antes de
+  seguir: sin esa consola, un error de SSH deja el servidor sin entrada.
+
+Recién con las cuatro comprobaciones bien se cierra S1. Desde acá todo se hace como `braja`: `ssh braja@<IP_DEL_VPS>`.
 
 **Paso 6. Reloj (NTP).** `timedatectl`
 
@@ -353,8 +367,9 @@ tiene las claves públicas, así que puede cifrar pero nunca descifrar.
   backups de afuera.
 
 **Paso 14. Monitoreo.** Según `README.md`, «Monitoreo»: crear el latido del backup con el período del cron y un margen
-(1 día + 1 h, o 1 h + 15 min) y agregar `BRAJA_BACKUP_HEARTBEAT_URL` a `deploy/.env`; crear el monitor HTTP cada 5 min
-a `https://<DOMINIO_REAL>/api/v1/health` que espere `UP`. Queda en rojo hasta el paso 16: es lo esperado.
+(1 h + 15 min con el backup cada hora por defecto; 1 día + 1 h si Mateo eligió el diario) y agregar
+`BRAJA_BACKUP_HEARTBEAT_URL` a `deploy/.env`; crear el monitor HTTP cada 5 min a `https://<DOMINIO_REAL>/api/v1/health`
+que espere `UP`. Queda en rojo hasta el paso 16: es lo esperado.
 
 **Paso 15. Deploy.** Fuera de lunes a sábado de 08:00 a 19:00 (Córdoba). Sin `--force`.
 
@@ -431,7 +446,7 @@ cat /etc/cron.d/braja-backup
   `Encrypted for 2 age recipient(s); this server cannot decrypt it`, `Copying braja-<fecha>.sql.gz.age off this server`,
   la ruta del backup y `exit=0`, sin ningún `WARNING` ni `BACKUP FAILED`. En `~/braja-backups`, cada
   `braja-<fecha>.sql.gz` con su `.sha256`, modo 600. Afuera, `braja-<fecha>.sql.gz.age`. El latido queda en verde. `cat`
-  muestra el horario elegido.
+  muestra `15 * * * *` (o el horario diario, si Mateo lo cambió).
 - Después de la primera corrida programada: `tail -n 5 ~/braja-backups/backup.log` termina sin `BACKUP FAILED`.
 
 **Paso 21. Prueba de restauración, sin tocar la base.** `restore.sh --check` carga un backup en una base descartable,
@@ -524,7 +539,7 @@ decisión es de Mateo.
 |---|---|
 | SSH: `Connection timed out` después del paso 4 | En el panel, corregir la regla de 22 o desactivar el grupo; esperar dos minutos. Mientras tanto, Web Console. |
 | SSH: `Permission denied (publickey)` | Web Console como root; revisar `/root/.ssh/authorized_keys` o `/home/braja/.ssh/authorized_keys` (de `braja`, modo 600, carpeta `.ssh` en 700). |
-| Quedó cerrado SSH para todos después del paso 2 | Web Console como root (SSH no la afecta): `rm /etc/ssh/sshd_config.d/01-braja-hardening.conf && systemctl reload ssh`, arreglar la clave y repetir el paso 5.2. |
+| Quedó cerrado SSH para todos después del paso 2 | Web Console como root (el paso 5.3 comprobó que entra con SSH cerrado): `rm /etc/ssh/sshd_config.d/01-braja-hardening.conf && systemctl reload ssh`, arreglar la clave y repetir el paso 5.2. |
 | `sudo` no acepta la contraseña de `braja` | Web Console como root: `passwd braja`, guardar la nueva en el gestor. |
 | La Web Console pide contraseña y no se conoce | **Settings** → **Root password**, poner una nueva (guardarla en el gestor) y entrar como `root`. Después, `sshd -T \| grep -Ei '^(passwordauthentication\|permitrootlogin) '` tiene que seguir en `no`; si no, repetir el paso 5.2. |
 | La Web Console aparece vacía | Hostinger indica cerrarla, reiniciar el VPS desde el panel y abrirla otra vez. |
@@ -576,7 +591,7 @@ Mandar, por el issue de la salida, salidas de comandos y capturas; nunca valores
 | Paso | Evidencia |
 |---|---|
 | 1–4 | Plan, ubicación y sistema (captura del Overview, sin la contraseña); salida de `grep … /etc/os-release`; `nslookup` A y AAAA; captura de las reglas del firewall; `Test-NetConnection` o `nc` a 3306 y 8080 |
-| 5 | Últimas 15 líneas de cada paso del bootstrap con `exit=0`; la cabecera de `docker ps`, el rechazo de root y `sshd -T` |
+| 5 | Últimas 15 líneas de cada paso del bootstrap con `exit=0`; la cabecera de `docker ps`, el rechazo de root, `sshd -T` y el `whoami` de la Web Console con SSH ya cerrado |
 | 6–8 | `timedatectl`; versiones de Docker y `age`; los comandos de Recursos |
 | 10–12 | `git rev-parse HEAD origin/main`; las tres líneas `success`; la salida de `stat` y `check-ignore` |
 | 13–14 | `rclone lsd offsite:`; las dos claves públicas `age1…` (son públicas); captura de los dos monitores, sin la URL del latido |
@@ -612,6 +627,7 @@ Documentación oficial de Hostinger consultada el 2026-11-15:
 - Malware Scanner: [Hostinger VPS malware scanner](https://www.hostinger.com/support/8450363-hostinger-vps-malware-scanner/).
 
 Sin verificar en esa documentación: en qué usuario instala hPanel una clave SSH agregada después de crear el VPS y si
-vale sin reinstalar; si la Web Console depende de SSH o del firewall (sus mensajes sugieren una consola serie, y el
-bootstrap la da por independiente de SSH); si el firewall filtra también el tráfico saliente; dónde se ve el saldo de
+vale sin reinstalar; si la Web Console depende de SSH o del firewall (sus mensajes sugieren una consola serie; el
+bootstrap la nombra como salida si SSH falla, pero eso se comprueba en el paso 5.3, con SSH ya cerrado y S1 abierta,
+no se da por hecho); si el firewall filtra también el tráfico saliente; dónde se ve el saldo de
 créditos de CPU; la zona horaria con que Hostinger entrega Ubuntu; el precio de los backups diarios y de Monarx.

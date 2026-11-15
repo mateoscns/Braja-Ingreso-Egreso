@@ -68,7 +68,7 @@ El paso 1 hace, en orden:
   actualización lo pide (kernel, libc). Los contenedores vuelven solos. El corte dura uno o dos minutos.
 - El usuario `braja` en los grupos `docker` y `sudo` (`sudo` pide su contraseña; no hay `sudo` sin contraseña), le
   copia las claves SSH de root y pide elegir su contraseña: guardarla en el gestor. Y el **cron del backup** para él en
-  `/etc/cron.d/braja-backup`: todos los días a las 06:15 UTC (03:15 en Córdoba), con el log en
+  `/etc/cron.d/braja-backup`: cada hora, a los 15 minutos (D-20261115-04), con el log en
   `~braja/braja-backups/backup.log`.
 - SSH: no lo toca.
 
@@ -84,15 +84,15 @@ entorno. El reloj del servidor está en UTC y Argentina es UTC−3 todo el año:
 
 | Variable | Por defecto | Para qué |
 |---|---|---|
-| `BRAJA_BACKUP_SCHEDULE` | `15 6 * * *` | Horario del backup (cron, 5 campos). Cada hora (pendiente de Mateo): `0 * * * *`. |
+| `BRAJA_BACKUP_SCHEDULE` | `15 * * * *` | Horario del backup (cron, 5 campos): cada hora, a los 15 minutos (D-20261115-04). Una vez por día, a las 03:15 de Córdoba: `15 6 * * *`. |
 | `BRAJA_REBOOT_TIME` | `07:30` | Hora del reinicio automático (HH:MM, UTC). |
 | `BRAJA_REPO_DIR` | `~braja/fichaje` | Dónde está el clon que usa el cron. |
 | `BRAJA_PERMIT_ROOT_LOGIN` | `no` | Solo paso 2: `prohibit-password` para dejar entrar a root con clave. |
 | `BRAJA_SSH_KEY_LOGIN_VERIFIED` | — | Solo paso 2: `yes` saltea la búsqueda en los registros de `sshd`, si se perdieron; solo después de entrar como `braja` con la clave. |
 | `BRAJA_TIME_SYNC_TIMEOUT_SECONDS` | `60` | Cuánto esperar la sincronización del reloj. |
 
-Por ejemplo, backup cada hora: `ssh -t root@<ip> 'BRAJA_BACKUP_SCHEDULE="0 * * * *" bash /root/bootstrap-vps.sh braja'`,
-o con root ya desactivado: `ssh -t braja@<ip> 'sudo env BRAJA_BACKUP_SCHEDULE="0 * * * *" bash bootstrap-vps.sh braja'`.
+Por ejemplo, backup una vez por día: `ssh -t root@<ip> 'BRAJA_BACKUP_SCHEDULE="15 6 * * *" bash /root/bootstrap-vps.sh braja'`,
+o con root ya desactivado: `ssh -t braja@<ip> 'sudo env BRAJA_BACKUP_SCHEDULE="15 6 * * *" bash bootstrap-vps.sh braja'`.
 
 Ojo: los puertos que publica Docker no pasan por ufw. Por eso el compose publica solo 80 y 443; nunca agregues
 `ports:` a MySQL ni al backend.
@@ -167,8 +167,8 @@ El backup programado ya lo instaló el bootstrap (`/etc/cron.d/braja-backup`, pa
 `~/braja-backups/backup.log`. Para ver cuándo corrió el último: `ls -lt ~/braja-backups | head -3`. Detalle de qué
 comprueba, disco lleno y rotación: `RECOVERY.md`, «Backups: cómo funcionan».
 
-El RPO es el intervalo del cron: con el backup diario, perder el servidor pierde hasta 24 h de marcas; con uno por
-hora, hasta una hora (la elección es de Mateo: `RECOVERY.md`, «Intervalo de backup»).
+El RPO es el intervalo del cron: con el backup cada hora (D-20261115-04, el valor por defecto), perder el servidor
+pierde hasta una hora de marcas; con el diario de la alternativa, hasta 24 h (`RECOVERY.md`, «Intervalo de backup»).
 
 ### Copia fuera del servidor, cifrada
 
@@ -185,7 +185,7 @@ BRAJA_BACKUP_AGE_RECIPIENTS='age1...mateo age1...respaldo'
 BRAJA_BACKUP_OFFHOST_CMD='rclone copy "$1" offsite:braja-backups'
 ```
 
-Con `rclone config`, el remoto `offsite` es el almacenamiento elegido (Backblaze B2 o Cloudflare R2, con una credencial
+Con `rclone config`, el remoto `offsite` es el bucket de Backblaze B2 (D-20261115-05; tipo `b2` de rclone, con una clave de aplicación
 que sube pero no borra y una regla del bucket que borra lo de más de 30 días). Afuera queda `braja-<fecha>.sql.gz.age`.
 
 **Alternativa: un remoto `crypt` de rclone**, sin `age` (el VPS guarda la contraseña del `crypt` y puede leer los
@@ -215,15 +215,18 @@ Probar un backup sin tocar nada (lo carga en la base descartable, muestra sus fi
 
 ```bash
 bash deploy/restore.sh --check ~/braja-backups/braja-<fecha>.sql.gz
-bash deploy/restore.sh --check <archivo>.sql.gz.age --identity <clave privada age>   # una copia bajada de afuera
+bash deploy/restore.sh --check ~/braja-restore/braja-<fecha>.sql.gz.age --identity <clave privada age>   # bajada de afuera
 ```
 
 Una vez por mes, con un archivo de afuera (`HOSTINGER_GO_LIVE.md`, paso 21): prueba también la clave y el
-almacenamiento. La clave privada se pega en el servidor solo para eso y se borra después con `shred -u`.
+almacenamiento. La copia de afuera se baja a una carpeta aparte (`mkdir -p ~/braja-restore && rclone copy
+offsite:braja-backups/<archivo>.age ~/braja-restore/`), nunca a `~/braja-backups/`. La clave privada se pega en el
+servidor solo para eso y se borra después con `shred -u`.
 
 Reemplazar **toda** la base, solo con una operación aprobada por Mateo: primero prueba el backup en la base descartable,
-muestra qué va a reemplazar (proyecto, contenedor, volumen, base y filas), pide escribir `RESTORE`, hace un backup de
-seguridad del estado actual y, al terminar, compara las filas de cada tabla (26 s con 20.003 filas de prueba):
+muestra qué va a reemplazar (proyecto, contenedor, volumen, base y filas), pide escribir `RESTORE`, detiene el backend,
+hace un backup de seguridad del estado actual (si falla, vuelve a levantar el backend y no restaura nada) y, al
+terminar, compara las filas de cada tabla (26 s con 20.003 filas de prueba):
 
 ```bash
 bash deploy/restore.sh ~/braja-backups/braja-<fecha>.sql.gz
@@ -238,8 +241,8 @@ datos de la app ni son parte del producto, pero D-20261014-02 (sin SaaS de terce
 de usarlos es de Mateo.
 
 - **Latido del backup** ([healthchecks.io](https://healthchecks.io) o el heartbeat de Better Stack): crear un chequeo
-  con el período del cron (1 día o 1 hora) y un margen, y poner su URL en `deploy/.env`:
-  `BRAJA_BACKUP_HEARTBEAT_URL='https://hc-ping.com/<uuid>'`. `backup.sh` le avisa a esa URL cuando el backup y su
+  con el período del cron (1 hora con el horario por defecto; 1 día con el diario) y un margen, y poner su URL en
+  `deploy/.env`: `BRAJA_BACKUP_HEARTBEAT_URL='https://hc-ping.com/<uuid>'`. `backup.sh` le avisa a esa URL cuando el backup y su
   copia afuera salieron bien, y a `<url>/fail` cuando algo falló o quedan menos de 3 GB libres en el disco
   (`BRAJA_DISK_MIN_FREE_MB`). Si el cron deja de correr, el servicio avisa porque no llegó el latido. Si la URL no
   responde, el backup sigue igual.

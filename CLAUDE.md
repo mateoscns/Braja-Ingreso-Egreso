@@ -125,8 +125,10 @@ en un estado:
   implementar, issue #190). Al 2026-11-15 se suman 2 filas propuestas,
   pendientes del OK de Mateo: el servidor Hostinger (D-20261115-01) y el RTO y
   el RPO (D-20261115-02); y Mateo adoptó la excepción temporal a la passkey
-  para salir sin ella (D-20261115-03); 82 filas, 80 adoptadas y 2 propuestas
-  (`grep -c '^| D-' docs/DECISIONES.md`). Las 15 del 2026-11-02
+  para salir sin ella (D-20261115-03) y el backup cada hora (D-20261115-04) con
+  su copia externa en Backblaze B2 (D-20261115-05); 84 filas, 82 adoptadas y
+  2 propuestas (`grep -c '^| D-' docs/DECISIONES.md`).
+  Las 15 del 2026-11-02
   (D-20261102-01 a -15) son propuestas de la IA durante la campaña #72 que
   Mateo adoptó con su aprobación general de ese día al plan de producción
   (`odd/tasks/production-readiness.md`); cada una lo dice en su motivo.
@@ -144,7 +146,7 @@ en un estado:
 - **Reglas del dueño que no se discuten**: D-20261014-01 (sin atribución de
   IA), -02 (software propio, sin SaaS de terceros), -03 (alcance cerrado),
   -04 (altas solo por `ADMIN`, sin límite de empleados) y -09
-  (multi-empresa y multi-sede). Las otras 75 filas adoptadas también rigen; las
+  (multi-empresa y multi-sede). Las otras 77 filas adoptadas también rigen; las
   que cambian una regla de §5 se citan ahí. Las 2 propuestas (D-20261115-01 y
   -02) no rigen hasta que Mateo las adopte.
 - **Una decisión nueva** la propone quien la detecta (Mateo, Enrique o la
@@ -876,19 +878,30 @@ en CI (§5.35), pero ninguna regla exige dirección de dependencias entre carpet
     swap, ufw con 22/80/443, actualizaciones de seguridad, usuario `braja`),
     `backup.sh` (dump comprimido, modo 600, 14 días; copia fuera del servidor
     opcional con `BRAJA_BACKUP_OFFHOST_CMD`, D-20261102-12), `restore.sh` (pide
-    confirmación y hace antes un backup de seguridad); healthchecks de MySQL y del
+    confirmación y hace antes un backup de seguridad; desde el 2026-11-15, con el
+    backend ya detenido); healthchecks de MySQL y del
     backend y `restart: unless-stopped` en los tres contenedores (2026-11-02, PR
     #92). Desde el 2026-11-13 el bootstrap también instala rclone, exige el reloj
-    sincronizado, instala el cron del backup en `/etc/cron.d/braja-backup`
-    (diario a las 06:15 UTC, `BRAJA_BACKUP_SCHEDULE`), reinicia solo tras una
-    actualización que lo pide a las 07:30 UTC (04:30 en Córdoba) y desactiva el
-    login de root cuando `braja` tiene una clave usable, dándole `sudo`; MySQL
-    guarda los binlogs 7 días y no 30; `backup.sh` avisa a un monitor de latido
-    opcional (`BRAJA_BACKUP_HEARTBEAT_URL`, `/fail` si falló la copia o queda
+    sincronizado, instala el cron del backup en `/etc/cron.d/braja-backup` y
+    reinicia solo tras una actualización que lo pide a las 07:30 UTC (04:30 en
+    Córdoba). Desde el 2026-11-15 el backup corre cada hora, a los 15 minutos
+    (`BRAJA_BACKUP_SCHEDULE`, por defecto `"15 * * * *"`, D-20261115-04; el
+    diario es la alternativa, `"15 6 * * *"`), y cada backup se comprueba
+    cargándolo en una base descartable antes de contar como bueno. El bootstrap
+    va en dos pasos: el primero, como root, no toca SSH y da a `braja` `sudo`
+    con contraseña por el grupo `sudo` (sin `NOPASSWD`); el segundo,
+    `--harden-ssh`, corre desde una segunda sesión de `braja` con su clave y
+    recién ahí cierra el login por contraseña y el de root (2026-11-15: antes un
+    solo paso cerraba root y daba `sudo` sin contraseña). MySQL guarda los
+    binlogs 7 días y no 30; `backup.sh` avisa a un monitor de latido opcional
+    (`BRAJA_BACKUP_HEARTBEAT_URL`, `/fail` si falló el backup, la copia o queda
     poco disco); la recuperación está en `deploy/RECOVERY.md` (2026-11-13: un
     servidor armado con el runbook solo tenía los backups de cada deploy). El
-    dump no está cifrado: la copia de afuera va por un remoto `crypt` de rclone
-    y `deploy/.env` se guarda aparte, en el gestor de contraseñas
+    dump local no está cifrado: la copia que sale del servidor se cifra antes con
+    `age` y las claves públicas de `BRAJA_BACKUP_AGE_RECIPIENTS` (el servidor no
+    puede descifrarla; las claves privadas van al gestor de contraseñas), y un
+    remoto `crypt` de rclone queda como alternativa documentada, no recomendada;
+    `deploy/.env` se guarda aparte, en el gestor de contraseñas
     (`deploy/README.md`). Destino que falta: no hay VPS (lo paga Braja,
     D-20261014-10; las credenciales las tiene Mateo; al 2026-11-15 se propone un
     Hostinger VPS KVM 2 que contrata y configura Enrique, D-20261115-01, con su
@@ -1185,11 +1198,12 @@ si cada clon hace `git config core.hooksPath .githooks`**. Hoy no existe
   backend emite sin estar documentado hace fallar `EndpointContractSpecTest`
   (§7); un esquema o un campo distinto no lo detecta ningún test
   `[sin guarda: destino]`.
-- **Release checklist y runbook de backup/restore (RPO 24 h, RTO a definir)
+- **Release checklist y runbook de backup/restore (RPO 1 h, RTO propuesto)
   gatean releases**: el runbook existe desde el 2026-11-02 (`deploy/README.md`:
-  deploy, backup, restauración y rollback; RPO 24 h por el backup diario,
-  D-20261102-12). Desde el 2026-11-13 existen las checklists
-  (`docs/CHECKLIST_SALIDA.md` una vez, `docs/CHECKLIST_RELEASE.md` en cada
+  deploy, backup, restauración y rollback; D-20261102-12). Desde el 2026-11-15
+  el RPO es de 1 h por el backup cada hora (D-20261115-04; antes 24 h con el
+  diario); no se comprobó todavía en un VPS. Desde el 2026-11-13 existen las
+  checklists (`docs/CHECKLIST_SALIDA.md` una vez, `docs/CHECKLIST_RELEASE.md` en cada
   actualización) y la recuperación ante la pérdida del servidor
   (`deploy/RECOVERY.md`); el RTO de 15 min y 4 h está propuesto, pendiente de
   OK del dueño (D-20261115-02). Un ítem sin marcar necesita excepción
@@ -1209,7 +1223,7 @@ si cada clon hace `git config core.hooksPath .githooks`**. Hoy no existe
 2. [x] El dueño adoptó las 66 filas de `docs/DECISIONES.md` (adopciones del
    2026-10-14 al 2026-11-02; las 15 del 2026-11-02, D-20261102-01 a -15, con su
    aprobación general de ese día al plan de producción, que puede vetar fila por
-   fila). Al 2026-11-15 el registro tiene 82 filas: 80 adoptadas y 2 propuestas
+   fila). Al 2026-11-15 el registro tiene 84 filas: 82 adoptadas y 2 propuestas
    (D-20261115-01 y -02), pendientes de su OK.
 3. [ ] Portar `DecisionesDelDuenoTest` (frases de atribución sin ID → falla).
 4. [~] Toolchain: Java 21 y Node 24 fijados en CI (PR #4) y en las imágenes de

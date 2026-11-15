@@ -148,7 +148,7 @@ harden_ssh() {
   log "  ssh $DEPLOY_USER@<server-ip> 'sudo -v && docker ps'   must work"
   log "  ssh root@<server-ip>                                  must be refused (if root login is no)"
   log "Rollback if something is wrong: sudo rm $HARDENING_CONF && sudo systemctl reload ssh"
-  log "(or, locked out: the provider's browser console as root, which SSH settings do not affect)."
+  log "(or, locked out: the provider's browser console as root, checked in step 5.3 of deploy/HOSTINGER_GO_LIVE.md)."
 }
 
 [ "$(id -u)" = 0 ] || { echo "run as root: sudo bash $0" >&2; exit 1; }
@@ -163,7 +163,7 @@ BACKUP_SCHEDULE="${BRAJA_BACKUP_SCHEDULE:-15 * * * *}"
 REBOOT_TIME="${BRAJA_REBOOT_TIME:-07:30}"
 PERMIT_ROOT_LOGIN="${BRAJA_PERMIT_ROOT_LOGIN:-no}"
 TIME_SYNC_TIMEOUT="${BRAJA_TIME_SYNC_TIMEOUT_SECONDS:-60}"
-valid_cron_schedule "$BACKUP_SCHEDULE" || die "BRAJA_BACKUP_SCHEDULE must be five cron fields (digits, * / , -), e.g. \"0 * * * *\""
+valid_cron_schedule "$BACKUP_SCHEDULE" || die "BRAJA_BACKUP_SCHEDULE must be five cron fields (digits, * / , -), e.g. \"15 * * * *\""
 [[ "$REBOOT_TIME" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || die "BRAJA_REBOOT_TIME must be HH:MM, e.g. 07:30"
 case "$PERMIT_ROOT_LOGIN" in no|prohibit-password) ;; *) die "BRAJA_PERMIT_ROOT_LOGIN must be no or prohibit-password" ;; esac
 case "$TIME_SYNC_TIMEOUT" in ''|*[!0-9]*) die "BRAJA_TIME_SYNC_TIMEOUT_SECONDS must be a whole number" ;; esac
