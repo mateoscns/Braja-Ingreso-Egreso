@@ -24,6 +24,11 @@
              Remove this line once the Spring Boot parent manages Jackson 2.21.8 or later; left in place, it pins an old
              version. -->
         <jackson-bom.version>2.21.8</jackson-bom.version>
+        <!-- Issue #190 spike, test scope only. 0.30.x is WebAuthn4J's Jackson 2 line: it runs on the Jackson 2.21.8 above
+             and brings no Jackson 3. 0.31.0 and later need Jackson 3 (tools.jackson.*) 3.2.x, which needs
+             com.fasterxml.jackson.core:jackson-annotations 2.22: with Spring Boot's 2.21 every verification fails with
+             NoSuchMethodError (JsonTypeInfo$Value.getWriteTypeIdForDefaultImpl), checked on 2026-11-15. -->
+        <webauthn4j.version>0.30.3.RELEASE</webauthn4j.version>
         <!-- JUnit tags surefire runs or skips. CI splits the backend in two jobs with them; see .github/workflows/ci.yml. -->
         <junit.groups></junit.groups>
         <junit.excludedGroups>simulation</junit.excludedGroups>
@@ -108,6 +113,14 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>mysql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Issue #190 spike (D-20261114-01): server-side WebAuthn verification, test scope only until the dependency
+             security gate is approved. Never Spring Security's http.webAuthn() (CVE-2026-47841). -->
+        <dependency>
+            <groupId>com.webauthn4j</groupId>
+            <artifactId>webauthn4j-core</artifactId>
+            <version>${webauthn4j.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
