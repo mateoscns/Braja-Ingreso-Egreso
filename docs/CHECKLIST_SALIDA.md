@@ -17,7 +17,7 @@ del comando, captura) en el issue de la salida. Un ítem sin marcar necesita una
 - [x] **Intervalo del backup decidido**: cada hora, a los 15 minutos (D-20261115-04, adoptada el 2026-11-15); RPO de
   hasta 1 h. Es el valor por defecto de `bootstrap-vps.sh`.
 - [x] **Servidor decidido**: Hostinger VPS KVM 2 en Brasil (D-20261115-01, adoptada el 2026-11-15).
-- [ ] **RTO decidido**: Mateo adoptó o cambió D-20261115-02 (RTO y RPO).
+- [x] **RTO decidido**: objetivos de 15 min y 4 h adoptados el 2026-11-15 (D-20261115-02), sin medir todavía en el VPS.
 - [ ] **El commit está en `main` con CI verde.** En GitHub, el último commit de `main` tiene en verde «Backend (Java 21
   + MySQL 8.4)», «Backend campaign (MySQL 8.4)» y «Frontend (Node 24)». Anotar su sha.
 - [ ] **Pruebas en teléfonos reales M-1 a M-14** de `docs/UX_UI_GUIDELINES.md` §10, con su evidencia. Son el requisito

@@ -11,7 +11,7 @@ real.
 
 ## Objetivos (no medidos todavía en el VPS)
 
-Propuestos el 2026-11-13 (D-20261115-02, propuesta, pendiente de OK de Mateo):
+Propuestos el 2026-11-13 y adoptados por Mateo como objetivos el 2026-11-15 (D-20261115-02); se miden en el primer simulacro:
 
 | Caso | RTO (volver a andar) | RPO (cuánto se puede perder) |
 |---|---|---|
