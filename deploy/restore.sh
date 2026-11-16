@@ -48,6 +48,9 @@ decrypted=""
 # dropping the database (the real data is still there). Once dropped, a backend would migrate an empty database.
 tag=""
 restart_backend=false
+# Set once the real database is dropped: a failure or an interrupt from then on leaves it incomplete.
+dropped=false
+safety=""
 on_exit() {
   local status=$?
   restore_check_cleanup
@@ -56,6 +59,9 @@ on_exit() {
     log "Nothing was restored; starting the backend again ($tag)"
     BRAJA_IMAGE_TAG="$tag" compose up -d --wait --wait-timeout 300 backend \
       || log "ERROR: the backend did not become healthy; see: docker compose -p braja logs backend"
+  elif [ "$dropped" = true ] && [ "$status" != 0 ]; then
+    log "ERROR: the restore stopped after the database was dropped: it may be incomplete and the backend stays stopped."
+    log "Restore the safety backup of the replaced state: bash deploy/restore.sh $safety"
   fi
   return "$status"
 }
@@ -133,6 +139,7 @@ safety="$(BRAJA_RESTORE_IN_PROGRESS=1 bash "$DEPLOY_DIR/backup.sh" --allow-offho
 log "Safety backup: $safety"
 
 restart_backend=false
+dropped=true
 log "Recreating the database $database"
 mysql_root -e "DROP DATABASE IF EXISTS \`$database\`; CREATE DATABASE \`$database\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;" </dev/null
 log "Loading $backup"
@@ -142,6 +149,7 @@ restored="$(table_counts "$database")"
 [ "$restored" = "$expected" ] \
   || die "the restored rows differ from the throwaway load; the backend stays stopped. Restore the safety backup: bash deploy/restore.sh $safety"
 log "Every table has the rows of the backup ($(wc -l <<< "$restored" | tr -d ' ') tables)"
+dropped=false
 
 log "Starting the backend ($tag)"
 BRAJA_IMAGE_TAG="$tag" compose up -d --wait --wait-timeout 300 backend \
