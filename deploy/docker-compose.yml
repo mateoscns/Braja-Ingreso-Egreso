@@ -27,6 +27,9 @@ services:
       - --max-connections=60
       - --performance-schema=OFF
       - --skip-name-resolve
+      # Binary logs serve only a point-in-time recovery the runbook does not use (restores load backup.sh dumps); the
+      # 30-day default fills the disk for nothing. Changing this line recreates the MySQL container at the next deploy.
+      - --binlog-expire-logs-seconds=604800
     volumes:
       - mysql-data:/var/lib/mysql
     networks: [braja]
