@@ -14,9 +14,11 @@
 
 | Resultado | Cantidad |
 |---|---|
-| PASS | 64 (B 7, D 23, F 33, N 1) |
+| PASS | 84 (B 7, D 23, F 33, N 1, R 20) |
 | FAIL | 0 |
-| NOT TESTED | 7 filas: 6 de infraestructura o navegador (I-01 a I-06) y la fila M-1 a M-14 (las 14 pruebas físicas) |
+| NOT TESTED | 10 filas: 5 de infraestructura o navegador (I-01 a I-03, I-05 e I-06), 4 de backups en el VPS (R-21 a R-24) y la fila M-1 a M-14 (las 14 pruebas físicas) |
+
+Las filas R (backups y restauración) se agregaron el 2026-11-15 con las pruebas de los scripts finales; reemplazan a la antigua I-04, que figuraba NOT TESTED porque esos scripts se estaban escribiendo.
 
 Hubo dos fallas en la primera corrida del flujo (F-03 y F-12), pero las dos eran errores del script de prueba, no de la aplicación:
 
@@ -96,12 +98,45 @@ Se corrigió el script, se volvieron a correr las dos pruebas y quedaron en PASS
 | I-01 | Infraestructura | `deploy/deploy.sh` de punta a punta | NOT TESTED | Exige `git fetch` y `HEAD == origin/main` (operación remota que este agente no tiene permitida), estar fuera del horario del local y un certificado válido para el dominio. Se reprodujo a mano su paso de apagar el bootstrap (D-17). Lo prueba T4 en el VPS. |
 | I-02 | Infraestructura | Reinicio del VPS o del demonio Docker | NOT TESTED | Reiniciar Docker afectaría a los contenedores `shifty*` y `braja-demo-*` de esta máquina. Se cubrió el reinicio de los contenedores (D-18 a D-22). Va en una ventana controlada en el VPS (FASE 4). |
 | I-03 | Infraestructura | NTP o `timedatectl` en el VPS | NOT TESTED | No hay VPS (T2 y T4) |
-| I-04 | Infraestructura | `backup.sh` / `restore.sh` y la copia cifrada afuera | NOT TESTED | Son del agente D (T13) y los estaban editando en el otro árbol |
 | I-05 | Infraestructura | Monitor externo (UptimeRobot o latido) | NOT TESTED | No hay dominio público |
 | I-06 | Frontend | Navegación de la PWA en un navegador (login, ADMIN, sesión, errores controlados) | NOT TESTED | No se usó un navegador; se probó la API y la entrega de los archivos. Lo cubren P-AND y P-IOS. |
 | M-01 a M-14 | Dispositivos | Pruebas manuales de `docs/UX_UI_GUIDELINES.md` §10 | NOT TESTED | No hay dispositivos físicos. No se emuló un iPhone (S10). Instrucciones abajo. |
 
-### Observaciones (no son fallas)
+## Backups y restauración (scripts finales)
+
+Pruebas sobre `deploy/backup.sh`, `restore.sh`, `lib.sh` y `deploy.sh` en contenedores descartables (MySQL 8.4 real, backend y Caddy reemplazados por contenedores mínimos, nunca los de `shifty*` ni `braja-demo-*`). Quién la ejecutó y sobre qué versión:
+
+- **Agente D** (autor de los scripts), en Ubuntu 24.04 con Docker 29.1.3 y age 1.1.1, con las 29 migraciones reales y 20.003 filas, sobre la versión que quedó en `d737195` sin la copia privada de `restore.sh` que se sumó en ese mismo commit.
+- **Revisión independiente (T15)**, desde Git Bash con Docker Desktop: sobre `1d9977d`, el recheck de `dddd199`, las interrupciones de `35c654a` y el recheck de `4b72dbb`, con hasta 300.000 filas.
+
+| ID | Prueba | Resultado | Evidencia (comando y salida resumida) |
+|---|---|---|---|
+| R-01 | Un backup se valida cargándolo en una base descartable antes de contar | PASS | D: `backup.sh` → exit 0 en 6,8 s, 192 KB; «Restore check passed»: 27 tablas, 20.003 filas iguales a las vivas; `sha256sum -c` OK |
+| R-02 | Disco lleno durante el backup | PASS | D: tmpfs de 320 KB con un backup bueno → `gzip: No space left on device`, `ERROR: the dump failed…`, exit 1, sin `.partial`; el backup anterior sigue pasando `sha256sum -c` |
+| R-03 | Con MySQL caído no se borran backups viejos | PASS | D: MySQL detenido y 4 backups de 20 días → exit 1, los 4 se conservan |
+| R-04 | La rotación conserva siempre los 3 más nuevos | PASS | D: la corrida buena siguiente → «Removed 2… newest 3 are always kept» |
+| R-05 | Un SIGTERM a mitad del dump no deja archivos ni la base descartable | PASS | D: exit 143, `BACKUP FAILED`, 0 archivos parciales, sin base `braja_restore_check` |
+| R-06 | Cifrado age con clave pública | PASS | D: con 2 destinatarios afuera solo quedan `.age` (cabecera `age-encryption.org/v1`); descifrado con cada clave = mismo sha256 que el local; clave equivocada → «no identity matched». La revisión independiente no tenía age y no lo repitió |
+| R-07 | `restore.sh --check` de un `.age` | PASS | D: con `--identity` → pasa; sin `--identity`, con otra clave o con 1 byte alterado → rechazado |
+| R-08 | Aviso al monitor de latido | PASS | D: un nginx local recibió `GET /ping` con éxito y `GET /ping/fail` cuando falló la copia de afuera (exit 1, el backup local se conserva) |
+| R-09 | Backups y restauraciones no se pisan (lock) | PASS | D: un backup lanzado mientras una restauración esperaba confirmación → «another backup or restore is still running», exit 1. Revisión independiente: `flock` en un contenedor, la segunda corrida muere al vencer la espera |
+| R-10 | `restore.sh` rechaza archivos dañados antes de tocar nada | PASS | D y revisión independiente: gzip truncado, checksum que no coincide, SQL basura con marca de fin y un backup vacío sobre una base con datos → rechazados |
+| R-11 | Restauración con confirmación | PASS | D: responder «no» → «nothing was changed»; `RESTORE` → backup de seguridad, carga, «Every table has the rows of the backup (27 tables)», unos 26 s |
+| R-12 | `deploy.sh --sha` | PASS | D y revisión independiente: `--sha` distinto → se detiene, también con `--force`; formato inválido o en mayúsculas → se detiene; `--rollback --sha` → se detiene; el `--sha` correcto pasa y sigue el chequeo de `origin/main` |
+| R-13 | Restaurar un backup de más de 14 días | PASS | Revisión independiente, con 3 backups más nuevos: sin la copia privada (rojo) la rotación del backup de seguridad lo borraba después del `DROP` y la base quedaba vacía; con `d737195` (verde) → «Restore complete», exit 0, las filas del backup |
+| R-14 | Un `.age` descargado para restaurar no se borra | PASS | Revisión independiente sobre `dddd199`: el `.age` sin su `.sql.gz` sobrevive a `backup.sh`; el `.age` sobrante junto a su `.sql.gz` y un `restore-*` suelto se borran |
+| R-15 | Falla el backup de seguridad de una restauración | PASS | Revisión independiente sobre `35c654a` (`REVOKE SELECT` al usuario del dump) → «the safety backup failed; nothing was restored», el backend vuelve a `Healthy`, exit 1, filas intactas |
+| R-16 | Ctrl-C (SIGINT al grupo de procesos) durante el backup de seguridad | PASS | Revisión independiente sobre `35c654a` y `4b72dbb`: «Nothing was restored; starting the backend again», `Healthy`, exit 130; filas 2 / 3 / 300.000 iguales a las de antes; sin `braja_restore_check`, `.partial` ni `restore-*`; ninguna línea `ERROR` |
+| R-17 | SIGTERM durante el backup de seguridad | PASS | Revisión independiente sobre `35c654a`: exit 143, el backend vuelve a `Healthy`, filas iguales, sin sobrantes |
+| R-18 | Corte después del `DROP DATABASE` | PASS | Revisión independiente sobre `4b72dbb`, SIGINT durante «Loading»: el backend **no** se levanta (`Exited`), exit 130, la base queda a medias (176.060 de 300.000) y el log dice «the restore stopped after the database was dropped…» y «Restore the safety backup of the replaced state: bash deploy/restore.sh <ruta real>». Ese comando devolvió las 300.000 filas, exit 0 |
+| R-19 | Restauración completa sin cortes | PASS | Revisión independiente sobre `4b72dbb`: «Restore complete», exit 0, filas del backup, ninguna línea `ERROR` |
+| R-20 | `deploy.sh`: primer deploy, versión que no queda sana y `--rollback` | PASS | Revisión independiente sobre `1d9977d` con backend y Caddy mínimos: el primer deploy apaga el bootstrap; una versión que nunca da `UP` vuelve sola («Rolled back», «no migration ran», exit 1); `--rollback` intercambia la actual y la anterior |
+| R-21 | El cron del backup cada hora en el VPS | NOT TESTED | No hay VPS; la línea de cron se generó y validó en un contenedor (agente C) |
+| R-22 | Copia real a Backblaze B2 y servicio de latido real | NOT TESTED | No hay bucket ni monitor creados; se usaron un directorio y un nginx locales |
+| R-23 | RTO y RPO medidos (D-20261115-02) | NOT TESTED | Se miden en el primer simulacro en el VPS |
+| R-24 | El backend real arrancando después de una restauración | NOT TESTED | En R-11 a R-20 el backend era un contenedor mínimo; el arranque real con Flyway está probado en D-03 y D-18 a D-22, pero no después de una restauración |
+
+## Observaciones (no son fallas)
 
 - **O-1. Riesgo operativo del bootstrap.** Si el backend arranca con `BRAJA_BOOTSTRAP_ENABLED=true` sobre una base que ya tiene la empresa, no arranca y queda en un ciclo de reinicios; la API responde 503 hasta que alguien lo apaga (D-16).
   - El código lo hace a propósito: `BootstrapAdminRunner.java:52-53` hace fallar el arranque para no duplicar la empresa.
